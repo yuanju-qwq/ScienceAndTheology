@@ -1,0 +1,73 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="TileSet" path="res://tilesets/world_tileset.tres" id="1_world_tileset"]
+[ext_resource type="Script" path="res://scripts/MapLayerController.gd" id="1_layer_controller"]
+[ext_resource type="Script" path="res://scripts/ConnectorManager.gd" id="3_connector_manager"]
+
+[node name="WorldMap" type="Node2D"]
+script = ExtResource("1_layer_controller")
+
+[node name="Layers" type="Node2D" parent="."]
+
+[node name="SurfaceLayer" type="TileMapLayer" parent="Layers"]
+tile_set = ExtResource("1_world_tileset")
+
+[node name="GroundPreview" type="Polygon2D" parent="Layers/SurfaceLayer"]
+z_index = -10
+color = Color(0.212, 0.49, 0.286, 1)
+polygon = PackedVector2Array(-176, -104, 176, -104, 176, 104, -176, 104)
+
+[node name="RoadPreview" type="Line2D" parent="Layers/SurfaceLayer"]
+width = 10.0
+default_color = Color(0.66, 0.56, 0.37, 1)
+points = PackedVector2Array(-144, 48, -72, 12, 0, 24, 80, -20, 144, -44)
+
+[node name="ConnectorPreview" type="Polygon2D" parent="Layers/SurfaceLayer"]
+color = Color(0.09, 0.12, 0.1, 1)
+polygon = PackedVector2Array(58, -28, 86, -28, 94, -8, 50, -8)
+
+[node name="UndergroundLayer" type="TileMapLayer" parent="Layers"]
+visible = false
+tile_set = ExtResource("1_world_tileset")
+
+[node name="CavernPreview" type="Polygon2D" parent="Layers/UndergroundLayer"]
+z_index = -10
+color = Color(0.145, 0.12, 0.19, 1)
+polygon = PackedVector2Array(-176, -104, 176, -104, 176, 104, -176, 104)
+
+[node name="TunnelPreview" type="Line2D" parent="Layers/UndergroundLayer"]
+width = 14.0
+default_color = Color(0.38, 0.33, 0.47, 1)
+points = PackedVector2Array(-144, -44, -82, -8, -16, -20, 72, 24, 144, 48)
+
+[node name="ExitPreview" type="Polygon2D" parent="Layers/UndergroundLayer"]
+color = Color(0.95, 0.74, 0.32, 1)
+polygon = PackedVector2Array(50, -10, 94, -10, 82, 18, 60, 18)
+
+[node name="ConnectorManager" type="Node" parent="."]
+script = ExtResource("3_connector_manager")
+
+[node name="Player" type="CharacterBody2D" parent="."]
+
+[node name="Marker" type="Polygon2D" parent="Player"]
+color = Color(0.9, 0.95, 1, 1)
+polygon = PackedVector2Array(0, -12, 9, 8, 0, 4, -9, 8)
+
+[node name="Camera2D" type="Camera2D" parent="Player"]
+enabled = true
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="StatusBackground" type="ColorRect" parent="UI"]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 164.0
+offset_bottom = 42.0
+color = Color(0.035, 0.04, 0.045, 0.72)
+
+[node name="LayerStatusLabel" type="Label" parent="UI"]
+offset_left = 20.0
+offset_top = 16.0
+offset_right = 156.0
+offset_bottom = 38.0
+text = "Layer: Surface"
