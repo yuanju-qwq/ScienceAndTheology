@@ -15,12 +15,17 @@ const UNDERGROUND_LAYER: StringName = &"underground"
 @onready var underground_layer: Node = get_node_or_null(underground_layer_path)
 @onready var layer_status_label: Label = get_node_or_null(layer_status_label_path) as Label
 
+var input_locked := false
+
 
 func _ready() -> void:
 	_apply_layer_state()
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if input_locked:
+		return
+
 	if not enable_debug_layer_toggle:
 		return
 
@@ -52,6 +57,28 @@ func toggle_layer() -> void:
 
 func is_current_layer(layer_id: StringName) -> bool:
 	return current_layer == layer_id
+
+
+func set_input_locked(is_locked: bool) -> void:
+	input_locked = is_locked
+
+
+func get_current_layer_node() -> Node:
+	return get_layer_node(current_layer)
+
+
+func get_current_tile_layer() -> TileMapLayer:
+	return get_current_layer_node() as TileMapLayer
+
+
+func get_layer_node(layer_id: StringName) -> Node:
+	match layer_id:
+		SURFACE_LAYER:
+			return surface_layer
+		UNDERGROUND_LAYER:
+			return underground_layer
+		_:
+			return null
 
 
 func _apply_layer_state() -> void:

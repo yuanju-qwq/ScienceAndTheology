@@ -6,6 +6,12 @@ const MapConnectorResource := preload("res://scripts/MapConnector.gd")
 signal connectors_changed
 
 @export var connectors: Array[MapConnectorResource] = []
+@export var create_prototype_connectors := true
+
+
+func _ready() -> void:
+	if create_prototype_connectors and connectors.is_empty():
+		_create_prototype_connectors()
 
 
 func add_connector(connector: MapConnectorResource) -> void:
@@ -96,3 +102,46 @@ func _add_entrance_validation_issue(
 
 func _make_entrance_key(layer_id: StringName, cell_position: Vector2i) -> String:
 	return "%s:%d:%d" % [String(layer_id), cell_position.x, cell_position.y]
+
+
+func _create_prototype_connectors() -> void:
+	add_connector(_make_connector(
+			&"surface_cave_entrance_001",
+			&"surface",
+			Vector2i(4, -1),
+			&"underground",
+			Vector2i(4, 0),
+			&"cave_entrance",
+			MapConnectorResource.ActivationMode.INTERACT,
+			false))
+
+	add_connector(_make_connector(
+			&"surface_rift_001",
+			&"surface",
+			Vector2i(-5, 3),
+			&"underground",
+			Vector2i(-5, 3),
+			&"rift",
+			MapConnectorResource.ActivationMode.AUTO_ON_ENTER,
+			true))
+
+
+func _make_connector(
+		connector_id: StringName,
+		from_layer: StringName,
+		from_cell: Vector2i,
+		to_layer: StringName,
+		to_cell: Vector2i,
+		connector_type: StringName,
+		activation_mode: int,
+		one_way: bool) -> MapConnectorResource:
+	var connector := MapConnectorResource.new()
+	connector.connector_id = connector_id
+	connector.from_layer = from_layer
+	connector.from_cell = from_cell
+	connector.to_layer = to_layer
+	connector.to_cell = to_cell
+	connector.connector_type = connector_type
+	connector.activation_mode = activation_mode
+	connector.one_way = one_way
+	return connector

@@ -1,6 +1,11 @@
 class_name MapConnector
 extends Resource
 
+enum ActivationMode {
+	INTERACT,
+	AUTO_ON_ENTER,
+}
+
 const SURFACE_LAYER: StringName = &"surface"
 const UNDERGROUND_LAYER: StringName = &"underground"
 
@@ -12,6 +17,7 @@ const UNDERGROUND_LAYER: StringName = &"underground"
 @export var one_way := false
 @export var locked := false
 @export var connector_type: StringName = &"cave_entrance"
+@export var activation_mode := ActivationMode.INTERACT
 
 
 func is_enterable_from(layer_id: StringName, cell_position: Vector2i) -> bool:
@@ -49,3 +55,11 @@ func has_valid_route() -> bool:
 		return false
 
 	return from_layer != to_layer or from_cell != to_cell
+
+
+func requires_interaction() -> bool:
+	return activation_mode == ActivationMode.INTERACT
+
+
+func activates_on_enter() -> bool:
+	return activation_mode == ActivationMode.AUTO_ON_ENTER
