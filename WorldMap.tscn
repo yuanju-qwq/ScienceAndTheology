@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=11 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://dihduvv0omjx8" path="res://scripts/MapLayerController.gd" id="1_layer_controller"]
 [ext_resource type="TileSet" path="res://tilesets/world_tileset.tres" id="1_world_tileset"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" uid="uid://e3oxofnyd3u6" path="res://scripts/LayerCameraBounds.gd" id="5_layer_camera_bounds"]
 [ext_resource type="Script" uid="uid://mo3f8pioxxos" path="res://scripts/MapExplorationTracker.gd" id="6_exploration_tracker"]
 [ext_resource type="Script" uid="uid://bw5stwft110ke" path="res://scripts/MiniMap.gd" id="7_mini_map"]
+[ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="8_mechanism_manager"]
+[ext_resource type="Script" uid="uid://cfy4lfmql8ndd" path="res://scripts/LayerViewController.gd" id="9_layer_view_controller"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -36,6 +38,41 @@ polygon = PackedVector2Array(58, -28, 86, -28, 94, -8, 50, -8)
 color = Color(0.72, 0.18, 0.2, 1)
 polygon = PackedVector2Array(-86, 44, -58, 38, -48, 64, -80, 72)
 
+[node name="UndergroundSilhouetteHint" type="Polygon2D" parent="Layers/SurfaceLayer"]
+visible = false
+z_index = 6
+color = Color(0.075, 0.065, 0.11, 0.62)
+polygon = PackedVector2Array(38, -38, 108, -34, 118, 18, 44, 26)
+
+[node name="DeepTunnelHint" type="Line2D" parent="Layers/SurfaceLayer"]
+visible = false
+z_index = 7
+points = PackedVector2Array(52, 4, 78, -6, 106, 10)
+width = 7.0
+default_color = Color(0.2, 0.17, 0.3, 0.82)
+
+[node name="RiftSharedViewHint" type="Line2D" parent="Layers/SurfaceLayer"]
+visible = false
+z_index = 8
+points = PackedVector2Array(-90, 36, -70, 58, -46, 42)
+width = 4.0
+default_color = Color(0.98, 0.44, 0.38, 0.92)
+
+[node name="SurfaceAltarPreview" type="Polygon2D" parent="Layers/SurfaceLayer"]
+color = Color(0.96, 0.82, 0.28, 1)
+polygon = PackedVector2Array(-44, -44, -20, -44, -16, -20, -48, -20)
+
+[node name="BrokenBridgePreview" type="Line2D" parent="Layers/SurfaceLayer"]
+points = PackedVector2Array(-32, 64, -10, 50, 14, 46, 36, 32)
+width = 8.0
+default_color = Color(0.36, 0.22, 0.14, 1)
+
+[node name="BridgeRaisedPreview" type="Line2D" parent="Layers/SurfaceLayer"]
+visible = false
+points = PackedVector2Array(-32, 64, -10, 50, 14, 46, 36, 32)
+width = 12.0
+default_color = Color(0.76, 0.58, 0.34, 1)
+
 [node name="UndergroundLayer" type="TileMapLayer" parent="Layers"]
 visible = false
 tile_set = ExtResource("1_world_tileset")
@@ -58,8 +95,38 @@ polygon = PackedVector2Array(50, -10, 94, -10, 82, 18, 60, 18)
 color = Color(0.68, 0.22, 0.36, 1)
 polygon = PackedVector2Array(-86, 42, -58, 42, -50, 68, -82, 70)
 
+[node name="SurfaceLightHint" type="Polygon2D" parent="Layers/UndergroundLayer"]
+visible = false
+z_index = 8
+color = Color(1, 0.88, 0.42, 0.34)
+polygon = PackedVector2Array(52, -48, 88, -48, 104, 28, 38, 28)
+
+[node name="RiftSharedViewHint" type="Line2D" parent="Layers/UndergroundLayer"]
+visible = false
+z_index = 8
+points = PackedVector2Array(-90, 38, -68, 66, -46, 42)
+width = 5.0
+default_color = Color(0.96, 0.3, 0.5, 0.9)
+
+[node name="SealedGatePreview" type="Polygon2D" parent="Layers/UndergroundLayer"]
+color = Color(0.18, 0.2, 0.26, 1)
+polygon = PackedVector2Array(-48, -30, -16, -30, -14, 0, -50, 0)
+
+[node name="OpenGatePreview" type="Line2D" parent="Layers/UndergroundLayer"]
+visible = false
+points = PackedVector2Array(-48, -30, -16, -30, -14, 0, -50, 0, -48, -30)
+width = 4.0
+default_color = Color(0.72, 0.9, 1, 1)
+
+[node name="PumpPreview" type="Polygon2D" parent="Layers/UndergroundLayer"]
+color = Color(0.32, 0.58, 0.68, 1)
+polygon = PackedVector2Array(-16, 20, 16, 20, 20, 44, -20, 44)
+
 [node name="ConnectorManager" type="Node" parent="."]
 script = ExtResource("3_connector_manager")
+
+[node name="MechanismManager" type="Node" parent="."]
+script = ExtResource("8_mechanism_manager")
 
 [node name="ExplorationTracker" type="Node" parent="."]
 script = ExtResource("6_exploration_tracker")
@@ -77,6 +144,9 @@ shape = SubResource("CircleShape2D_player")
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
 script = ExtResource("5_layer_camera_bounds")
+
+[node name="LayerViewController" type="Node" parent="."]
+script = ExtResource("9_layer_view_controller")
 
 [node name="UI" type="CanvasLayer" parent="."]
 

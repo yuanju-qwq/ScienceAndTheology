@@ -16,9 +16,14 @@ const UNDERGROUND_LAYER: StringName = &"underground"
 @onready var layer_status_label: Label = get_node_or_null(layer_status_label_path) as Label
 
 var input_locked := false
+var _layer_view_alphas := {}
+var _layer_view_status_suffix := ""
+var _base_layer_modulates := {}
+var _base_layer_z_indices := {}
 
 
 func _ready() -> void:
+	_capture_base_layer_visuals()
 	_apply_layer_state()
 
 
@@ -63,6 +68,21 @@ func set_input_locked(is_locked: bool) -> void:
 	input_locked = is_locked
 
 
+func set_layer_view_context(layer_alphas: Dictionary, status_suffix := "") -> void:
+	_layer_view_alphas = layer_alphas.duplicate(true)
+	_layer_view_status_suffix = status_suffix
+	_apply_layer_state()
+
+
+func clear_layer_view_context() -> void:
+	if _layer_view_alphas.is_empty() and _layer_view_status_suffix == "":
+		return
+
+	_layer_view_alphas.clear()
+	_layer_view_status_suffix = ""
+	_apply_layer_state()
+
+
 func get_current_layer_node() -> Node:
 	return get_layer_node(current_layer)
 
@@ -82,16 +102,18 @@ func get_layer_node(layer_id: StringName) -> Node:
 
 
 func _apply_layer_state() -> void:
-	_set_layer_active(surface_layer, current_layer == SURFACE_LAYER)
-	_set_layer_active(underground_layer, current_layer == UNDERGROUND_LAYER)
+	_apply_layer_activity(surface_layer, SURFACE_LAYER)
+	_apply_layer_activity(underground_layer, UNDERGROUND_LAYER)
 	_update_layer_status_label()
 
 
-func _set_layer_active(layer: Node, is_active: bool) -> void:
+func _apply_layer_activity(layer: Node, layer_id: StringName) -> void:
 	if layer == null:
 		return
 
-	layer.visible = is_active
+	var is_active := current_layer == layer_id
+	var visual_alpha := _get_layer_visual_alpha(layer_id, is_active)
+	_set_layer_visual(layer, layer_id, visual_alpha, is_active)
 
 	_set_bool_property_if_present(layer, &"enabled", is_active)
 	_set_bool_property_if_present(layer, &"collision_enabled", is_active)
@@ -105,6 +127,57 @@ func _update_layer_status_label() -> void:
 		return
 
 	layer_status_label.text = "Layer: %s" % _get_layer_display_name(current_layer)
+	if _layer_view_status_suffix != "":
+		layer_status_label.text += _layer_view_status_suffix
+
+
+func _capture_base_layer_visuals() -> void:
+	_capture_layer_visual(SURFACE_LAYER, surface_layer)
+	_capture_layer_visual(UNDERGROUND_LAYER, underground_layer)
+
+
+func _capture_layer_visual(layer_id: StringName, layer: Node) -> void:
+	if layer == null:
+		return
+
+	if layer is CanvasItem:
+		var canvas_item := layer as CanvasItem
+		_base_layer_modulates[String(layer_id)] = canvas_item.modulate
+		_base_layer_z_indices[String(layer_id)] = canvas_item.z_index
+
+
+func _get_layer_visual_alpha(layer_id: StringName, is_active: bool) -> float:
+	var layer_key := String(layer_id)
+	if _layer_view_alphas.has(layer_key):
+		return clampf(float(_layer_view_alphas[layer_key]), 0.0, 1.0)
+
+	if is_active:
+		return 1.0
+
+	return 0.0
+
+
+func _set_layer_visual(layer: Node, layer_id: StringName, alpha: float, is_active: bool) -> void:
+	var is_visible := alpha > 0.0
+	layer.visible = is_visible
+
+	if not (layer is CanvasItem):
+		return
+
+	var canvas_item := layer as CanvasItem
+	var layer_key := String(layer_id)
+	var base_modulate := Color.WHITE
+	if _base_layer_modulates.has(layer_key):
+		base_modulate = _base_layer_modulates[layer_key]
+
+	base_modulate.a *= alpha
+	canvas_item.modulate = base_modulate
+
+	var base_z_index := 0
+	if _base_layer_z_indices.has(layer_key):
+		base_z_index = int(_base_layer_z_indices[layer_key])
+
+	canvas_item.z_index = base_z_index if is_active else base_z_index + 8
 
 
 func _get_layer_display_name(layer_id: StringName) -> String:

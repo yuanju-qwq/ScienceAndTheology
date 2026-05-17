@@ -42,6 +42,26 @@ func has_connector_at(layer_id: StringName, cell_position: Vector2i) -> bool:
 	return get_connector_at(layer_id, cell_position) != null
 
 
+func set_connector_locked(connector_id: StringName, is_locked: bool) -> void:
+	var changed := false
+
+	for connector in connectors:
+		if connector != null and connector.connector_id == connector_id and connector.locked != is_locked:
+			connector.locked = is_locked
+			changed = true
+
+	if changed:
+		connectors_changed.emit()
+
+
+func is_connector_locked(connector_id: StringName) -> bool:
+	for connector in connectors:
+		if connector != null and connector.connector_id == connector_id:
+			return connector.locked
+
+	return false
+
+
 func get_connectors_for_layer(layer_id: StringName) -> Array[MapConnectorResource]:
 	var layer_connectors: Array[MapConnectorResource] = []
 
@@ -125,6 +145,17 @@ func _create_prototype_connectors() -> void:
 			MapConnectorResource.ActivationMode.AUTO_ON_ENTER,
 			true))
 
+	add_connector(_make_connector(
+			&"underground_ruin_gate_001",
+			&"underground",
+			Vector2i(-2, -1),
+			&"surface",
+			Vector2i(-2, -3),
+			&"ruin_gate",
+			MapConnectorResource.ActivationMode.INTERACT,
+			false,
+			true))
+
 
 func _make_connector(
 		connector_id: StringName,
@@ -134,7 +165,8 @@ func _make_connector(
 		to_cell: Vector2i,
 		connector_type: StringName,
 		activation_mode: int,
-		one_way: bool) -> MapConnectorResource:
+		one_way: bool,
+		locked := false) -> MapConnectorResource:
 	var connector := MapConnectorResource.new()
 	connector.connector_id = connector_id
 	connector.from_layer = from_layer
@@ -144,4 +176,5 @@ func _make_connector(
 	connector.connector_type = connector_type
 	connector.activation_mode = activation_mode
 	connector.one_way = one_way
+	connector.locked = locked
 	return connector

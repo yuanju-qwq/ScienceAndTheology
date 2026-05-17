@@ -2,11 +2,13 @@ class_name PlayerController
 extends CharacterBody2D
 
 signal connector_used(connector_id: StringName, from_layer: StringName, to_layer: StringName)
+signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
 
 @export var move_speed := 96.0
 @export var connector_cooldown := 0.25
 @export var layer_controller_path: NodePath = ^".."
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
+@export var mechanism_manager_path: NodePath = ^"../MechanismManager"
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
 @export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
 @export var transition_overlay_path: NodePath = ^"../UI/TransitionOverlay"
@@ -18,6 +20,7 @@ signal connector_used(connector_id: StringName, from_layer: StringName, to_layer
 
 @onready var layer_controller = get_node_or_null(layer_controller_path)
 @onready var connector_manager = get_node_or_null(connector_manager_path)
+@onready var mechanism_manager = get_node_or_null(mechanism_manager_path)
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
 @onready var transition_overlay: CanvasItem = get_node_or_null(transition_overlay_path) as CanvasItem
@@ -57,7 +60,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _input_locked:
 		return
 
-	if _is_interact_event(event) and _try_use_connector(false):
+	if _is_interact_event(event) and (_try_use_connector(false) or _try_activate_mechanism(false)):
 		get_viewport().set_input_as_handled()
 
 
@@ -90,7 +93,10 @@ func _try_auto_connector() -> void:
 	_mark_current_cell_visited()
 
 	if _cooldown_remaining <= 0.0:
-		_try_use_connector(true)
+		if _try_use_connector(true):
+			return
+
+		_try_activate_mechanism(true)
 
 
 func _try_use_connector(auto_only: bool) -> bool:
@@ -110,6 +116,31 @@ func _try_use_connector(auto_only: bool) -> bool:
 		return false
 
 	_start_connector_transition(connector, layer_id, cell_position)
+	return true
+
+
+func _try_activate_mechanism(auto_only: bool) -> bool:
+	if _input_locked or mechanism_manager == null:
+		return false
+
+	var layer_id := _get_current_layer()
+	var cell_position := _get_current_cell()
+	var mechanism = mechanism_manager.get_mechanism_at(layer_id, cell_position)
+	if mechanism == null:
+		return false
+
+	if auto_only and not mechanism.activates_on_enter():
+		return false
+
+	if not auto_only and not mechanism.requires_interaction():
+		return false
+
+	if not mechanism_manager.activate_mechanism(mechanism.mechanism_id):
+		return false
+
+	_cooldown_remaining = connector_cooldown
+	mechanism_activated.emit(mechanism.mechanism_id, layer_id)
+	_update_connector_prompt()
 	return true
 
 
@@ -178,18 +209,34 @@ func _get_current_tile_layer() -> TileMapLayer:
 
 
 func _update_connector_prompt() -> void:
-	if connector_prompt == null or connector_prompt_label == null or connector_manager == null:
+	if connector_prompt == null or connector_prompt_label == null:
 		return
 
-	var connector = connector_manager.get_connector_at(_get_current_layer(), _get_current_cell())
+	var connector = null
+	if connector_manager != null:
+		connector = connector_manager.get_connector_at(_get_current_layer(), _get_current_cell())
+
 	var can_interact: bool = connector != null \
 			and connector.requires_interaction() \
 			and _cooldown_remaining <= 0.0 \
 			and not _input_locked
-	connector_prompt.visible = can_interact
 
 	if can_interact:
+		connector_prompt.visible = true
 		connector_prompt_label.text = "E  %s" % _format_connector_type(connector.connector_type)
+		return
+
+	var mechanism = null
+	if mechanism_manager != null:
+		mechanism = mechanism_manager.get_mechanism_at(_get_current_layer(), _get_current_cell())
+
+	var can_activate_mechanism: bool = mechanism != null \
+			and mechanism.requires_interaction() \
+			and not _input_locked
+	connector_prompt.visible = can_activate_mechanism
+
+	if can_activate_mechanism:
+		connector_prompt_label.text = "E  %s" % _format_mechanism_action(mechanism)
 
 
 func _format_connector_type(connector_type: StringName) -> String:
@@ -198,8 +245,17 @@ func _format_connector_type(connector_type: StringName) -> String:
 			return "Cave Entrance"
 		&"rift":
 			return "Rift"
+		&"ruin_gate":
+			return "Ruin Gate"
 		_:
 			return String(connector_type).replace("_", " ").capitalize()
+
+
+func _format_mechanism_action(mechanism) -> String:
+	if mechanism.action_label != "":
+		return mechanism.action_label
+
+	return mechanism.display_name
 
 
 func _prepare_transition_overlay() -> void:
@@ -241,6 +297,8 @@ func _get_transition_text(connector) -> String:
 			return "Entering"
 		&"rift":
 			return "Falling"
+		&"ruin_gate":
+			return "Passing"
 		_:
 			return "Moving"
 

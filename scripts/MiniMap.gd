@@ -7,6 +7,7 @@ const UNDERGROUND_LAYER: StringName = &"underground"
 @export var layer_controller_path: NodePath = ^"../.."
 @export var exploration_tracker_path: NodePath = ^"../../ExplorationTracker"
 @export var connector_manager_path: NodePath = ^"../../ConnectorManager"
+@export var mechanism_manager_path: NodePath = ^"../../MechanismManager"
 @export var player_path: NodePath = ^"../../Player"
 @export var title_label_path: NodePath = ^"TitleLabel"
 @export var cell_size := 6.0
@@ -15,6 +16,7 @@ const UNDERGROUND_LAYER: StringName = &"underground"
 @onready var layer_controller = get_node_or_null(layer_controller_path)
 @onready var exploration_tracker = get_node_or_null(exploration_tracker_path)
 @onready var connector_manager = get_node_or_null(connector_manager_path)
+@onready var mechanism_manager = get_node_or_null(mechanism_manager_path)
 @onready var player = get_node_or_null(player_path)
 @onready var title_label: Label = get_node_or_null(title_label_path) as Label
 
@@ -33,6 +35,12 @@ func _ready() -> void:
 
 	if connector_manager != null and connector_manager.has_signal("connectors_changed"):
 		connector_manager.connectors_changed.connect(_on_connectors_changed)
+
+	if mechanism_manager != null and mechanism_manager.has_signal("mechanisms_changed"):
+		mechanism_manager.mechanisms_changed.connect(_on_mechanisms_changed)
+
+	if mechanism_manager != null and mechanism_manager.has_signal("world_flags_changed"):
+		mechanism_manager.world_flags_changed.connect(_on_world_flags_changed)
 
 	_last_layer = _get_current_layer()
 	_last_player_cell = _get_player_cell()
@@ -61,6 +69,7 @@ func _draw() -> void:
 	var player_cell := _get_player_cell()
 	_draw_visited_cells(current_layer, player_cell)
 	_draw_connectors(current_layer, player_cell)
+	_draw_mechanisms(current_layer, player_cell)
 	_draw_player_marker()
 
 
@@ -97,6 +106,29 @@ func _draw_connectors(layer_id: StringName, player_cell: Vector2i) -> void:
 				_get_connector_color(connector))
 
 
+func _draw_mechanisms(layer_id: StringName, player_cell: Vector2i) -> void:
+	if mechanism_manager == null or exploration_tracker == null:
+		return
+
+	for mechanism in mechanism_manager.get_mechanisms_for_layer(layer_id):
+		if not exploration_tracker.has_visited(layer_id, mechanism.cell_position):
+			continue
+
+		if _is_too_far(mechanism.cell_position, player_cell):
+			continue
+
+		var center := _cell_to_minimap_position(mechanism.cell_position, player_cell) \
+				+ Vector2(cell_size, cell_size) * 0.5
+		var radius := maxf(cell_size * 0.45, 2.0)
+		var points := PackedVector2Array([
+			center + Vector2(0.0, -radius),
+			center + Vector2(radius, 0.0),
+			center + Vector2(0.0, radius),
+			center + Vector2(-radius, 0.0),
+		])
+		draw_colored_polygon(points, _get_mechanism_color(mechanism))
+
+
 func _draw_player_marker() -> void:
 	var center := size * 0.5
 	var radius := maxf(cell_size * 0.55, 3.0)
@@ -121,6 +153,14 @@ func _on_exploration_changed() -> void:
 
 
 func _on_connectors_changed() -> void:
+	queue_redraw()
+
+
+func _on_mechanisms_changed() -> void:
+	queue_redraw()
+
+
+func _on_world_flags_changed() -> void:
 	queue_redraw()
 
 
@@ -169,13 +209,27 @@ func _get_layer_cell_color(layer_id: StringName) -> Color:
 
 
 func _get_connector_color(connector) -> Color:
+	if connector.locked:
+		return Color(0.35, 0.36, 0.38, 0.85)
+
 	match connector.connector_type:
 		&"cave_entrance":
 			return Color(0.96, 0.78, 0.38, 1.0)
 		&"rift":
 			return Color(0.92, 0.22, 0.28, 1.0)
+		&"ruin_gate":
+			return Color(0.72, 0.9, 1.0, 1.0)
 		_:
 			return Color(0.9, 0.9, 0.9, 1.0)
+
+
+func _get_mechanism_color(mechanism) -> Color:
+	if mechanism_manager != null \
+			and mechanism.flag_name != &"" \
+			and mechanism_manager.is_world_flag_active(mechanism.flag_name):
+		return Color(0.38, 0.78, 0.92, 1.0)
+
+	return Color(1.0, 0.82, 0.22, 1.0)
 
 
 func _update_title() -> void:
