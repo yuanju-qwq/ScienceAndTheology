@@ -207,20 +207,20 @@ func _create_prototype_mechanisms() -> void:
 	add_mechanism(_make_mechanism(
 			&"surface_sun_altar_001",
 			&"surface",
-			Vector2i(-2, -2),
+			Vector2i(-1, -1),
 			"Sun Altar",
 			"Open Ruin Gate",
 			&"underground_gate_open",
 			[
 				{
 					"type": &"node_visible",
-					"path": NodePath("../Layers/UndergroundLayer/SealedGatePreview"),
+					"path": NodePath("../Layers/UndergroundLayer/GeneratedSealedGateArt"),
 					"when_active": false,
 					"when_inactive": true,
 				},
 				{
 					"type": &"node_visible",
-					"path": NodePath("../Layers/UndergroundLayer/OpenGatePreview"),
+					"path": NodePath("../Layers/UndergroundLayer/GeneratedOpenGateArt"),
 					"when_active": true,
 					"when_inactive": false,
 				},
@@ -235,20 +235,20 @@ func _create_prototype_mechanisms() -> void:
 	add_mechanism(_make_mechanism(
 			&"underground_pump_001",
 			&"underground",
-			Vector2i(0, 2),
+			Vector2i(0, 1),
 			"Underground Pump",
 			"Raise Surface Bridge",
 			&"surface_bridge_raised",
 			[
 				{
 					"type": &"node_visible",
-					"path": NodePath("../Layers/SurfaceLayer/BrokenBridgePreview"),
+					"path": NodePath("../Layers/SurfaceLayer/GeneratedBrokenBridgeArt"),
 					"when_active": false,
 					"when_inactive": true,
 				},
 				{
 					"type": &"node_visible",
-					"path": NodePath("../Layers/SurfaceLayer/BridgeRaisedPreview"),
+					"path": NodePath("../Layers/SurfaceLayer/GeneratedBridgeRaisedArt"),
 					"when_active": true,
 					"when_inactive": false,
 				},

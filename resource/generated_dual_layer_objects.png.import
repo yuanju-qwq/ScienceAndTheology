@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dibf3not8tb8r"
-path="res://.godot/imported/游戏地图 (214)_爱给网_aigei_com.jpg-78ded5006c0d0b1cce13fbf645f3e1d9.ctex"
+uid="uid://cfobu4ks8adnc"
+path="res://.godot/imported/generated_dual_layer_objects.png-72e2c4ae7df7d73d873e12eeebe3c5d3.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://resource/游戏地图 (214)_爱给网_aigei_com.jpg"
-dest_files=["res://.godot/imported/游戏地图 (214)_爱给网_aigei_com.jpg-78ded5006c0d0b1cce13fbf645f3e1d9.ctex"]
+source_file="res://resource/generated_dual_layer_objects.png"
+dest_files=["res://.godot/imported/generated_dual_layer_objects.png-72e2c4ae7df7d73d873e12eeebe3c5d3.ctex"]
 
 [params]
 

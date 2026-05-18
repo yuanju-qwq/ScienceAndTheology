@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://15u86ocw7jc4"
-path="res://.godot/imported/野外荒地游戏地图 (31)_爱给网_aigei_com.bmp-8d333ce8c36dc9c00ad04675a03ec3aa.ctex"
+uid="uid://duw84qccmfr6a"
+path="res://.godot/imported/generated_dual_layer_tileset.png-68782b79bbff7e678bb2008b0eec3866.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://resource/野外荒地游戏地图 (31)_爱给网_aigei_com.bmp"
-dest_files=["res://.godot/imported/野外荒地游戏地图 (31)_爱给网_aigei_com.bmp-8d333ce8c36dc9c00ad04675a03ec3aa.ctex"]
+source_file="res://resource/generated_dual_layer_tileset.png"
+dest_files=["res://.godot/imported/generated_dual_layer_tileset.png-68782b79bbff7e678bb2008b0eec3866.ctex"]
 
 [params]
 

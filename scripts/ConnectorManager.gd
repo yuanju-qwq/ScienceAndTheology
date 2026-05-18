@@ -128,9 +128,9 @@ func _create_prototype_connectors() -> void:
 	add_connector(_make_connector(
 			&"surface_cave_entrance_001",
 			&"surface",
-			Vector2i(4, -1),
+			Vector2i(2, -1),
 			&"underground",
-			Vector2i(4, 0),
+			Vector2i(2, 0),
 			&"cave_entrance",
 			MapConnectorResource.ActivationMode.INTERACT,
 			false))
@@ -138,9 +138,9 @@ func _create_prototype_connectors() -> void:
 	add_connector(_make_connector(
 			&"surface_rift_001",
 			&"surface",
-			Vector2i(-5, 3),
+			Vector2i(-3, 1),
 			&"underground",
-			Vector2i(-5, 3),
+			Vector2i(-3, 1),
 			&"rift",
 			MapConnectorResource.ActivationMode.AUTO_ON_ENTER,
 			true))
@@ -150,7 +150,7 @@ func _create_prototype_connectors() -> void:
 			&"underground",
 			Vector2i(-2, -1),
 			&"surface",
-			Vector2i(-2, -3),
+			Vector2i(-2, -2),
 			&"ruin_gate",
 			MapConnectorResource.ActivationMode.INTERACT,
 			false,

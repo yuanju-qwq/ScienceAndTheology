@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://buhgtvknw5v0j"
-path="res://.godot/imported/2d各类风格地图-shiro_m001naiso-中图_爱给网_aigei_com.png-ffef81179f2a0c6f0a238bd5bd4d05b2.ctex"
+uid="uid://bc74qmdiokfun"
+path="res://.godot/imported/generated_dual_layer_tileset_32.png-86a459131814df5145f512055bfa9917.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://resource/2d各类风格地图-shiro_m001naiso-中图_爱给网_aigei_com.png"
-dest_files=["res://.godot/imported/2d各类风格地图-shiro_m001naiso-中图_爱给网_aigei_com.png-ffef81179f2a0c6f0a238bd5bd4d05b2.ctex"]
+source_file="res://resource/generated_dual_layer_tileset_32.png"
+dest_files=["res://.godot/imported/generated_dual_layer_tileset_32.png-86a459131814df5145f512055bfa9917.ctex"]
 
 [params]
 

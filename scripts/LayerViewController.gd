@@ -163,44 +163,36 @@ func _create_prototype_regions() -> void:
 	var surface_cave_peek := _make_region(
 			&"surface_cave_mouth_peek",
 			SURFACE_LAYER,
-			Vector2i(4, -1),
+			Vector2i(2, -1),
 			2,
 			LayerViewRegionResource.ViewMode.LOCAL_PEEK,
 			UNDERGROUND_LAYER,
 			"  Below",
-			[
-				NodePath("../Layers/SurfaceLayer/UndergroundSilhouetteHint"),
-				NodePath("../Layers/SurfaceLayer/DeepTunnelHint"),
-			])
+			[])
 	surface_cave_peek.show_revealed_layer = false
 	add_region(surface_cave_peek)
 
 	var underground_light_peek := _make_region(
 			&"underground_skylight_peek",
 			UNDERGROUND_LAYER,
-			Vector2i(4, 0),
+			Vector2i(2, 0),
 			2,
 			LayerViewRegionResource.ViewMode.LOCAL_PEEK,
 			SURFACE_LAYER,
 			"  Above",
-			[
-				NodePath("../Layers/UndergroundLayer/SurfaceLightHint"),
-			])
+			[])
 	underground_light_peek.show_revealed_layer = false
 	add_region(underground_light_peek)
 
 	var rift_dual_view := _make_region(
 			&"rift_dual_layer_view",
 			&"",
-			Vector2i(-5, 3),
+			Vector2i(-3, 1),
 			2,
 			LayerViewRegionResource.ViewMode.DUAL_LAYER,
 			&"",
 			"  Dual",
-			[
-				NodePath("../Layers/SurfaceLayer/RiftSharedViewHint"),
-				NodePath("../Layers/UndergroundLayer/RiftSharedViewHint"),
-			])
+			[])
 	rift_dual_view.active_alpha = 0.88
 	rift_dual_view.secondary_alpha = 0.52
 	add_region(rift_dual_view)
