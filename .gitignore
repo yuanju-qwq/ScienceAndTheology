@@ -1,3 +1,29 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# C++ build artifacts
+build/
+bin/*.dll
+bin/*.so
+bin/*.dylib
+bin/*.framework/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# godot-cpp (fetched by CMake)
+_builds/
+
+# IDE files
+.vs/
+.idea/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.vcxproj.filters
