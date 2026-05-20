@@ -48,3 +48,13 @@
 
 > 技术栈: 原生平台 API，系统调用、硬件访问、文件系统、网络通信
 
+
+### 建议的实现顺序
+
+1. C++ 能量系统 （最小可行）— GTValues 的电压/电流常量 + 能量节点图
+2. 物品/材料系统 — Material × Form 的数据模型
+3. 配方系统 — RecipeMap + RecipeBuilder
+4. ProcessingLogic — 配方匹配 + 超频计算
+5. 机器基类 — 单方块机器生命周期
+6. GDExtension 绑定 — 暴露核心 API 给 GDScript
+7. Godot UI — 机器面板、能量仪表盘
