@@ -4,6 +4,7 @@
 #include <godot_cpp/godot.hpp>
 
 #include "hello_world/gd_hello_world.h"
+#include "gt_bindings/gd_power_network.h"
 
 using namespace godot;
 
@@ -15,6 +16,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     }
 
     ClassDB::register_class<GDHelloWorld>();
+    ClassDB::register_class<GDPowerNetwork>();
 }
 
 void uninitialize_snt_extension(ModuleInitializationLevel p_level) {

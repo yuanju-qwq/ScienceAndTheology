@@ -3,11 +3,15 @@
 set(SOURCES
     register_types.cpp
     hello_world/gd_hello_world.cpp
+    gt_bindings/gd_power_network.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})
 
-target_include_directories(science_and_theology PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(science_and_theology PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}
+)
 target_link_libraries(science_and_theology PRIVATE godot-cpp snt_core snt_adapters snt_godot_adapters)
 
 # Platform-specific output settings

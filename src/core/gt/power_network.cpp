@@ -34,14 +34,20 @@ bool PowerNetwork::remove_node(PowerNodeId node_id) {
         return false;
     }
 
+    // Collect neighbor IDs first; disconnect modifies adjacency_ and edges_.
+    std::vector<PowerNodeId> neighbors;
     auto adj_it = adjacency_.find(node_id);
     if (adj_it != adjacency_.end()) {
-        auto edge_ptrs = adj_it->second;
-        for (PowerEdge* edge : edge_ptrs) {
+        for (auto edge_it : adj_it->second) {
+            PowerEdge* edge = edge_ptr(edge_it);
             PowerNodeId other =
                 (edge->node_a == node_id) ? edge->node_b : edge->node_a;
-            disconnect(node_id, other);
+            neighbors.push_back(other);
         }
+    }
+
+    for (PowerNodeId other : neighbors) {
+        disconnect(node_id, other);
     }
 
     int64_t pos_key = make_position_key(node_it->second.position);
@@ -93,12 +99,10 @@ bool PowerNetwork::connect(PowerNodeId node_a, PowerNodeId node_b,
         node_a_ptr->position.x, node_a_ptr->position.y,
         node_b_ptr->position.x, node_b_ptr->position.y);
 
-    PowerEdge edge(node_a, node_b, cable, distance);
-    edges_.push_back(edge);
-
-    PowerEdge* edge_ptr = &edges_.back();
-    add_adjacency(node_a, edge_ptr);
-    add_adjacency(node_b, edge_ptr);
+    edges_.emplace_back(node_a, node_b, cable, distance);
+    auto edge_it = std::prev(edges_.end());
+    add_adjacency(node_a, edge_it);
+    add_adjacency(node_b, edge_it);
 
     return true;
 }
@@ -106,8 +110,8 @@ bool PowerNetwork::connect(PowerNodeId node_a, PowerNodeId node_b,
 bool PowerNetwork::disconnect(PowerNodeId node_a, PowerNodeId node_b) {
     for (auto it = edges_.begin(); it != edges_.end(); ++it) {
         if (it->connects(node_a, node_b)) {
-            remove_adjacency(node_a, &(*it));
-            remove_adjacency(node_b, &(*it));
+            remove_adjacency(node_a, it);
+            remove_adjacency(node_b, it);
             edges_.erase(it);
             return true;
         }
@@ -120,8 +124,8 @@ std::vector<const PowerEdge*> PowerNetwork::get_edges_for_node(
     std::vector<const PowerEdge*> result;
     auto it = adjacency_.find(node_id);
     if (it != adjacency_.end()) {
-        for (const PowerEdge* edge : it->second) {
-            result.push_back(edge);
+        for (auto edge_it : it->second) {
+            result.push_back(edge_cptr(edge_it));
         }
     }
     return result;
@@ -129,16 +133,16 @@ std::vector<const PowerEdge*> PowerNetwork::get_edges_for_node(
 
 // --- Adjacency helpers ---
 
-void PowerNetwork::add_adjacency(PowerNodeId node_id, PowerEdge* edge) {
-    adjacency_[node_id].push_back(edge);
+void PowerNetwork::add_adjacency(PowerNodeId node_id, EdgeIterator edge_it) {
+    adjacency_[node_id].push_back(edge_it);
 }
 
-void PowerNetwork::remove_adjacency(PowerNodeId node_id, PowerEdge* edge) {
+void PowerNetwork::remove_adjacency(PowerNodeId node_id, EdgeIterator edge_it) {
     auto it = adjacency_.find(node_id);
     if (it == adjacency_.end()) return;
 
     auto& vec = it->second;
-    vec.erase(std::remove(vec.begin(), vec.end(), edge), vec.end());
+    vec.erase(std::remove(vec.begin(), vec.end(), edge_it), vec.end());
     if (vec.empty()) {
         adjacency_.erase(it);
     }
@@ -166,7 +170,8 @@ std::vector<PowerNodeId> PowerNetwork::find_connected_component(
 
         auto adj_it = adjacency_.find(current);
         if (adj_it != adjacency_.end()) {
-            for (const PowerEdge* edge : adj_it->second) {
+            for (auto edge_it : adj_it->second) {
+                const PowerEdge* edge = edge_cptr(edge_it);
                 PowerNodeId neighbor =
                     (edge->node_a == current) ? edge->node_b : edge->node_a;
                 if (visited.count(neighbor) == 0) {
@@ -263,13 +268,14 @@ void PowerNetwork::process_component(
     }
 
     // Check edge overloads.
-    // Approximate: each edge carries the demand of the far-side sub-tree.
-    // For minimal viable, sum the demand from neighboring edges.
+    // Approximate: distribute power evenly across incident edges.
+    // Full sub-tree power flow requires a proper tree-solving pass.
     for (PowerNodeId node_id : component) {
         auto adj_it = adjacency_.find(node_id);
         if (adj_it == adjacency_.end()) continue;
 
-        for (PowerEdge* edge : adj_it->second) {
+        for (auto edge_it : adj_it->second) {
+            PowerEdge* edge = edge_ptr(edge_it);
             edge->current_load += effective_power /
                 std::max<size_t>(adj_it->second.size(), 1);
             check_edge_overload(*edge);
@@ -289,7 +295,8 @@ int64_t PowerNetwork::compute_component_loss(
         auto adj_it = adjacency_.find(node_id);
         if (adj_it == adjacency_.end()) continue;
 
-        for (PowerEdge* edge : adj_it->second) {
+        for (auto edge_it : adj_it->second) {
+            const PowerEdge* edge = edge_cptr(edge_it);
             if (visited_edges.count(edge) > 0) continue;
             visited_edges.insert(edge);
 
@@ -303,7 +310,7 @@ int64_t PowerNetwork::compute_component_loss(
 // --- Overload detection ---
 
 void PowerNetwork::check_node_overload(PowerNode& node,
-                                       int64_t supplied_voltage) {
+                                        int64_t supplied_voltage) {
     node.overload_info = OverloadInfo{};
     node.overload_info.actual_voltage = supplied_voltage;
     node.overload_info.max_voltage = node.max_input_voltage;
@@ -329,6 +336,12 @@ void PowerNetwork::check_edge_overload(PowerEdge& edge) {
     // Over-capacity: wire carries more power than its material rating.
     if (edge.current_load > edge.max_capacity) {
         edge.overload_info.state = OverloadState::OVER_CAPACITY;
+
+        // Also notify via general overload callback for the nodes on this edge.
+        if (overload_callback_) {
+            overload_callback_(edge.node_a, edge.overload_info);
+            overload_callback_(edge.node_b, edge.overload_info);
+        }
     }
 }
 
@@ -384,8 +397,8 @@ bool PowerNetwork::are_connected(PowerNodeId node_a,
     auto adj_it = adjacency_.find(node_a);
     if (adj_it == adjacency_.end()) return false;
 
-    for (const PowerEdge* edge : adj_it->second) {
-        if (edge->connects(node_a, node_b)) return true;
+    for (auto edge_it : adj_it->second) {
+        if (edge_cptr(edge_it)->connects(node_a, node_b)) return true;
     }
     return false;
 }

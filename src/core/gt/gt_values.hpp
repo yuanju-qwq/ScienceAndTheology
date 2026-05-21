@@ -94,6 +94,8 @@ constexpr CableProperties kCableMaterials[] = {
     // UV tier
     {"Superconductor",   VoltageTier::UV, 8, 0},
     {"Superconductor HV", VoltageTier::UV, 16, 0},
+
+    // UHV+ tier cable materials (TBD — add as progression demands).
 };
 
 inline constexpr size_t kCableMaterialCount =

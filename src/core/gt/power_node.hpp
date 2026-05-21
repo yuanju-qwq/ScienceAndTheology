@@ -60,9 +60,6 @@ struct PowerNode {
     // Current power demand from machines connected to this node.
     int64_t power_demand = 0;
 
-    // IDs of directly connected neighbor nodes.
-    std::vector<PowerNodeId> connections;
-
     // Whether this node is a transformer.
     // Transformers isolate networks and convert voltage.
     bool is_transformer = false;

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <list>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -124,15 +125,21 @@ public:
 private:
     using NodeMap = std::unordered_map<PowerNodeId, PowerNode>;
     using PositionIndex = std::unordered_map<int64_t, PowerNodeId>;
+    using EdgeIterator = std::list<PowerEdge>::iterator;
     using AdjacencyList = std::unordered_map<PowerNodeId,
-                                              std::vector<PowerEdge*>>;
+                                              std::vector<EdgeIterator>>;
+
+    // Helper: returns a raw pointer from an edge iterator.
+    // list iterators are stable on push_back/erase of other elements.
+    static PowerEdge* edge_ptr(EdgeIterator it) { return &(*it); }
+    static const PowerEdge* edge_cptr(EdgeIterator it) { return &(*it); }
 
     // Converts MapPosition to a hashable key for the position index.
     static int64_t make_position_key(MapPosition pos);
 
     // Adds to the adjacency list.
-    void add_adjacency(PowerNodeId node_id, PowerEdge* edge);
-    void remove_adjacency(PowerNodeId node_id, PowerEdge* edge);
+    void add_adjacency(PowerNodeId node_id, EdgeIterator edge_it);
+    void remove_adjacency(PowerNodeId node_id, EdgeIterator edge_it);
 
     // Recalculates power flow for a single connected component.
     void process_component(const std::vector<PowerNodeId>& component);
@@ -154,9 +161,9 @@ private:
     // ID counter for new nodes.
     PowerNodeId next_id_ = 1;
 
-    // Owning storage.
+    // Owning storage. Use list for stable iterators/references on push_back.
     NodeMap nodes_;
-    std::vector<PowerEdge> edges_;
+    std::list<PowerEdge> edges_;
 
     // Position -> node ID lookup.
     PositionIndex position_index_;
