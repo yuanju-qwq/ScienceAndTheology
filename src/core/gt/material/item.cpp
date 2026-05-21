@@ -1,4 +1,5 @@
 #include "item.hpp"
+#include "tool_items.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -123,9 +124,29 @@ size_t ItemRegistry::get_material_item_count() {
 }
 
 const char* ItemRegistry::get_item_display_name(ItemId item_id) {
+    // Check material items first.
     const MaterialItem* item = get_item(item_id);
-    if (item == nullptr) return "Unknown";
-    return item->display_name;
+    if (item != nullptr) return item->display_name;
+
+    // Check non-material items.
+    const char* name = get_non_material_item_name(item_id);
+    if (name != nullptr) return name;
+
+    return "Unknown";
+}
+
+bool ItemRegistry::is_valid_item(ItemId item_id) {
+    if (item_id == kInvalidItemId) return false;
+    // Material items.
+    if (item_id >= kMaterialItemBase && item_id < kMaterialItemMax) {
+        const MaterialItem* item = get_item(item_id);
+        return item != nullptr;
+    }
+    // Non-material items.
+    if (item_id >= kNonMaterialItemBase && item_id < kNonMaterialItemMax) {
+        return get_non_material_item_name(item_id) != nullptr;
+    }
+    return false;
 }
 
 } // namespace science_and_theology::gt

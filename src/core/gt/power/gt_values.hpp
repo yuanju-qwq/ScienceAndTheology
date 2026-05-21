@@ -45,6 +45,23 @@ constexpr int64_t kVoltageValues[] = {
     std::numeric_limits<int64_t>::max() - 7, // MAX
 };
 
+// Display name for each voltage tier.
+constexpr const char* kVoltageNames[] = {
+    "ULV", "LV", "MV", "HV", "EV",
+    "IV", "LuV", "ZPM", "UV", "UHV",
+    "UEV", "UIV", "UMV", "UXV", "MAX"
+};
+
+// Returns the nominal voltage for a given tier.
+inline constexpr int64_t get_voltage(VoltageTier tier) {
+    return kVoltageValues[static_cast<uint8_t>(tier)];
+}
+
+// Returns the short display name for a given tier.
+inline constexpr const char* get_voltage_name(VoltageTier tier) {
+    return kVoltageNames[static_cast<uint8_t>(tier)];
+}
+
 // Cable material properties.
 // Different materials have different amperage ratings and loss characteristics
 // at the same voltage tier. See kCableMaterials for the built-in table.
@@ -124,13 +141,6 @@ inline constexpr int64_t manhattan_distance(int32_t x1, int32_t y1,
     return dx + dy;
 }
 
-// Display name for each voltage tier.
-constexpr const char* kVoltageNames[] = {
-    "ULV", "LV", "MV", "HV", "EV",
-    "IV", "LuV", "ZPM", "UV", "UHV",
-    "UEV", "UIV", "UMV", "UXV", "MAX"
-};
-
 // Long descriptive name for each voltage tier.
 constexpr const char* kVoltageLongNames[] = {
     "Ultra Low Voltage",
@@ -149,16 +159,6 @@ constexpr const char* kVoltageLongNames[] = {
     "Ultimate Extended Mega Voltage",
     "Maximum Voltage",
 };
-
-// Returns the nominal voltage for a given tier.
-inline constexpr int64_t get_voltage(VoltageTier tier) {
-    return kVoltageValues[static_cast<uint8_t>(tier)];
-}
-
-// Returns the display name for a given tier.
-inline constexpr const char* get_voltage_name(VoltageTier tier) {
-    return kVoltageNames[static_cast<uint8_t>(tier)];
-}
 
 // Returns the index of a cable material by name, or kCableMaterialCount if not found.
 inline constexpr size_t find_cable_material(const char* name) {

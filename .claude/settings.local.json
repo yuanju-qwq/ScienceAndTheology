@@ -1,7 +1,29 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(cmake --version)",
+      "Bash(mkdir -p build)",
+      "Bash(cmake ../src -DCMAKE_BUILD_TYPE=Debug)",
+      "Bash(rm -rf build)",
+      "Bash(mkdir build *)",
+      "Bash(rm -rf /d/github/ScienceAndTheology/build)",
+      "Bash(mkdir -p /d/github/ScienceAndTheology/build)",
+      "Bash(cmd.exe /c \"rmdir /s /q D:\\\\github\\\\ScienceAndTheology\\\\build\")",
+      "Bash(mkdir \"D:\\\\github\\\\ScienceAndTheology\\\\build\")",
+      "Read(//d//**)",
+      "Bash(cmd.exe /c \"rmdir /s /q D:\\\\\\\\github\\\\\\\\ScienceAndTheology\\\\\\\\build\")",
+      "Bash(mkdir -p /d/github/ScienceAndTheology/build2)",
+      "Bash(cmake /d/github/ScienceAndTheology/src -DCMAKE_BUILD_TYPE=Debug)",
+      "Bash(cmake --build /d/github/ScienceAndTheology/build2 --config Debug)",
+      "Bash(cmake --build /d/github/ScienceAndTheology/build2 --config Debug --target science_and_theology)",
+      "Bash(grep -i \"4\\\\.6\\\\|4\\\\\\\\.6\")",
+      "Bash(sort -t'/' -k2 -V)",
+      "Bash(mv material.hpp material.cpp material_form.hpp item.hpp item.cpp tool_items.hpp material/)",
+      "Bash(mv crafting.hpp crafting.cpp crafting/)",
+      "Bash(mv machine.hpp machine.cpp recipe.hpp recipe.cpp processing_logic.hpp machine/)",
+      "Bash(mv power_network.hpp power_network.cpp power_node.hpp gt_values.hpp power/)",
+      "Bash(cmake --build .)"
     ]
   }
 }

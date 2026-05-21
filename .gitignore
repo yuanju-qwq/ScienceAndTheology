@@ -4,6 +4,8 @@
 
 # C++ build artifacts
 build/
+bin/
+build2/
 bin/*.dll
 bin/*.so
 bin/*.dylib

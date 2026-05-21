@@ -1,14 +1,20 @@
 #include "gd_power_network.h"
 
+#include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include "core/gt/gt_values.hpp"
+#include "core/gt/power/gt_values.hpp"
+
+// Required by BIND_ENUM_CONSTANT for nested enum types.
+VARIANT_ENUM_CAST(science_and_theology::GDPowerNetwork::VoltageTierConst)
+VARIANT_ENUM_CAST(science_and_theology::GDPowerNetwork::OverloadStateConst)
 
 namespace science_and_theology {
 
+using namespace godot;
 using namespace gt;
 
 GDPowerNetwork::GDPowerNetwork() {

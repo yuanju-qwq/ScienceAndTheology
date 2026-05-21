@@ -5,6 +5,7 @@
 
 #include "hello_world/gd_hello_world.h"
 #include "gt_bindings/gd_power_network.h"
+#include "gt_bindings/gd_crafting.h"
 
 using namespace godot;
 
@@ -17,6 +18,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
 
     ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
+    ClassDB::register_class<GDCraftingGrid>();
+    ClassDB::register_class<GDCraftingManager>();
 }
 
 void uninitialize_snt_extension(ModuleInitializationLevel p_level) {

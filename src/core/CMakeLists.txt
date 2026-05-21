@@ -5,11 +5,14 @@ add_library(snt_core STATIC)
 
 target_include_directories(snt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# GT power system (Phase 1: voltage constants + energy node graph)
+# GT systems
 target_sources(snt_core PRIVATE
-    gt/power_network.cpp
-    gt/material.cpp
-    gt/item.cpp
+    gt/material/item.cpp
+    gt/material/material.cpp
+    gt/crafting/crafting.cpp
+    gt/machine/machine.cpp
+    gt/machine/recipe.cpp
+    gt/power/power_network.cpp
 )
 
 # Future modules:

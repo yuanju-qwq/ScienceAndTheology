@@ -7,7 +7,7 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 
-#include "core/gt/power_network.hpp"
+#include "core/gt/power/power_network.hpp"
 
 namespace science_and_theology {
 

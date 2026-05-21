@@ -119,8 +119,11 @@ public:
     // Returns the total number of registered material items.
     static size_t get_material_item_count();
 
-    // Get the localized display name for an item ID.
+    // Get the localized display name for any item ID (material or non-material).
     static const char* get_item_display_name(ItemId item_id);
+
+    // Returns true if this item ID refers to a valid (registered) item.
+    static bool is_valid_item(ItemId item_id);
 
 private:
     static void register_material_item(const Material* material, MaterialForm form,

@@ -5,6 +5,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 namespace science_and_theology {
+using namespace godot;
 
 GDHelloWorld::GDHelloWorld()
     : greeting_prefix("Hello") {
@@ -36,7 +37,7 @@ void GDHelloWorld::_process(double delta) {
 }
 
 godot::String GDHelloWorld::hello(const godot::String &name) const {
-    godot::String message = greeting_prefix + ", " + name + "! GDExtension is working.";
+    godot::String message = greeting_prefix + godot::String(", ") + name + godot::String("! GDExtension is working.");
     UtilityFunctions::print(message);
     return message;
 }

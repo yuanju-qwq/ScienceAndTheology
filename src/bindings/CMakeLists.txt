@@ -4,6 +4,7 @@ set(SOURCES
     register_types.cpp
     hello_world/gd_hello_world.cpp
     gt_bindings/gd_power_network.cpp
+    gt_bindings/gd_crafting.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})
