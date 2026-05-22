@@ -6,9 +6,9 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../power/power_node.hpp"
-#include "../transport/pipe_types.hpp"
-#include "fluid_types.hpp"
+#include "gt/power/power_node.hpp"
+#include "pipe_types.hpp"
+#include "fluid/fluid_def.hpp"
 
 namespace science_and_theology::gt {
 

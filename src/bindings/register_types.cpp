@@ -12,7 +12,7 @@
 #include "world_bindings/gd_world_data.h"
 #include "world_bindings/gd_terrain_generator.h"
 
-#include "core/gt/fluid/fluid_types.hpp"
+#include "core/fluid/fluid_registry.hpp"
 #include "core/gt/machine/module.hpp"
 
 using namespace godot;

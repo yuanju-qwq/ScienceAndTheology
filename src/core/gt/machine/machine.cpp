@@ -36,8 +36,8 @@ float Machine::progress_percent() const {
 // Inventory helpers
 // ============================================================
 
-std::vector<ItemStack> Machine::get_available_inputs() const {
-    std::vector<ItemStack> available;
+std::vector<ResourceStack> Machine::get_available_inputs() const {
+    std::vector<ResourceStack> available;
     for (const auto& stack : input_slots_) {
         if (stack.is_valid()) {
             available.push_back(stack);
@@ -379,16 +379,16 @@ bool Machine::consume_inputs(const Recipe& recipe) {
     for (const auto& input : recipe.inputs) {
         if (!input.is_valid()) continue;
 
-        int64_t remaining = input.count;
+        int64_t remaining = input.amount;
         for (auto& slot : input_slots_) {
             if (!slot.is_valid()) continue;
-            if (slot.item_id != input.item_id) continue;
+            if (!slot.has_same_key(input)) continue;
 
-            int64_t take = std::min(remaining, slot.count);
-            slot.count -= take;
+            int64_t take = std::min(remaining, slot.amount);
+            slot.amount -= take;
             remaining -= take;
-            if (slot.count <= 0) {
-                slot = ItemStack{};
+            if (slot.amount <= 0) {
+                slot = ResourceStack{};
             }
             if (remaining == 0) break;
         }
@@ -409,13 +409,13 @@ bool Machine::place_outputs(const Recipe& recipe) {
             // For deterministic C++ core, we always place chanced outputs.
         }
 
-        int64_t remaining = output.count;
+        int64_t remaining = output.stack.amount;
         // First, try to stack onto existing matching slots.
         for (auto& slot : output_slots_) {
-            if (slot.item_id == output.item_id && slot.count < INT64_MAX) {
-                int64_t space = INT64_MAX - slot.count;
+            if (slot.has_same_key(output.stack) && slot.amount < INT64_MAX) {
+                int64_t space = INT64_MAX - slot.amount;
                 int64_t add = std::min(remaining, space);
-                slot.count += add;
+                slot.amount += add;
                 remaining -= add;
                 if (remaining == 0) break;
             }
@@ -425,7 +425,7 @@ bool Machine::place_outputs(const Recipe& recipe) {
         if (remaining > 0) {
             for (auto& slot : output_slots_) {
                 if (!slot.is_valid()) {
-                    slot = ItemStack{output.item_id, remaining};
+                    slot = ResourceStack(output.stack.what, remaining);
                     remaining = 0;
                     break;
                 }
@@ -441,15 +441,15 @@ bool Machine::place_outputs(const Recipe& recipe) {
 
 bool Machine::place_outputs_preview(const Recipe& recipe) {
     // Clone output slots and simulate placement.
-    std::vector<ItemStack> preview = output_slots_;
+    std::vector<ResourceStack> preview = output_slots_;
     for (const auto& output : recipe.outputs) {
         if (!output.is_valid()) continue;
 
-        int64_t remaining = output.count;
+        int64_t remaining = output.stack.amount;
         for (auto& slot : preview) {
-            if (slot.item_id == output.item_id && slot.count < INT64_MAX) {
-                int64_t add = std::min(remaining, INT64_MAX - slot.count);
-                slot.count += add;
+            if (slot.has_same_key(output.stack) && slot.amount < INT64_MAX) {
+                int64_t add = std::min(remaining, INT64_MAX - slot.amount);
+                slot.amount += add;
                 remaining -= add;
                 if (remaining == 0) break;
             }
@@ -457,7 +457,7 @@ bool Machine::place_outputs_preview(const Recipe& recipe) {
         if (remaining > 0) {
             for (auto& slot : preview) {
                 if (!slot.is_valid()) {
-                    slot = ItemStack{output.item_id, remaining};
+                    slot = ResourceStack(output.stack.what, remaining);
                     remaining = 0;
                     break;
                 }

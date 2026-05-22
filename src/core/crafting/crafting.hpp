@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "../material/item.hpp"
-#include "../machine/recipe.hpp"
+#include "common/resource_key.hpp"
+#include "gt/machine/recipe.hpp"
 
 namespace science_and_theology::gt {
 
@@ -30,7 +30,7 @@ struct CraftingRecipe {
     std::vector<RecipeInput> shapeless_inputs;
 
     // Output.
-    ItemStack output;
+    ResourceStack output;
 
     // Optional tool that must be in player inventory/hotbar.
     const char* required_tool = nullptr; // e.g. "hammer", "wire_cutter", "file"
@@ -57,10 +57,10 @@ public:
     int slot_count() const { return width_ * height_; }
 
     // Access a specific slot (row-major: row * width + col).
-    ItemStack& slot(int row, int col);
-    const ItemStack& slot(int row, int col) const;
-    ItemStack& slot_at(int index);
-    const ItemStack& slot_at(int index) const;
+    ResourceStack& slot(int row, int col);
+    const ResourceStack& slot(int row, int col) const;
+    ResourceStack& slot_at(int index);
+    const ResourceStack& slot_at(int index) const;
 
     // Set all slots to empty.
     void clear();
@@ -86,7 +86,7 @@ public:
 private:
     int width_ = kMaxSize;
     int height_ = kMaxSize;
-    ItemStack slots_[kMaxSlots];
+    ResourceStack slots_[kMaxSlots];
 };
 
 // ============================================================
@@ -110,9 +110,9 @@ public:
                              const CraftingRecipe& recipe);
 
     // Execute a craft: validate, consume inputs, return output.
-    // Returns empty ItemStack if craft fails.
-    static ItemStack craft(CraftingGrid& grid,
-                           const CraftingRecipe& recipe);
+    // Returns empty ResourceStack if craft fails.
+    static ResourceStack craft(CraftingGrid& grid,
+                                const CraftingRecipe& recipe);
 
     // Returns all recipes in a category.
     static std::vector<const CraftingRecipe*> get_by_category(const char* category);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "item.hpp"
+#include "material_item.hpp"
 
 namespace science_and_theology::gt {
 

@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "../power/power_node.hpp"
+#include "gt/power/power_node.hpp"
 #include "pipe_types.hpp"
 
 namespace science_and_theology::gt {

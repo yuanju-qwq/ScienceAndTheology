@@ -5,18 +5,35 @@ add_library(snt_core STATIC)
 
 target_include_directories(snt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Fluid system (universal)
+target_sources(snt_core PRIVATE
+    fluid/fluid_registry.cpp
+)
+
 # GT systems
 target_sources(snt_core PRIVATE
-    gt/material/item.cpp
+    gt/material/material_item.cpp
     gt/material/material.cpp
-    gt/crafting/crafting.cpp
     gt/machine/machine.cpp
     gt/machine/recipe.cpp
     gt/machine/module.cpp
-    gt/power/power_network.cpp
-    gt/fluid/fluid_types.cpp
-    gt/fluid/fluid_network.cpp
-    gt/transport/item_pipe_network.cpp
+)
+
+# Common shared systems (used by both GT and AE)
+target_sources(snt_core PRIVATE
+    common/resource_key.cpp
+)
+
+# Crafting system (manual, universal)
+target_sources(snt_core PRIVATE
+    crafting/crafting.cpp
+)
+
+# Network systems (power, fluid, item transport)
+target_sources(snt_core PRIVATE
+    network/power_network.cpp
+    network/fluid_network.cpp
+    network/item_pipe_network.cpp
 )
 
 # World data system

@@ -1,4 +1,5 @@
 #include "material.hpp"
+#include "material_registry.hpp"
 
 #include <cassert>
 #include <cstring>
@@ -429,6 +430,26 @@ const Material* get_material_by_id(uint16_t id) {
 
 size_t get_material_count() {
     return materials::COUNT;
+}
+
+// ============================================================
+// MaterialRegistry — wrapper class
+// ============================================================
+
+void MaterialRegistry::initialize() {
+    initialize_materials();
+}
+
+const Material* MaterialRegistry::get_by_id(uint16_t id) {
+    return get_material_by_id(id);
+}
+
+const Material* MaterialRegistry::get_by_name(const char* name) {
+    return get_material(name);
+}
+
+size_t MaterialRegistry::count() {
+    return get_material_count();
 }
 
 } // namespace science_and_theology::gt

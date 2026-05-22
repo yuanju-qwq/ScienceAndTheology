@@ -11,24 +11,15 @@ namespace science_and_theology::gt {
 // Recipe input matching
 // ============================================================
 
-bool Recipe::matches_inputs(const std::vector<ItemStack>& candidates) const {
-    // Build a map from candidate items for quick lookup.
-    // item_id -> total available count.
-    std::unordered_map<ItemId, int64_t> available;
-    for (const auto& stack : candidates) {
-        if (stack.is_valid()) {
-            available[stack.item_id] += stack.count;
-        }
-    }
+bool Recipe::matches_inputs(const std::vector<ResourceStack>& candidates) const {
+    // Build a map from candidate resources for quick lookup.
+    // Uses has_same_key() for key-only comparison, tracks amounts.
+    ResourceKeyList available = ResourceKeyList::from_stacks(candidates);
 
-    // Check each required input against available items.
+    // Check each required input against available resources.
     for (const auto& input : inputs) {
         if (!input.is_valid()) continue;
-
-        auto it = available.find(input.item_id);
-        if (it == available.end()) return false;       // item not found
-        if (it->second < input.count) return false;    // not enough
-        it->second -= input.count;                     // consume
+        if (!available.contains_enough(input)) return false;
     }
 
     return true;
@@ -60,18 +51,47 @@ RecipeBuilder& RecipeBuilder::category(const char* cat) {
 }
 
 RecipeBuilder& RecipeBuilder::input(ItemId item, int64_t count) {
-    recipe_.inputs.push_back(RecipeInput{item, count});
+    recipe_.inputs.push_back(ResourceStack::item(item, count));
+    return *this;
+}
+
+RecipeBuilder& RecipeBuilder::input(const ResourceStack& stack) {
+    recipe_.inputs.push_back(stack);
+    return *this;
+}
+
+RecipeBuilder& RecipeBuilder::fluid_input(FluidId fluid, int64_t mb) {
+    recipe_.inputs.push_back(ResourceStack::fluid(fluid, mb));
     return *this;
 }
 
 RecipeBuilder& RecipeBuilder::output(ItemId item, int64_t count) {
-    recipe_.outputs.push_back(RecipeOutput{item, count, 1.0f});
+    recipe_.outputs.push_back(
+        RecipeOutput{ResourceStack::item(item, count), 1.0f});
+    return *this;
+}
+
+RecipeBuilder& RecipeBuilder::output(const ResourceStack& stack) {
+    recipe_.outputs.push_back(RecipeOutput{stack, 1.0f});
+    return *this;
+}
+
+RecipeBuilder& RecipeBuilder::fluid_output(FluidId fluid, int64_t mb) {
+    recipe_.outputs.push_back(
+        RecipeOutput{ResourceStack::fluid(fluid, mb), 1.0f});
+    return *this;
+}
+
+RecipeBuilder& RecipeBuilder::chanced_output(const ResourceStack& stack,
+                                              float probability) {
+    recipe_.outputs.push_back(RecipeOutput{stack, probability});
     return *this;
 }
 
 RecipeBuilder& RecipeBuilder::chanced_output(ItemId item, int64_t count,
                                               float probability) {
-    recipe_.outputs.push_back(RecipeOutput{item, count, probability});
+    recipe_.outputs.push_back(
+        RecipeOutput{ResourceStack::item(item, count), probability});
     return *this;
 }
 
@@ -121,7 +141,7 @@ void RecipeMap::add(Recipe&& recipe) {
 }
 
 std::vector<const Recipe*> RecipeMap::find_matching(
-        const std::vector<ItemStack>& items) const {
+        const std::vector<ResourceStack>& items) const {
     std::vector<const Recipe*> matches;
     for (const auto& recipe : recipes_) {
         if (recipe.matches_inputs(items)) {
@@ -132,7 +152,7 @@ std::vector<const Recipe*> RecipeMap::find_matching(
 }
 
 const Recipe* RecipeMap::find_first_matching(
-        const std::vector<ItemStack>& items) const {
+        const std::vector<ResourceStack>& items) const {
     for (const auto& recipe : recipes_) {
         if (recipe.matches_inputs(items)) {
             return &recipe;

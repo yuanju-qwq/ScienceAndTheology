@@ -4,7 +4,7 @@
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
-#include "core/gt/material/item.hpp"
+#include "core/gt/material/material_item.hpp"
 #include "core/gt/material/tool_items.hpp"
 
 namespace science_and_theology {
@@ -58,17 +58,18 @@ int GDCraftingGrid::get_slot_count() const {
 
 godot::Dictionary GDCraftingGrid::get_slot(int row, int col) const {
     godot::Dictionary d;
-    const ItemStack& s = grid_.slot(row, col);
-    d["item_id"] = static_cast<int64_t>(s.item_id);
-    d["count"] = s.count;
+    const ResourceStack& s = grid_.slot(row, col);
+    d["item_id"] = static_cast<int64_t>(s.item_id());
+    d["count"] = s.amount;
     return d;
 }
 
 void GDCraftingGrid::set_slot(int row, int col, int64_t item_id, int64_t count) {
     if (count > 0 && item_id != static_cast<int64_t>(kInvalidItemId)) {
-        grid_.slot(row, col) = ItemStack{static_cast<ItemId>(item_id), count};
+        grid_.slot(row, col) = ResourceStack::item(
+            static_cast<ItemId>(item_id), count);
     } else {
-        grid_.slot(row, col) = ItemStack{};
+        grid_.slot(row, col) = ResourceStack{};
     }
 }
 
@@ -153,7 +154,7 @@ godot::Dictionary GDCraftingManager::craft(
     const CraftingRecipe* recipe = _find_recipe(recipe_name);
     if (recipe == nullptr) return {};
 
-    ItemStack result = CraftingManager::craft(grid->get_grid(), *recipe);
+    ResourceStack result = CraftingManager::craft(grid->get_grid(), *recipe);
     return _item_to_dict(result);
 }
 
@@ -191,8 +192,8 @@ godot::Dictionary GDCraftingManager::_recipe_to_dict(
     d["grid_width"] = recipe.grid_width;
     d["grid_height"] = recipe.grid_height;
     d["is_shaped"] = recipe.is_shaped();
-    d["output_item_id"] = static_cast<int64_t>(recipe.output.item_id);
-    d["output_count"] = recipe.output.count;
+    d["output_item_id"] = static_cast<int64_t>(recipe.output.item_id());
+    d["output_count"] = recipe.output.amount;
 
     if (recipe.required_tool != nullptr) {
         d["required_tool"] = recipe.required_tool;
@@ -215,8 +216,8 @@ godot::Dictionary GDCraftingManager::_recipe_to_dict(
         godot::Array inputs_arr;
         for (const auto& input : recipe.shapeless_inputs) {
             godot::Dictionary in;
-            in["item_id"] = static_cast<int64_t>(input.item_id);
-            in["count"] = input.count;
+            in["item_id"] = static_cast<int64_t>(input.item_id());
+            in["count"] = input.amount;
             inputs_arr.append(in);
         }
         d["shapeless_inputs"] = inputs_arr;
@@ -225,11 +226,11 @@ godot::Dictionary GDCraftingManager::_recipe_to_dict(
     return d;
 }
 
-godot::Dictionary GDCraftingManager::_item_to_dict(const ItemStack& stack) {
+godot::Dictionary GDCraftingManager::_item_to_dict(const ResourceStack& stack) {
     godot::Dictionary d;
     if (stack.is_valid()) {
-        d["item_id"] = static_cast<int64_t>(stack.item_id);
-        d["count"] = stack.count;
+        d["item_id"] = static_cast<int64_t>(stack.item_id());
+        d["count"] = stack.amount;
     }
     return d;
 }

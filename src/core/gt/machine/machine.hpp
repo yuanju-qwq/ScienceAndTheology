@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "../material/item.hpp"
+#include "../../common/resource_key.hpp"
 #include "recipe.hpp"
 #include "processing_logic.hpp"
 #include "machine_port.hpp"
@@ -120,13 +120,13 @@ public:
 
     // --- Inventory ---
 
-    std::vector<ItemStack>& input_slots() { return input_slots_; }
-    const std::vector<ItemStack>& input_slots() const { return input_slots_; }
-    std::vector<ItemStack>& output_slots() { return output_slots_; }
-    const std::vector<ItemStack>& output_slots() const { return output_slots_; }
+    std::vector<ResourceStack>& input_slots() { return input_slots_; }
+    const std::vector<ResourceStack>& input_slots() const { return input_slots_; }
+    std::vector<ResourceStack>& output_slots() { return output_slots_; }
+    const std::vector<ResourceStack>& output_slots() const { return output_slots_; }
 
     // Get all non-empty input items as a flat list (for recipe matching).
-    std::vector<ItemStack> get_available_inputs() const;
+    std::vector<ResourceStack> get_available_inputs() const;
 
     // --- Power ---
 
@@ -196,8 +196,8 @@ protected:
     MachineState state_ = MachineState::IDLE;
 
     // Inventory.
-    std::vector<ItemStack> input_slots_;
-    std::vector<ItemStack> output_slots_;
+    std::vector<ResourceStack> input_slots_;
+    std::vector<ResourceStack> output_slots_;
 
     // Active recipe tracking.
     const Recipe* current_recipe_ = nullptr;

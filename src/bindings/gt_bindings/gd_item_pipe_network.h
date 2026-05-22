@@ -5,7 +5,7 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 
-#include "core/gt/transport/item_pipe_network.hpp"
+#include "core/network/item_pipe_network.hpp"
 
 namespace science_and_theology {
 

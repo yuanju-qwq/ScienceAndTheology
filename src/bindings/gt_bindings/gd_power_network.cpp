@@ -6,7 +6,7 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include "core/gt/power/gt_values.hpp"
+#include "core/gt/config/gt_values.hpp"
 
 // Required by BIND_ENUM_CONSTANT for nested enum types.
 VARIANT_ENUM_CAST(science_and_theology::GDPowerNetwork::VoltageTierConst)

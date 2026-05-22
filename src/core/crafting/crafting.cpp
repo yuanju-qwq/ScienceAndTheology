@@ -1,6 +1,6 @@
 #include "crafting.hpp"
-#include "../material/material.hpp"
-#include "../material/tool_items.hpp"
+#include "gt/material/material.hpp"
+#include "gt/material/tool_items.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -18,31 +18,31 @@ CraftingGrid::CraftingGrid(int width, int height)
     clear();
 }
 
-ItemStack& CraftingGrid::slot(int row, int col) {
+ResourceStack& CraftingGrid::slot(int row, int col) {
     assert(row >= 0 && row < height_);
     assert(col >= 0 && col < width_);
     return slots_[row * width_ + col];
 }
 
-const ItemStack& CraftingGrid::slot(int row, int col) const {
+const ResourceStack& CraftingGrid::slot(int row, int col) const {
     assert(row >= 0 && row < height_);
     assert(col >= 0 && col < width_);
     return slots_[row * width_ + col];
 }
 
-ItemStack& CraftingGrid::slot_at(int index) {
+ResourceStack& CraftingGrid::slot_at(int index) {
     assert(index >= 0 && index < kMaxSlots);
     return slots_[index];
 }
 
-const ItemStack& CraftingGrid::slot_at(int index) const {
+const ResourceStack& CraftingGrid::slot_at(int index) const {
     assert(index >= 0 && index < kMaxSlots);
     return slots_[index];
 }
 
 void CraftingGrid::clear() {
     for (int i = 0; i < kMaxSlots; ++i) {
-        slots_[i] = ItemStack{};
+        slots_[i] = ResourceStack{};
     }
 }
 
@@ -56,17 +56,18 @@ bool CraftingGrid::is_empty() const {
 int64_t CraftingGrid::count_item(ItemId item_id) const {
     int64_t total = 0;
     for (int i = 0; i < kMaxSlots; ++i) {
-        if (slots_[i].item_id == item_id) {
-            total += slots_[i].count;
+        if (slots_[i].item_id() == item_id) {
+            total += slots_[i].amount;
         }
     }
     return total;
 }
 
-bool CraftingGrid::contains_items(const std::vector<RecipeInput>& inputs) const {
+bool CraftingGrid::contains_items(
+        const std::vector<RecipeInput>& inputs) const {
     for (const auto& input : inputs) {
         if (!input.is_valid()) continue;
-        if (count_item(input.item_id) < input.count) return false;
+        if (count_item(input.item_id()) < input.amount) return false;
     }
     return true;
 }
@@ -75,14 +76,14 @@ void CraftingGrid::consume_items(const std::vector<RecipeInput>& inputs) {
     for (const auto& input : inputs) {
         if (!input.is_valid()) continue;
 
-        int64_t remaining = input.count;
+        int64_t remaining = input.amount;
         for (int i = 0; i < kMaxSlots && remaining > 0; ++i) {
-            if (slots_[i].item_id == input.item_id) {
-                int64_t take = std::min(remaining, slots_[i].count);
-                slots_[i].count -= take;
+            if (slots_[i].item_id() == input.item_id()) {
+                int64_t take = std::min(remaining, slots_[i].amount);
+                slots_[i].amount -= take;
                 remaining -= take;
-                if (slots_[i].count <= 0) {
-                    slots_[i] = ItemStack{};
+                if (slots_[i].amount <= 0) {
+                    slots_[i] = ResourceStack{};
                 }
             }
         }
@@ -101,10 +102,10 @@ void CraftingGrid::consume_shaped(int pattern_width, int pattern_height,
 
             int grid_r = offset_row + r;
             int grid_c = offset_col + c;
-            ItemStack& s = slot(grid_r, grid_c);
-            s.count -= counts[pat_idx];
-            if (s.count <= 0) {
-                s = ItemStack{};
+            ResourceStack& s = slot(grid_r, grid_c);
+            s.amount -= counts[pat_idx];
+            if (s.amount <= 0) {
+                s = ResourceStack{};
             }
         }
     }
@@ -150,7 +151,7 @@ bool CraftingManager::match_shaped_at(const CraftingGrid& grid,
             int pat_c = c - offset_col;
             int pat_idx = pat_r * pw + pat_c;
 
-            const ItemStack& slot = grid.slot(r, c);
+            const ResourceStack& slot = grid.slot(r, c);
 
             if (in_pattern) {
                 // Grid slot must match the pattern slot.
@@ -162,8 +163,8 @@ bool CraftingManager::match_shaped_at(const CraftingGrid& grid,
                     if (slot.is_valid()) return false;
                 } else {
                     // Pattern expects this item.
-                    if (slot.item_id != expected) return false;
-                    if (slot.count < expected_count) return false;
+                    if (slot.item_id() != expected) return false;
+                    if (slot.amount < expected_count) return false;
                 }
             } else {
                 // Outside pattern area — must be empty.
@@ -212,10 +213,10 @@ const CraftingRecipe* CraftingManager::find_match(const CraftingGrid& grid) {
 // Craft execution
 // ============================================================
 
-ItemStack CraftingManager::craft(CraftingGrid& grid,
-                                  const CraftingRecipe& recipe) {
+ResourceStack CraftingManager::craft(CraftingGrid& grid,
+                                      const CraftingRecipe& recipe) {
     if (!matches_grid(grid, recipe)) {
-        return ItemStack{};
+        return ResourceStack{};
     }
 
     if (recipe.is_shaped()) {
@@ -237,7 +238,7 @@ ItemStack CraftingManager::craft(CraftingGrid& grid,
         return recipe.output;
     }
 
-    return ItemStack{};
+    return ResourceStack{};
 }
 
 std::vector<const CraftingRecipe*> CraftingManager::get_by_category(
@@ -286,7 +287,7 @@ void CraftingManager::register_basic_recipes() {
         for (auto id_val : pat)   r.pattern[i] = id_val, ++i;
         i = 0;
         for (auto c : counts) r.pattern_counts[i] = c, ++i;
-        r.output = ItemStack{output_id, output_count};
+        r.output = ResourceStack::item(output_id, output_count);
         r.required_tool = tool;
         return r;
     };
@@ -300,14 +301,14 @@ void CraftingManager::register_basic_recipes() {
         r.name = name;
         r.category = category;
         for (const auto& in : inputs) r.shapeless_inputs.push_back(in);
-        r.output = ItemStack{output_id, output_count};
+        r.output = ResourceStack::item(output_id, output_count);
         r.required_tool = tool;
         return r;
     };
 
     // Non-material item shorthand.
-    auto nm = [](ItemId item_id, int64_t count = 1) -> RecipeInput {
-        return RecipeInput{item_id, count};
+    auto nm = [](ItemId item_id, int64_t count = 1) -> ResourceStack {
+        return ResourceStack::item(item_id, count);
     };
 
     // ========================================================
@@ -330,9 +331,9 @@ void CraftingManager::register_basic_recipes() {
         ItemId ingot  = id(mat, MaterialForm::INGOT);
         if (nugget != kInvalidItemId && ingot != kInvalidItemId) {
             add_recipe(shapeless("compress_nugget_to_ingot", "materials",
-                                 {RecipeInput{nugget, 9}}, ingot, 1));
+                                 {nm(nugget, 9)}, ingot, 1));
             add_recipe(shapeless("decompress_ingot_to_nugget", "materials",
-                                 {RecipeInput{ingot, 1}}, nugget, 9));
+                                 {nm(ingot, 1)}, nugget, 9));
         }
     }
 
@@ -343,9 +344,9 @@ void CraftingManager::register_basic_recipes() {
         ItemId block = id(mat, MaterialForm::BLOCK);
         if (ingot != kInvalidItemId && block != kInvalidItemId) {
             add_recipe(shapeless("compress_ingot_to_block", "materials",
-                                 {RecipeInput{ingot, 9}}, block, 1));
+                                 {nm(ingot, 9)}, block, 1));
             add_recipe(shapeless("decompress_block_to_ingot", "materials",
-                                 {RecipeInput{block, 1}}, ingot, 9));
+                                 {nm(block, 1)}, ingot, 9));
         }
     }
 
@@ -362,7 +363,7 @@ void CraftingManager::register_basic_recipes() {
         ItemId block = id(mat, MaterialForm::BLOCK);
         if (dust != kInvalidItemId && block != kInvalidItemId) {
             add_recipe(shapeless("compress_dust_to_block", "materials",
-                                 {RecipeInput{dust, 4}}, block, 1));
+                                 {nm(dust, 4)}, block, 1));
         }
     }
 
@@ -372,7 +373,7 @@ void CraftingManager::register_basic_recipes() {
         ItemId coal_gem   = id("coal", MaterialForm::GEM);
         if (coal_block != kInvalidItemId && coal_gem != kInvalidItemId) {
             add_recipe(shapeless("decompress_coal_block", "materials",
-                                 {RecipeInput{coal_block, 1}}, coal_gem, 9));
+                                 {nm(coal_block, 1)}, coal_gem, 9));
         }
     }
 
@@ -467,18 +468,18 @@ void CraftingManager::register_basic_recipes() {
     // Iron rod: file + iron ingot → 2 iron rods (shapeless, requires file).
     if (iron_ingot != kInvalidItemId && iron_rod != kInvalidItemId) {
         add_recipe(shapeless("craft_iron_rod", "parts",
-                             {RecipeInput{iron_ingot, 1}}, iron_rod, 2,
+                             {nm(iron_ingot, 1)}, iron_rod, 2,
                              "file"));
 
         // Iron plate: hammer + iron ingot → 2 iron plates.
         add_recipe(shapeless("craft_iron_plate", "parts",
-                             {RecipeInput{iron_ingot, 1}}, iron_plate, 2,
+                             {nm(iron_ingot, 1)}, iron_plate, 2,
                              "hammer"));
 
         // Iron screw: file + iron rod → 4 iron screws.
         if (iron_screw != kInvalidItemId) {
             add_recipe(shapeless("craft_iron_screw", "parts",
-                                 {RecipeInput{iron_rod, 1}}, iron_screw, 4,
+                                 {nm(iron_rod, 1)}, iron_screw, 4,
                                  "file"));
         }
     }
@@ -497,7 +498,7 @@ void CraftingManager::register_basic_recipes() {
         ItemId wire  = id(mat, MaterialForm::WIRE);
         if (ingot != kInvalidItemId && wire != kInvalidItemId) {
             add_recipe(shapeless("craft_wire", "wires",
-                                 {RecipeInput{ingot, 1}}, wire, 2,
+                                 {nm(ingot, 1)}, wire, 2,
                                  "wire_cutter"));
         }
     }
@@ -517,8 +518,8 @@ void CraftingManager::register_basic_recipes() {
             if (wire == kInvalidItemId) continue;
             // 1 wire + 1 rubber sheet → 1 insulated cable.
             add_recipe(shapeless("craft_cable", "cables",
-                                 {RecipeInput{wire, 1},
-                                  RecipeInput{rubber_sheet, 1}},
+                                 {nm(wire, 1),
+                                  nm(rubber_sheet, 1)},
                                  wire, 1));
         }
     }
@@ -616,8 +617,8 @@ void CraftingManager::register_basic_recipes() {
     // LV Electric Piston: iron plate + iron rod + electric motor (shapeless).
     if (iron_plate != kInvalidItemId && iron_rod != kInvalidItemId) {
         add_recipe(shapeless("craft_electric_piston_lv", "machines",
-                             {RecipeInput{iron_plate, 1},
-                              RecipeInput{iron_rod, 1},
+                             {nm(iron_plate, 1),
+                              nm(iron_rod, 1),
                               nm(ELECTRIC_MOTOR_LV, 1)},
                              ELECTRIC_PISTON_LV, 1));
     }
@@ -628,14 +629,14 @@ void CraftingManager::register_basic_recipes() {
                              {nm(ELECTRIC_PISTON_LV, 1),
                               nm(ELECTRIC_MOTOR_LV, 1),
                               nm(CIRCUIT_PRIMITIVE, 1),
-                              RecipeInput{iron_rod, 3}},
+                              nm(iron_rod, 3)},
                              ROBOT_ARM_LV, 1));
     }
 
     // LV Conveyor Module: rubber sheet + electric motor (shapeless).
     if (rubber_sheet != kInvalidItemId) {
         add_recipe(shapeless("craft_conveyor_lv", "machines",
-                             {RecipeInput{rubber_sheet, 2},
+                             {nm(rubber_sheet, 2),
                               nm(ELECTRIC_MOTOR_LV, 1)},
                              CONVEYOR_MODULE_LV, 1));
     }
@@ -643,8 +644,8 @@ void CraftingManager::register_basic_recipes() {
     // LV Pump: iron ring + motor + rubber sheet (shapeless).
     if (iron_plate != kInvalidItemId && rubber_sheet != kInvalidItemId) {
         add_recipe(shapeless("craft_pump_lv", "machines",
-                             {RecipeInput{iron_plate, 2},
-                              RecipeInput{rubber_sheet, 1},
+                             {nm(iron_plate, 2),
+                              nm(rubber_sheet, 1),
                               nm(ELECTRIC_MOTOR_LV, 1)},
                              PUMP_LV, 1));
     }
@@ -667,7 +668,7 @@ void CraftingManager::register_basic_recipes() {
     ItemId stone = id("stone", MaterialForm::DUST);
     if (stone != kInvalidItemId) {
         add_recipe(shapeless("craft_stone_plate", "misc",
-                             {RecipeInput{stone, 1}}, STONE_PLATE, 1,
+                             {nm(stone, 1)}, STONE_PLATE, 1,
                              "hammer"));
     }
 
@@ -675,7 +676,7 @@ void CraftingManager::register_basic_recipes() {
     ItemId wood_log = id("wood", MaterialForm::DUST);
     if (wood_log != kInvalidItemId && wood_plank != kInvalidItemId) {
         add_recipe(shapeless("craft_wood_plank", "misc",
-                             {RecipeInput{wood_log, 1}}, wood_plank, 4,
+                             {nm(wood_log, 1)}, wood_plank, 4,
                              "saw"));
     }
 
@@ -704,8 +705,8 @@ void CraftingManager::register_basic_recipes() {
     ItemId coal_dust = id("coal", MaterialForm::DUST);
     if (brick != kInvalidItemId && coal_dust != kInvalidItemId) {
         add_recipe(shapeless("craft_firebrick", "misc",
-                             {RecipeInput{brick, 4},
-                              RecipeInput{coal_dust, 1}},
+                             {nm(brick, 4),
+                              nm(coal_dust, 1)},
                              FIREBRICK, 1));
     }
 }

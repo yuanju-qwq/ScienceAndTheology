@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include "recipe.hpp"
-#include "../power/gt_values.hpp"
+#include "../config/gt_values.hpp"
 
 namespace science_and_theology::gt {
 

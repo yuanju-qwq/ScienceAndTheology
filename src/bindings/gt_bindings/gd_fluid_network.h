@@ -7,7 +7,7 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector2i.hpp>
 
-#include "core/gt/fluid/fluid_network.hpp"
+#include "core/network/fluid_network.hpp"
 
 namespace science_and_theology {
 

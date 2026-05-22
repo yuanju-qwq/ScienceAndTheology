@@ -5,7 +5,7 @@
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
-#include "core/gt/fluid/fluid_types.hpp"
+#include "core/fluid/fluid_registry.hpp"
 
 namespace science_and_theology {
 

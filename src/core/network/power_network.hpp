@@ -7,7 +7,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "power_node.hpp"
+#include "gt/power/power_node.hpp"
 
 namespace science_and_theology::gt {
 

@@ -6,7 +6,7 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
-#include "core/gt/crafting/crafting.hpp"
+#include "core/crafting/crafting.hpp"
 
 namespace science_and_theology {
 
@@ -111,8 +111,8 @@ private:
     // Convert a C++ CraftingRecipe to a Godot Dictionary.
     static godot::Dictionary _recipe_to_dict(const gt::CraftingRecipe& recipe);
 
-    // Convert a C++ ItemStack to a Godot Dictionary.
-    static godot::Dictionary _item_to_dict(const gt::ItemStack& stack);
+    // Convert a C++ ResourceStack to a Godot Dictionary.
+    static godot::Dictionary _item_to_dict(const gt::ResourceStack& stack);
 
     // Look up internal recipe by name.
     static const gt::CraftingRecipe* _find_recipe(const godot::String& name);

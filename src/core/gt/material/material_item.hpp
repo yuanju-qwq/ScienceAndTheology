@@ -4,16 +4,12 @@
 #include <cstddef>
 #include <string>
 
+#include "common/resource_types.hpp"
+#include "core/item/item_def.hpp"
 #include "material.hpp"
 #include "material_form.hpp"
 
 namespace science_and_theology::gt {
-
-// Unique item identifier. Every distinct item in the game gets one.
-// For material-based items, the ID is computed from (material_id, form).
-// Non-material items (tools, machines, etc.) use IDs above the material range.
-using ItemId = uint32_t;
-inline constexpr ItemId kInvalidItemId = 0;
 
 // Number of material forms, used for ID computation.
 inline constexpr uint32_t kFormCount = static_cast<uint32_t>(MaterialForm::COUNT);
@@ -51,36 +47,23 @@ inline constexpr MaterialForm form_from_item(ItemId id) {
 
 // Identifies a specific material-based item.
 // Produced by Material × Form intersection.
-struct MaterialItem {
-    ItemId item_id;              // computed item ID
-    const Material* material;    // source material (null if not registered)
-    MaterialForm form;            // physical form
-    char item_key[64];           // e.g. "ingot.copper" (GT5 ore-dict key format)
-    char display_name[64];       // e.g. "Copper Ingot"
+// Extends ItemDefinition with GT-specific material metadata.
+struct MaterialItem : ItemDefinition {
+    const Material* material = nullptr;   // source material (null if not registered)
+    MaterialForm form = MaterialForm::COUNT;
+
+    // Internal storage for ItemDefinition's string pointers.
+    char _name_key_buf[64] = {};
+    char _display_name_buf[64] = {};
+
+    MaterialItem() {
+        name_key = _name_key_buf;
+        display_name = _display_name_buf;
+    }
 
     // Material units this item contains (144 per ingot, etc.).
     int64_t material_amount() const {
         return get_material_amount(form);
-    }
-};
-
-// Represents a quantity of a specific item type.
-// This is the fundamental unit of inventory / recipe I/O.
-struct ItemStack {
-    ItemId item_id = kInvalidItemId;
-    int64_t count = 0;
-
-    ItemStack() = default;
-    ItemStack(ItemId id, int64_t c) : item_id(id), count(c) {}
-
-    bool is_valid() const { return item_id != kInvalidItemId && count > 0; }
-    bool is_empty() const { return item_id == kInvalidItemId || count <= 0; }
-
-    bool operator==(const ItemStack& other) const {
-        return item_id == other.item_id && count == other.count;
-    }
-    bool operator!=(const ItemStack& other) const {
-        return !(*this == other);
     }
 };
 
@@ -129,11 +112,5 @@ private:
     static void register_material_item(const Material* material, MaterialForm form,
                                         ItemId item_id);
 };
-
-// Convenience: create an ItemStack from material+form+count.
-inline ItemStack make_item_stack(const Material* material, MaterialForm form,
-                                  int64_t count) {
-    return ItemStack(ItemRegistry::get_item_id(material, form), count);
-}
 
 } // namespace science_and_theology::gt

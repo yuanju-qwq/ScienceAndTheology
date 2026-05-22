@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "gt_values.hpp"
+#include "../config/gt_values.hpp"
 
 namespace science_and_theology::gt {
 
