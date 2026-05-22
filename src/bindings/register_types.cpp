@@ -6,6 +6,8 @@
 #include "hello_world/gd_hello_world.h"
 #include "gt_bindings/gd_power_network.h"
 #include "gt_bindings/gd_crafting.h"
+#include "world_bindings/gd_world_data.h"
+#include "world_bindings/gd_terrain_generator.h"
 
 using namespace godot;
 
@@ -20,6 +22,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDPowerNetwork>();
     ClassDB::register_class<GDCraftingGrid>();
     ClassDB::register_class<GDCraftingManager>();
+    ClassDB::register_class<GDWorldData>();
+    ClassDB::register_class<GDTerrainGenerator>();
 }
 
 void uninitialize_snt_extension(ModuleInitializationLevel p_level) {

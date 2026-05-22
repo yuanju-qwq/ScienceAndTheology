@@ -15,6 +15,22 @@ target_sources(snt_core PRIVATE
     gt/power/power_network.cpp
 )
 
+# World data system
+target_sources(snt_core PRIVATE
+    world/terrain_data.hpp
+    world/chunk_data.hpp
+    world/world_data.hpp
+)
+
+# World generation system
+target_sources(snt_core PRIVATE
+    world_gen/world_seed.hpp
+    world_gen/noise_generator.hpp
+    world_gen/noise_generator.cpp
+    world_gen/terrain_generator.hpp
+    world_gen/terrain_generator.cpp
+)
+
 # Future modules:
 # target_sources(snt_core PRIVATE
 #     ae2/network/network_controller.cpp
