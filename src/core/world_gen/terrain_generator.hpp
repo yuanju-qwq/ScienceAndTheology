@@ -19,6 +19,11 @@ namespace science_and_theology {
 //   5. Object        - small interactable objects
 //   6. Gameplay      - connectors, spawn points, etc.
 //
+// Thread safety: generate_chunk() is fully reentrant and safe for
+// concurrent invocation. world_seed_ is read-only after construction;
+// all other state is stack-local. NoiseGenerator instances are
+// independently seeded per call.
+//
 // Usage:
 //   TerrainGenerator gen(WorldSeed(12345));
 //   ChunkData chunk = gen.generate_chunk("surface", 0, 0);
@@ -58,9 +63,10 @@ private:
                      TerrainData& terrain);
 
     // Pass 6: Place gameplay elements (connectors, spawn points, etc.).
+    // Receives the full chunk to populate its connectors vector.
     void pass_gameplay(const std::string& layer_id,
                        int chunk_x, int chunk_y,
-                       TerrainData& terrain);
+                       ChunkData& chunk);
 
     // Sets a cell's material and derives its flags automatically.
     void set_cell(TerrainData& terrain, int x, int y,

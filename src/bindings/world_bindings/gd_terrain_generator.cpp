@@ -12,10 +12,7 @@ GDTerrainGenerator::GDTerrainGenerator()
     rebuild_generator();
 }
 
-GDTerrainGenerator::~GDTerrainGenerator() {
-    delete generator_;
-    generator_ = nullptr;
-}
+GDTerrainGenerator::~GDTerrainGenerator() = default;
 
 int64_t GDTerrainGenerator::get_seed() const {
     return seed_;
@@ -30,8 +27,7 @@ void GDTerrainGenerator::set_seed(int64_t seed) {
 }
 
 void GDTerrainGenerator::rebuild_generator() {
-    delete generator_;
-    generator_ = new TerrainGenerator(
+    generator_ = std::make_unique<TerrainGenerator>(
         WorldSeed(static_cast<uint64_t>(seed_)));
 }
 
@@ -39,7 +35,7 @@ godot::Dictionary GDTerrainGenerator::generate_chunk(
     const godot::String& layer_id, int chunk_x, int chunk_y) {
     Dictionary result;
 
-    if (generator_ == nullptr) {
+    if (!generator_) {
         UtilityFunctions::push_warning(
             "GDTerrainGenerator: generator not initialized");
         return result;

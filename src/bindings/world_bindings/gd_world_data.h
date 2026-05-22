@@ -6,9 +6,15 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
+#include <memory>
+#include <mutex>
+#include <queue>
+
 #include "core/world/world_data.hpp"
 #include "core/world_gen/terrain_generator.hpp"
 #include "core/world_gen/world_seed.hpp"
+#include "core/threading/worker_pool.hpp"
+#include "core/save/save_manager.hpp"
 
 namespace science_and_theology {
 
@@ -79,8 +85,37 @@ public:
                              const godot::Dictionary& data);
 
     // Retrieves terrain data for a chunk as a Dictionary.
+    // Includes connectors array if present.
     godot::Dictionary get_chunk_terrain(const godot::String& layer_id,
                                         int chunk_x, int chunk_y);
+
+    // Retrieves only connector placements for a chunk.
+    godot::Array get_chunk_connectors(const godot::String& layer_id,
+                                      int chunk_x, int chunk_y);
+
+    // Returns entity IDs owned by this chunk as an Array of uint64.
+    godot::Array get_chunk_entities(const godot::String& layer_id,
+                                    int chunk_x, int chunk_y);
+
+    // Returns machine IDs owned by this chunk as an Array of uint64.
+    godot::Array get_chunk_machines(const godot::String& layer_id,
+                                    int chunk_x, int chunk_y);
+
+    // Returns connector runtime IDs owned by this chunk as an Array of uint64.
+    godot::Array get_chunk_connector_ids(const godot::String& layer_id,
+                                         int chunk_x, int chunk_y);
+
+    // Registers an entity ID in this chunk. Returns true on success.
+    bool add_entity_to_chunk(const godot::String& layer_id,
+                             int chunk_x, int chunk_y, int64_t entity_id);
+
+    // Registers a machine ID in this chunk. Returns true on success.
+    bool add_machine_to_chunk(const godot::String& layer_id,
+                              int chunk_x, int chunk_y, int64_t machine_id);
+
+    // Registers a connector runtime ID in this chunk. Returns true on success.
+    bool add_connector_id_to_chunk(const godot::String& layer_id,
+                                   int chunk_x, int chunk_y, int64_t connector_id);
 
     // Removes a chunk entirely.
     void remove_chunk(const godot::String& layer_id,
@@ -92,6 +127,52 @@ public:
     // Clears all loaded chunks.
     void clear();
 
+    // --- Async chunk generation ---
+
+    // Non-blocking: enqueues chunk generation on the worker pool.
+    // Chunk is automatically stored when ready and chunk_ready signal is
+    // emitted during the next call to process_async_results().
+    void request_chunk_async(const godot::String& layer_id,
+                             int chunk_x, int chunk_y);
+
+    // Must be called every frame (e.g., from _process).
+    // Collects completed async generations, stores them in the world,
+    // and emits chunk_ready signals on the main thread.
+    // Returns the number of chunks that were completed this frame.
+    int64_t process_async_results();
+
+    // Returns the number of pending + in-progress async chunk requests.
+    int64_t get_async_pending_count() const;
+
+    // Returns the number of worker threads in the pool.
+    int64_t get_worker_thread_count() const;
+
+    // Returns the total number of completed async chunk generations.
+    int64_t get_async_completed_count() const;
+
+    // Maximum async queue size. When full, request_chunk_async silently
+    // drops new requests to prevent unbounded memory growth.
+    // Default: 256. Set to 0 for unlimited (not recommended).
+    int64_t get_max_async_queue_size() const;
+    void set_max_async_queue_size(int64_t size);
+
+    // --- Save / load ---
+
+    // Saves all loaded chunks to a directory. Uses chunks stored in WorldData.
+    // Returns the number of chunks saved, or -1 on error.
+    int64_t save_world(const godot::String& save_dir);
+
+    // Loads all chunks from a save directory into WorldData.
+    // Existing chunks are cleared. Returns the world seed, or -1 on error.
+    int64_t load_world(const godot::String& save_dir);
+
+    // Lists save names with valid world_header.bin in a base directory.
+    static godot::Array list_saves(const godot::String& base_saves_dir);
+
+    // ---
+
+    // ---
+
     // Returns the total number of loaded chunks.
     int64_t get_chunk_count() const;
 
@@ -101,10 +182,31 @@ protected:
 private:
     void rebuild_generator();
     godot::Dictionary terrain_to_dict(const TerrainData& terrain) const;
+    godot::Array connectors_to_array(
+        const std::vector<ConnectorPlacement>& connectors) const;
+    godot::Array entity_ids_to_array(
+        const std::vector<EntityId>& ids) const;
+    static std::vector<EntityId> array_to_entity_ids(const godot::Array& arr);
+
+    // Async generation internals.
+    struct AsyncChunkResult {
+        std::string layer_id;
+        int chunk_x = 0;
+        int chunk_y = 0;
+        ChunkData chunk;
+    };
 
     WorldData world_;
-    TerrainGenerator* generator_ = nullptr;
+    std::unique_ptr<TerrainGenerator> generator_;
     int64_t seed_ = 0;
+
+    // Async generation state.
+    static constexpr int64_t kDefaultMaxAsyncQueueSize = 256;
+    std::unique_ptr<WorkerPool> worker_pool_;
+    std::queue<AsyncChunkResult> async_results_;
+    mutable std::mutex async_results_mutex_;
+    int64_t async_completed_count_ = 0;
+    int64_t max_async_queue_size_ = kDefaultMaxAsyncQueueSize;
 };
 
 } // namespace science_and_theology

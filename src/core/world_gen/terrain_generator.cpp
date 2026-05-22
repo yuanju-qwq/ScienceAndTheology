@@ -22,7 +22,7 @@ ChunkData TerrainGenerator::generate_chunk(
     pass_ore(layer_id, chunk_x, chunk_y, chunk.terrain);
     pass_structure(layer_id, chunk_x, chunk_y, chunk.terrain);
     pass_object(layer_id, chunk_x, chunk_y, chunk.terrain);
-    pass_gameplay(layer_id, chunk_x, chunk_y, chunk.terrain);
+    pass_gameplay(layer_id, chunk_x, chunk_y, chunk);
 
     return chunk;
 }
@@ -175,11 +175,164 @@ void TerrainGenerator::pass_object(
 }
 
 void TerrainGenerator::pass_gameplay(
-    const std::string& /*layer_id*/,
-    int /*chunk_x*/, int /*chunk_y*/,
-    TerrainData& /*terrain*/) {
-    // Stub: gameplay elements not yet implemented.
-    // Future: connector placement, spawn points, mechanism triggers.
+    const std::string& layer_id,
+    int chunk_x, int chunk_y,
+    ChunkData& chunk) {
+    NoiseGenerator placement_noise(
+        world_seed_.chunk_seed(
+            static_cast<uint32_t>(GenerationPass::GAMEPLAY),
+            chunk_x, chunk_y));
+
+    TerrainData& terrain = chunk.terrain;
+
+    if (layer_id == "surface") {
+        // Surface connectors: cave entrances and rifts.
+        // Each chunk can have at most 2 connectors.
+        int max_connectors = 2;
+        int placed = 0;
+
+        for (int y = 0; y < ChunkData::kChunkSize && placed < max_connectors; ++y) {
+            for (int x = 0; x < ChunkData::kChunkSize && placed < max_connectors; ++x) {
+                const TerrainCell& cell = terrain.cell_at(x, y);
+                if (!cell.is_walkable()) {
+                    continue;
+                }
+
+                // Check if there is stone nearby (within 3 cells) indicating a cave feature.
+                bool near_stone = false;
+                for (int dy = -3; dy <= 3 && !near_stone; ++dy) {
+                    for (int dx = -3; dx <= 3 && !near_stone; ++dx) {
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        if (terrain.is_valid_cell(nx, ny)) {
+                            const TerrainCell& neighbor = terrain.cell_at(nx, ny);
+                            if (neighbor.material == TerrainMaterial::STONE) {
+                                near_stone = true;
+                            }
+                        }
+                    }
+                }
+
+                if (!near_stone) {
+                    continue;
+                }
+
+                int global_x = chunk_x * ChunkData::kChunkSize + x;
+                int global_y = chunk_y * ChunkData::kChunkSize + y;
+
+                float placement_value = placement_noise.noise_2d_scaled(
+                    static_cast<float>(global_x + 7000),
+                    static_cast<float>(global_y + 7000),
+                    0.15f, 1);
+
+                if (placement_value < 0.3f) {
+                    continue;
+                }
+
+                // Determine connector type based on noise.
+                float type_noise = placement_noise.noise_2d_scaled(
+                    static_cast<float>(global_x + 3000),
+                    static_cast<float>(global_y + 3000),
+                    0.25f, 1);
+
+                ConnectorPlacement conn;
+                conn.connector_id = std::string("conn_") + layer_id + "_"
+                    + std::to_string(chunk_x) + "_" + std::to_string(chunk_y)
+                    + "_" + std::to_string(placed);
+                conn.from_layer = "surface";
+                conn.from_cell_x = global_x;
+                conn.from_cell_y = global_y;
+                conn.to_layer = "underground";
+                conn.to_cell_x = global_x;
+                conn.to_cell_y = global_y;
+
+                if (type_noise > 0.0f) {
+                    conn.connector_type = "cave_entrance";
+                    conn.activation_mode = 0;  // INTERACT
+                    conn.one_way = false;
+                    conn.locked = false;
+                } else {
+                    conn.connector_type = "rift";
+                    conn.activation_mode = 1;  // AUTO_ON_ENTER
+                    conn.one_way = true;
+                    conn.locked = false;
+                }
+
+                chunk.connectors.push_back(std::move(conn));
+                ++placed;
+            }
+        }
+    } else if (layer_id == "underground") {
+        // Underground connectors: ruin gates and stair exits.
+        int max_connectors = 2;
+        int placed = 0;
+
+        for (int y = 0; y < ChunkData::kChunkSize && placed < max_connectors; ++y) {
+            for (int x = 0; x < ChunkData::kChunkSize && placed < max_connectors; ++x) {
+                const TerrainCell& cell = terrain.cell_at(x, y);
+
+                // Connectors only in cave air pockets.
+                if (cell.material != TerrainMaterial::AIR) {
+                    continue;
+                }
+
+                // Check if surrounded by stone (forms a room).
+                int stone_neighbors = 0;
+                int total_neighbors = 0;
+                for (int dy = -2; dy <= 2; ++dy) {
+                    for (int dx = -2; dx <= 2; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        int nx = x + dx;
+                        int ny = y + dy;
+                        if (terrain.is_valid_cell(nx, ny)) {
+                            ++total_neighbors;
+                            if (terrain.cell_at(nx, ny).is_solid()) {
+                                ++stone_neighbors;
+                            }
+                        }
+                    }
+                }
+
+                // Need enough stone around to form a gate/room.
+                float stone_ratio = (total_neighbors > 0)
+                    ? static_cast<float>(stone_neighbors) / static_cast<float>(total_neighbors)
+                    : 0.0f;
+                if (stone_ratio < 0.5f) {
+                    continue;
+                }
+
+                int global_x = chunk_x * ChunkData::kChunkSize + x;
+                int global_y = chunk_y * ChunkData::kChunkSize + y;
+
+                float placement_value = placement_noise.noise_2d_scaled(
+                    static_cast<float>(global_x + 9000),
+                    static_cast<float>(global_y + 9000),
+                    0.15f, 1);
+
+                if (placement_value < 0.3f) {
+                    continue;
+                }
+
+                ConnectorPlacement conn;
+                conn.connector_id = std::string("conn_") + layer_id + "_"
+                    + std::to_string(chunk_x) + "_" + std::to_string(chunk_y)
+                    + "_" + std::to_string(placed);
+                conn.from_layer = "underground";
+                conn.from_cell_x = global_x;
+                conn.from_cell_y = global_y;
+                conn.to_layer = "surface";
+                conn.to_cell_x = global_x;
+                conn.to_cell_y = global_y;
+                conn.connector_type = "ruin_gate";
+                conn.activation_mode = 0;  // INTERACT
+                conn.one_way = false;
+                conn.locked = true;
+
+                chunk.connectors.push_back(std::move(conn));
+                ++placed;
+            }
+        }
+    }
 }
 
 void TerrainGenerator::set_cell(

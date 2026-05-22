@@ -17,13 +17,15 @@ namespace science_and_theology {
 using namespace godot;
 
 GDWorldData::GDWorldData()
-    : seed_(0) {
+    : seed_(0),
+      worker_pool_(std::make_unique<WorkerPool>(0)) {  // 0 = use hardware concurrency
     rebuild_generator();
 }
 
 GDWorldData::~GDWorldData() {
-    delete generator_;
-    generator_ = nullptr;
+    // Destroy worker pool before generator to ensure no in-flight tasks.
+    worker_pool_.reset();
+    // generator_ auto-cleaned by unique_ptr
 }
 
 int64_t GDWorldData::get_seed() const {
@@ -39,9 +41,18 @@ void GDWorldData::set_seed(int64_t seed) {
 }
 
 void GDWorldData::rebuild_generator() {
-    delete generator_;
-    generator_ = nullptr;
-    generator_ = new TerrainGenerator(
+    // Drain worker pool to prevent use-after-free on the old generator.
+    if (worker_pool_) {
+        worker_pool_->wait_all();
+    }
+
+    // Discard any unprocessed async results from the old generator.
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        async_results_ = std::queue<AsyncChunkResult>();
+    }
+
+    generator_ = std::make_unique<TerrainGenerator>(
         WorldSeed(static_cast<uint64_t>(seed_)));
 }
 
@@ -49,7 +60,7 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
     const godot::String& layer_id, int chunk_x, int chunk_y) {
     static const Dictionary kEmptyResult;
 
-    if (generator_ == nullptr) {
+    if (!generator_) {
         UtilityFunctions::push_warning(
             "GDWorldData: generator not initialized");
         return kEmptyResult;
@@ -62,15 +73,24 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
         const ChunkData* existing = world_.get_chunk(
             layer_str, chunk_x, chunk_y);
         if (existing != nullptr) {
-            return terrain_to_dict(existing->terrain);
+            Dictionary result = terrain_to_dict(existing->terrain);
+            result["connectors"] = connectors_to_array(existing->connectors);
+            result["entities"] = entity_ids_to_array(existing->entities);
+            result["machines"] = entity_ids_to_array(existing->machines);
+            result["connector_ids"] = entity_ids_to_array(existing->connector_ids);
+            return result;
         }
     }
 
     // Generate new chunk.
     ChunkData chunk = generator_->generate_chunk(layer_str, chunk_x, chunk_y);
 
-    // Snapshot terrain before moving chunk into world.
+    // Snapshot terrain and connectors before moving chunk into world.
     Dictionary result = terrain_to_dict(chunk.terrain);
+    result["connectors"] = connectors_to_array(chunk.connectors);
+    result["entities"] = entity_ids_to_array(chunk.entities);
+    result["machines"] = entity_ids_to_array(chunk.machines);
+    result["connector_ids"] = entity_ids_to_array(chunk.connector_ids);
 
     world_.set_chunk(layer_str, chunk_x, chunk_y, std::move(chunk));
 
@@ -143,6 +163,42 @@ void GDWorldData::set_chunk_from_dict(
             static_cast<uint32_t>(flags[i]);
     }
 
+    // Restore connectors from dict if present.
+    Array connector_array = data.get("connectors", Array());
+    for (int i = 0; i < connector_array.size(); ++i) {
+        Dictionary conn_dict = connector_array[i];
+        ConnectorPlacement conn;
+        conn.connector_id = static_cast<std::string>(
+            String(conn_dict.get("connector_id", "")).utf8().get_data());
+        conn.from_layer = static_cast<std::string>(
+            String(conn_dict.get("from_layer", "")).utf8().get_data());
+        conn.from_cell_x = static_cast<int>(conn_dict.get("from_cell_x", 0));
+        conn.from_cell_y = static_cast<int>(conn_dict.get("from_cell_y", 0));
+        conn.to_layer = static_cast<std::string>(
+            String(conn_dict.get("to_layer", "")).utf8().get_data());
+        conn.to_cell_x = static_cast<int>(conn_dict.get("to_cell_x", 0));
+        conn.to_cell_y = static_cast<int>(conn_dict.get("to_cell_y", 0));
+        conn.one_way = static_cast<bool>(conn_dict.get("one_way", false));
+        conn.locked = static_cast<bool>(conn_dict.get("locked", false));
+        conn.connector_type = static_cast<std::string>(
+            String(conn_dict.get("connector_type", "")).utf8().get_data());
+        conn.activation_mode = static_cast<int>(
+            conn_dict.get("activation_mode", 0));
+        chunk.connectors.push_back(std::move(conn));
+    }
+
+    // Restore entity IDs from dict if present.
+    Array entity_array = data.get("entities", Array());
+    chunk.entities = array_to_entity_ids(entity_array);
+
+    // Restore machine IDs from dict if present.
+    Array machine_array = data.get("machines", Array());
+    chunk.machines = array_to_entity_ids(machine_array);
+
+    // Restore connector runtime IDs from dict if present.
+    Array conn_id_array = data.get("connector_ids", Array());
+    chunk.connector_ids = array_to_entity_ids(conn_id_array);
+
     world_.set_chunk(layer_id.utf8().get_data(), chunk_x, chunk_y,
                      std::move(chunk));
 }
@@ -154,7 +210,22 @@ godot::Dictionary GDWorldData::get_chunk_terrain(
     if (chunk == nullptr) {
         return Dictionary();
     }
-    return terrain_to_dict(chunk->terrain);
+    Dictionary result = terrain_to_dict(chunk->terrain);
+    result["connectors"] = connectors_to_array(chunk->connectors);
+    result["entities"] = entity_ids_to_array(chunk->entities);
+    result["machines"] = entity_ids_to_array(chunk->machines);
+    result["connector_ids"] = entity_ids_to_array(chunk->connector_ids);
+    return result;
+}
+
+godot::Array GDWorldData::get_chunk_connectors(
+    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return Array();
+    }
+    return connectors_to_array(chunk->connectors);
 }
 
 void GDWorldData::remove_chunk(
@@ -205,6 +276,273 @@ godot::Dictionary GDWorldData::terrain_to_dict(
     return result;
 }
 
+godot::Array GDWorldData::connectors_to_array(
+    const std::vector<ConnectorPlacement>& connectors) const {
+    Array arr;
+    for (const auto& conn : connectors) {
+        Dictionary d;
+        d["connector_id"] = String(conn.connector_id.c_str());
+        d["from_layer"] = String(conn.from_layer.c_str());
+        d["from_cell_x"] = conn.from_cell_x;
+        d["from_cell_y"] = conn.from_cell_y;
+        d["to_layer"] = String(conn.to_layer.c_str());
+        d["to_cell_x"] = conn.to_cell_x;
+        d["to_cell_y"] = conn.to_cell_y;
+        d["one_way"] = conn.one_way;
+        d["locked"] = conn.locked;
+        d["connector_type"] = String(conn.connector_type.c_str());
+        d["activation_mode"] = conn.activation_mode;
+        arr.append(d);
+    }
+    return arr;
+}
+
+godot::Array GDWorldData::entity_ids_to_array(
+    const std::vector<EntityId>& ids) const {
+    Array arr;
+    for (const auto& eid : ids) {
+        arr.append(static_cast<int64_t>(eid.id));
+    }
+    return arr;
+}
+
+std::vector<EntityId> GDWorldData::array_to_entity_ids(
+    const godot::Array& arr) {
+    std::vector<EntityId> result;
+    for (int i = 0; i < arr.size(); ++i) {
+        EntityId eid;
+        eid.id = static_cast<uint64_t>(static_cast<int64_t>(arr[i]));
+        if (eid.is_valid()) {
+            result.push_back(eid);
+        }
+    }
+    return result;
+}
+
+godot::Array GDWorldData::get_chunk_entities(
+    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return Array();
+    }
+    return entity_ids_to_array(chunk->entities);
+}
+
+godot::Array GDWorldData::get_chunk_machines(
+    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return Array();
+    }
+    return entity_ids_to_array(chunk->machines);
+}
+
+godot::Array GDWorldData::get_chunk_connector_ids(
+    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return Array();
+    }
+    return entity_ids_to_array(chunk->connector_ids);
+}
+
+bool GDWorldData::add_entity_to_chunk(
+    const godot::String& layer_id, int chunk_x, int chunk_y,
+    int64_t entity_id) {
+    ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return false;
+    }
+    EntityId eid{static_cast<uint64_t>(entity_id)};
+    if (!eid.is_valid()) {
+        return false;
+    }
+    chunk->entities.push_back(eid);
+    return true;
+}
+
+bool GDWorldData::add_machine_to_chunk(
+    const godot::String& layer_id, int chunk_x, int chunk_y,
+    int64_t machine_id) {
+    ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return false;
+    }
+    EntityId mid{static_cast<uint64_t>(machine_id)};
+    if (!mid.is_valid()) {
+        return false;
+    }
+    chunk->machines.push_back(mid);
+    return true;
+}
+
+bool GDWorldData::add_connector_id_to_chunk(
+    const godot::String& layer_id, int chunk_x, int chunk_y,
+    int64_t connector_id) {
+    ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return false;
+    }
+    EntityId cid{static_cast<uint64_t>(connector_id)};
+    if (!cid.is_valid()) {
+        return false;
+    }
+    chunk->connector_ids.push_back(cid);
+    return true;
+}
+
+void GDWorldData::request_chunk_async(
+    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    if (!generator_) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: request_chunk_async called without generator");
+        return;
+    }
+
+    std::string layer_str = layer_id.utf8().get_data();
+
+    // Skip if chunk already exists.
+    if (world_.has_chunk(layer_str, chunk_x, chunk_y)) {
+        emit_signal("chunk_ready", layer_id, chunk_x, chunk_y);
+        return;
+    }
+
+    // Reject if the async pipeline is at capacity.
+    // Prevents unbounded queue growth when generation outpaces consumption.
+    if (max_async_queue_size_ > 0 &&
+        get_async_pending_count() >= max_async_queue_size_) {
+        return;
+    }
+
+    // TerrainGenerator::generate_chunk() is thread-safe:
+    // - Only reads world_seed_ (const), all other state is stack-local.
+    // - Each NoiseGenerator creates independent perm_ array from its sub-seed.
+    // Safe to share across worker threads without locks.
+    TerrainGenerator* gen = generator_.get();
+    worker_pool_->enqueue([this, gen, layer_str, chunk_x, chunk_y]() {
+        ChunkData chunk = gen->generate_chunk(layer_str, chunk_x, chunk_y);
+
+        AsyncChunkResult result;
+        result.layer_id = layer_str;
+        result.chunk_x = chunk_x;
+        result.chunk_y = chunk_y;
+        result.chunk = std::move(chunk);
+
+        {
+            std::lock_guard<std::mutex> lock(async_results_mutex_);
+            async_results_.push(std::move(result));
+        }
+    });
+}
+
+int64_t GDWorldData::process_async_results() {
+    int64_t completed = 0;
+
+    // Drain results under lock, then process outside lock.
+    std::vector<AsyncChunkResult> batch;
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        while (!async_results_.empty()) {
+            batch.push_back(std::move(async_results_.front()));
+            async_results_.pop();
+        }
+    }
+
+    for (auto& result : batch) {
+        godot::String gd_layer(result.layer_id.c_str());
+        int cx = result.chunk_x;
+        int cy = result.chunk_y;
+
+        // Store the generated chunk in the world.
+        world_.set_chunk(result.layer_id, cx, cy, std::move(result.chunk));
+
+        // Emit signal from the main thread (signal-safe).
+        emit_signal("chunk_ready", gd_layer, cx, cy);
+        ++completed;
+    }
+
+    async_completed_count_ += completed;
+    return completed;
+}
+
+int64_t GDWorldData::get_async_pending_count() const {
+    if (!worker_pool_) {
+        return 0;
+    }
+    int64_t pool_pending = static_cast<int64_t>(worker_pool_->pending_count());
+
+    int64_t result_pending = 0;
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        result_pending = static_cast<int64_t>(async_results_.size());
+    }
+
+    return pool_pending + result_pending;
+}
+
+int64_t GDWorldData::get_worker_thread_count() const {
+    if (!worker_pool_) {
+        return 0;
+    }
+    return static_cast<int64_t>(worker_pool_->thread_count());
+}
+
+int64_t GDWorldData::get_async_completed_count() const {
+    return async_completed_count_;
+}
+
+int64_t GDWorldData::get_max_async_queue_size() const {
+    return max_async_queue_size_;
+}
+
+void GDWorldData::set_max_async_queue_size(int64_t size) {
+    max_async_queue_size_ = (size >= 0) ? size : 0;
+}
+
+int64_t GDWorldData::save_world(const godot::String& save_dir) {
+    std::string dir_str = save_dir.utf8().get_data();
+    int count = SaveManager::save_world(dir_str, seed_, world_);
+    if (count < 0) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: save_world failed for path: ", save_dir);
+    }
+    return static_cast<int64_t>(count);
+}
+
+int64_t GDWorldData::load_world(const godot::String& save_dir) {
+    std::string dir_str = save_dir.utf8().get_data();
+
+    auto [ok, loaded_seed] = SaveManager::load_world(dir_str, world_);
+    if (!ok) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: load_world failed for path: ", save_dir);
+        return -1;
+    }
+
+    // Update seed to match loaded world.
+    seed_ = loaded_seed;
+    rebuild_generator();
+
+    return loaded_seed;
+}
+
+godot::Array GDWorldData::list_saves(const godot::String& base_saves_dir) {
+    std::string dir_str = base_saves_dir.utf8().get_data();
+    auto saves = SaveManager::list_saves(dir_str);
+
+    Array result;
+    for (const auto& save_name : saves) {
+        result.append(String(save_name.c_str()));
+    }
+    return result;
+}
+
 void GDWorldData::_bind_methods() {
     // Seed property.
     ClassDB::bind_method(D_METHOD("get_seed"),
@@ -227,6 +565,20 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::set_chunk_from_dict);
     ClassDB::bind_method(D_METHOD("get_chunk_terrain", "layer_id", "chunk_x", "chunk_y"),
                          &GDWorldData::get_chunk_terrain);
+    ClassDB::bind_method(D_METHOD("get_chunk_connectors", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::get_chunk_connectors);
+    ClassDB::bind_method(D_METHOD("get_chunk_entities", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::get_chunk_entities);
+    ClassDB::bind_method(D_METHOD("get_chunk_machines", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::get_chunk_machines);
+    ClassDB::bind_method(D_METHOD("get_chunk_connector_ids", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::get_chunk_connector_ids);
+    ClassDB::bind_method(D_METHOD("add_entity_to_chunk", "layer_id", "chunk_x", "chunk_y", "entity_id"),
+                         &GDWorldData::add_entity_to_chunk);
+    ClassDB::bind_method(D_METHOD("add_machine_to_chunk", "layer_id", "chunk_x", "chunk_y", "machine_id"),
+                         &GDWorldData::add_machine_to_chunk);
+    ClassDB::bind_method(D_METHOD("add_connector_id_to_chunk", "layer_id", "chunk_x", "chunk_y", "connector_id"),
+                         &GDWorldData::add_connector_id_to_chunk);
     ClassDB::bind_method(D_METHOD("remove_chunk", "layer_id", "chunk_x", "chunk_y"),
                          &GDWorldData::remove_chunk);
     ClassDB::bind_method(D_METHOD("get_all_chunk_keys"),
@@ -235,6 +587,33 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::clear);
     ClassDB::bind_method(D_METHOD("get_chunk_count"),
                          &GDWorldData::get_chunk_count);
+
+    // Async chunk generation.
+    ClassDB::bind_method(D_METHOD("request_chunk_async", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::request_chunk_async);
+    ClassDB::bind_method(D_METHOD("process_async_results"),
+                         &GDWorldData::process_async_results);
+    ClassDB::bind_method(D_METHOD("get_async_pending_count"),
+                         &GDWorldData::get_async_pending_count);
+    ClassDB::bind_method(D_METHOD("get_worker_thread_count"),
+                         &GDWorldData::get_worker_thread_count);
+    ClassDB::bind_method(D_METHOD("get_async_completed_count"),
+                         &GDWorldData::get_async_completed_count);
+    ClassDB::bind_method(D_METHOD("get_max_async_queue_size"),
+                         &GDWorldData::get_max_async_queue_size);
+    ClassDB::bind_method(D_METHOD("set_max_async_queue_size", "size"),
+                         &GDWorldData::set_max_async_queue_size);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "max_async_queue_size"),
+                 "set_max_async_queue_size", "get_max_async_queue_size");
+
+    // Save / load.
+    ClassDB::bind_method(D_METHOD("save_world", "save_dir"),
+                         &GDWorldData::save_world);
+    ClassDB::bind_method(D_METHOD("load_world", "save_dir"),
+                         &GDWorldData::load_world);
+    ClassDB::bind_static_method("GDWorldData",
+        D_METHOD("list_saves", "base_saves_dir"),
+        &GDWorldData::list_saves);
 
     // Signal: emitted when a new chunk has been generated and stored.
     ADD_SIGNAL(MethodInfo("chunk_ready",

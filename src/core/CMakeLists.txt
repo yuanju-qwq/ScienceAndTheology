@@ -31,6 +31,20 @@ target_sources(snt_core PRIVATE
     world_gen/terrain_generator.cpp
 )
 
+# Threading / async support
+target_sources(snt_core PRIVATE
+    threading/worker_pool.hpp
+    threading/worker_pool.cpp
+)
+
+# Save / load system
+target_sources(snt_core PRIVATE
+    save/chunk_serializer.hpp
+    save/chunk_serializer.cpp
+    save/save_manager.hpp
+    save/save_manager.cpp
+)
+
 # Future modules:
 # target_sources(snt_core PRIVATE
 #     ae2/network/network_controller.cpp

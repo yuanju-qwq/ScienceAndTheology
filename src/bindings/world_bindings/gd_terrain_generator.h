@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -42,7 +44,7 @@ protected:
 private:
     void rebuild_generator();
 
-    TerrainGenerator* generator_ = nullptr;
+    std::unique_ptr<TerrainGenerator> generator_;
     int64_t seed_ = 0;
 };
 
