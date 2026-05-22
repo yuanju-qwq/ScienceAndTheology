@@ -18,7 +18,7 @@ GDFluidNetwork::~GDFluidNetwork() = default;
 void GDFluidNetwork::_bind_methods() {
     // Node lifecycle
     ClassDB::bind_method(D_METHOD("add_node", "position", "pipe_type"),
-                         &GDFluidNetwork::add_node, DEFVAL(0));
+                         &GDFluidNetwork::add_node, DEFVAL(PIPE_LIQUID));
     ClassDB::bind_method(D_METHOD("remove_node", "node_id"),
                          &GDFluidNetwork::remove_node);
     ClassDB::bind_method(D_METHOD("get_node_info", "node_id"),
@@ -85,6 +85,10 @@ void GDFluidNetwork::_bind_methods() {
     ClassDB::bind_static_method("GDFluidNetwork",
         D_METHOD("get_fluid_count"),
         &GDFluidNetwork::get_fluid_count);
+
+    // Pipe type constants for GDScript.
+    BIND_CONSTANT(PIPE_LIQUID);
+    BIND_CONSTANT(PIPE_GAS);
 }
 
 // --- Node lifecycle ---

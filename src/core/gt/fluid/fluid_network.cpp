@@ -146,11 +146,11 @@ bool FluidNetwork::set_node_fluid_type(FluidNodeId node_id,
 
     // Validate: gas pipes cannot carry liquid, liquid pipes cannot carry gas.
     const FluidDefinition* def = FluidRegistry::get_fluid(fluid_type);
-    if (def != nullptr) {
-        PipeType required_type = def->is_gas ? PipeType::GAS : PipeType::LIQUID;
-        if (node->pipe_type != required_type) {
-            return false;  // pipe type mismatch
-        }
+    if (def == nullptr) return false;  // unknown fluid ID
+
+    PipeType required_type = def->is_gas ? PipeType::GAS : PipeType::LIQUID;
+    if (node->pipe_type != required_type) {
+        return false;  // pipe type mismatch
     }
 
     // Check if the connected component already has a different fluid.

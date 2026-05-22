@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
@@ -87,6 +88,11 @@ protected:
 private:
     gt::MachineConfig config_;
     std::unique_ptr<gt::Machine> machine_;
+
+    // Owned string buffers (config_ points into these).
+    std::string name_buf_;
+    std::string type_buf_;
+    std::string recipe_buf_;
 };
 
 } // namespace science_and_theology

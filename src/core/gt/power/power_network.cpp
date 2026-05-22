@@ -249,8 +249,6 @@ void PowerNetwork::update_network() {
             if (node == nullptr) continue;
             check_node_overload(*node, supplied_voltage);
         }
-
-        check_component_edges(components[i]);
     }
 }
 
@@ -461,30 +459,7 @@ void PowerNetwork::compute_edge_flows(
         if (edge_wrap != parent_edge.end()) {
             PowerEdge* edge = edge_ptr(edge_wrap->second);
             edge->current_load = subtree_demand[node_id];
-        }
-    }
-}
-
-// --- Internal edge overload checking ---
-
-void PowerNetwork::check_component_edges(
-        const std::vector<PowerNodeId>& component) {
-    std::unordered_set<PowerNodeId> comp_set(component.begin(), component.end());
-    std::unordered_set<const PowerEdge*> checked;
-
-    for (PowerNodeId node_id : component) {
-        auto adj_it = adjacency_.find(node_id);
-        if (adj_it == adjacency_.end()) continue;
-
-        for (auto edge_it : adj_it->second) {
-            PowerEdge* edge = edge_ptr(edge_it);
-            PowerNodeId other = (edge->node_a == node_id) ? edge->node_b
-                                                           : edge->node_a;
-            if (comp_set.count(other) == 0) continue;  // cross-component edge
-            if (checked.count(edge) > 0) continue;
-            checked.insert(edge);
-
-            check_edge_overload(*edge);
+            check_edge_overload(*edge);  // merged from check_component_edges
         }
     }
 }

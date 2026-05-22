@@ -167,9 +167,6 @@ private:
     // leaves to roots, and sets per-edge current_load accurately.
     void compute_edge_flows(const std::vector<PowerNodeId>& component);
 
-    // Checks all internal edges of a component for capacity overload.
-    void check_component_edges(const std::vector<PowerNodeId>& component);
-
     // Checks a single node for overload conditions.
     void check_node_overload(PowerNode& node, int64_t supplied_voltage);
 

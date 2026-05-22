@@ -118,9 +118,13 @@ void GDMachine::configure(godot::String machine_name,
                            int64_t input_slots, int64_t output_slots,
                            int64_t power_buffer,
                            int footprint_w, int footprint_h) {
-    config_.machine_name = strdup(machine_name.utf8().get_data());
-    config_.machine_type = strdup(machine_type.utf8().get_data());
-    config_.recipe_map_name = strdup(recipe_map_name.utf8().get_data());
+    name_buf_ = machine_name.utf8().get_data();
+    type_buf_ = machine_type.utf8().get_data();
+    recipe_buf_ = recipe_map_name.utf8().get_data();
+
+    config_.machine_name = name_buf_.c_str();
+    config_.machine_type = type_buf_.c_str();
+    config_.recipe_map_name = recipe_buf_.c_str();
     config_.tier = static_cast<VoltageTier>(tier);
     config_.max_input_voltage = max_input_voltage > 0
         ? max_input_voltage : get_voltage(config_.tier);

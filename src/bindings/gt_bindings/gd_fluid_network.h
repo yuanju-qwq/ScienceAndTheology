@@ -15,12 +15,17 @@ class GDFluidNetwork : public godot::Resource {
     GDCLASS(GDFluidNetwork, godot::Resource)
 
 public:
+    // Pipe type constants exposed to GDScript.
+    enum PipeType {
+        PIPE_LIQUID = 0,
+        PIPE_GAS    = 1,
+    };
+
     GDFluidNetwork();
     ~GDFluidNetwork() override;
 
     // --- Node lifecycle ---
-    // pipe_type: 0 = LIQUID, 1 = GAS
-    int64_t add_node(godot::Vector2i position, int pipe_type = 0);
+    int64_t add_node(godot::Vector2i position, int pipe_type = PIPE_LIQUID);
     bool remove_node(int64_t node_id);
     godot::Dictionary get_node_info(int64_t node_id) const;
     int64_t get_node_count() const;
