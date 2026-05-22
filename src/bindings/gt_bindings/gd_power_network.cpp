@@ -93,6 +93,9 @@ void GDPowerNetwork::_bind_methods() {
     ClassDB::bind_static_method("GDPowerNetwork",
         D_METHOD("manhattan_dist", "a", "b"),
         &GDPowerNetwork::manhattan_dist);
+    ClassDB::bind_static_method("GDPowerNetwork",
+        D_METHOD("get_transformer_loss_per_step"),
+        &GDPowerNetwork::get_transformer_loss_per_step);
 
     // Signal
     ADD_SIGNAL(MethodInfo("overload_detected",
@@ -151,6 +154,7 @@ godot::Dictionary GDPowerNetwork::get_node_info(int64_t node_id) const {
     info["power_demand"] = node->power_demand;
     info["is_transformer"] = node->is_transformer;
     info["transformer_output_tier"] = static_cast<int>(node->transformer_output_tier);
+    info["max_step"] = node->max_step;
     info["is_overloaded"] = node->overload_info.state != OverloadState::OK;
     return info;
 }
@@ -308,6 +312,10 @@ godot::String GDPowerNetwork::get_tier_name(int tier) {
 
 int64_t GDPowerNetwork::manhattan_dist(godot::Vector2i a, godot::Vector2i b) {
     return manhattan_distance(a.x, a.y, b.x, b.y);
+}
+
+int64_t GDPowerNetwork::get_transformer_loss_per_step() {
+    return PowerNode::kTransformerLossPerStep;
 }
 
 // --- Callback ---

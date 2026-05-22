@@ -16,7 +16,7 @@ namespace science_and_theology {
 class ChunkSerializer {
 public:
     // Current binary format version.
-    static constexpr uint8_t kCurrentVersion = 1;
+    static constexpr uint8_t kCurrentVersion = 2;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
     // The chunk's layer_id is embedded as part of the serialized data.

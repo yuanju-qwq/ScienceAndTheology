@@ -22,7 +22,7 @@ func add_connector(connector: MapConnectorResource) -> void:
 	connectors_changed.emit()
 
 
-func remove_connector(connector_id: StringName) -> void:
+func remove_connector(connector_id: int) -> void:
 	for index in range(connectors.size() - 1, -1, -1):
 		var connector := connectors[index]
 		if connector != null and connector.connector_id == connector_id:
@@ -42,7 +42,7 @@ func has_connector_at(layer_id: StringName, cell_position: Vector2i) -> bool:
 	return get_connector_at(layer_id, cell_position) != null
 
 
-func set_connector_locked(connector_id: StringName, is_locked: bool) -> void:
+func set_connector_locked(connector_id: int, is_locked: bool) -> void:
 	var changed := false
 
 	for connector in connectors:
@@ -54,7 +54,7 @@ func set_connector_locked(connector_id: StringName, is_locked: bool) -> void:
 		connectors_changed.emit()
 
 
-func is_connector_locked(connector_id: StringName) -> bool:
+func is_connector_locked(connector_id: int) -> bool:
 	for connector in connectors:
 		if connector != null and connector.connector_id == connector_id:
 			return connector.locked
@@ -126,7 +126,7 @@ func _make_entrance_key(layer_id: StringName, cell_position: Vector2i) -> String
 
 func _create_prototype_connectors() -> void:
 	add_connector(_make_connector(
-			&"surface_cave_entrance_001",
+			1,
 			&"surface",
 			Vector2i(2, -1),
 			&"underground",
@@ -136,7 +136,7 @@ func _create_prototype_connectors() -> void:
 			false))
 
 	add_connector(_make_connector(
-			&"surface_rift_001",
+			2,
 			&"surface",
 			Vector2i(-3, 1),
 			&"underground",
@@ -146,7 +146,7 @@ func _create_prototype_connectors() -> void:
 			true))
 
 	add_connector(_make_connector(
-			&"underground_ruin_gate_001",
+			3,
 			&"underground",
 			Vector2i(-2, -1),
 			&"surface",
@@ -158,7 +158,7 @@ func _create_prototype_connectors() -> void:
 
 
 func _make_connector(
-		connector_id: StringName,
+		connector_id: int,
 		from_layer: StringName,
 		from_cell: Vector2i,
 		to_layer: StringName,

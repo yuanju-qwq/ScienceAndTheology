@@ -12,7 +12,11 @@ target_sources(snt_core PRIVATE
     gt/crafting/crafting.cpp
     gt/machine/machine.cpp
     gt/machine/recipe.cpp
+    gt/machine/module.cpp
     gt/power/power_network.cpp
+    gt/fluid/fluid_types.cpp
+    gt/fluid/fluid_network.cpp
+    gt/transport/item_pipe_network.cpp
 )
 
 # World data system

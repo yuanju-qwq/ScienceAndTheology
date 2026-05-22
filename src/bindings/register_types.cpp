@@ -6,8 +6,14 @@
 #include "hello_world/gd_hello_world.h"
 #include "gt_bindings/gd_power_network.h"
 #include "gt_bindings/gd_crafting.h"
+#include "gt_bindings/gd_fluid_network.h"
+#include "gt_bindings/gd_item_pipe_network.h"
+#include "gt_bindings/gd_machine.h"
 #include "world_bindings/gd_world_data.h"
 #include "world_bindings/gd_terrain_generator.h"
+
+#include "core/gt/fluid/fluid_types.hpp"
+#include "core/gt/machine/module.hpp"
 
 using namespace godot;
 
@@ -18,10 +24,16 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
         return;
     }
 
+    gt::FluidRegistry::initialize();
+    gt::ModuleRegistry::initialize();
+
     ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
     ClassDB::register_class<GDCraftingGrid>();
     ClassDB::register_class<GDCraftingManager>();
+    ClassDB::register_class<GDFluidNetwork>();
+    ClassDB::register_class<GDItemPipeNetwork>();
+    ClassDB::register_class<GDMachine>();
     ClassDB::register_class<GDWorldData>();
     ClassDB::register_class<GDTerrainGenerator>();
 }

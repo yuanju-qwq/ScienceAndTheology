@@ -236,9 +236,8 @@ void TerrainGenerator::pass_gameplay(
                     0.25f, 1);
 
                 ConnectorPlacement conn;
-                conn.connector_id = std::string("conn_") + layer_id + "_"
-                    + std::to_string(chunk_x) + "_" + std::to_string(chunk_y)
-                    + "_" + std::to_string(placed);
+                conn.connector_id = world_seed_.connector_id(
+                    layer_id, global_x, global_y, placed);
                 conn.from_layer = "surface";
                 conn.from_cell_x = global_x;
                 conn.from_cell_y = global_y;
@@ -314,9 +313,8 @@ void TerrainGenerator::pass_gameplay(
                 }
 
                 ConnectorPlacement conn;
-                conn.connector_id = std::string("conn_") + layer_id + "_"
-                    + std::to_string(chunk_x) + "_" + std::to_string(chunk_y)
-                    + "_" + std::to_string(placed);
+                conn.connector_id = world_seed_.connector_id(
+                    layer_id, global_x, global_y, placed);
                 conn.from_layer = "underground";
                 conn.from_cell_x = global_x;
                 conn.from_cell_y = global_y;

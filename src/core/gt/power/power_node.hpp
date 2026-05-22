@@ -67,6 +67,13 @@ struct PowerNode {
     // The output voltage tier on the secondary side (only for transformers).
     VoltageTier transformer_output_tier = VoltageTier::ULV;
 
+    // Max tier steps this transformer can convert (1 = adjacent tier only).
+    // Advanced transformers unlock higher values later in progression.
+    int max_step = 1;
+
+    // Fixed power loss per tier step difference for transformer operation.
+    static constexpr int64_t kTransformerLossPerStep = 4;
+
     // Whether this node was detected as overloaded last update.
     OverloadInfo overload_info;
 

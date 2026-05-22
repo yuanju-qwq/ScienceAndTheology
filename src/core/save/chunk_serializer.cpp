@@ -260,7 +260,7 @@ bool ChunkSerializer::read_bytes(const std::vector<uint8_t>& data,
 
 void ChunkSerializer::write_connector(std::vector<uint8_t>& buf,
                                       const ConnectorPlacement& conn) {
-    write_string(buf, conn.connector_id);
+    write_uint64(buf, static_cast<uint64_t>(conn.connector_id));
     write_string(buf, conn.from_layer);
     write_int32(buf, conn.from_cell_x);
     write_int32(buf, conn.from_cell_y);
@@ -276,7 +276,9 @@ void ChunkSerializer::write_connector(std::vector<uint8_t>& buf,
 bool ChunkSerializer::read_connector(const std::vector<uint8_t>& data,
                                      size_t& offset,
                                      ConnectorPlacement& conn) {
-    if (!read_string(data, offset, conn.connector_id)) return false;
+    uint64_t raw_id;
+    if (!read_uint64(data, offset, raw_id)) return false;
+    conn.connector_id = static_cast<int64_t>(raw_id);
     if (!read_string(data, offset, conn.from_layer)) return false;
     if (!read_int32(data, offset, conn.from_cell_x)) return false;
     if (!read_int32(data, offset, conn.from_cell_y)) return false;

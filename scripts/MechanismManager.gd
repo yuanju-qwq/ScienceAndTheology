@@ -151,7 +151,7 @@ func _apply_effect(effect: Dictionary, value: Variant) -> void:
 		&"node_visible":
 			_set_node_visible(_get_effect_node_path(effect), bool(value))
 		&"connector_locked":
-			_set_connector_locked(StringName(str(effect.get("connector_id", ""))), bool(value))
+			_set_connector_locked(int(effect.get("connector_id", 0)), bool(value))
 		_:
 			push_warning("Unknown mechanism effect: %s" % String(effect_type))
 
@@ -179,8 +179,8 @@ func _set_node_visible(node_path: NodePath, is_visible: bool) -> void:
 		_set_bool_property_if_present(target, &"visible", is_visible)
 
 
-func _set_connector_locked(connector_id: StringName, is_locked: bool) -> void:
-	if connector_id == &"" or connector_manager == null:
+func _set_connector_locked(connector_id: int, is_locked: bool) -> void:
+	if connector_id == 0 or connector_manager == null:
 		return
 
 	if connector_manager.has_method("set_connector_locked"):
@@ -226,7 +226,7 @@ func _create_prototype_mechanisms() -> void:
 				},
 				{
 					"type": &"connector_locked",
-					"connector_id": &"underground_ruin_gate_001",
+					"connector_id": 3,
 					"when_active": false,
 					"when_inactive": true,
 				},

@@ -44,7 +44,7 @@ struct ChunkKey {
 // Placement data for a generated connector between two layers.
 // Mirrors MapConnector.gd on the Godot side.
 struct ConnectorPlacement {
-    std::string connector_id;
+    int64_t connector_id = 0;
     std::string from_layer;
     int from_cell_x = 0;
     int from_cell_y = 0;

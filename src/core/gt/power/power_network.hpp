@@ -129,6 +129,16 @@ private:
     using AdjacencyList = std::unordered_map<PowerNodeId,
                                               std::vector<EdgeIterator>>;
 
+    // Per-component statistics used during update_network().
+    struct ComponentStats {
+        VoltageTier network_tier = VoltageTier::ULV;
+        int64_t total_generation = 0;
+        int64_t total_demand = 0;
+        int64_t total_loss = 0;
+        int64_t transferred_in = 0;    // power received from transformers
+        int64_t transferred_out = 0;   // power sent out via transformers
+    };
+
     // Helper: returns a raw pointer from an edge iterator.
     // list iterators are stable on push_back/erase of other elements.
     static PowerEdge* edge_ptr(EdgeIterator it) { return &(*it); }
@@ -141,8 +151,24 @@ private:
     void add_adjacency(PowerNodeId node_id, EdgeIterator edge_it);
     void remove_adjacency(PowerNodeId node_id, EdgeIterator edge_it);
 
-    // Recalculates power flow for a single connected component.
-    void process_component(const std::vector<PowerNodeId>& component);
+    // Phase 1: compute generation, demand, loss, and tier for a component.
+    ComponentStats compute_component_stats(
+            const std::vector<PowerNodeId>& component) const;
+
+    // Phase 2: transfer surplus power through transformers.
+    // Sorts transformers by tier descending, validates max_step,
+    // computes per-step loss, distributes surplus to output components.
+    void transfer_transformer_power(
+            const std::vector<std::vector<PowerNodeId>>& components,
+            std::vector<ComponentStats>& comp_stats);
+
+    // Phase 3: request-based edge flow computation via BFS tree.
+    // Builds a BFS tree from all generators, propagates demand from
+    // leaves to roots, and sets per-edge current_load accurately.
+    void compute_edge_flows(const std::vector<PowerNodeId>& component);
+
+    // Checks all internal edges of a component for capacity overload.
+    void check_component_edges(const std::vector<PowerNodeId>& component);
 
     // Checks a single node for overload conditions.
     void check_node_overload(PowerNode& node, int64_t supplied_voltage);
@@ -152,11 +178,6 @@ private:
 
     // Resets overload state for all nodes and edges.
     void reset_overloads();
-
-    // Computes total loss for a component and subtracts from available power.
-    int64_t compute_component_loss(
-            const std::vector<PowerNodeId>& component,
-            int64_t total_generation);
 
     // ID counter for new nodes.
     PowerNodeId next_id_ = 1;

@@ -1,7 +1,7 @@
 class_name PlayerController
 extends CharacterBody2D
 
-signal connector_used(connector_id: StringName, from_layer: StringName, to_layer: StringName)
+signal connector_used(connector_id: int, from_layer: StringName, to_layer: StringName)
 signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
 
 @export var move_speed := 96.0

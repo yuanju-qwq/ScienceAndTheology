@@ -9,7 +9,7 @@ enum ActivationMode {
 const SURFACE_LAYER: StringName = &"surface"
 const UNDERGROUND_LAYER: StringName = &"underground"
 
-@export var connector_id: StringName = &""
+@export var connector_id: int = 0
 @export var from_layer: StringName = SURFACE_LAYER
 @export var from_cell: Vector2i = Vector2i.ZERO
 @export var to_layer: StringName = UNDERGROUND_LAYER

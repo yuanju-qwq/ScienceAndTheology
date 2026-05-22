@@ -5,6 +5,9 @@ set(SOURCES
     hello_world/gd_hello_world.cpp
     gt_bindings/gd_power_network.cpp
     gt_bindings/gd_crafting.cpp
+    gt_bindings/gd_fluid_network.cpp
+    gt_bindings/gd_item_pipe_network.cpp
+    gt_bindings/gd_machine.cpp
     world_bindings/gd_world_data.cpp
     world_bindings/gd_terrain_generator.cpp
 )

@@ -14,6 +14,12 @@ Machine::Machine(const MachineConfig& config)
     : config_(config) {
     input_slots_.resize(config.input_slot_count);
     output_slots_.resize(config.output_slot_count);
+
+    // Initialize runtime port state from config blueprint.
+    port_states_.reserve(config_.ports.size());
+    for (const auto& port : config_.ports) {
+        port_states_.push_back({port.direction});
+    }
 }
 
 const char* Machine::state_name() const {
@@ -50,6 +56,161 @@ void Machine::set_power_available(int64_t available_eu_t) {
 
 int64_t Machine::get_power_demand() const {
     return power_demand_;
+}
+
+// ============================================================
+// Module system
+// ============================================================
+
+void Machine::recompute_from_modules() {
+    // Reset to defaults.
+    config_.max_input_voltage = get_voltage(config_.tier);
+    derived_heat_ = 0;
+    derived_parallel_ = 1;
+    derived_eff_pct_ = 100;
+    derived_pollution_pct_ = 100;
+
+    int coil_count = 0;
+
+    for (const auto& mod : installed_modules_) {
+        if (mod.def == nullptr) continue;
+
+        switch (mod.def->category) {
+        case ModuleCategory::ENERGY_INPUT:
+            config_.max_input_voltage = get_voltage(mod.def->tier);
+            break;
+
+        case ModuleCategory::COIL:
+            derived_heat_ += mod.def->heat_capacity;
+            coil_count++;
+            break;
+
+        case ModuleCategory::MUFFLER:
+            derived_pollution_pct_ -= mod.def->pollution_reduction_pct;
+            if (derived_pollution_pct_ < 0) derived_pollution_pct_ = 0;
+            break;
+
+        case ModuleCategory::OVERCLOCK:
+            // Future: modify speed/power multipliers.
+            break;
+
+        case ModuleCategory::TRANSFORMER:
+            config_.max_input_voltage = get_voltage(mod.def->tier);
+            break;
+        }
+    }
+
+    // Efficiency loss from coils: average the efficiency of all coils.
+    if (coil_count > 0) {
+        int64_t total_eff = 0;
+        for (const auto& mod : installed_modules_) {
+            if (mod.def != nullptr &&
+                mod.def->category == ModuleCategory::COIL) {
+                total_eff += mod.def->efficiency_pct;
+            }
+        }
+        derived_eff_pct_ = total_eff / coil_count;
+    }
+
+    // Parallel = base 1 + sum of all coil parallel bonuses.
+    for (const auto& mod : installed_modules_) {
+        if (mod.def != nullptr &&
+            mod.def->category == ModuleCategory::COIL) {
+            derived_parallel_ += mod.def->parallel_bonus;
+        }
+    }
+}
+
+namespace {
+
+// Cross-category compatibility: some module categories conflict because
+// they both alter the same machine parameter (e.g. max_input_voltage).
+// Returns true if `new_def` can coexist with all `installed`.
+bool is_module_compatible(const ModuleDefinition* new_def,
+                           const std::vector<InstalledModule>& installed) {
+    if (new_def == nullptr) return false;
+
+    for (const auto& mod : installed) {
+        if (mod.def == nullptr) continue;
+
+        // ENERGY_INPUT and TRANSFORMER both set max_input_voltage.
+        // Installing both would produce ambiguous results.
+        bool voltage_clash =
+            (new_def->category == ModuleCategory::ENERGY_INPUT &&
+             mod.def->category == ModuleCategory::TRANSFORMER) ||
+            (new_def->category == ModuleCategory::TRANSFORMER &&
+             mod.def->category == ModuleCategory::ENERGY_INPUT);
+        if (voltage_clash) return false;
+    }
+
+    return true;
+}
+
+} // namespace
+
+bool Machine::install_module(const ModuleDefinition* def) {
+    if (def == nullptr) return false;
+
+    // Count how many of this category are already installed.
+    int category_installed = 0;
+    int category_max = 0;
+    for (const auto& slot : config_.module_slots) {
+        if (slot.category == def->category) {
+            category_max = slot.max_count;
+            break;
+        }
+    }
+
+    for (const auto& mod : installed_modules_) {
+        if (mod.def != nullptr && mod.def->category == def->category) {
+            category_installed++;
+        }
+    }
+
+    if (category_installed >= category_max) return false;
+
+    // Check tier range.
+    for (const auto& slot : config_.module_slots) {
+        if (slot.category == def->category) {
+            if (def->tier < slot.min_tier || def->tier > slot.max_tier) {
+                return false;
+            }
+            break;
+        }
+    }
+
+    // Check cross-category compatibility.
+    if (!is_module_compatible(def, installed_modules_)) return false;
+
+    InstalledModule inst;
+    inst.def = def;
+    installed_modules_.push_back(inst);
+    recompute_from_modules();
+    return true;
+}
+
+bool Machine::remove_module(const ModuleDefinition* def) {
+    if (def == nullptr) return false;
+
+    for (auto it = installed_modules_.begin();
+         it != installed_modules_.end(); ++it) {
+        if (it->def == def) {
+            installed_modules_.erase(it);
+            recompute_from_modules();
+            return true;
+        }
+    }
+    return false;
+}
+
+// ============================================================
+// Runtime port state
+// ============================================================
+
+void Machine::set_port_direction(int index, PortDirection dir) {
+    if (index < 0 || index >= static_cast<int>(port_states_.size())) return;
+    if (config_.ports[index].direction_locked) return;
+    port_states_[index].direction = dir;
 }
 
 // ============================================================

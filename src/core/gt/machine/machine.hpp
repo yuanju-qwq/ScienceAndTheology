@@ -7,6 +7,8 @@
 #include "../material/item.hpp"
 #include "recipe.hpp"
 #include "processing_logic.hpp"
+#include "machine_port.hpp"
+#include "module.hpp"
 #include "../power/power_node.hpp"
 
 namespace science_and_theology::gt {
@@ -44,10 +46,21 @@ struct MachineConfig {
     const char* machine_type = "";      // e.g. "centrifuge", "furnace"
     const char* recipe_map_name = "";   // which RecipeMap to query
     VoltageTier tier = VoltageTier::ULV;
-    int64_t max_input_voltage = 0;      // 0 = auto from tier
+    int64_t max_input_voltage = 0;      // 0 = auto from tier (used when no energy module)
     size_t input_slot_count = 1;
     size_t output_slot_count = 1;
     int64_t internal_power_buffer = 0;  // max stored power (0 = draw directly)
+
+    // Multi-tile footprint.
+    int footprint_width = 1;
+    int footprint_height = 1;
+
+    // Physical I/O ports on the machine boundary.
+    std::vector<MachinePort> ports;
+
+    // Module slot templates (what modules this machine accepts).
+    // Every machine MUST define at least one ENERGY_INPUT slot.
+    std::vector<ModuleSlot> module_slots;
 
     MachineConfig() {
         max_input_voltage = get_voltage(tier);
@@ -55,14 +68,25 @@ struct MachineConfig {
 };
 
 // ============================================================
+// Runtime port state
+// ============================================================
+
+// Mirrors MachineConfig::ports at runtime; allows the player to flip
+// non-locked port directions via the machine UI.
+struct PortState {
+    PortDirection direction = PortDirection::INPUT;
+};
+
+// ============================================================
 // Base machine class
 // ============================================================
 
-// Represents a single-block processing machine.
+// Represents a processing machine that may occupy multiple tiles.
 // Machines have:
+//   - A multi-tile footprint with boundary I/O ports
+//   - Module slots for energy hatches, coils, mufflers, etc.
 //   - Input/output inventory slots
 //   - A recipe map for lookup
-//   - A voltage tier determining power limits
 //   - Tick-based processing lifecycle
 //
 // Usage pattern (game loop):
@@ -87,6 +111,13 @@ public:
     int64_t progress_max() const { return current_duration_; }
     float progress_percent() const;
 
+    // --- Footprint ---
+
+    int footprint_width() const { return config_.footprint_width; }
+    int footprint_height() const { return config_.footprint_height; }
+    const std::vector<MachinePort>& ports() const { return config_.ports; }
+    const std::vector<ModuleSlot>& module_slots() const { return config_.module_slots; }
+
     // --- Inventory ---
 
     std::vector<ItemStack>& input_slots() { return input_slots_; }
@@ -107,6 +138,36 @@ public:
 
     // Returns true if the machine has sufficient power this tick.
     bool is_powered() const { return power_available_ >= power_demand_; }
+
+    // --- Modules ---
+
+    // Recomputes derived stats (max_input_voltage, heat, parallel, etc.)
+    // from currently installed modules. Call after installing/removing modules.
+    void recompute_from_modules();
+
+    // --- Runtime port state ---
+
+    std::vector<PortState>& port_states() { return port_states_; }
+    const std::vector<PortState>& port_states() const { return port_states_; }
+
+    // Flip a port's direction at runtime (only if not locked).
+    void set_port_direction(int index, PortDirection dir);
+
+    // Installed module access.
+    std::vector<InstalledModule>& installed_modules() { return installed_modules_; }
+    const std::vector<InstalledModule>& installed_modules() const {
+        return installed_modules_;
+    }
+
+    // Convenience: install a module by definition.
+    bool install_module(const ModuleDefinition* def);
+    bool remove_module(const ModuleDefinition* def);
+
+    // Derived stats computed by recompute_from_modules().
+    int64_t derived_heat_capacity() const { return derived_heat_; }
+    int64_t derived_parallel() const { return derived_parallel_; }
+    int64_t derived_efficiency_pct() const { return derived_eff_pct_; }
+    int64_t derived_pollution_pct() const { return derived_pollution_pct_; }
 
     // --- Processing ---
 
@@ -144,6 +205,18 @@ protected:
     int64_t progress_ticks_ = 0;
     int64_t power_demand_ = 0;        // overclocked EU/t
     int64_t power_available_ = 0;     // EU/t available this tick
+
+    // Module system.
+    std::vector<InstalledModule> installed_modules_;
+
+    // Runtime port state (mirrors config_.ports, direction may be flipped).
+    std::vector<PortState> port_states_;
+
+    // Derived stats from installed modules (set by recompute_from_modules).
+    int64_t derived_heat_ = 0;
+    int64_t derived_parallel_ = 1;
+    int64_t derived_eff_pct_ = 100;
+    int64_t derived_pollution_pct_ = 100;
 
     // --- Internal methods ---
 

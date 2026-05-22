@@ -65,6 +65,7 @@ public:
     static int64_t get_voltage_for_tier(int tier);
     static godot::String get_tier_name(int tier);
     static int64_t manhattan_dist(godot::Vector2i a, godot::Vector2i b);
+    static int64_t get_transformer_loss_per_step();
 
     // --- Voltage tier constants for GDScript ---
     enum VoltageTierConst {

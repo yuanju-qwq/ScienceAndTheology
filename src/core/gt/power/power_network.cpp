@@ -1,6 +1,7 @@
 #include "power_network.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <queue>
 #include <unordered_set>
 
@@ -168,6 +169,12 @@ std::vector<PowerNodeId> PowerNetwork::find_connected_component(
         bfs_queue.pop();
         component.push_back(current);
 
+        // Transformers isolate networks: don't traverse past them.
+        auto current_node_it = nodes_.find(current);
+        if (current_node_it != nodes_.end() && current_node_it->second.is_transformer) {
+            continue;
+        }
+
         auto adj_it = adjacency_.find(current);
         if (adj_it != adjacency_.end()) {
             for (auto edge_it : adj_it->second) {
@@ -219,92 +226,267 @@ void PowerNetwork::update_network() {
     total_generation_ = 0;
     total_demand_ = 0;
 
-    for (const auto& component : components) {
-        process_component(component);
+    // Phase 1: compute per-component stats (gen, demand, loss, tier).
+    std::vector<ComponentStats> comp_stats(components.size());
+    for (size_t i = 0; i < components.size(); ++i) {
+        comp_stats[i] = compute_component_stats(components[i]);
+        total_generation_ += comp_stats[i].total_generation;
+        total_demand_ += comp_stats[i].total_demand;
+        total_power_loss_ += comp_stats[i].total_loss;
+    }
+
+    // Phase 2: transfer surplus power through transformers.
+    transfer_transformer_power(components, comp_stats);
+
+    // Phase 3: compute per-edge flows (request-based tree propagation)
+    // and check overloads for every component.
+    for (size_t i = 0; i < components.size(); ++i) {
+        compute_edge_flows(components[i]);
+
+        int64_t supplied_voltage = get_voltage(comp_stats[i].network_tier);
+        for (PowerNodeId node_id : components[i]) {
+            PowerNode* node = get_node(node_id);
+            if (node == nullptr) continue;
+            check_node_overload(*node, supplied_voltage);
+        }
+
+        check_component_edges(components[i]);
     }
 }
 
-// --- Power flow processing ---
+// --- Component statistics ---
 
-void PowerNetwork::process_component(
-        const std::vector<PowerNodeId>& component) {
-    // Determine the dominant voltage tier (highest generation tier).
-    VoltageTier network_tier = VoltageTier::ULV;
-    int64_t component_generation = 0;
-    int64_t component_demand = 0;
+PowerNetwork::ComponentStats PowerNetwork::compute_component_stats(
+        const std::vector<PowerNodeId>& component) const {
+    ComponentStats stats;
+    std::unordered_set<PowerNodeId> comp_set(component.begin(), component.end());
+    std::unordered_set<const PowerEdge*> counted_edges;
 
     for (PowerNodeId node_id : component) {
-        PowerNode* node = get_node(node_id);
+        const PowerNode* node = get_node(node_id);
         if (node == nullptr) continue;
 
-        component_generation += node->generation_capacity;
-        component_demand += node->power_demand;
-        total_generation_ += node->generation_capacity;
-        total_demand_ += node->power_demand;
+        // Transformers don't contribute gen/demand within their own component;
+        // they are pass-through devices. Their role is handled in Phase 2.
+        if (!node->is_transformer) {
+            stats.total_generation += node->generation_capacity;
+            stats.total_demand += node->power_demand;
+        }
 
-        if (node->generation_capacity > 0 && node->tier > network_tier) {
-            network_tier = node->tier;
+        if (node->generation_capacity > 0 && !node->is_transformer
+            && node->tier > stats.network_tier) {
+            stats.network_tier = node->tier;
+        }
+
+        // Count internal edge loss (both endpoints in this component).
+        auto adj_it = adjacency_.find(node_id);
+        if (adj_it == adjacency_.end()) continue;
+
+        for (auto edge_it : adj_it->second) {
+            const PowerEdge* edge = edge_cptr(edge_it);
+            PowerNodeId other = (edge->node_a == node_id) ? edge->node_b
+                                                           : edge->node_a;
+            if (comp_set.count(other) == 0) continue;  // cross-component edge
+            if (counted_edges.count(edge) > 0) continue;
+            counted_edges.insert(edge);
+            stats.total_loss += edge->power_loss;
         }
     }
 
-    // Compute total loss across all edges in this component.
-    int64_t component_loss = compute_component_loss(component,
-                                                     component_generation);
-    total_power_loss_ += component_loss;
+    return stats;
+}
 
-    int64_t effective_power = component_generation - component_loss;
-    if (effective_power < 0) {
-        effective_power = 0;
+// --- Transformer power transfer ---
+
+void PowerNetwork::transfer_transformer_power(
+        const std::vector<std::vector<PowerNodeId>>& components,
+        std::vector<ComponentStats>& comp_stats) {
+    // Collect all transformer nodes, sorted by tier descending.
+    // Higher-tier transformers are processed first so cascading chains
+    // (e.g. HV→MV→LV) propagate surplus correctly.
+    struct XfmrEntry {
+        PowerNodeId node_id;
+        VoltageTier tier;
+        VoltageTier output_tier;
+        int max_step;
+    };
+    std::vector<XfmrEntry> transformers;
+
+    for (const auto& [node_id, node] : nodes_) {
+        if (node.is_transformer) {
+            transformers.push_back(
+                {node_id, node.tier, node.transformer_output_tier, node.max_step});
+        }
     }
 
-    int64_t supplied_voltage = get_voltage(network_tier);
+    std::sort(transformers.begin(), transformers.end(),
+              [](const XfmrEntry& a, const XfmrEntry& b) {
+                  return static_cast<int>(a.tier) > static_cast<int>(b.tier);
+              });
 
-    // Check node overloads.
+    for (const auto& t : transformers) {
+        auto comp_it = component_index_.find(t.node_id);
+        if (comp_it == component_index_.end()) continue;
+        size_t input_comp = static_cast<size_t>(comp_it->second);
+
+        // Validate max_step constraint.
+        int tier_diff = std::abs(static_cast<int>(t.tier) -
+                                  static_cast<int>(t.output_tier));
+        if (tier_diff > t.max_step) continue;
+
+        // Compute transformer operational loss.
+        int64_t transformer_loss = tier_diff * PowerNode::kTransformerLossPerStep;
+
+        // Compute input component surplus.
+        int64_t surplus = comp_stats[input_comp].total_generation
+                        + comp_stats[input_comp].transferred_in
+                        - comp_stats[input_comp].total_demand
+                        - comp_stats[input_comp].total_loss
+                        - comp_stats[input_comp].transferred_out
+                        - transformer_loss;
+
+        if (surplus <= 0) continue;
+
+        // Find output components connected through this transformer.
+        std::unordered_set<size_t> output_comps;
+        auto adj_it = adjacency_.find(t.node_id);
+        if (adj_it != adjacency_.end()) {
+            for (auto edge_it : adj_it->second) {
+                const PowerEdge* edge = edge_cptr(edge_it);
+                PowerNodeId neighbor = (edge->node_a == t.node_id)
+                                           ? edge->node_b
+                                           : edge->node_a;
+                auto ncomp_it = component_index_.find(neighbor);
+                if (ncomp_it == component_index_.end()) continue;
+                size_t ncomp = static_cast<size_t>(ncomp_it->second);
+                if (ncomp != input_comp) {
+                    output_comps.insert(ncomp);
+                }
+            }
+        }
+
+        if (output_comps.empty()) continue;
+
+        // Distribute surplus evenly across output components.
+        int64_t per_comp = surplus / static_cast<int64_t>(output_comps.size());
+        if (per_comp <= 0) continue;
+
+        for (size_t out_comp : output_comps) {
+            comp_stats[out_comp].total_generation += per_comp;
+            comp_stats[out_comp].transferred_in += per_comp;
+
+            if (t.output_tier > comp_stats[out_comp].network_tier) {
+                comp_stats[out_comp].network_tier = t.output_tier;
+            }
+        }
+
+        comp_stats[input_comp].transferred_out +=
+            per_comp * static_cast<int64_t>(output_comps.size());
+
+        // Transformer loss counts as additional network-wide loss.
+        total_power_loss_ += transformer_loss;
+    }
+}
+
+// --- Request-based edge flow computation ---
+
+void PowerNetwork::compute_edge_flows(
+        const std::vector<PowerNodeId>& component) {
+    std::unordered_set<PowerNodeId> comp_set(component.begin(), component.end());
+    std::unordered_map<PowerNodeId, PowerNodeId> parent;
+    std::unordered_map<PowerNodeId, EdgeIterator> parent_edge;
+    std::unordered_map<PowerNodeId, int64_t> subtree_demand;
+
+    // Initialize: every node starts with its own power demand.
     for (PowerNodeId node_id : component) {
-        PowerNode* node = get_node(node_id);
-        if (node == nullptr) continue;
-
-        check_node_overload(*node, supplied_voltage);
+        const PowerNode* node = get_node(node_id);
+        subtree_demand[node_id] = (node != nullptr) ? node->power_demand : 0;
     }
 
-    // Check edge overloads.
-    // Approximate: distribute power evenly across incident edges.
-    // Full sub-tree power flow requires a proper tree-solving pass.
+    // BFS from all generator nodes (multiple roots).
+    std::queue<PowerNodeId> bfs_queue;
+    std::vector<PowerNodeId> bfs_order;
+
+    for (PowerNodeId node_id : component) {
+        const PowerNode* node = get_node(node_id);
+        if (node != nullptr && node->generation_capacity > 0
+            && !node->is_transformer) {
+            bfs_queue.push(node_id);
+            parent[node_id] = kInvalidNodeId;  // root marker
+        }
+    }
+
+    if (bfs_queue.empty()) return;  // no generators, nothing flows
+
+    while (!bfs_queue.empty()) {
+        PowerNodeId current = bfs_queue.front();
+        bfs_queue.pop();
+        bfs_order.push_back(current);
+
+        auto adj_it = adjacency_.find(current);
+        if (adj_it == adjacency_.end()) continue;
+
+        for (auto edge_it : adj_it->second) {
+            PowerEdge* edge = edge_ptr(edge_it);
+            PowerNodeId neighbor = (edge->node_a == current) ? edge->node_b
+                                                              : edge->node_a;
+
+            if (parent.count(neighbor) > 0) continue;        // already visited
+            if (comp_set.count(neighbor) == 0) continue;      // cross-component
+
+            const PowerNode* neighbor_node = get_node(neighbor);
+            if (neighbor_node != nullptr && neighbor_node->is_transformer) {
+                continue;  // don't traverse into transformers
+            }
+
+            parent[neighbor] = current;
+            parent_edge[neighbor] = edge_it;
+            bfs_queue.push(neighbor);
+        }
+    }
+
+    // Reverse propagation: leaves → roots.
+    // Each node's demand is added to its parent's subtree total.
+    for (auto it = bfs_order.rbegin(); it != bfs_order.rend(); ++it) {
+        PowerNodeId node_id = *it;
+        auto parent_it = parent.find(node_id);
+        if (parent_it == parent.end() || parent_it->second == kInvalidNodeId) {
+            continue;
+        }
+
+        PowerNodeId parent_id = parent_it->second;
+        subtree_demand[parent_id] += subtree_demand[node_id];
+
+        auto edge_wrap = parent_edge.find(node_id);
+        if (edge_wrap != parent_edge.end()) {
+            PowerEdge* edge = edge_ptr(edge_wrap->second);
+            edge->current_load = subtree_demand[node_id];
+        }
+    }
+}
+
+// --- Internal edge overload checking ---
+
+void PowerNetwork::check_component_edges(
+        const std::vector<PowerNodeId>& component) {
+    std::unordered_set<PowerNodeId> comp_set(component.begin(), component.end());
+    std::unordered_set<const PowerEdge*> checked;
+
     for (PowerNodeId node_id : component) {
         auto adj_it = adjacency_.find(node_id);
         if (adj_it == adjacency_.end()) continue;
 
         for (auto edge_it : adj_it->second) {
             PowerEdge* edge = edge_ptr(edge_it);
-            edge->current_load += effective_power /
-                std::max<size_t>(adj_it->second.size(), 1);
+            PowerNodeId other = (edge->node_a == node_id) ? edge->node_b
+                                                           : edge->node_a;
+            if (comp_set.count(other) == 0) continue;  // cross-component edge
+            if (checked.count(edge) > 0) continue;
+            checked.insert(edge);
+
             check_edge_overload(*edge);
         }
     }
-}
-
-int64_t PowerNetwork::compute_component_loss(
-        const std::vector<PowerNodeId>& component,
-        int64_t total_generation) {
-    (void)total_generation;
-
-    int64_t total_loss = 0;
-    std::unordered_set<const PowerEdge*> visited_edges;
-
-    for (PowerNodeId node_id : component) {
-        auto adj_it = adjacency_.find(node_id);
-        if (adj_it == adjacency_.end()) continue;
-
-        for (auto edge_it : adj_it->second) {
-            const PowerEdge* edge = edge_cptr(edge_it);
-            if (visited_edges.count(edge) > 0) continue;
-            visited_edges.insert(edge);
-
-            total_loss += edge->power_loss;
-        }
-    }
-
-    return total_loss;
 }
 
 // --- Overload detection ---

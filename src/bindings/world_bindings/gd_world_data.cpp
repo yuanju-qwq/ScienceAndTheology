@@ -168,8 +168,8 @@ void GDWorldData::set_chunk_from_dict(
     for (int i = 0; i < connector_array.size(); ++i) {
         Dictionary conn_dict = connector_array[i];
         ConnectorPlacement conn;
-        conn.connector_id = static_cast<std::string>(
-            String(conn_dict.get("connector_id", "")).utf8().get_data());
+        conn.connector_id = static_cast<int64_t>(
+            conn_dict.get("connector_id", 0));
         conn.from_layer = static_cast<std::string>(
             String(conn_dict.get("from_layer", "")).utf8().get_data());
         conn.from_cell_x = static_cast<int>(conn_dict.get("from_cell_x", 0));
@@ -281,7 +281,7 @@ godot::Array GDWorldData::connectors_to_array(
     Array arr;
     for (const auto& conn : connectors) {
         Dictionary d;
-        d["connector_id"] = String(conn.connector_id.c_str());
+        d["connector_id"] = conn.connector_id;
         d["from_layer"] = String(conn.from_layer.c_str());
         d["from_cell_x"] = conn.from_cell_x;
         d["from_cell_y"] = conn.from_cell_y;
