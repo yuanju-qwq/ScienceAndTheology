@@ -70,3 +70,13 @@ target_sources(snt_core PRIVATE
 # target_sources(snt_core PRIVATE
 #     common/graph/graph.cpp
 # )
+# AE2 autocrafting system
+target_sources(snt_core PRIVATE
+    ae2/ae2_pattern.cpp
+    ae2/ae2_crafting_tree.cpp
+    ae2/ae2_crafting_resolver.cpp
+    ae2/ae2_crafting_cpu.cpp
+    ae2/ae2_crafting_service.cpp
+    ae2/ae2_pattern_provider.cpp
+    ae2/ae2_pattern_cache.cpp
+)

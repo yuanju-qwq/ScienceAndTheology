@@ -1,6 +1,8 @@
 #include "material_item.hpp"
 #include "tool_items.hpp"
 
+#include "ae2/ae2_pattern_cache.hpp"
+
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -132,6 +134,10 @@ const char* ItemRegistry::get_item_display_name(ItemId item_id) {
     const char* name = get_non_material_item_name(item_id);
     if (name != nullptr) return name;
 
+    // Check encoded patterns.
+    const char* pattern_name = PatternDataCache::get_pattern_name(item_id);
+    if (pattern_name != nullptr) return pattern_name;
+
     return "Unknown";
 }
 
@@ -146,7 +152,8 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
     if (item_id >= kNonMaterialItemBase && item_id < kNonMaterialItemMax) {
         return get_non_material_item_name(item_id) != nullptr;
     }
-    return false;
+    // Encoded patterns.
+    return PatternDataCache::is_encoded_pattern(item_id);
 }
 
 } // namespace science_and_theology::gt

@@ -112,7 +112,7 @@ void CraftingGrid::consume_shaped(int pattern_width, int pattern_height,
 }
 
 // ============================================================
-// CraftingManager â€” internal registry
+// CraftingManager â€?internal registry
 // ============================================================
 
 std::vector<CraftingRecipe>& CraftingManager::registry() {
@@ -167,7 +167,7 @@ bool CraftingManager::match_shaped_at(const CraftingGrid& grid,
                     if (slot.amount < expected_count) return false;
                 }
             } else {
-                // Outside pattern area â€” must be empty.
+                // Outside pattern area â€?must be empty.
                 if (slot.is_valid()) return false;
             }
         }
@@ -252,6 +252,10 @@ std::vector<const CraftingRecipe*> CraftingManager::get_by_category(
     return result;
 }
 
+const std::vector<CraftingRecipe>& CraftingManager::get_registry() {
+    return registry();
+}
+
 size_t CraftingManager::get_recipe_count() {
     return registry().size();
 }
@@ -312,7 +316,7 @@ void CraftingManager::register_basic_recipes() {
     };
 
     // ========================================================
-    // Category: "materials" â€” compression / decompression
+    // Category: "materials" â€?compression / decompression
     // ========================================================
 
     // Early-game metals for compression recipes.
@@ -324,7 +328,7 @@ void CraftingManager::register_basic_recipes() {
     const int num_metals =
         sizeof(compressible_metals) / sizeof(compressible_metals[0]);
 
-    // Nugget â†” Ingot (9 nuggets = 1 ingot).
+    // Nugget â†?Ingot (9 nuggets = 1 ingot).
     for (int i = 0; i < num_metals; ++i) {
         const char* mat = compressible_metals[i];
         ItemId nugget = id(mat, MaterialForm::NUGGET);
@@ -337,7 +341,7 @@ void CraftingManager::register_basic_recipes() {
         }
     }
 
-    // Ingot â†” Block (9 ingots = 1 block).
+    // Ingot â†?Block (9 ingots = 1 block).
     for (int i = 0; i < num_metals; ++i) {
         const char* mat = compressible_metals[i];
         ItemId ingot = id(mat, MaterialForm::INGOT);
@@ -350,7 +354,7 @@ void CraftingManager::register_basic_recipes() {
         }
     }
 
-    // Dust â†’ Block (4 dust = 1 block, for gem/dust materials).
+    // Dust â†?Block (4 dust = 1 block, for gem/dust materials).
     const char* dust_materials[] = {
         "coal", "diamond", "emerald", "lapis", "redstone",
         "glowstone", "sulfur", "saltpeter",
@@ -378,7 +382,7 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "tools" â€” basic GT tools
+    // Category: "tools" â€?basic GT tools
     // ========================================================
 
     ItemId iron_ingot  = id("iron", MaterialForm::INGOT);
@@ -462,21 +466,21 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "parts" â€” basic component parts
+    // Category: "parts" â€?basic component parts
     // ========================================================
 
-    // Iron rod: file + iron ingot â†’ 2 iron rods (shapeless, requires file).
+    // Iron rod: file + iron ingot â†?2 iron rods (shapeless, requires file).
     if (iron_ingot != kInvalidItemId && iron_rod != kInvalidItemId) {
         add_recipe(shapeless("craft_iron_rod", "parts",
                              {nm(iron_ingot, 1)}, iron_rod, 2,
                              "file"));
 
-        // Iron plate: hammer + iron ingot â†’ 2 iron plates.
+        // Iron plate: hammer + iron ingot â†?2 iron plates.
         add_recipe(shapeless("craft_iron_plate", "parts",
                              {nm(iron_ingot, 1)}, iron_plate, 2,
                              "hammer"));
 
-        // Iron screw: file + iron rod â†’ 4 iron screws.
+        // Iron screw: file + iron rod â†?4 iron screws.
         if (iron_screw != kInvalidItemId) {
             add_recipe(shapeless("craft_iron_screw", "parts",
                                  {nm(iron_rod, 1)}, iron_screw, 4,
@@ -485,10 +489,10 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "wires" â€” wire cutting
+    // Category: "wires" â€?wire cutting
     // ========================================================
 
-    // Copper wire: wire_cutter + copper ingot â†’ 2 copper wire.
+    // Copper wire: wire_cutter + copper ingot â†?2 copper wire.
     const char* wire_metals[] = {"copper", "tin", "gold", "silver", "aluminum",
                                  "nickel", "lead", "zinc", "iron", "steel"};
     const int num_wire = sizeof(wire_metals) / sizeof(wire_metals[0]);
@@ -504,7 +508,7 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "cables" â€” insulated cables
+    // Category: "cables" â€?insulated cables
     // ========================================================
 
     ItemId rubber_sheet = id("rubber", MaterialForm::PLATE);
@@ -516,7 +520,7 @@ void CraftingManager::register_basic_recipes() {
             const char* mat = cable_metals[i];
             ItemId wire = id(mat, MaterialForm::WIRE);
             if (wire == kInvalidItemId) continue;
-            // 1 wire + 1 rubber sheet â†’ 1 insulated cable.
+            // 1 wire + 1 rubber sheet â†?1 insulated cable.
             add_recipe(shapeless("craft_cable", "cables",
                                  {nm(wire, 1),
                                   nm(rubber_sheet, 1)},
@@ -525,7 +529,7 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "circuits" â€” electronic components
+    // Category: "circuits" â€?electronic components
     // ========================================================
 
     ItemId copper_wire  = id("copper", MaterialForm::WIRE);
@@ -581,7 +585,7 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "machines" â€” machine blocks & components
+    // Category: "machines" â€?machine blocks & components
     // ========================================================
 
     // Basic Machine Hull: 8 iron plates in a ring (3Ã—3).
@@ -661,10 +665,10 @@ void CraftingManager::register_basic_recipes() {
     }
 
     // ========================================================
-    // Category: "misc" â€” miscellaneous
+    // Category: "misc" â€?miscellaneous
     // ========================================================
 
-    // Stone Plate: hammer + stone â†’ stone plate.
+    // Stone Plate: hammer + stone â†?stone plate.
     ItemId stone = id("stone", MaterialForm::DUST);
     if (stone != kInvalidItemId) {
         add_recipe(shapeless("craft_stone_plate", "misc",
@@ -672,7 +676,7 @@ void CraftingManager::register_basic_recipes() {
                              "hammer"));
     }
 
-    // Wood Planks: saw + wood log â†’ 4 wood planks.
+    // Wood Planks: saw + wood log â†?4 wood planks.
     ItemId wood_log = id("wood", MaterialForm::DUST);
     if (wood_log != kInvalidItemId && wood_plank != kInvalidItemId) {
         add_recipe(shapeless("craft_wood_plank", "misc",
@@ -680,7 +684,7 @@ void CraftingManager::register_basic_recipes() {
                              "saw"));
     }
 
-    // Sticks: 2 wood planks â†’ 4 sticks (2Ã—2 shaped).
+    // Sticks: 2 wood planks â†?4 sticks (2Ã—2 shaped).
     if (wood_plank != kInvalidItemId && stick != kInvalidItemId) {
         add_recipe(shaped("craft_stick", "misc", 2, 1,
             {wood_plank, wood_plank},
@@ -688,7 +692,7 @@ void CraftingManager::register_basic_recipes() {
             stick, 4));
     }
 
-    // Coal Block: 9 coal â†’ 1 coal block (3Ã—3 shaped).
+    // Coal Block: 9 coal â†?1 coal block (3Ã—3 shaped).
     ItemId coal_gem = id("coal", MaterialForm::GEM);
     ItemId coal_block = id("coal", MaterialForm::BLOCK);
     if (coal_gem != kInvalidItemId && coal_block != kInvalidItemId) {
@@ -700,7 +704,7 @@ void CraftingManager::register_basic_recipes() {
             coal_block, 1));
     }
 
-    // Firebrick: 4 brick + 1 coal dust â†’ 1 firebrick (shapeless).
+    // Firebrick: 4 brick + 1 coal dust â†?1 firebrick (shapeless).
     ItemId brick = id("brick", MaterialForm::INGOT);
     ItemId coal_dust = id("coal", MaterialForm::DUST);
     if (brick != kInvalidItemId && coal_dust != kInvalidItemId) {

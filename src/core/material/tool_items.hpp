@@ -43,8 +43,14 @@ inline constexpr ItemId FIREBRICK        = kNonMaterialItemBase + 32;
 inline constexpr ItemId STONE_PLATE      = kNonMaterialItemBase + 33;
 inline constexpr ItemId WOOD_PLATE       = kNonMaterialItemBase + 34;
 
+// ---- AE2 Pattern Items ----
+inline constexpr ItemId BLANK_PATTERN    = kNonMaterialItemBase + 35;
+
 // Total number of non-material items.
-inline constexpr ItemId kNonMaterialItemCount = 35;
+inline constexpr ItemId kNonMaterialItemCount = 36;
+
+// Encoded patterns use dynamic IDs in [ENCODED_PATTERN_BASE, ...).
+inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemBase + kNonMaterialItemCount;
 inline constexpr ItemId kNonMaterialItemMax =
     kNonMaterialItemBase + kNonMaterialItemCount;
 
@@ -69,10 +75,17 @@ constexpr const char* kNonMaterialItemNames[] = {
     nullptr, nullptr, nullptr, nullptr, nullptr,
     // 30-34: Misc
     "Coal Block", "Coke Brick", "Firebrick", "Stone Plate", "Wood Plate",
+    // 35: AE2 Pattern
+    "Blank Pattern",
 };
 
 // Look up the display name of a non-material item.
 inline const char* get_non_material_item_name(ItemId item_id) {
+    if (item_id >= ENCODED_PATTERN_BASE) {
+        // Check PatternDataCache for encoded pattern names.
+        // Forward-declared; the cache has its own name lookup.
+        return nullptr; // Handled by ItemRegistry fallback.
+    }
     if (item_id < kNonMaterialItemBase || item_id >= kNonMaterialItemMax) {
         return nullptr;
     }

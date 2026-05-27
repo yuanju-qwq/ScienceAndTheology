@@ -5,6 +5,7 @@ set(SOURCES
     hello_world/gd_hello_world.cpp
     gd_power_network.cpp
     gd_crafting.cpp
+    gd_ae2_autocrafting.cpp
     gd_fluid_network.cpp
     gd_item_pipe_network.cpp
     gd_machine.cpp

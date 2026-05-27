@@ -9,7 +9,7 @@
 namespace science_and_theology::gt {
 
 // ============================================================
-// Crafting recipe — manual, no power, instant
+// Crafting recipe �?manual, no power, instant
 // ============================================================
 
 // A manual crafting recipe for workbench (3×3 grid) or inventory (2×2).
@@ -41,7 +41,7 @@ struct CraftingRecipe {
 };
 
 // ============================================================
-// Crafting grid — 3×3 workbench or 2×2 inventory grid
+// Crafting grid �?3×3 workbench or 2×2 inventory grid
 // ============================================================
 
 class CraftingGrid {
@@ -90,7 +90,7 @@ private:
 };
 
 // ============================================================
-// Crafting manager — recipe registry + matching
+// Crafting manager �?recipe registry + matching
 // ============================================================
 
 class CraftingManager {
@@ -119,6 +119,9 @@ public:
 
     // Returns total recipe count.
     static size_t get_recipe_count();
+
+    // Returns direct reference to the internal registry (for AE2 autocrafting).
+    static const std::vector<CraftingRecipe>& get_registry();
 
     // Pre-register basic recipes (workbench, tools, cables, etc.).
     static void register_basic_recipes();
