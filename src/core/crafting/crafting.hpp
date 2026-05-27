@@ -9,7 +9,7 @@
 namespace science_and_theology::gt {
 
 // ============================================================
-// Crafting recipe �?manual, no power, instant
+// Crafting recipe �?manual, no power, instant
 // ============================================================
 
 // A manual crafting recipe for workbench (3×3 grid) or inventory (2×2).
@@ -41,7 +41,7 @@ struct CraftingRecipe {
 };
 
 // ============================================================
-// Crafting grid �?3×3 workbench or 2×2 inventory grid
+// Crafting grid �?3×3 workbench or 2×2 inventory grid
 // ============================================================
 
 class CraftingGrid {
@@ -90,7 +90,7 @@ private:
 };
 
 // ============================================================
-// Crafting manager �?recipe registry + matching
+// Crafting manager �?recipe registry + matching
 // ============================================================
 
 class CraftingManager {

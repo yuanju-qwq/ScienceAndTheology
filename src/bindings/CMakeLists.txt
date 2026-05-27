@@ -3,15 +3,15 @@
 set(SOURCES
     register_types.cpp
     hello_world/gd_hello_world.cpp
-    gd_power_network.cpp
-    gd_crafting.cpp
-    gd_ae2_autocrafting.cpp
-    gd_me_network.cpp
-    gd_fluid_network.cpp
-    gd_item_pipe_network.cpp
-    gd_machine.cpp
-    world_bindings/gd_world_data.cpp
-    world_bindings/gd_terrain_generator.cpp
+    network/gd_power_network.cpp
+    crafting/gd_crafting.cpp
+    ae2/gd_ae2_autocrafting.cpp
+    ae2/gd_me_network.cpp
+    network/gd_fluid_network.cpp
+    network/gd_item_pipe_network.cpp
+    machine/gd_machine.cpp
+    world/gd_world_data.cpp
+    world/gd_terrain_generator.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})
