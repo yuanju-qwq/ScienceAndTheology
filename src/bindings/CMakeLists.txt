@@ -6,6 +6,7 @@ set(SOURCES
     gd_power_network.cpp
     gd_crafting.cpp
     gd_ae2_autocrafting.cpp
+    gd_me_network.cpp
     gd_fluid_network.cpp
     gd_item_pipe_network.cpp
     gd_machine.cpp

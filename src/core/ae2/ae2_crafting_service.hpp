@@ -8,6 +8,7 @@
 #include "common/resource_key.hpp"
 #include "ae2_pattern.hpp"
 #include "ae2_pattern_provider.hpp"
+#include "ae2_me_network.hpp"
 #include "ae2_crafting_tree.hpp"
 #include "ae2_crafting_resolver.hpp"
 #include "ae2_crafting_cpu.hpp"
@@ -72,7 +73,11 @@ public:
 
     // --- Network integration ---
 
-    // Callback for checking available items in the network.
+    // Set the ME Network for direct item queries.
+    void set_me_network(MENetwork* network) { me_network_ = network; }
+    MENetwork* me_network() const { return me_network_; }
+
+    // Callback for checking available items in the network (fallback).
     // Returns how many of item_id are available.
     using NetworkCheckCallback = std::function<int64_t(ItemId)>;
     void set_network_check_callback(NetworkCheckCallback cb) {
@@ -127,6 +132,7 @@ public:
 private:
     PatternRegistry pattern_registry_;
     PatternProviderHost provider_host_;
+    MENetwork* me_network_ = nullptr;
     std::vector<CraftingCPU*> cpus_;
 
     JobCallback job_callback_;

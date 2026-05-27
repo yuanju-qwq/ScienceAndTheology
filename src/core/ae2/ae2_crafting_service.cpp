@@ -73,19 +73,19 @@ CraftingSubmitResult CraftingService::submit_job(ItemId what, int64_t amount) {
     CraftingSimulationState sim_state;
     std::unordered_map<ItemId, int64_t> network_items;
 
-    if (network_check_) {
+    if (me_network_ || network_check_) {
         // Query network for available items for all pattern inputs.
         auto patterns = PatternRegistry::find_all_patterns_for(what);
         for (const auto* pattern : patterns) {
             for (const auto& input : pattern->get_inputs()) {
                 if (input.is_valid() && network_items.count(input.item_id()) == 0) {
-                    network_items[input.item_id()] = network_check_(input.item_id());
+                    network_items[input.item_id()] = network_check(input.item_id());
                 }
             }
         }
         // Also include the requested item itself.
         if (network_items.count(what) == 0) {
-            network_items[what] = network_check_(what);
+            network_items[what] = network_check(what);
         }
     }
 
@@ -164,16 +164,28 @@ void CraftingService::tick() {
 }
 
 int64_t CraftingService::network_check(ItemId item_id) const {
+    if (me_network_) {
+        ItemKey key(item_id);
+        return me_network_->check_global(key);
+    }
     if (network_check_) return network_check_(item_id);
     return 0;
 }
 
 int64_t CraftingService::network_extract(ItemId item_id, int64_t amount) {
+    if (me_network_) {
+        ItemKey key(item_id);
+        return me_network_->extract_global(key, amount, kInvalidMENodeId);
+    }
     if (network_extract_) return network_extract_(item_id, amount);
     return 0;
 }
 
 int64_t CraftingService::network_insert(ItemId item_id, int64_t amount) {
+    if (me_network_) {
+        ItemKey key(item_id);
+        return me_network_->insert_global(key, amount, kInvalidMENodeId);
+    }
     if (network_insert_) return network_insert_(item_id, amount);
     return 0;
 }

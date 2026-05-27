@@ -79,4 +79,7 @@ target_sources(snt_core PRIVATE
     ae2/ae2_crafting_service.cpp
     ae2/ae2_pattern_provider.cpp
     ae2/ae2_pattern_cache.cpp
+    ae2/ae2_resource_id.cpp
+    ae2/ae2_storage_cell.cpp
+    ae2/ae2_me_network.cpp
 )

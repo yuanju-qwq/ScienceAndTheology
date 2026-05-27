@@ -7,6 +7,7 @@
 #include "gd_power_network.h"
 #include "gd_crafting.h"
 #include "gd_ae2_autocrafting.h"
+#include "gd_me_network.h"
 #include "gd_fluid_network.h"
 #include "gd_item_pipe_network.h"
 #include "gd_machine.h"
@@ -39,6 +40,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDTerrainGenerator>();
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
+    ClassDB::register_class<GDMENetwork>();
     GDAutocraftingService::initialize();
 }
 
