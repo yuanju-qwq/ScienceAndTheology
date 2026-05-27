@@ -4,16 +4,16 @@
 #include <godot_cpp/godot.hpp>
 
 #include "hello_world/gd_hello_world.h"
-#include "gt_bindings/gd_power_network.h"
-#include "gt_bindings/gd_crafting.h"
-#include "gt_bindings/gd_fluid_network.h"
-#include "gt_bindings/gd_item_pipe_network.h"
-#include "gt_bindings/gd_machine.h"
+#include "gd_power_network.h"
+#include "gd_crafting.h"
+#include "gd_fluid_network.h"
+#include "gd_item_pipe_network.h"
+#include "gd_machine.h"
 #include "world_bindings/gd_world_data.h"
 #include "world_bindings/gd_terrain_generator.h"
 
 #include "core/fluid/fluid_registry.hpp"
-#include "core/gt/machine/module.hpp"
+#include "core/machine/module.hpp"
 
 using namespace godot;
 

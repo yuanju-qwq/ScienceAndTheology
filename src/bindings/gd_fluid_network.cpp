@@ -95,7 +95,7 @@ void GDFluidNetwork::_bind_methods() {
 
 int64_t GDFluidNetwork::add_node(godot::Vector2i position, int pipe_type) {
     FluidNodeId id = network_.add_node(_from_godot(position),
-                                        static_cast<PipeType>(pipe_type));
+                                        static_cast<gt::PipeType>(pipe_type));
     return static_cast<int64_t>(id);
 }
 

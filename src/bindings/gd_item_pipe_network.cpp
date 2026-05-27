@@ -62,11 +62,11 @@ void GDItemPipeNetwork::_bind_methods() {
 
     // Pipe type constants
     ClassDB::bind_integer_constant(
-        "GDItemPipeNetwork", "PIPE_TYPE_LIQUID", 0);
+        "GDItemPipeNetwork", "", "PIPE_TYPE_LIQUID", 0);
     ClassDB::bind_integer_constant(
-        "GDItemPipeNetwork", "PIPE_TYPE_GAS", 1);
+        "GDItemPipeNetwork", "", "PIPE_TYPE_GAS", 1);
     ClassDB::bind_integer_constant(
-        "GDItemPipeNetwork", "PIPE_TYPE_ITEM", 2);
+        "GDItemPipeNetwork", "", "PIPE_TYPE_ITEM", 2);
 }
 
 // --- Node lifecycle ---

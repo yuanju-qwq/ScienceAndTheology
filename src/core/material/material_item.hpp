@@ -5,7 +5,7 @@
 #include <string>
 
 #include "common/resource_types.hpp"
-#include "core/item/item_def.hpp"
+#include "item_def.hpp"
 #include "material.hpp"
 #include "material_form.hpp"
 

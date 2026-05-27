@@ -4,6 +4,8 @@
 #include <queue>
 #include <unordered_set>
 
+#include "fluid/fluid_registry.hpp"
+
 namespace science_and_theology::gt {
 
 // --- Position key ---

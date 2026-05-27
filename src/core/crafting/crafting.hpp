@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "common/resource_key.hpp"
-#include "gt/machine/recipe.hpp"
+#include "machine/recipe.hpp"
 
 namespace science_and_theology::gt {
 

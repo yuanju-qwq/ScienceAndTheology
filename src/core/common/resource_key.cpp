@@ -4,6 +4,8 @@
 #include <cstring>
 #include <unordered_set>
 
+#include "material/material_item.hpp"
+
 namespace science_and_theology::gt {
 
 // ============================================================

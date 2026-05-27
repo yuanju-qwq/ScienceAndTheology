@@ -10,13 +10,13 @@ target_sources(snt_core PRIVATE
     fluid/fluid_registry.cpp
 )
 
-# GT systems
+# Machine/material systems
 target_sources(snt_core PRIVATE
-    gt/material/material_item.cpp
-    gt/material/material.cpp
-    gt/machine/machine.cpp
-    gt/machine/recipe.cpp
-    gt/machine/module.cpp
+    material/material_item.cpp
+    material/material.cpp
+    machine/machine.cpp
+    machine/recipe.cpp
+    machine/module.cpp
 )
 
 # Common shared systems (used by both GT and AE)
@@ -68,7 +68,5 @@ target_sources(snt_core PRIVATE
 
 # Future modules:
 # target_sources(snt_core PRIVATE
-#     ae2/network/network_controller.cpp
-#     gt/machine/machine_controller.cpp
 #     common/graph/graph.cpp
 # )

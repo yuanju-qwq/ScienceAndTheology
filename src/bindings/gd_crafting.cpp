@@ -4,8 +4,8 @@
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
-#include "core/gt/material/material_item.hpp"
-#include "core/gt/material/tool_items.hpp"
+#include "core/material/material_item.hpp"
+#include "core/material/tool_items.hpp"
 
 namespace science_and_theology {
 

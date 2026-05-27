@@ -6,6 +6,16 @@
 
 namespace science_and_theology {
 
+// Pass IDs for the generation pipeline.
+enum class GenerationPass : uint32_t {
+    BASE_TERRAIN = 0,
+    BIOME       = 1,
+    ORE         = 2,
+    STRUCTURE   = 3,
+    OBJECT      = 4,
+    GAMEPLAY    = 5,
+};
+
 // Manages the world generation seed and derived parameters.
 // All generators should derive their seeds from the world seed to ensure
 // deterministic reproduction of the entire world from a single uint64_t.
@@ -68,16 +78,6 @@ public:
 
 private:
     uint64_t seed_;
-};
-
-// Pass IDs for the generation pipeline.
-enum class GenerationPass : uint32_t {
-    BASE_TERRAIN = 0,
-    BIOME       = 1,
-    ORE         = 2,
-    STRUCTURE   = 3,
-    OBJECT      = 4,
-    GAMEPLAY    = 5,
 };
 
 } // namespace science_and_theology

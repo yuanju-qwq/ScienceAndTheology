@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "../../common/resource_key.hpp"
+#include "../common/resource_key.hpp"
 #include "recipe.hpp"
 #include "processing_logic.hpp"
 #include "machine_port.hpp"

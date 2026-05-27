@@ -8,9 +8,9 @@
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
-#include "core/gt/machine/machine.hpp"
-#include "core/gt/machine/machine_port.hpp"
-#include "core/gt/machine/module.hpp"
+#include "core/machine/machine.hpp"
+#include "core/machine/machine_port.hpp"
+#include "core/machine/module.hpp"
 
 namespace science_and_theology {
 

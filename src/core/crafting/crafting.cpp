@@ -1,6 +1,6 @@
 #include "crafting.hpp"
-#include "gt/material/material.hpp"
-#include "gt/material/tool_items.hpp"
+#include "material/material.hpp"
+#include "material/tool_items.hpp"
 
 #include <algorithm>
 #include <cassert>

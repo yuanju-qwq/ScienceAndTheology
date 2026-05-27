@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "../../common/resource_key.hpp"
+#include "../common/resource_key.hpp"
 #include "../config/gt_values.hpp"
 
 namespace science_and_theology::gt {

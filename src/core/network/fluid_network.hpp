@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "gt/power/power_node.hpp"
+#include "power/power_node.hpp"
 #include "pipe_types.hpp"
 #include "fluid/fluid_def.hpp"
 
