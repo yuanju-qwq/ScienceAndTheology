@@ -1,0 +1,406 @@
+#include "gd_tick_system.h"
+
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/resource.hpp>
+
+#include "core/simulation/event_types.hpp"
+#include "core/simulation/machine_system.hpp"
+#include "bindings/world/gd_world_data.h"
+
+namespace science_and_theology {
+
+GDTickSystem::GDTickSystem() {
+    tick_system_ = std::make_unique<TickSystem>(nullptr);
+}
+
+GDTickSystem::~GDTickSystem() {
+    unsubscribe_from_event_bus();
+}
+
+void GDTickSystem::_ready() {
+}
+
+void GDTickSystem::_process(double delta) {
+    // Manual tick — GDScript should call tick() explicitly.
+    // If auto_tick is desired, uncomment:
+    // if (world_set) tick(static_cast<float>(delta));
+}
+
+void GDTickSystem::set_world_data(godot::Resource* gd_world) {
+    unsubscribe_from_event_bus();
+    gd_world_data_ = gd_world;
+    WorldData* world_ptr = get_world_data_ptr();
+    if (world_ptr) {
+        tick_system_ = std::make_unique<TickSystem>(world_ptr);
+        world_set = true;
+        subscribe_to_event_bus();
+    }
+}
+
+void GDTickSystem::register_machine_system() {
+    if (tick_system_) {
+        tick_system_->register_subsystem(std::make_unique<MachineSystem>());
+    }
+}
+
+void GDTickSystem::tick(float delta) {
+    if (!tick_system_ || !world_set) return;
+    tick_system_->tick(delta);
+}
+
+void GDTickSystem::set_player_chunk(const godot::String& layer, int cx, int cy) {
+    if (tick_system_ && world_set) {
+        tick_system_->set_player_chunk(layer.utf8().get_data(), cx, cy);
+    }
+}
+
+int64_t GDTickSystem::get_active_radius() const {
+    return tick_system_ ? tick_system_->active_radius() : 0;
+}
+
+void GDTickSystem::set_active_radius(int64_t radius) {
+    if (tick_system_) {
+        tick_system_->set_active_radius(static_cast<int>(radius));
+    }
+}
+
+int64_t GDTickSystem::get_tick_count() const {
+    return tick_system_ ? tick_system_->tick_count() : 0;
+}
+
+int64_t GDTickSystem::get_active_chunk_count() const {
+    if (!tick_system_) return 0;
+    return static_cast<int64_t>(tick_system_->active_chunks().size());
+}
+
+godot::Array GDTickSystem::get_active_chunks() const {
+    godot::Array arr;
+    if (!tick_system_) return arr;
+    for (const auto& key : tick_system_->active_chunks()) {
+        arr.append(chunk_key_to_dict(key));
+    }
+    return arr;
+}
+
+godot::Array GDTickSystem::poll_events() {
+    godot::Array arr;
+    // EventBus drains its queue during process_queue() in tick().
+    // For GDScript, events are typically handled via signals.
+    // This method is a polling alternative for deferred inspection.
+    return arr;
+}
+
+godot::Array GDTickSystem::get_machine_errors() const {
+    godot::Array arr;
+    if (!tick_system_ || !tick_system_->error_handler()) return arr;
+    auto errors = tick_system_->error_handler()->get_all_errors();
+    for (const auto& err : errors) {
+        arr.append(error_to_dict(err));
+    }
+    return arr;
+}
+
+void GDTickSystem::clear_machine_error(int64_t machine_id) {
+    if (tick_system_ && tick_system_->error_handler()) {
+        MachineId mid;
+        mid.id = static_cast<uint64_t>(machine_id);
+        tick_system_->error_handler()->clear_error(mid);
+    }
+}
+
+godot::Array GDTickSystem::get_dirty_chunks() const {
+    godot::Array arr;
+    if (!tick_system_ || !tick_system_->state_sync()) return arr;
+    auto dirty = tick_system_->state_sync()->dirty_chunks();
+    for (const auto& key : dirty) {
+        arr.append(chunk_key_to_dict(key));
+    }
+    return arr;
+}
+
+godot::Dictionary GDTickSystem::compute_delta(const godot::Array& chunk_keys) {
+    godot::Dictionary dict;
+    if (!tick_system_ || !tick_system_->state_sync()) return dict;
+
+    std::vector<ChunkKey> keys;
+    for (int64_t i = 0; i < chunk_keys.size(); ++i) {
+        auto d = chunk_keys[i];
+        if (d.get_type() != godot::Variant::DICTIONARY) continue;
+        godot::Dictionary kd = d;
+        ChunkKey ck;
+        ck.layer_id = static_cast<godot::String>(kd["layer"]).utf8().get_data();
+        ck.chunk_x = static_cast<int>(kd["cx"]);
+        ck.chunk_y = static_cast<int>(kd["cy"]);
+        keys.push_back(ck);
+    }
+
+    auto delta = tick_system_->state_sync()->compute_delta(keys);
+    return delta_to_dict(delta);
+}
+
+godot::Dictionary GDTickSystem::create_snapshot(
+    const godot::String& layer, int cx, int cy) {
+    godot::Dictionary dict;
+    if (!tick_system_ || !tick_system_->state_sync()) return dict;
+
+    ChunkKey key;
+    key.layer_id = layer.utf8().get_data();
+    key.chunk_x = cx;
+    key.chunk_y = cy;
+
+    auto delta = tick_system_->state_sync()->create_snapshot(key);
+    return delta_to_dict(delta);
+}
+
+WorldData* GDTickSystem::get_world_data_ptr() const {
+    if (!gd_world_data_) return nullptr;
+    auto* gd_world = reinterpret_cast<GDWorldData*>(gd_world_data_);
+    return gd_world->get_world_ptr();
+}
+
+godot::Dictionary GDTickSystem::event_to_dict(const GameEvent& ev) const {
+    godot::Dictionary d;
+    d["type"] = static_cast<int64_t>(ev.type);
+    d["source_id"] = static_cast<int64_t>(ev.source_id);
+    d["source_layer"] = godot::String(ev.source_layer.c_str());
+    d["cell_x"] = ev.cell_x;
+    d["cell_y"] = ev.cell_y;
+    d["chunk_x"] = ev.chunk_x;
+    d["chunk_y"] = ev.chunk_y;
+    d["timestamp"] = ev.timestamp;
+
+    godot::Dictionary sd;
+    for (const auto& p : ev.string_data) {
+        sd[godot::String(p.first.c_str())] = godot::String(p.second.c_str());
+    }
+    d["string_data"] = sd;
+
+    godot::Dictionary intd;
+    for (const auto& p : ev.int_data) {
+        intd[godot::String(p.first.c_str())] = p.second;
+    }
+    d["int_data"] = intd;
+
+    godot::Dictionary floatd;
+    for (const auto& p : ev.float_data) {
+        floatd[godot::String(p.first.c_str())] = p.second;
+    }
+    d["float_data"] = floatd;
+
+    return d;
+}
+
+godot::Dictionary GDTickSystem::error_to_dict(const MachineError& err) const {
+    godot::Dictionary d;
+    d["machine_id"] = static_cast<int64_t>(err.machine_id.id);
+    d["error_code"] = godot::String(err.error_code.c_str());
+    d["message"] = godot::String(err.message.c_str());
+    d["severity"] = static_cast<int64_t>(err.severity);
+    d["timestamp"] = err.timestamp;
+    return d;
+}
+
+godot::Dictionary GDTickSystem::chunk_key_to_dict(const ChunkKey& key) const {
+    godot::Dictionary d;
+    d["layer"] = godot::String(key.layer_id.c_str());
+    d["cx"] = key.chunk_x;
+    d["cy"] = key.chunk_y;
+    return d;
+}
+
+godot::Dictionary GDTickSystem::delta_to_dict(const StateDelta& delta) const {
+    godot::Dictionary d;
+    d["flags"] = static_cast<int64_t>(static_cast<uint32_t>(delta.flags));
+    d["timestamp"] = delta.timestamp;
+
+    godot::Array chunks;
+    for (const auto& key : delta.chunks_modified) {
+        chunks.append(chunk_key_to_dict(key));
+    }
+    d["chunks_modified"] = chunks;
+
+    godot::Array created;
+    for (const auto& eid : delta.entities_created) {
+        created.append(static_cast<int64_t>(eid.id));
+    }
+    d["entities_created"] = created;
+
+    godot::Array destroyed;
+    for (const auto& eid : delta.entities_destroyed) {
+        destroyed.append(static_cast<int64_t>(eid.id));
+    }
+    d["entities_destroyed"] = destroyed;
+
+    godot::Array state_changes;
+    for (const auto& [eid, new_state] : delta.machine_state_changes) {
+        godot::Dictionary sc;
+        sc["entity_id"] = static_cast<int64_t>(eid.id);
+        sc["new_state"] = new_state;
+        state_changes.append(sc);
+    }
+    d["machine_state_changes"] = state_changes;
+
+    return d;
+}
+
+void GDTickSystem::_bind_methods() {
+    godot::ClassDB::bind_method(godot::D_METHOD("set_world_data", "gd_world"),
+        &GDTickSystem::set_world_data);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_machine_system"),
+        &GDTickSystem::register_machine_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
+        &GDTickSystem::tick);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "layer",
+        "cx", "cy"), &GDTickSystem::set_player_chunk);
+
+    godot::ClassDB::bind_method(godot::D_METHOD("get_active_radius"),
+        &GDTickSystem::get_active_radius);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_active_radius", "radius"),
+        &GDTickSystem::set_active_radius);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_tick_count"),
+        &GDTickSystem::get_tick_count);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_active_chunk_count"),
+        &GDTickSystem::get_active_chunk_count);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_active_chunks"),
+        &GDTickSystem::get_active_chunks);
+
+    // Deprecated: prefer signals instead.
+    godot::ClassDB::bind_method(godot::D_METHOD("poll_events"),
+        &GDTickSystem::poll_events);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_machine_errors"),
+        &GDTickSystem::get_machine_errors);
+    godot::ClassDB::bind_method(godot::D_METHOD("clear_machine_error",
+        "machine_id"), &GDTickSystem::clear_machine_error);
+
+    godot::ClassDB::bind_method(godot::D_METHOD("get_dirty_chunks"),
+        &GDTickSystem::get_dirty_chunks);
+    godot::ClassDB::bind_method(godot::D_METHOD("compute_delta",
+        "chunk_keys"), &GDTickSystem::compute_delta);
+    godot::ClassDB::bind_method(godot::D_METHOD("create_snapshot", "layer",
+        "cx", "cy"), &GDTickSystem::create_snapshot);
+
+    // --- Signals: real-time events bridged from EventBus ---
+
+    ADD_SIGNAL(godot::MethodInfo("machine_state_changed",
+        godot::PropertyInfo(godot::Variant::INT, "machine_id"),
+        godot::PropertyInfo(godot::Variant::INT, "old_state"),
+        godot::PropertyInfo(godot::Variant::INT, "new_state")));
+    ADD_SIGNAL(godot::MethodInfo("machine_recipe_completed",
+        godot::PropertyInfo(godot::Variant::INT, "machine_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "recipe_name")));
+    ADD_SIGNAL(godot::MethodInfo("machine_error",
+        godot::PropertyInfo(godot::Variant::INT, "machine_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "error_code"),
+        godot::PropertyInfo(godot::Variant::STRING, "message")));
+    ADD_SIGNAL(godot::MethodInfo("power_overload",
+        godot::PropertyInfo(godot::Variant::INT, "node_id"),
+        godot::PropertyInfo(godot::Variant::INT, "demand"),
+        godot::PropertyInfo(godot::Variant::INT, "capacity")));
+    ADD_SIGNAL(godot::MethodInfo("chunk_generated",
+        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy")));
+    ADD_SIGNAL(godot::MethodInfo("chunk_state_changed",
+        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "old_state"),
+        godot::PropertyInfo(godot::Variant::INT, "new_state")));
+    ADD_SIGNAL(godot::MethodInfo("entity_created",
+        godot::PropertyInfo(godot::Variant::INT, "entity_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "type_name"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy")));
+    ADD_SIGNAL(godot::MethodInfo("entity_destroyed",
+        godot::PropertyInfo(godot::Variant::INT, "entity_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "layer")));
+}
+
+void GDTickSystem::subscribe_to_event_bus() {
+    if (!tick_system_) return;
+    auto* bus = tick_system_->event_bus();
+    if (!bus) return;
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::MACHINE_STATE_CHANGED,
+        [this](const GameEvent& e) {
+            emit_signal("machine_state_changed",
+                static_cast<int64_t>(e.source_id),
+                e.int_data.at("old_state"),
+                e.int_data.at("new_state"));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::MACHINE_RECIPE_COMPLETED,
+        [this](const GameEvent& e) {
+            emit_signal("machine_recipe_completed",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("recipe_name").c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::MACHINE_ERROR,
+        [this](const GameEvent& e) {
+            emit_signal("machine_error",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("error_code").c_str()),
+                godot::String(e.string_data.at("message").c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::POWER_OVERLOAD,
+        [this](const GameEvent& e) {
+            emit_signal("power_overload",
+                static_cast<int64_t>(e.source_id),
+                e.int_data.at("demand"),
+                e.int_data.at("capacity"));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CHUNK_GENERATED,
+        [this](const GameEvent& e) {
+            emit_signal("chunk_generated",
+                godot::String(e.source_layer.c_str()),
+                e.chunk_x, e.chunk_y);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CHUNK_STATE_CHANGED,
+        [this](const GameEvent& e) {
+            emit_signal("chunk_state_changed",
+                godot::String(e.source_layer.c_str()),
+                e.chunk_x, e.chunk_y,
+                e.int_data.at("old_state"),
+                e.int_data.at("new_state"));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::ENTITY_CREATED,
+        [this](const GameEvent& e) {
+            emit_signal("entity_created",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("type_name").c_str()),
+                e.chunk_x, e.chunk_y);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::ENTITY_DESTROYED,
+        [this](const GameEvent& e) {
+            emit_signal("entity_destroyed",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.source_layer.c_str()));
+        }));
+}
+
+void GDTickSystem::unsubscribe_from_event_bus() {
+    if (!tick_system_) return;
+    auto* bus = tick_system_->event_bus();
+    if (!bus) return;
+    for (auto id : event_subscriptions_) {
+        bus->unsubscribe(id);
+    }
+    event_subscriptions_.clear();
+}
+
+} // namespace science_and_theology

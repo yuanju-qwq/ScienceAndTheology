@@ -1,0 +1,119 @@
+#include "machine_system.hpp"
+#include "event_bus.hpp"
+#include "../world/world_data.hpp"
+
+namespace science_and_theology {
+
+void MachineSystem::initialize(WorldData* world, EventBus* bus) {
+    world_ = world;
+    event_bus_ = bus;
+}
+
+void MachineSystem::tick_active(const ChunkKey& chunk, float delta) {
+    if (!world_ || !event_bus_) return;
+
+    auto* chunk_data = world_->get_chunk(
+        chunk.layer_id, chunk.chunk_x, chunk.chunk_y);
+    if (!chunk_data) return;
+
+    // Iterate over all machines in this chunk and tick them.
+    for (const auto& mid : chunk_data->machines) {
+        auto it = machine_registry_.find(mid);
+        if (it == machine_registry_.end()) continue;
+
+        gt::Machine* machine = it->second;
+        if (!machine) continue;
+
+        // Power injection: machines draw power from their connected network.
+        // This is mediated by the game loop; for now, assume power is set
+        // externally before tick.
+        machine->tick();
+    }
+
+    // Mark chunk as dirty for machine state sync.
+    (void)delta;
+}
+
+void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+    if (!world_ || !event_bus_) return;
+
+    auto* chunk_data = world_->get_chunk(
+        chunk.layer_id, chunk.chunk_x, chunk.chunk_y);
+    if (!chunk_data) return;
+
+    // Sleeping machines process at reduced rate.
+    // Approximate: advance progress proportionally to delta.
+    for (const auto& mid : chunk_data->machines) {
+        auto it = machine_registry_.find(mid);
+        if (it == machine_registry_.end()) continue;
+
+        gt::Machine* machine = it->second;
+        if (!machine) continue;
+        if (machine->state() != gt::MachineState::PROCESSING) continue;
+
+        // Sleeping machines don't do full tick — just approximate progress.
+        // A real implementation would use power_available * efficiency.
+        (void)delta;
+    }
+}
+
+void MachineSystem::shutdown() {
+    machine_registry_.clear();
+    world_ = nullptr;
+    event_bus_ = nullptr;
+}
+
+void MachineSystem::register_machine(MachineId id, gt::Machine* machine) {
+    if (!machine) return;
+    wire_callbacks(id, machine);
+    machine_registry_[id] = machine;
+}
+
+void MachineSystem::unregister_machine(MachineId id) {
+    auto it = machine_registry_.find(id);
+    if (it != machine_registry_.end() && it->second) {
+        it->second->set_state_change_callback(nullptr);
+        it->second->set_recipe_complete_callback(nullptr);
+        it->second->set_recipe_started_callback(nullptr);
+        it->second->set_error_callback(nullptr);
+    }
+    machine_registry_.erase(id);
+}
+
+void MachineSystem::wire_callbacks(MachineId id, gt::Machine* machine) {
+    machine->set_machine_id(id);
+
+    machine->set_state_change_callback(
+        [this](MachineId mid, gt::MachineState old_s, gt::MachineState new_s) {
+            if (!event_bus_) return;
+            event_bus_->emit(GameEvent::machine_state_changed(
+                mid.id,
+                static_cast<int>(old_s),
+                static_cast<int>(new_s)));
+        });
+
+    machine->set_recipe_complete_callback(
+        [this](MachineId mid, const gt::Recipe& recipe) {
+            if (!event_bus_) return;
+            event_bus_->emit(GameEvent::machine_recipe_completed(
+                mid.id, recipe.name));
+        });
+
+    machine->set_recipe_started_callback(
+        [this](MachineId mid, const gt::Recipe& recipe) {
+            if (!event_bus_) return;
+            GameEvent ev;
+            ev.type = GameEventType::MACHINE_RECIPE_STARTED;
+            ev.source_id = mid.id;
+            ev.string_data["recipe"] = recipe.name;
+            event_bus_->emit(ev);
+        });
+
+    machine->set_error_callback(
+        [this](MachineId mid, const char* code, const char* msg) {
+            if (!event_bus_) return;
+            event_bus_->emit(GameEvent::machine_error(mid.id, code, msg));
+        });
+}
+
+} // namespace science_and_theology

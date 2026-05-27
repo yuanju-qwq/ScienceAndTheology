@@ -12,6 +12,7 @@ set(SOURCES
     machine/gd_machine.cpp
     world/gd_world_data.cpp
     world/gd_terrain_generator.cpp
+    simulation/gd_tick_system.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

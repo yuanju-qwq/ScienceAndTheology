@@ -218,6 +218,8 @@ void Machine::set_port_direction(int index, PortDirection dir) {
 // ============================================================
 
 void Machine::tick() {
+    MachineState old_state = state_;
+
     switch (state_) {
     case MachineState::IDLE:
     case MachineState::NO_RECIPE:
@@ -266,9 +268,13 @@ void Machine::tick() {
     case MachineState::TIER_TOO_LOW:
     case MachineState::ERROR:
         // Wait for player intervention or power restoration.
-        // Machines in these states attempt to recover on next tick.
         state_ = MachineState::IDLE;
         break;
+    }
+
+    // Emit state change event if state changed.
+    if (state_ != old_state && state_change_cb_) {
+        state_change_cb_(machine_id_, old_state, state_);
     }
 }
 
@@ -480,8 +486,16 @@ RecipeMap* Machine::get_recipe_map() {
 // Subclass hooks (default no-ops)
 // ============================================================
 
-void Machine::on_recipe_started(const Recipe&) {}
-void Machine::on_recipe_completed(const Recipe&) {}
+void Machine::on_recipe_started(const Recipe& recipe) {
+    if (recipe_started_cb_) {
+        recipe_started_cb_(machine_id_, recipe);
+    }
+}
+void Machine::on_recipe_completed(const Recipe& recipe) {
+    if (recipe_complete_cb_) {
+        recipe_complete_cb_(machine_id_, recipe);
+    }
+}
 void Machine::on_recipe_aborted(const Recipe&) {}
 
 } // namespace science_and_theology::gt

@@ -52,10 +52,24 @@ target_sources(snt_core PRIVATE
     world_gen/terrain_generator.cpp
 )
 
-# Threading / async support
+# Simulation system (tick orchestration, event bus, state sync)
 target_sources(snt_core PRIVATE
-    threading/worker_pool.hpp
-    threading/worker_pool.cpp
+    simulation/event_types.hpp
+    simulation/event_types.cpp
+    simulation/event_bus.hpp
+    simulation/event_bus.cpp
+    simulation/simulation_system.hpp
+    simulation/tick_system.hpp
+    simulation/tick_system.cpp
+    simulation/machine_system.hpp
+    simulation/machine_system.cpp
+    simulation/error_handler.hpp
+    simulation/error_handler.cpp
+    simulation/state_sync_common.hpp
+    simulation/state_sync_server.hpp
+    simulation/state_sync_server.cpp
+    simulation/state_sync_client.hpp
+    simulation/state_sync_client.cpp
 )
 
 # Save / load system

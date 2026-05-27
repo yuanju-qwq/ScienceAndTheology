@@ -1,5 +1,6 @@
 #include "gd_world_data.h"
 
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
@@ -17,15 +18,12 @@ namespace science_and_theology {
 using namespace godot;
 
 GDWorldData::GDWorldData()
-    : seed_(0),
-      worker_pool_(std::make_unique<WorkerPool>(0)) {  // 0 = use hardware concurrency
+    : seed_(0) {
     rebuild_generator();
 }
 
 GDWorldData::~GDWorldData() {
-    // Destroy worker pool before generator to ensure no in-flight tasks.
-    worker_pool_.reset();
-    // generator_ auto-cleaned by unique_ptr
+    _drain_all_async_tasks();
 }
 
 int64_t GDWorldData::get_seed() const {
@@ -41,12 +39,8 @@ void GDWorldData::set_seed(int64_t seed) {
 }
 
 void GDWorldData::rebuild_generator() {
-    // Drain worker pool to prevent use-after-free on the old generator.
-    if (worker_pool_) {
-        worker_pool_->wait_all();
-    }
+    _drain_all_async_tasks();
 
-    // Discard any unprocessed async results from the old generator.
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
         async_results_ = std::queue<AsyncChunkResult>();
@@ -424,21 +418,16 @@ void GDWorldData::request_chunk_async(
     // - Only reads world_seed_ (const), all other state is stack-local.
     // - Each NoiseGenerator creates independent perm_ array from its sub-seed.
     // Safe to share across worker threads without locks.
-    TerrainGenerator* gen = generator_.get();
-    worker_pool_->enqueue([this, gen, layer_str, chunk_x, chunk_y]() {
-        ChunkData chunk = gen->generate_chunk(layer_str, chunk_x, chunk_y);
-
-        AsyncChunkResult result;
-        result.layer_id = layer_str;
-        result.chunk_x = chunk_x;
-        result.chunk_y = chunk_y;
-        result.chunk = std::move(chunk);
-
-        {
-            std::lock_guard<std::mutex> lock(async_results_mutex_);
-            async_results_.push(std::move(result));
-        }
-    });
+    auto* td = new AsyncChunkTaskData{this, generator_.get(),
+        std::move(layer_str), chunk_x, chunk_y};
+    WorkerThreadPool::TaskID task_id =
+        WorkerThreadPool::get_singleton()->add_native_task(
+            &GDWorldData::_async_chunk_callback, td, true, "ChunkGen");
+    if (task_id != WorkerThreadPool::INVALID_TASK_ID) {
+        active_native_tasks_.push_back(task_id);
+    } else {
+        delete td;
+    }
 }
 
 int64_t GDWorldData::process_async_results() {
@@ -468,14 +457,22 @@ int64_t GDWorldData::process_async_results() {
     }
 
     async_completed_count_ += completed;
+
+    // Clean up completed native task IDs.
+    auto* pool = WorkerThreadPool::get_singleton();
+    active_native_tasks_.erase(
+        std::remove_if(active_native_tasks_.begin(),
+                       active_native_tasks_.end(),
+                       [pool](WorkerThreadPool::TaskID id) {
+                           return pool->is_task_completed(id);
+                       }),
+        active_native_tasks_.end());
+
     return completed;
 }
 
 int64_t GDWorldData::get_async_pending_count() const {
-    if (!worker_pool_) {
-        return 0;
-    }
-    int64_t pool_pending = static_cast<int64_t>(worker_pool_->pending_count());
+    int64_t pool_pending = static_cast<int64_t>(active_native_tasks_.size());
 
     int64_t result_pending = 0;
     {
@@ -487,10 +484,7 @@ int64_t GDWorldData::get_async_pending_count() const {
 }
 
 int64_t GDWorldData::get_worker_thread_count() const {
-    if (!worker_pool_) {
-        return 0;
-    }
-    return static_cast<int64_t>(worker_pool_->thread_count());
+    return static_cast<int64_t>(OS::get_singleton()->get_processor_count());
 }
 
 int64_t GDWorldData::get_async_completed_count() const {
@@ -503,6 +497,34 @@ int64_t GDWorldData::get_max_async_queue_size() const {
 
 void GDWorldData::set_max_async_queue_size(int64_t size) {
     max_async_queue_size_ = (size >= 0) ? size : 0;
+}
+
+void GDWorldData::_async_chunk_callback(void* userdata) {
+    auto* td = static_cast<AsyncChunkTaskData*>(userdata);
+    GDWorldData* self = td->world_data;
+
+    ChunkData chunk = td->gen->generate_chunk(td->layer_id, td->chunk_x, td->chunk_y);
+
+    AsyncChunkResult result;
+    result.layer_id = std::move(td->layer_id);
+    result.chunk_x = td->chunk_x;
+    result.chunk_y = td->chunk_y;
+    result.chunk = std::move(chunk);
+
+    {
+        std::lock_guard<std::mutex> lock(self->async_results_mutex_);
+        self->async_results_.push(std::move(result));
+    }
+
+    delete td;
+}
+
+void GDWorldData::_drain_all_async_tasks() {
+    auto* pool = WorkerThreadPool::get_singleton();
+    for (auto task_id : active_native_tasks_) {
+        pool->wait_for_task_completion(task_id);
+    }
+    active_native_tasks_.clear();
 }
 
 int64_t GDWorldData::save_world(const godot::String& save_dir) {

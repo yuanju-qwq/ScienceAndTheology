@@ -13,6 +13,7 @@
 #include "machine/gd_machine.h"
 #include "world/gd_world_data.h"
 #include "world/gd_terrain_generator.h"
+#include "simulation/gd_tick_system.h"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/machine/module.hpp"
@@ -41,6 +42,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
     ClassDB::register_class<GDMENetwork>();
+    ClassDB::register_class<GDTickSystem>();
     GDAutocraftingService::initialize();
 }
 

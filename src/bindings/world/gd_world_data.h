@@ -1,19 +1,21 @@
 #pragma once
 
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/classes/worker_thread_pool.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <vector>
 
 #include "core/world/world_data.hpp"
 #include "core/world_gen/terrain_generator.hpp"
 #include "core/world_gen/world_seed.hpp"
-#include "core/threading/worker_pool.hpp"
 #include "core/save/save_manager.hpp"
 
 namespace science_and_theology {
@@ -176,6 +178,11 @@ public:
     // Returns the total number of loaded chunks.
     int64_t get_chunk_count() const;
 
+    // Returns a pointer to the underlying C++ WorldData.
+    // Used by TickSystem and other simulation systems.
+    WorldData* get_world_ptr() { return &world_; }
+    const WorldData* get_world_ptr() const { return &world_; }
+
 protected:
     static void _bind_methods();
 
@@ -196,13 +203,24 @@ private:
         ChunkData chunk;
     };
 
+    struct AsyncChunkTaskData {
+        GDWorldData* world_data;
+        TerrainGenerator* gen;
+        std::string layer_id;
+        int chunk_x;
+        int chunk_y;
+    };
+
+    static void _async_chunk_callback(void* userdata);
+    void _drain_all_async_tasks();
+
     WorldData world_;
     std::unique_ptr<TerrainGenerator> generator_;
     int64_t seed_ = 0;
 
     // Async generation state.
     static constexpr int64_t kDefaultMaxAsyncQueueSize = 256;
-    std::unique_ptr<WorkerPool> worker_pool_;
+    std::vector<godot::WorkerThreadPool::TaskID> active_native_tasks_;
     std::queue<AsyncChunkResult> async_results_;
     mutable std::mutex async_results_mutex_;
     int64_t async_completed_count_ = 0;

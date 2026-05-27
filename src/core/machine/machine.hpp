@@ -3,8 +3,10 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <functional>
 
 #include "../common/resource_key.hpp"
+#include "../world/entity_data.hpp"
 #include "recipe.hpp"
 #include "processing_logic.hpp"
 #include "machine_port.hpp"
@@ -36,6 +38,18 @@ constexpr const char* kMachineStateNames[] = {
     "Tier Too Low",
     "Error",
 };
+
+// Callback types for machine lifecycle events.
+// Injected by MachineSystem so the machine can report events
+// without depending on the simulation layer.
+using MachineStateChangeCb = std::function<void(
+    MachineId, MachineState old_state, MachineState new_state)>;
+using MachineRecipeCompleteCb = std::function<void(
+    MachineId, const Recipe& recipe)>;
+using MachineRecipeStartedCb = std::function<void(
+    MachineId, const Recipe& recipe)>;
+using MachineErrorCb = std::function<void(
+    MachineId, const char* error_code, const char* message)>;
 
 // ============================================================
 // Machine configuration
@@ -100,6 +114,26 @@ class Machine {
 public:
     explicit Machine(const MachineConfig& config);
     virtual ~Machine() = default;
+
+    // --- Identity ---
+
+    void set_machine_id(MachineId id) { machine_id_ = id; }
+    MachineId machine_id() const { return machine_id_; }
+
+    // --- Event callbacks ---
+    // Set by MachineSystem to route events to EventBus.
+    void set_state_change_callback(MachineStateChangeCb cb) {
+        state_change_cb_ = std::move(cb);
+    }
+    void set_recipe_complete_callback(MachineRecipeCompleteCb cb) {
+        recipe_complete_cb_ = std::move(cb);
+    }
+    void set_recipe_started_callback(MachineRecipeStartedCb cb) {
+        recipe_started_cb_ = std::move(cb);
+    }
+    void set_error_callback(MachineErrorCb cb) {
+        error_cb_ = std::move(cb);
+    }
 
     // --- Accessors ---
 
@@ -194,6 +228,13 @@ public:
 protected:
     MachineConfig config_;
     MachineState state_ = MachineState::IDLE;
+    MachineId machine_id_;
+
+    // Event callbacks (set by MachineSystem).
+    MachineStateChangeCb state_change_cb_;
+    MachineRecipeCompleteCb recipe_complete_cb_;
+    MachineRecipeStartedCb recipe_started_cb_;
+    MachineErrorCb error_cb_;
 
     // Inventory.
     std::vector<ResourceStack> input_slots_;
