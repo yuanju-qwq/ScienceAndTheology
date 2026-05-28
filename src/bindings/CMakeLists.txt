@@ -15,6 +15,10 @@ set(SOURCES
     simulation/gd_tick_system.cpp
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp
+    magic/gd_rune_registry.cpp
+    magic/gd_glyph_registry.cpp
+    magic/gd_spell_book.cpp
+    magic/gd_mana_pool.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

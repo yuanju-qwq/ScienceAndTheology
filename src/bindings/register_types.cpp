@@ -16,9 +16,16 @@
 #include "simulation/gd_tick_system.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
+#include "magic/gd_rune_registry.hpp"
+#include "magic/gd_glyph_registry.hpp"
+#include "magic/gd_spell_book.hpp"
+#include "magic/gd_mana_pool.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/machine/module.hpp"
+#include "core/magic/rune_registry.hpp"
+#include "core/magic/glyph_registry.hpp"
+#include "core/magic/ritual_recipe_registry.hpp"
 
 using namespace godot;
 
@@ -31,6 +38,9 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
 
     gt::FluidRegistry::initialize();
     gt::ModuleRegistry::initialize();
+    magic::RuneRegistry::initialize();
+    magic::GlyphRegistry::initialize();
+    magic::RitualRecipeRegistry::initialize();
 
     ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
@@ -47,6 +57,10 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDTickSystem>();
     ClassDB::register_class<GDPlayerInventory>();
     ClassDB::register_class<GDPlayerEquipment>();
+    ClassDB::register_class<GDRuneRegistry>();
+    ClassDB::register_class<GDGlyphRegistry>();
+    ClassDB::register_class<GDSpellBook>();
+    ClassDB::register_class<GDManaPool>();
     GDAutocraftingService::initialize();
 }
 

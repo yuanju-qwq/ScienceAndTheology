@@ -104,3 +104,12 @@ target_sources(snt_core PRIVATE
     ae2/ae2_storage_cell.cpp
     ae2/ae2_me_network.cpp
 )
+
+# Magic system (runes, glyphs, spell books, altars, rituals)
+target_sources(snt_core PRIVATE
+    magic/rune_registry.cpp
+    magic/glyph_registry.cpp
+    magic/spell_compiler.cpp
+    magic/ritual_recipe_registry.cpp
+    magic/spell_effect/spell_effect_base.cpp
+)
