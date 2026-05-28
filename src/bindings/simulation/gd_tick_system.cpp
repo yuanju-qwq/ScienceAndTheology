@@ -153,6 +153,14 @@ godot::Dictionary GDTickSystem::create_snapshot(
     return delta_to_dict(delta);
 }
 
+void GDTickSystem::set_player_inventory(godot::Resource* inventory) {
+    player_inventory_ = inventory;
+}
+
+void GDTickSystem::set_player_equipment(godot::Resource* equipment) {
+    player_equipment_ = equipment;
+}
+
 WorldData* GDTickSystem::get_world_data_ptr() const {
     if (!gd_world_data_) return nullptr;
     auto* gd_world = reinterpret_cast<GDWorldData*>(gd_world_data_);
@@ -280,6 +288,11 @@ void GDTickSystem::_bind_methods() {
     godot::ClassDB::bind_method(godot::D_METHOD("create_snapshot", "layer",
         "cx", "cy"), &GDTickSystem::create_snapshot);
 
+    godot::ClassDB::bind_method(godot::D_METHOD("set_player_inventory",
+        "inventory"), &GDTickSystem::set_player_inventory);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_player_equipment",
+        "equipment"), &GDTickSystem::set_player_equipment);
+
     // --- Signals: real-time events bridged from EventBus ---
 
     ADD_SIGNAL(godot::MethodInfo("machine_state_changed",
@@ -315,6 +328,41 @@ void GDTickSystem::_bind_methods() {
     ADD_SIGNAL(godot::MethodInfo("entity_destroyed",
         godot::PropertyInfo(godot::Variant::INT, "entity_id"),
         godot::PropertyInfo(godot::Variant::STRING, "layer")));
+
+    ADD_SIGNAL(godot::MethodInfo("terrain_changed",
+        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "x"),
+        godot::PropertyInfo(godot::Variant::INT, "y"),
+        godot::PropertyInfo(godot::Variant::INT, "old_material"),
+        godot::PropertyInfo(godot::Variant::INT, "new_material")));
+
+    ADD_SIGNAL(godot::MethodInfo("item_dropped",
+        godot::PropertyInfo(godot::Variant::INT, "item_id"),
+        godot::PropertyInfo(godot::Variant::INT, "count"),
+        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "x"),
+        godot::PropertyInfo(godot::Variant::INT, "y")));
+
+    ADD_SIGNAL(godot::MethodInfo("item_picked_up",
+        godot::PropertyInfo(godot::Variant::INT, "item_id"),
+        godot::PropertyInfo(godot::Variant::INT, "count"),
+        godot::PropertyInfo(godot::Variant::STRING, "layer")));
+
+    ADD_SIGNAL(godot::MethodInfo("entity_damaged",
+        godot::PropertyInfo(godot::Variant::INT, "entity_id"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "damage"),
+        godot::PropertyInfo(godot::Variant::STRING, "source_layer")));
+
+    ADD_SIGNAL(godot::MethodInfo("player_inventory_changed"));
+
+    ADD_SIGNAL(godot::MethodInfo("player_equipment_changed",
+        godot::PropertyInfo(godot::Variant::INT, "slot_type"),
+        godot::PropertyInfo(godot::Variant::INT, "old_item_id"),
+        godot::PropertyInfo(godot::Variant::INT, "new_item_id")));
 }
 
 void GDTickSystem::subscribe_to_event_bus() {
@@ -390,6 +438,59 @@ void GDTickSystem::subscribe_to_event_bus() {
             emit_signal("entity_destroyed",
                 static_cast<int64_t>(e.source_id),
                 godot::String(e.source_layer.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::TERRAIN_CHANGED,
+        [this](const GameEvent& e) {
+            emit_signal("terrain_changed",
+                godot::String(e.source_layer.c_str()),
+                e.chunk_x, e.chunk_y, e.cell_x, e.cell_y,
+                e.int_data.at("old_material"),
+                e.int_data.at("new_material"));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::ITEM_DROPPED,
+        [this](const GameEvent& e) {
+            emit_signal("item_dropped",
+                static_cast<int64_t>(e.source_id),
+                e.int_data.at("count"),
+                godot::String(e.source_layer.c_str()),
+                e.chunk_x, e.chunk_y, e.cell_x, e.cell_y);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::ITEM_PICKED_UP,
+        [this](const GameEvent& e) {
+            emit_signal("item_picked_up",
+                static_cast<int64_t>(e.source_id),
+                e.int_data.at("count"),
+                godot::String(e.source_layer.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::ENTITY_DAMAGED,
+        [this](const GameEvent& e) {
+            emit_signal("entity_damaged",
+                static_cast<int64_t>(e.source_id),
+                e.float_data.at("damage"),
+                godot::String(e.source_layer.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::PLAYER_INVENTORY_CHANGED,
+        [this](const GameEvent&) {
+            emit_signal("player_inventory_changed");
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::PLAYER_EQUIPMENT_CHANGED,
+        [this](const GameEvent& e) {
+            emit_signal("player_equipment_changed",
+                e.int_data.at("slot_type"),
+                e.int_data.at("old_item_id"),
+                e.int_data.at("new_item_id"));
         }));
 }
 

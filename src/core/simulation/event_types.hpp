@@ -32,6 +32,7 @@ enum class GameEventType : uint32_t {
     ENTITY_CREATED     = 300,
     ENTITY_DESTROYED   = 301,
     ENTITY_MOVED       = 302,
+    ENTITY_DAMAGED     = 303,
 
     // Connector events
     CONNECTOR_ACTIVATED = 400,
@@ -44,6 +45,17 @@ enum class GameEventType : uint32_t {
     // World events
     WORLD_SAVED  = 600,
     WORLD_LOADED = 601,
+
+    // Terrain events
+    TERRAIN_CHANGED = 604,
+
+    // Item events
+    ITEM_DROPPED    = 610,
+    ITEM_PICKED_UP  = 611,
+
+    // Player events
+    PLAYER_INVENTORY_CHANGED = 620,
+    PLAYER_EQUIPMENT_CHANGED = 621,
 
     // Custom / user-defined slot
     CUSTOM = 0x80000000,
@@ -85,6 +97,25 @@ struct GameEvent {
 
     static GameEvent entity_destroyed(
         uint64_t entity_id, const std::string& layer);
+
+    static GameEvent entity_damaged(
+        uint64_t entity_id, float damage, const std::string& source_layer);
+
+    static GameEvent terrain_changed(
+        const std::string& layer, int cx, int cy, int local_x, int local_y,
+        int old_material, int new_material);
+
+    static GameEvent item_dropped(
+        uint64_t item_id, int32_t count, const std::string& layer,
+        int cx, int cy, int local_x, int local_y);
+
+    static GameEvent item_picked_up(
+        uint64_t item_id, int32_t count, const std::string& layer);
+
+    static GameEvent player_inventory_changed();
+
+    static GameEvent player_equipment_changed(
+        int slot_type, uint64_t old_item_id, uint64_t new_item_id);
 };
 
 } // namespace science_and_theology

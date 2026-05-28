@@ -41,6 +41,19 @@ struct MachinePlacement {
     int cell_y = 0;
 };
 
+struct ItemDropData {
+    EntityId id;
+    uint32_t item_id = 0;
+    int32_t count = 0;
+    int cell_x = 0;
+    int cell_y = 0;
+    float world_x = 0.0f;
+    float world_y = 0.0f;
+    int64_t spawn_time_ms = 0;
+
+    static constexpr int64_t kLifetimeMs = 300000;
+};
+
 } // namespace science_and_theology
 
 // std::hash specialization for EntityId to use in unordered_map/unordered_set.

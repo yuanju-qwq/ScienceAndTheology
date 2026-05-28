@@ -87,6 +87,10 @@ public:
     godot::Dictionary create_snapshot(
         const godot::String& layer, int cx, int cy);
 
+    // Set the GDPlayerInventory reference for event bridging.
+    void set_player_inventory(godot::Resource* inventory);
+    void set_player_equipment(godot::Resource* equipment);
+
 protected:
     static void _bind_methods();
 
@@ -107,6 +111,9 @@ private:
     bool world_set = false;
 
     std::vector<EventBus::HandlerId> event_subscriptions_;
+
+    godot::Resource* player_inventory_ = nullptr;
+    godot::Resource* player_equipment_ = nullptr;
 };
 
 } // namespace science_and_theology

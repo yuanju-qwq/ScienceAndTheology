@@ -119,6 +119,14 @@ public:
     bool add_connector_id_to_chunk(const godot::String& layer_id,
                                    int chunk_x, int chunk_y, int64_t connector_id);
 
+    // Terrain cell access (single cell get/set).
+    godot::Dictionary get_terrain_cell(const godot::String& layer_id,
+                                       int chunk_x, int chunk_y,
+                                       int local_x, int local_y);
+    bool set_terrain_cell(const godot::String& layer_id,
+                          int chunk_x, int chunk_y,
+                          int local_x, int local_y, int material);
+
     // Removes a chunk entirely.
     void remove_chunk(const godot::String& layer_id,
                       int chunk_x, int chunk_y);

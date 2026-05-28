@@ -19,6 +19,13 @@ target_sources(snt_core PRIVATE
     machine/module.cpp
 )
 
+# Player systems
+target_sources(snt_core PRIVATE
+    player/inventory.cpp
+    player/equipment.cpp
+    player/tool_def.cpp
+)
+
 # Common shared systems (used by both GT and AE)
 target_sources(snt_core PRIVATE
     common/resource_key.cpp

@@ -88,4 +88,76 @@ GameEvent GameEvent::entity_destroyed(
     return ev;
 }
 
+GameEvent GameEvent::entity_damaged(
+    uint64_t entity_id, float damage, const std::string& source_layer) {
+    GameEvent ev;
+    ev.type = GameEventType::ENTITY_DAMAGED;
+    ev.source_id = entity_id;
+    ev.source_layer = source_layer;
+    ev.float_data["damage"] = static_cast<double>(damage);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::terrain_changed(
+    const std::string& layer, int cx, int cy, int local_x, int local_y,
+    int old_material, int new_material) {
+    GameEvent ev;
+    ev.type = GameEventType::TERRAIN_CHANGED;
+    ev.source_layer = layer;
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.cell_x = local_x;
+    ev.cell_y = local_y;
+    ev.int_data["old_material"] = old_material;
+    ev.int_data["new_material"] = new_material;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::item_dropped(
+    uint64_t item_id, int32_t count, const std::string& layer,
+    int cx, int cy, int local_x, int local_y) {
+    GameEvent ev;
+    ev.type = GameEventType::ITEM_DROPPED;
+    ev.source_id = item_id;
+    ev.source_layer = layer;
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.cell_x = local_x;
+    ev.cell_y = local_y;
+    ev.int_data["count"] = count;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::item_picked_up(
+    uint64_t item_id, int32_t count, const std::string& layer) {
+    GameEvent ev;
+    ev.type = GameEventType::ITEM_PICKED_UP;
+    ev.source_id = item_id;
+    ev.source_layer = layer;
+    ev.int_data["count"] = count;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::player_inventory_changed() {
+    GameEvent ev;
+    ev.type = GameEventType::PLAYER_INVENTORY_CHANGED;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::player_equipment_changed(
+    int slot_type, uint64_t old_item_id, uint64_t new_item_id) {
+    GameEvent ev;
+    ev.type = GameEventType::PLAYER_EQUIPMENT_CHANGED;
+    ev.int_data["slot_type"] = slot_type;
+    ev.int_data["old_item_id"] = static_cast<int64_t>(old_item_id);
+    ev.int_data["new_item_id"] = static_cast<int64_t>(new_item_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
 } // namespace science_and_theology

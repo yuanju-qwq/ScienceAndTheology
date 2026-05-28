@@ -391,6 +391,41 @@ bool GDWorldData::add_connector_id_to_chunk(
     return true;
 }
 
+godot::Dictionary GDWorldData::get_terrain_cell(
+    const godot::String& layer_id, int chunk_x, int chunk_y,
+    int local_x, int local_y) {
+    godot::Dictionary d;
+    const ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) return d;
+
+    if (!chunk->terrain.is_valid_cell(local_x, local_y)) return d;
+
+    const auto& cell = chunk->terrain.cell_at(local_x, local_y);
+    d["material"] = static_cast<int>(cell.material);
+    d["flags"] = static_cast<int>(cell.flags);
+    d["is_solid"] = cell.is_solid();
+    d["is_mineable"] = cell.is_mineable();
+    d["is_walkable"] = cell.is_walkable();
+    d["is_liquid"] = cell.is_liquid();
+    return d;
+}
+
+bool GDWorldData::set_terrain_cell(
+    const godot::String& layer_id, int chunk_x, int chunk_y,
+    int local_x, int local_y, int material) {
+    ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) return false;
+
+    if (!chunk->terrain.is_valid_cell(local_x, local_y)) return false;
+
+    auto mat = static_cast<TerrainMaterial>(material);
+    int old_mat = static_cast<int>(chunk->terrain.cell_at(local_x, local_y).material);
+    chunk->terrain.set_cell(local_x, local_y, mat);
+    return true;
+}
+
 void GDWorldData::request_chunk_async(
     const godot::String& layer_id, int chunk_x, int chunk_y) {
     if (!generator_) {
@@ -601,6 +636,10 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::add_machine_to_chunk);
     ClassDB::bind_method(D_METHOD("add_connector_id_to_chunk", "layer_id", "chunk_x", "chunk_y", "connector_id"),
                          &GDWorldData::add_connector_id_to_chunk);
+    ClassDB::bind_method(D_METHOD("get_terrain_cell", "layer_id", "chunk_x", "chunk_y", "local_x", "local_y"),
+                         &GDWorldData::get_terrain_cell);
+    ClassDB::bind_method(D_METHOD("set_terrain_cell", "layer_id", "chunk_x", "chunk_y", "local_x", "local_y", "material"),
+                         &GDWorldData::set_terrain_cell);
     ClassDB::bind_method(D_METHOD("remove_chunk", "layer_id", "chunk_x", "chunk_y"),
                          &GDWorldData::remove_chunk);
     ClassDB::bind_method(D_METHOD("get_all_chunk_keys"),

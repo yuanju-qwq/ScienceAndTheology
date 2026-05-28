@@ -100,6 +100,19 @@ struct TerrainData {
     bool is_valid_cell(int x, int y) const {
         return x >= 0 && x < size_x && y >= 0 && y < size_y;
     }
+
+    void set_cell(int x, int y, TerrainMaterial material) {
+        set_cell(x, y, material,
+                 kTerrainMaterialFlags[static_cast<int>(material)]);
+    }
+
+    void set_cell(int x, int y, TerrainMaterial material, uint32_t flags) {
+        if (!is_valid_cell(x, y)) return;
+        auto& cell = cells[static_cast<size_t>(y * size_x + x)];
+        cell.material = material;
+        cell.flags = (flags != 0) ? flags
+                                  : kTerrainMaterialFlags[static_cast<int>(material)];
+    }
 };
 
 } // namespace science_and_theology
