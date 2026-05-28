@@ -73,7 +73,8 @@ struct MachineConfig {
     std::vector<MachinePort> ports;
 
     // Module slot templates (what modules this machine accepts).
-    // Every machine MUST define at least one ENERGY_INPUT slot.
+    // Only valid for multi-tile machines (footprint > 1x1).
+    // Single-tile machines (1x1) cannot install modules.
     std::vector<ModuleSlot> module_slots;
 
     MachineConfig() {

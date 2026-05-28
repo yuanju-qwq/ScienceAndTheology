@@ -151,6 +151,11 @@ bool is_module_compatible(const ModuleDefinition* new_def,
 bool Machine::install_module(const ModuleDefinition* def) {
     if (def == nullptr) return false;
 
+    // Only multi-tile machines (footprint > 1x1) can install modules.
+    if (config_.footprint_width <= 1 && config_.footprint_height <= 1) {
+        return false;
+    }
+
     // Count how many of this category are already installed.
     int category_installed = 0;
     int category_max = 0;
