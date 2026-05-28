@@ -294,10 +294,10 @@ void MENetwork::rebuild_components() {
         data.component_id = -1;
     }
 
-    std::unordered_map<MENodeId, std::vector<MENodeId>> adj;
+    adjacency_.clear();
     for (const auto& e : edges_) {
-        adj[e.first].push_back(e.second);
-        adj[e.second].push_back(e.first);
+        adjacency_[e.first].push_back(e.second);
+        adjacency_[e.second].push_back(e.first);
     }
 
     int next_comp = 0;
@@ -313,7 +313,7 @@ void MENetwork::rebuild_components() {
 
         while (!q.empty()) {
             MENodeId cur = q.front(); q.pop();
-            for (MENodeId nb : adj[cur]) {
+            for (MENodeId nb : adjacency_[cur]) {
                 if (!visited.count(nb)) {
                     visited.insert(nb);
                     node_data_[nb].component_id = next_comp;
@@ -424,19 +424,11 @@ void MENetwork::allocate_channels() {
             }
         }
 
-        // Build adjacency for this component only.
-        std::unordered_map<MENodeId, std::vector<MENodeId>> adj;
-        for (const auto& e : edges_) {
-            if (component_of(e.first) == comp && component_of(e.second) == comp) {
-                adj[e.first].push_back(e.second);
-                adj[e.second].push_back(e.first);
-            }
-        }
-
         while (!q.empty()) {
             MENodeId cur = q.front(); q.pop();
             int d = dist[cur];
-            for (MENodeId nb : adj[cur]) {
+            for (MENodeId nb : adjacency_[cur]) {
+                if (component_of(nb) != comp) continue;
                 if (!dist.count(nb)) {
                     dist[nb] = d + 1;
                     q.push(nb);

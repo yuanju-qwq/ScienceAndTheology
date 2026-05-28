@@ -139,6 +139,7 @@ private:
     std::vector<std::pair<MENodeId, MENodeId>> edges_;
     std::unordered_map<MENodeId, ChannelProviderState> channel_providers_;
     std::unordered_map<int, ComponentInfo> component_info_;
+    std::unordered_map<MENodeId, std::vector<MENodeId>> adjacency_;
 
     int component_of(MENodeId id) const;
     const Impl* node_impl(MENodeId id) const;
