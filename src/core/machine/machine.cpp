@@ -77,7 +77,9 @@ void Machine::recompute_from_modules() {
 
         switch (mod.def->category) {
         case ModuleCategory::ENERGY_INPUT:
-            config_.max_input_voltage = get_voltage(mod.def->tier);
+            config_.max_input_voltage = (mod.def->max_eu_per_tick > 0)
+                ? mod.def->max_eu_per_tick
+                : get_voltage(mod.def->tier);
             break;
 
         case ModuleCategory::COIL:

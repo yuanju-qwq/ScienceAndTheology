@@ -13,7 +13,7 @@ namespace science_and_theology::gt {
 // ============================================================
 
 enum class ModuleCategory : uint8_t {
-    ENERGY_INPUT  = 0,   // energy hatch — required on all machines
+    ENERGY_INPUT  = 0,   // energy module — required on all machines
     COIL          = 1,   // heating coil — heat capacity, parallel
     MUFFLER       = 2,   // pollution reduction
     OVERCLOCK     = 3,   // speed up at extra power cost
@@ -78,7 +78,7 @@ public:
     static const std::vector<ModuleDefinition*>& get_all();
 
 private:
-    static void register_energy_hatches();
+    static void register_energy_modules();
     static void register_coils();
     static void register_mufflers();
 

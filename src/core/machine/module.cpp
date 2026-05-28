@@ -15,7 +15,7 @@ std::vector<ModuleDefinition>& ModuleRegistry::storage() {
 void ModuleRegistry::initialize() {
     g_modules.clear();
     g_module_by_name.clear();
-    register_energy_hatches();
+    register_energy_modules();
     register_coils();
     register_mufflers();
 }
@@ -43,10 +43,10 @@ const std::vector<ModuleDefinition*>& ModuleRegistry::get_all() {
 }
 
 // ============================================================
-// Energy hatches — required on all machines
+// Energy modules — required on all machines
 // ============================================================
 
-void ModuleRegistry::register_energy_hatches() {
+void ModuleRegistry::register_energy_modules() {
     auto reg = [](const char* name, VoltageTier tier, int64_t max_eu) {
         ModuleDefinition def;
         def.name = name;
@@ -58,15 +58,36 @@ void ModuleRegistry::register_energy_hatches() {
         g_module_by_name[name] = &g_modules.back();
     };
 
-    reg("Energy Hatch ULV",   VoltageTier::ULV,    8);
-    reg("Energy Hatch LV",    VoltageTier::LV,    32);
-    reg("Energy Hatch MV",    VoltageTier::MV,   128);
-    reg("Energy Hatch HV",    VoltageTier::HV,   512);
-    reg("Energy Hatch EV",    VoltageTier::EV,  2048);
-    reg("Energy Hatch IV",    VoltageTier::IV,  8192);
-    reg("Energy Hatch LuV",   VoltageTier::LuV, 32768);
-    reg("Energy Hatch ZPM",   VoltageTier::ZPM, 131072);
-    reg("Energy Hatch UV",    VoltageTier::UV,  524288);
+    reg("Energy Module ULV",   VoltageTier::ULV,    8);
+    reg("Energy Module LV",    VoltageTier::LV,    32);
+    reg("Energy Module MV",    VoltageTier::MV,   128);
+    reg("Energy Module HV",    VoltageTier::HV,   512);
+    reg("Energy Module EV",    VoltageTier::EV,  2048);
+    reg("Energy Module IV",    VoltageTier::IV,  8192);
+    reg("Energy Module LuV",   VoltageTier::LuV, 32768);
+    reg("Energy Module ZPM",   VoltageTier::ZPM, 131072);
+    reg("Energy Module UV",    VoltageTier::UV,  524288);
+
+    // 4A energy modules
+    reg("Energy Module ULV 4A",   VoltageTier::ULV,    32);
+    reg("Energy Module LV 4A",    VoltageTier::LV,    128);
+    reg("Energy Module MV 4A",    VoltageTier::MV,    512);
+    reg("Energy Module HV 4A",    VoltageTier::HV,   2048);
+    reg("Energy Module EV 4A",    VoltageTier::EV,   8192);
+    reg("Energy Module IV 4A",    VoltageTier::IV,  32768);
+    reg("Energy Module LuV 4A",   VoltageTier::LuV, 131072);
+    reg("Energy Module ZPM 4A",   VoltageTier::ZPM, 524288);
+    reg("Energy Module UV 4A",    VoltageTier::UV, 2097152);
+
+    // 16A energy modules
+    reg("Energy Module LV 16A",   VoltageTier::LV,    512);
+    reg("Energy Module MV 16A",   VoltageTier::MV,   2048);
+    reg("Energy Module HV 16A",   VoltageTier::HV,   8192);
+    reg("Energy Module EV 16A",   VoltageTier::EV,  32768);
+    reg("Energy Module IV 16A",   VoltageTier::IV, 131072);
+    reg("Energy Module LuV 16A",  VoltageTier::LuV, 524288);
+    reg("Energy Module ZPM 16A",  VoltageTier::ZPM, 2097152);
+    reg("Energy Module UV 16A",   VoltageTier::UV, 8388608);
 }
 
 // ============================================================

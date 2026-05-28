@@ -99,7 +99,7 @@ struct PortState {
 // Represents a processing machine that may occupy multiple tiles.
 // Machines have:
 //   - A multi-tile footprint with boundary I/O ports
-//   - Module slots for energy hatches, coils, mufflers, etc.
+//   - Module slots for energy modules, coils, mufflers, etc.
 //   - Input/output inventory slots
 //   - A recipe map for lookup
 //   - Tick-based processing lifecycle
