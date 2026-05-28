@@ -3,6 +3,8 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/callable.hpp>
 
+VARIANT_ENUM_CAST(science_and_theology::GDMENetwork::MENodeTypeConst);
+
 namespace science_and_theology {
 
 using namespace godot;
@@ -112,6 +114,22 @@ int64_t GDMENetwork::insert_item(int64_t item_id, int64_t amount,
     return network_.insert(key, amount, context_node);
 }
 
+void GDMENetwork::set_channel_count(uint32_t id, int64_t channels) {
+    network_.set_channel_count(id, static_cast<int>(channels));
+}
+
+int64_t GDMENetwork::network_total_channels(uint32_t id) const {
+    return static_cast<int64_t>(network_.network_total_channels(id));
+}
+
+int64_t GDMENetwork::network_online_devices(uint32_t id) const {
+    return static_cast<int64_t>(network_.network_online_devices(id));
+}
+
+bool GDMENetwork::is_node_online(uint32_t id) const {
+    return network_.is_node_online(id);
+}
+
 void GDMENetwork::_bind_methods() {
     ClassDB::bind_method(D_METHOD("add_node", "type"),
                          &GDMENetwork::add_node);
@@ -139,6 +157,25 @@ void GDMENetwork::_bind_methods() {
                          &GDMENetwork::extract_item);
     ClassDB::bind_method(D_METHOD("insert_item", "item_id", "amount", "context_node"),
                          &GDMENetwork::insert_item);
+
+    // Channel system.
+    ClassDB::bind_method(D_METHOD("set_channel_count", "id", "channels"),
+                         &GDMENetwork::set_channel_count);
+    ClassDB::bind_method(D_METHOD("network_total_channels", "id"),
+                         &GDMENetwork::network_total_channels);
+    ClassDB::bind_method(D_METHOD("network_online_devices", "id"),
+                         &GDMENetwork::network_online_devices);
+    ClassDB::bind_method(D_METHOD("is_node_online", "id"),
+                         &GDMENetwork::is_node_online);
+
+    // MENodeType constants for GDScript.
+    BIND_ENUM_CONSTANT(NODE_CONTROLLER);
+    BIND_ENUM_CONSTANT(NODE_SWITCH);
+    BIND_ENUM_CONSTANT(NODE_DRIVE);
+    BIND_ENUM_CONSTANT(NODE_STORAGE_BUS);
+    BIND_ENUM_CONSTANT(NODE_INTERFACE);
+    BIND_ENUM_CONSTANT(NODE_TERMINAL);
+    BIND_ENUM_CONSTANT(NODE_CABLE);
 }
 
 } // namespace science_and_theology

@@ -21,13 +21,13 @@ MENodeId MENetwork::add_node(MENodeType type) {
 bool MENetwork::remove_node(MENodeId id) {
     if (nodes_.erase(id) == 0) return false;
 
-    // Remove all edges involving this node.
     edges_.erase(
         std::remove_if(edges_.begin(), edges_.end(),
             [id](const auto& e) { return e.first == id || e.second == id; }),
         edges_.end());
 
     node_data_.erase(id);
+    channel_providers_.erase(id);
     rebuild_components();
     return true;
 }
@@ -59,6 +59,23 @@ bool MENetwork::connect(MENodeId a, MENodeId b) {
 
     edges_.emplace_back(a, b);
     rebuild_components();
+
+    // If two Controllers now share a component, reject the connection.
+    int comp = component_of(a);
+    if (comp >= 0) {
+        int controller_count = 0;
+        for (MENodeId id : nodes_in_component(comp)) {
+            if (nodes_[id].type == MENodeType::Controller)
+                controller_count++;
+        }
+        if (controller_count > 1) {
+            // Revert: remove the edge and rebuild.
+            edges_.pop_back();
+            rebuild_components();
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -102,7 +119,7 @@ const std::vector<std::unique_ptr<IStorage>>* MENetwork::node_storages(MENodeId 
 }
 
 // ============================================================
-// Global query
+// Helpers
 // ============================================================
 
 int MENetwork::component_of(MENodeId id) const {
@@ -130,6 +147,17 @@ std::vector<MENodeId> MENetwork::nodes_in_component(int comp_id) const {
     return result;
 }
 
+bool MENetwork::is_device_type(MENodeType type) const {
+    return type == MENodeType::Drive ||
+           type == MENodeType::StorageBus ||
+           type == MENodeType::Interface ||
+           type == MENodeType::Terminal;
+}
+
+// ============================================================
+// Query
+// ============================================================
+
 int64_t MENetwork::check(const ResourceKey& key, MENodeId context_node) const {
     return check_id(ResourceId::from_key(key), context_node);
 }
@@ -141,6 +169,7 @@ int64_t MENetwork::check_id(const ResourceId& key, MENodeId context_node) const 
     int64_t total = 0;
     for (const auto& [id, data] : node_data_) {
         if (data.component_id != comp) continue;
+        if (!nodes_.at(id).online) continue;
         for (const auto& storage : data.storages) {
             total += storage->available(key);
         }
@@ -155,6 +184,7 @@ int64_t MENetwork::check_global(const ResourceKey& key) const {
 int64_t MENetwork::check_global_id(const ResourceId& key) const {
     int64_t total = 0;
     for (const auto& [id, data] : node_data_) {
+        if (!nodes_.at(id).online) continue;
         for (const auto& storage : data.storages) {
             total += storage->available(key);
         }
@@ -175,6 +205,7 @@ int64_t MENetwork::extract_id(const ResourceId& key, int64_t amount,
     int64_t remaining = amount;
     for (auto& [id, data] : node_data_) {
         if (data.component_id != comp) continue;
+        if (!nodes_[id].online) continue;
         for (auto& storage : data.storages) {
             int64_t taken = storage->extract(key, remaining);
             remaining -= taken;
@@ -192,13 +223,13 @@ int64_t MENetwork::extract_global(const ResourceKey& key, int64_t amount,
 
 int64_t MENetwork::extract_global_id(const ResourceId& key, int64_t amount,
                                      MENodeId context_node) {
-    // Try context component first, then others.
     int64_t taken = extract_id(key, amount, context_node);
     if (taken >= amount) return taken;
 
     int64_t remaining = amount - taken;
     for (auto& [id, data] : node_data_) {
         if (data.component_id == component_of(context_node)) continue;
+        if (!nodes_[id].online) continue;
         for (auto& storage : data.storages) {
             int64_t t = storage->extract(key, remaining);
             remaining -= t;
@@ -222,6 +253,7 @@ int64_t MENetwork::insert_id(const ResourceId& key, int64_t amount,
     int64_t overflow = amount;
     for (auto& [id, data] : node_data_) {
         if (data.component_id != comp) continue;
+        if (!nodes_[id].online) continue;
         for (auto& storage : data.storages) {
             overflow = storage->insert(key, overflow);
             if (overflow <= 0) break;
@@ -238,12 +270,12 @@ int64_t MENetwork::insert_global(const ResourceKey& key, int64_t amount,
 
 int64_t MENetwork::insert_global_id(const ResourceId& key, int64_t amount,
                                     MENodeId context_node) {
-    // Try context component first, then others.
     int64_t overflow = insert_id(key, amount, context_node);
     if (overflow <= 0) return 0;
 
     for (auto& [id, data] : node_data_) {
         if (data.component_id == component_of(context_node)) continue;
+        if (!nodes_[id].online) continue;
         for (auto& storage : data.storages) {
             overflow = storage->insert(key, overflow);
             if (overflow <= 0) break;
@@ -258,12 +290,10 @@ int64_t MENetwork::insert_global_id(const ResourceId& key, int64_t amount,
 // ============================================================
 
 void MENetwork::rebuild_components() {
-    // Reset all components.
     for (auto& [id, data] : node_data_) {
         data.component_id = -1;
     }
 
-    // Build adjacency list.
     std::unordered_map<MENodeId, std::vector<MENodeId>> adj;
     for (const auto& e : edges_) {
         adj[e.first].push_back(e.second);
@@ -276,7 +306,6 @@ void MENetwork::rebuild_components() {
     for (auto& [id, node] : nodes_) {
         if (visited.count(id)) continue;
 
-        // BFS from this node.
         std::queue<MENodeId> q;
         q.push(id);
         visited.insert(id);
@@ -294,12 +323,145 @@ void MENetwork::rebuild_components() {
         }
         next_comp++;
     }
+
+    allocate_channels();
 }
 
 std::vector<MENodeId> MENetwork::find_connected_nodes(MENodeId start) const {
     int comp = component_of(start);
     if (comp < 0) return {};
     return nodes_in_component(comp);
+}
+
+// ============================================================
+// Channel system
+// ============================================================
+
+void MENetwork::set_channel_count(MENodeId id, int channels) {
+    if (!nodes_.count(id)) return;
+    auto it = channel_providers_.find(id);
+    if (it != channel_providers_.end()) {
+        it->second.channels = channels;
+    } else {
+        channel_providers_[id] = ChannelProviderState{channels};
+    }
+    // Re-allocate channels on next rebuild / next query soon.
+}
+
+int MENetwork::network_total_channels(MENodeId id) const {
+    int comp = component_of(id);
+    if (comp < 0) return 0;
+    auto it = component_info_.find(comp);
+    return it != component_info_.end() ? it->second.total_channels : 0;
+}
+
+int MENetwork::network_online_devices(MENodeId id) const {
+    int comp = component_of(id);
+    if (comp < 0) return 0;
+    auto it = component_info_.find(comp);
+    return it != component_info_.end() ? it->second.online_count : 0;
+}
+
+bool MENetwork::is_node_online(MENodeId id) const {
+    auto nit = nodes_.find(id);
+    return nit != nodes_.end() && nit->second.online;
+}
+
+void MENetwork::allocate_channels() {
+    component_info_.clear();
+
+    // Reset all nodes to online.
+    for (auto& [id, node] : nodes_) {
+        node.online = true;
+    }
+
+    // Collect component data.
+    for (auto& [id, data] : node_data_) {
+        int comp = data.component_id;
+        if (comp < 0) continue;
+        auto& info = component_info_[comp];
+
+        const auto& node = nodes_[id];
+        if (node.type == MENodeType::Controller) {
+            info.has_controller = true;
+            auto it = channel_providers_.find(id);
+            int ch = (it != channel_providers_.end()) ? it->second.channels : 32;
+            info.total_channels += ch;
+        } else if (node.type == MENodeType::Switch) {
+            auto it = channel_providers_.find(id);
+            int ch = (it != channel_providers_.end()) ? it->second.channels : 32;
+            info.total_channels += ch;
+        }
+    }
+
+    // For each component: mark excess devices as offline.
+    for (auto& [comp, info] : component_info_) {
+        if (!info.has_controller) {
+            // No controller → all devices offline.
+            for (MENodeId id : nodes_in_component(comp)) {
+                nodes_[id].online = false;
+            }
+            info.total_channels = 0;
+            info.online_count = 0;
+            continue;
+        }
+
+        // Collect device nodes (not Controller, not Switch, not Cable).
+        std::vector<MENodeId> devices;
+        for (MENodeId id : nodes_in_component(comp)) {
+            if (is_device_type(nodes_[id].type)) {
+                devices.push_back(id);
+            }
+        }
+
+        // Sort by BFS distance from controllers (devices closer to controller get priority).
+        std::queue<MENodeId> q;
+        std::unordered_map<MENodeId, int> dist;
+        for (MENodeId id : nodes_in_component(comp)) {
+            if (nodes_[id].type == MENodeType::Controller) {
+                dist[id] = 0;
+                q.push(id);
+            }
+        }
+
+        // Build adjacency for this component only.
+        std::unordered_map<MENodeId, std::vector<MENodeId>> adj;
+        for (const auto& e : edges_) {
+            if (component_of(e.first) == comp && component_of(e.second) == comp) {
+                adj[e.first].push_back(e.second);
+                adj[e.second].push_back(e.first);
+            }
+        }
+
+        while (!q.empty()) {
+            MENodeId cur = q.front(); q.pop();
+            int d = dist[cur];
+            for (MENodeId nb : adj[cur]) {
+                if (!dist.count(nb)) {
+                    dist[nb] = d + 1;
+                    q.push(nb);
+                }
+            }
+        }
+
+        std::sort(devices.begin(), devices.end(),
+            [&dist](MENodeId a, MENodeId b) {
+                int da = dist.count(a) ? dist[a] : 9999;
+                int db = dist.count(b) ? dist[b] : 9999;
+                return da < db;
+            });
+
+        int avail = info.total_channels;
+        info.online_count = 0;
+        for (size_t i = 0; i < devices.size(); ++i) {
+            if (static_cast<int>(i) < avail) {
+                nodes_[devices[i]].online = true;
+                info.online_count++;
+            } else {
+                nodes_[devices[i]].online = false;
+            }
+        }
+    }
 }
 
 } // namespace science_and_theology::gt

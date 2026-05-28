@@ -18,6 +18,16 @@ class GDMENetwork : public godot::Object {
     GDCLASS(GDMENetwork, godot::Object)
 
 public:
+    // MENodeType enum for GDScript.
+    enum MENodeTypeConst {
+        NODE_CONTROLLER = static_cast<int>(gt::MENodeType::Controller),
+        NODE_SWITCH     = static_cast<int>(gt::MENodeType::Switch),
+        NODE_DRIVE      = static_cast<int>(gt::MENodeType::Drive),
+        NODE_STORAGE_BUS = static_cast<int>(gt::MENodeType::StorageBus),
+        NODE_INTERFACE  = static_cast<int>(gt::MENodeType::Interface),
+        NODE_TERMINAL   = static_cast<int>(gt::MENodeType::Terminal),
+        NODE_CABLE      = static_cast<int>(gt::MENodeType::Cable),
+    };
     GDMENetwork();
     ~GDMENetwork() override;
 
@@ -46,6 +56,12 @@ public:
     int64_t check_global_item(int64_t item_id) const;
     int64_t extract_item(int64_t item_id, int64_t amount, uint32_t context_node);
     int64_t insert_item(int64_t item_id, int64_t amount, uint32_t context_node);
+
+    // --- Channel system ---
+    void set_channel_count(uint32_t id, int64_t channels);
+    int64_t network_total_channels(uint32_t id) const;
+    int64_t network_online_devices(uint32_t id) const;
+    bool is_node_online(uint32_t id) const;
 
     gt::MENetwork* network() { return &network_; }
     const gt::MENetwork* network() const { return &network_; }

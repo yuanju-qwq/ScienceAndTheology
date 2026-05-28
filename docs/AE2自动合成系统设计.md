@@ -282,16 +282,56 @@ CraftingCPU* find_best_cpu(const CraftingPlan& plan) {
 }
 ```
 
-## 9. 通道系统 [未实现]
+## 9. 通道系统
 
-> 以下内容来自原设计文档。
+### 9.1 模型
 
-AE2 通道系统限制 ME 网络最多 8 个设备/节点（不计算中继器）。功能规划：
-- 通道类型（正常/密集）：密集线缆携带 32 通道
-- 通道数量管理：每个设备消耗 1 通道
-- 优先级：设备级通道优先级（关键设备优先）
-- 阻塞检测：无可用通道时的错误处理
-- 通道优化：最短路径分配、自动重新分配
+每个 ME 网络（连通分量）共享一组通道预算。网络必须有一个 Controller 提供基础通道（默认 32），可选添加 Switch 扩展（各 +32）。
+
+```
+网络 = 1 个连通分量
+通道总数 = Controller.channels + Σ Switch.channels
+在线设备 = 前 N 个设备（按 BFS 距 Controller 距离排序）
+```
+
+| 节点类型 | 消耗通道 | 说明 |
+|----------|:--:|------|
+| `Controller` | 0 | 提供 32 通道。一个网络有且仅有一个 |
+| `Switch` | 0 | 提供 32 通道。不消耗通道 |
+| `Drive` | 1 | 每个驱动器消耗 1 通道 |
+| `StorageBus` | 1 | 每个存储总线消耗 1 通道 |
+| `Interface` | 1 | 每个接口消耗 1 通道 |
+| `Terminal` | 1 | 每个终端消耗 1 通道 |
+| `Cable` | 0 | 纯中继，不消耗通道 |
+
+### 9.2 规则
+
+- 一个网络最多一个 Controller：`connect()` 若导致两个 Controller 同分量，拒绝连接并回滚
+- 无 Controller → 该网络所有设备 OFFLINE
+- 设备超通道 → 按 BFS 距 Controller 距离排序，远的先下线
+- 离线设备的存储被 `check`/`extract`/`insert` 跳过
+
+### 9.3 API
+
+```cpp
+// C++ MENetwork
+void set_channel_count(MENodeId id, int channels);
+int network_total_channels(MENodeId id) const;
+int network_online_devices(MENodeId id) const;
+bool is_node_online(MENodeId id) const;
+```
+
+```gdscript
+# GDScript GDMENetwork
+me_net.set_channel_count(node_id, 32)
+var total = me_net.network_total_channels(node_id)
+var online = me_net.network_online_devices(node_id)
+var alive = me_net.is_node_online(node_id)
+```
+
+### 9.4 触发时机
+
+`rebuild_components()` 末尾自动调用 `allocate_channels()`，覆盖所有拓扑变更场景：`add_node`、`remove_node`、`connect`、`disconnect`。
 
 ## 10. AE2 终端 UI [未实现]
 
@@ -356,6 +396,6 @@ var extracted = me_net.extract_item(item_id, 64, context_node)
 | 5 | MENetwork（拓扑管理 + IStorage 接口） | ✅ 完成 |
 | 6 | StorageCell, ExternalStorage, PatternDataCache | ✅ 完成 |
 | 7 | CraftingService 全局协调 + GDExtension 绑定 | ✅ 完成 |
-| 8 | 通道系统（正常/密集/优先级/阻塞） | 🔲 待实现 |
+| 8 | 通道系统（Controller/Switch/BFS 距离排序） | ✅ 完成 |
 | 9 | 终端 UI（ME 终端、Pattern 终端、流体终端） | 🔲 待实现 |
 | 10 | 与 GT 电力/物流网络整合（三网分离） | 🔲 待实现 |
