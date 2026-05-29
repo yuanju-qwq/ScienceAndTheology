@@ -24,9 +24,10 @@ public:
     godot::Dictionary get_slot(int32_t index) const;
 
     void set_slot(int32_t index, int64_t item_id, int32_t count,
-                  int32_t durability = -1);
+                  int32_t secondary_id = -1);
 
-    int32_t add_item(int64_t item_id, int32_t count, int32_t durability = -1);
+    int32_t add_item(int64_t item_id, int32_t count,
+                     int32_t secondary_id = -1);
 
     bool remove_from_slot(int32_t index, int32_t count);
 
@@ -36,7 +37,7 @@ public:
 
     int32_t count_item(int64_t item_id) const;
 
-    int32_t find_item(int64_t item_id) const;
+    int32_t find_item(int64_t item_id, int32_t secondary_id = -1) const;
 
     bool has_enough(int64_t item_id, int32_t count) const;
 

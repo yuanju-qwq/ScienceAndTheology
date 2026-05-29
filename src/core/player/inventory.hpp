@@ -7,10 +7,22 @@
 
 namespace science_and_theology::gt {
 
+// Items with secondary data (durability, magic affinity, etc.)
+// are never stackable — each occupies its own slot with count=1.
+// Items with secondary_id == -1 (no secondary data) stack by item_id only.
+inline constexpr int32_t kNoSecondaryData = -1;
+
+inline bool can_stack(ItemId a_id, int32_t a_sec, ItemId b_id, int32_t b_sec) {
+    if (a_id != b_id) return false;
+    // Any item with secondary data is non-stackable
+    if (a_sec != kNoSecondaryData || b_sec != kNoSecondaryData) return false;
+    return true;
+}
+
 struct InventorySlot {
     ItemId item_id = kInvalidItemId;
     int32_t count = 0;
-    int32_t durability = -1;
+    int32_t secondary_id = kNoSecondaryData;
 
     bool is_empty() const {
         return count <= 0 || item_id == kInvalidItemId;
@@ -19,7 +31,12 @@ struct InventorySlot {
     void clear() {
         item_id = kInvalidItemId;
         count = 0;
-        durability = -1;
+        secondary_id = kNoSecondaryData;
+    }
+
+    bool is_stackable_with(const InventorySlot& other) const {
+        return can_stack(item_id, secondary_id,
+                         other.item_id, other.secondary_id);
     }
 };
 
@@ -38,9 +55,10 @@ public:
 
     const InventorySlot& get_slot(int32_t index) const;
     bool set_slot(int32_t index, ItemId item_id, int32_t count,
-                  int32_t durability = -1);
+                  int32_t secondary_id = kNoSecondaryData);
 
-    int32_t add_item(ItemId item_id, int32_t count, int32_t durability = -1);
+    int32_t add_item(ItemId item_id, int32_t count,
+                     int32_t secondary_id = kNoSecondaryData);
 
     bool remove_from_slot(int32_t index, int32_t count);
 
@@ -50,7 +68,8 @@ public:
 
     int32_t count_item(ItemId item_id) const;
 
-    int32_t find_item(ItemId item_id) const;
+    int32_t find_item(ItemId item_id,
+                      int32_t secondary_id = kNoSecondaryData) const;
 
     bool has_enough(ItemId item_id, int32_t count) const;
 
@@ -67,7 +86,8 @@ private:
     std::vector<InventorySlot> slots_;
     int32_t max_stack_ = kDefaultMaxStack;
 
-    int32_t find_target_slot(ItemId item_id) const;
+    int32_t find_target_slot(ItemId item_id,
+                             int32_t secondary_id) const;
 };
 
 } // namespace science_and_theology::gt

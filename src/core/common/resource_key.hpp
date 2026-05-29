@@ -139,13 +139,23 @@ public:
 };
 
 // ============================================================
-// ItemKey — identifies an item by its ItemId
+// ItemKey — identifies an item by its ItemId + secondary data
 // ============================================================
+//
+// Secondary data (e.g. durability, enchantment type for magic books,
+// spell affinity, etc.) is stored as an int32_t.
+// -1 means "no secondary data" / default / full durability.
+// The equals() method compares both item_id and secondary_id.
+// Use drop_secondary() to ignore secondary attributes for fuzzy matching
+// (e.g. recipe matching, crafting pattern lookup).
 
 class ItemKey : public ResourceKey {
 public:
-    explicit ItemKey(ItemId item_id) : item_id_(item_id) {
-        hash_ = static_cast<size_t>(item_id_) ^ 0xA5A5A5A5;
+    explicit ItemKey(ItemId item_id, int32_t secondary_id = -1)
+        : item_id_(item_id), secondary_id_(secondary_id) {
+        size_t h = static_cast<size_t>(item_id_) ^ 0xA5A5A5A5;
+        h ^= static_cast<size_t>(static_cast<int32_t>(secondary_id_)) * 0x9e3779b9;
+        hash_ = h;
     }
 
     const ResourceKeyType& get_type() const override {
@@ -153,20 +163,22 @@ public:
     }
 
     std::unique_ptr<ResourceKey> clone() const override {
-        return std::make_unique<ItemKey>(item_id_);
+        return std::make_unique<ItemKey>(item_id_, secondary_id_);
     }
 
     std::unique_ptr<ResourceKey> drop_secondary() const override {
-        return std::make_unique<ItemKey>(item_id_);
+        return std::make_unique<ItemKey>(item_id_, -1);
     }
 
     bool equals(const ResourceKey& other) const override;
     size_t hash() const override { return hash_; }
 
     ItemId item_id() const { return item_id_; }
+    int32_t secondary_id() const { return secondary_id_; }
 
 private:
     ItemId item_id_;
+    int32_t secondary_id_;
     size_t hash_;
 };
 
@@ -226,8 +238,9 @@ struct ResourceStack {
         : what(std::move(key)), amount(amt) {}
 
     // Factory: create an item stack.
-    static ResourceStack item(ItemId item_id, int64_t count) {
-        return {std::make_shared<ItemKey>(item_id), count};
+    static ResourceStack item(ItemId item_id, int64_t count,
+                              int32_t secondary_id = -1) {
+        return {std::make_shared<ItemKey>(item_id, secondary_id), count};
     }
 
     // Factory: create a fluid stack.

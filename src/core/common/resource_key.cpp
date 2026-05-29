@@ -114,7 +114,7 @@ const FluidKey* ResourceKey::as_fluid() const {
 bool ItemKey::equals(const ResourceKey& other) const {
     auto* ok = other.as_item();
     if (ok == nullptr) return false;
-    return item_id_ == ok->item_id_;
+    return item_id_ == ok->item_id_ && secondary_id_ == ok->secondary_id_;
 }
 
 // ============================================================

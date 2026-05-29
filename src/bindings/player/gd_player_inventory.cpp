@@ -34,15 +34,15 @@ Dictionary GDPlayerInventory::get_slot(int32_t index) const {
 }
 
 void GDPlayerInventory::set_slot(int32_t index, int64_t item_id,
-                                  int32_t count, int32_t durability) {
+                                  int32_t count, int32_t secondary_id) {
     inventory_.set_slot(index, static_cast<gt::ItemId>(item_id),
-                        count, durability);
+                        count, secondary_id);
 }
 
 int32_t GDPlayerInventory::add_item(int64_t item_id, int32_t count,
-                                     int32_t durability) {
+                                     int32_t secondary_id) {
     return inventory_.add_item(static_cast<gt::ItemId>(item_id),
-                               count, durability);
+                               count, secondary_id);
 }
 
 bool GDPlayerInventory::remove_from_slot(int32_t index, int32_t count) {
@@ -61,8 +61,8 @@ int32_t GDPlayerInventory::count_item(int64_t item_id) const {
     return inventory_.count_item(static_cast<gt::ItemId>(item_id));
 }
 
-int32_t GDPlayerInventory::find_item(int64_t item_id) const {
-    return inventory_.find_item(static_cast<gt::ItemId>(item_id));
+int32_t GDPlayerInventory::find_item(int64_t item_id, int32_t secondary_id) const {
+    return inventory_.find_item(static_cast<gt::ItemId>(item_id), secondary_id);
 }
 
 bool GDPlayerInventory::has_enough(int64_t item_id, int32_t count) const {
@@ -86,12 +86,12 @@ Dictionary GDPlayerInventory::slot_to_dict(const gt::InventorySlot& slot) {
     if (slot.is_empty()) {
         d["item_id"] = 0;
         d["count"] = 0;
-        d["durability"] = -1;
+        d["secondary_id"] = -1;
         d["empty"] = true;
     } else {
         d["item_id"] = static_cast<int64_t>(slot.item_id);
         d["count"] = slot.count;
-        d["durability"] = slot.durability;
+        d["secondary_id"] = slot.secondary_id;
         d["empty"] = false;
     }
     return d;
@@ -110,10 +110,10 @@ void GDPlayerInventory::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_slot", "index"),
                          &GDPlayerInventory::get_slot);
     ClassDB::bind_method(D_METHOD("set_slot", "index", "item_id",
-        "count", "durability"),
+        "count", "secondary_id"),
         &GDPlayerInventory::set_slot, DEFVAL(-1));
     ClassDB::bind_method(D_METHOD("add_item", "item_id", "count",
-        "durability"),
+        "secondary_id"),
         &GDPlayerInventory::add_item, DEFVAL(-1));
     ClassDB::bind_method(D_METHOD("remove_from_slot", "index", "count"),
                          &GDPlayerInventory::remove_from_slot);
@@ -123,8 +123,8 @@ void GDPlayerInventory::_bind_methods() {
                          &GDPlayerInventory::split_stack);
     ClassDB::bind_method(D_METHOD("count_item", "item_id"),
                          &GDPlayerInventory::count_item);
-    ClassDB::bind_method(D_METHOD("find_item", "item_id"),
-                         &GDPlayerInventory::find_item);
+    ClassDB::bind_method(D_METHOD("find_item", "item_id", "secondary_id"),
+                         &GDPlayerInventory::find_item, DEFVAL(-1));
     ClassDB::bind_method(D_METHOD("has_enough", "item_id", "count"),
                          &GDPlayerInventory::has_enough);
     ClassDB::bind_method(D_METHOD("clear"),
