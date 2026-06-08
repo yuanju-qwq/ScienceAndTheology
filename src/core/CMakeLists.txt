@@ -88,6 +88,8 @@ target_sources(snt_core PRIVATE
 target_sources(snt_core PRIVATE
     save/chunk_serializer.hpp
     save/chunk_serializer.cpp
+    save/region_file.hpp
+    save/region_file.cpp
     save/save_manager.hpp
     save/save_manager.cpp
 )

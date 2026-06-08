@@ -3,7 +3,10 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
+
+#include "chunk_serializer.hpp"
 
 namespace fs = std::filesystem;
 
@@ -15,8 +18,8 @@ int SaveManager::save_world(const std::string& save_dir,
         return -1;
     }
 
-    std::string chunks_dir = save_dir + "/chunks";
-    if (!ensure_directory(chunks_dir)) {
+    std::string regions_dir = save_dir + "/regions";
+    if (!ensure_directory(regions_dir)) {
         return -1;
     }
 
@@ -25,8 +28,10 @@ int SaveManager::save_world(const std::string& save_dir,
         return -1;
     }
 
-    // Write each chunk.
-    int saved_count = 0;
+    // Group chunks by {layer_id, region_x, region_y}.
+    std::map<std::string, std::vector<RegionChunkEntry>> region_chunks;
+    std::map<std::string, std::tuple<int, int, std::string>> region_meta;
+
     for (const auto& key : world.all_chunk_keys()) {
         const ChunkData* chunk = world.get_chunk(
             key.layer_id, key.chunk_x, key.chunk_y);
@@ -34,26 +39,35 @@ int SaveManager::save_world(const std::string& save_dir,
             continue;
         }
 
+        int rx = RegionFile::to_region(key.chunk_x);
+        int ry = RegionFile::to_region(key.chunk_y);
+
+        std::string file_name = RegionFile::region_file_name(
+            key.layer_id, rx, ry);
+
         std::vector<uint8_t> data = ChunkSerializer::serialize(
             key.layer_id, *chunk);
 
-        std::string file_path = chunks_dir + "/" +
-            chunk_file_name(key.layer_id, key.chunk_x, key.chunk_y);
+        RegionChunkEntry entry;
+        entry.local_x = static_cast<uint8_t>(RegionFile::to_local(key.chunk_x));
+        entry.local_y = static_cast<uint8_t>(RegionFile::to_local(key.chunk_y));
+        entry.data = std::move(data);
 
-        std::ofstream file(file_path, std::ios::binary);
-        if (!file.is_open()) {
+        region_chunks[file_name].push_back(std::move(entry));
+        region_meta[file_name] = std::make_tuple(rx, ry, key.layer_id);
+    }
+
+    // Write each region file.
+    int saved_count = 0;
+    for (auto& [file_name, chunks] : region_chunks) {
+        auto& [rx, ry, layer_id] = region_meta[file_name];
+        std::string file_path = regions_dir + "/" + file_name;
+
+        if (!RegionFile::write(file_path, rx, ry, layer_id, chunks)) {
             return -1;
         }
 
-        file.write(reinterpret_cast<const char*>(data.data()),
-                   static_cast<std::streamsize>(data.size()));
-
-        if (!file.good()) {
-            return -1;
-        }
-
-        file.close();
-        ++saved_count;
+        saved_count += static_cast<int>(chunks.size());
     }
 
     return saved_count;
@@ -69,50 +83,43 @@ std::pair<bool, int64_t> SaveManager::load_world(
 
     world.clear();
 
-    std::string chunks_dir = save_dir + "/chunks";
-    if (!fs::exists(chunks_dir) || !fs::is_directory(chunks_dir)) {
+    std::string regions_dir = save_dir + "/regions";
+    if (!fs::exists(regions_dir) || !fs::is_directory(regions_dir)) {
         return {true, seed};
     }
 
-    // Load each chunk file.
-    for (const auto& entry : fs::directory_iterator(chunks_dir)) {
+    // Load each region file.
+    for (const auto& entry : fs::directory_iterator(regions_dir)) {
         if (!entry.is_regular_file()) {
             continue;
         }
 
         std::string file_path = entry.path().string();
 
-        // Read file contents.
-        std::ifstream file(file_path, std::ios::binary | std::ios::ate);
-        if (!file.is_open()) {
-            continue;
-        }
-
-        std::streamsize file_size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        if (file_size <= 0) {
-            continue;
-        }
-
-        std::vector<uint8_t> data(static_cast<size_t>(file_size));
-        file.read(reinterpret_cast<char*>(data.data()), file_size);
-
-        if (!file.good() && !file.eof()) {
-            continue;
-        }
-
-        file.close();
-
-        // Deserialize.
         std::string layer_id;
-        ChunkData chunk;
-        if (!ChunkSerializer::deserialize(data, layer_id, chunk)) {
+        int region_x, region_y;
+        std::vector<RegionChunkEntry> entries;
+
+        if (!RegionFile::read(file_path, layer_id,
+                              region_x, region_y, entries)) {
             continue;
         }
 
-        world.set_chunk(layer_id, chunk.chunk_x, chunk.chunk_y,
-                        std::move(chunk));
+        for (auto& chunk_entry : entries) {
+            int chunk_x = region_x * RegionFile::kRegionSize
+                        + static_cast<int>(chunk_entry.local_x);
+            int chunk_y = region_y * RegionFile::kRegionSize
+                        + static_cast<int>(chunk_entry.local_y);
+
+            std::string unused_layer_id;
+            ChunkData chunk;
+            if (!ChunkSerializer::deserialize(chunk_entry.data,
+                                              unused_layer_id, chunk)) {
+                continue;
+            }
+
+            world.set_chunk(layer_id, chunk_x, chunk_y, std::move(chunk));
+        }
     }
 
     return {true, seed};
@@ -188,13 +195,6 @@ std::vector<std::string> SaveManager::list_saves(
     }
 
     return result;
-}
-
-std::string SaveManager::chunk_file_name(const std::string& layer_id,
-                                         int chunk_x, int chunk_y) {
-    std::ostringstream oss;
-    oss << layer_id << "~" << chunk_x << "~" << chunk_y << ".bin";
-    return oss.str();
 }
 
 bool SaveManager::ensure_directory(const std::string& path) {
