@@ -24,6 +24,9 @@ signal inventory_changed
 @export var mining_path: NodePath = ^"../PlayerMining"
 @export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
 @export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
+@export var furnace_manager_path: NodePath = ^"../FurnaceManager"
+@export var ladder_manager_path: NodePath = ^"../LadderManager"
+@export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
 
 @export var transition_fade_in_duration := 0.18
 @export var transition_hold_duration := 0.08
@@ -47,6 +50,9 @@ var selected_hotbar: int = 0
 @onready var crosshair = get_node_or_null(crosshair_path)
 @onready var crafting_ui = get_node_or_null(crafting_ui_path)
 @onready var workbench_manager = get_node_or_null(workbench_manager_path)
+@onready var furnace_manager = get_node_or_null(furnace_manager_path)
+@onready var ladder_manager = get_node_or_null(ladder_manager_path)
+@onready var furnace_ui = get_node_or_null(furnace_ui_path)
 
 var _cooldown_remaining := 0.0
 var _last_layer: StringName = &""
@@ -76,6 +82,11 @@ func _ready() -> void:
 		mining.block_mined.connect(_on_block_mined)
 	if crafting_ui and crafting_ui.has_method(&"set_player"):
 		crafting_ui.set_player(self)
+	if furnace_ui and furnace_ui.has_method(&"set_player"):
+		furnace_ui.set_player(self)
+		if furnace_ui.closed.is_connected(_on_furnace_ui_closed):
+			furnace_ui.closed.disconnect(_on_furnace_ui_closed)
+		furnace_ui.closed.connect(_on_furnace_ui_closed)
 
 	_update_hotbar_display()
 
@@ -117,7 +128,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if _is_interact_event(event):
-		if _try_use_connector(false) or _try_activate_mechanism(false):
+		if _try_use_connector(false) or _try_activate_mechanism(false) or _try_open_furnace(false):
 			get_viewport().set_input_as_handled()
 
 	if event is InputEventMouseButton:
@@ -130,7 +141,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			hotbar_changed.emit(selected_hotbar)
 			_update_hotbar_display()
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			_try_place_workbench()
+			if _try_place_workbench():
+				get_viewport().set_input_as_handled()
+			elif _try_place_furnace():
+				get_viewport().set_input_as_handled()
+			elif _try_place_ladder():
+				get_viewport().set_input_as_handled()
 
 
 func _input(event: InputEvent) -> void:
@@ -143,7 +159,20 @@ func _input(event: InputEvent) -> void:
 		elif key == KEY_C:
 			_toggle_crafting()
 		elif key == KEY_B or key == KEY_I or key == KEY_ESCAPE:
+			if _close_furnace_if_open():
+				return
 			_toggle_inventory()
+
+func _close_furnace_if_open() -> bool:
+	if furnace_ui and furnace_ui.visible:
+		furnace_ui.close()
+		_set_input_locked(false)
+		return true
+	return false
+
+
+func _on_furnace_ui_closed() -> void:
+	_set_input_locked(false)
 
 
 func _toggle_inventory() -> void:
@@ -255,36 +284,127 @@ func _on_block_mined(cell: Vector2i, layer: StringName, item_id: int, count: int
 	inventory_changed.emit()
 
 
-func _try_place_workbench() -> void:
+func _try_place_workbench() -> bool:
 	if inventory == null or equipment == null or crosshair == null or workbench_manager == null:
-		return
+		return false
 	if not crosshair.has_target:
-		return
+		return false
 
 	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
 	if held_id != ItemDatabase.ITEM_WORKBENCH:
-		return
+		return false
 
 	var tile_layer := _get_current_tile_layer()
 	if tile_layer == null:
-		return
+		return false
 	var cell := crosshair.target_cell
 	var layer := crosshair.target_layer
 	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
 	if global_position.distance_to(world_pos) > 4.0:
-		return
+		return false
 
 	var drop_idx := inventory.find_item(ItemDatabase.ITEM_WORKBENCH)
 	if drop_idx < 0:
-		return
+		return false
 
 	var ok := inventory.remove_from_slot(drop_idx, 1)
 	if not ok:
-		return
+		return false
 
 	var placed := workbench_manager.place_workbench(layer, cell)
 	if placed:
 		inventory_changed.emit()
+	return placed
+
+
+func _try_place_furnace() -> bool:
+	if inventory == null or equipment == null or crosshair == null or furnace_manager == null:
+		return false
+	if not crosshair.has_target:
+		return false
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id != ItemDatabase.ITEM_FURNACE:
+		return false
+
+	var tile_layer := _get_current_tile_layer()
+	if tile_layer == null:
+		return false
+	var cell := crosshair.target_cell
+	var layer := crosshair.target_layer
+	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
+	if global_position.distance_to(world_pos) > 4.0:
+		return false
+
+	var drop_idx := inventory.find_item(ItemDatabase.ITEM_FURNACE)
+	if drop_idx < 0:
+		return false
+
+	var ok := inventory.remove_from_slot(drop_idx, 1)
+	if not ok:
+		return false
+
+	var placed := furnace_manager.place_furnace(layer, cell)
+	if placed:
+		inventory_changed.emit()
+	return placed
+
+
+func _try_place_ladder() -> bool:
+	if inventory == null or equipment == null or crosshair == null or ladder_manager == null:
+		return false
+	if not crosshair.has_target:
+		return false
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id != ItemDatabase.ITEM_LADDER:
+		return false
+
+	var tile_layer := _get_current_tile_layer()
+	if tile_layer == null:
+		return false
+	var cell := crosshair.target_cell
+	var layer := crosshair.target_layer
+	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
+	if global_position.distance_to(world_pos) > 4.0:
+		return false
+
+	var drop_idx := inventory.find_item(ItemDatabase.ITEM_LADDER)
+	if drop_idx < 0:
+		return false
+
+	var ok := inventory.remove_from_slot(drop_idx, 1)
+	if not ok:
+		return false
+
+	var placed := ladder_manager.place_ladder(layer, cell)
+	if placed:
+		inventory_changed.emit()
+	return placed
+
+
+func _try_open_furnace(auto_only: bool) -> bool:
+	if _cooldown_remaining > 0.0 or furnace_manager == null or furnace_ui == null:
+		return false
+
+	if auto_only:
+		return false
+
+	var layer_id := _get_current_layer()
+	var cell_position := _get_current_cell()
+	var neighbors := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+
+	for offset in neighbors:
+		var check_cell := cell_position + offset
+		if not furnace_manager.has_furnace(layer_id, check_cell):
+			continue
+		var data = furnace_manager.get_furnace(layer_id, check_cell)
+		furnace_ui.open(data, layer_id, check_cell, furnace_manager)
+		_set_input_locked(true)
+		_cooldown_remaining = connector_cooldown
+		return true
+
+	return false
 
 
 func get_current_layer() -> StringName:
@@ -391,6 +511,8 @@ func _format_connector_type(connector_type: StringName) -> String:
 			return "Rift"
 		&"ruin_gate":
 			return "Ruin Gate"
+		&"ladder":
+			return "Ladder"
 		_:
 			return String(connector_type).replace("_", " ").capitalize()
 
@@ -437,6 +559,8 @@ func _get_transition_text(connector) -> String:
 			return "Falling"
 		&"ruin_gate":
 			return "Passing"
+		&"ladder":
+			return "Climbing"
 		_:
 			return "Moving"
 

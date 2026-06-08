@@ -16,6 +16,9 @@
 [ext_resource type="Script" path="res://scripts/interaction/PlayerMining.gd" id="17_mining"]
 [ext_resource type="Script" path="res://scripts/world/WorkbenchManager.gd" id="18_workbench"]
 [ext_resource type="Script" path="res://scripts/crafting/CraftingUI.gd" id="19_crafting_ui"]
+[ext_resource type="Script" path="res://scripts/world/FurnaceManager.gd" id="20_furnace_manager"]
+[ext_resource type="Script" path="res://scripts/world/LadderManager.gd" id="21_ladder_manager"]
+[ext_resource type="PackedScene" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -40,6 +43,12 @@ script = ExtResource("8_mechanism_manager")
 
 [node name="WorkbenchManager" type="Node" parent="." unique_id=2380428100]
 script = ExtResource("18_workbench")
+
+[node name="FurnaceManager" type="Node" parent="." unique_id=2380428101]
+script = ExtResource("20_furnace_manager")
+
+[node name="LadderManager" type="Node" parent="." unique_id=2380428102]
+script = ExtResource("21_ladder_manager")
 
 [node name="ChunkRendererBridge" type="Node" parent="." unique_id=1428570001]
 script = ExtResource("13_chunk_bridge")
@@ -180,3 +189,6 @@ script = ExtResource("16_crosshair")
 
 [node name="CraftingUI" type="Control" parent="UI" unique_id=809609949]
 script = ExtResource("19_crafting_ui")
+
+[node name="FurnaceUI" parent="UI" unique_id=809609950]
+instance = ExtResource("22_furnace_ui")

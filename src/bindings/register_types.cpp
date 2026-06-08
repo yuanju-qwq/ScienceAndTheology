@@ -22,8 +22,10 @@
 #include "magic/gd_glyph_registry.hpp"
 #include "magic/gd_spell_book.hpp"
 #include "magic/gd_mana_pool.hpp"
+#include "fuel/gd_fuel_registry.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
+#include "core/fuel/fuel_registry.hpp"
 #include "core/machine/module.hpp"
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
@@ -48,6 +50,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     magic::RitualRecipeRegistry::initialize();
     gt::initialize_materials();
     gt::ItemRegistry::initialize();
+    gt::FuelRegistry::initialize();
     gt::CraftingManager::initialize();
     gt::CraftingManager::register_basic_recipes();
 
@@ -71,6 +74,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDGlyphRegistry>();
     ClassDB::register_class<GDSpellBook>();
     ClassDB::register_class<GDManaPool>();
+    ClassDB::register_class<GDFuelRegistry>();
     GDAutocraftingService::initialize();
 }
 

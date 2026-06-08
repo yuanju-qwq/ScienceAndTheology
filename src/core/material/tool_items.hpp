@@ -66,9 +66,11 @@ inline constexpr ItemId DIAMOND_SWORD    = kNonMaterialItemBase + 51;
 
 // ---- Survival Items ----
 inline constexpr ItemId WORKBENCH_ITEM   = kNonMaterialItemBase + 52;
+inline constexpr ItemId FURNACE_ITEM     = kNonMaterialItemBase + 53;
+inline constexpr ItemId LADDER_ITEM      = kNonMaterialItemBase + 54;
 
 // Total number of non-material items.
-inline constexpr ItemId kNonMaterialItemCount = 53;
+inline constexpr ItemId kNonMaterialItemCount = 55;
 
 // Encoded patterns use dynamic IDs in [ENCODED_PATTERN_BASE, ...).
 inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemBase + kNonMaterialItemCount;
@@ -108,6 +110,9 @@ constexpr const char* kNonMaterialItemNames[] = {
     "Wooden Sword", "Stone Sword", "Iron Sword", "Diamond Sword",
     // 52: Survival
     "Workbench",
+    // 53-54: New placeable items
+    "Stone Furnace",
+    "Ladder",
 };
 
 // Look up the display name of a non-material item.

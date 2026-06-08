@@ -470,6 +470,21 @@ void CraftingManager::register_basic_recipes() {
                         {nm(brick, 4), nm(coal_dust, 1)},
                         FIREBRICK, 1));
     }
+
+    // Stone Furnace: 8 stone dust → 1 furnace (workbench).
+    ItemId stone_dust = id("stone", MaterialForm::DUST);
+    if (stone_dust != kInvalidItemId) {
+        add_recipe(bench("craft_furnace", "misc",
+                         {nm(stone_dust, 8)},
+                         FURNACE_ITEM, 1));
+    }
+
+    // Ladder: 4 sticks → 1 ladder (hand).
+    if (stick != kInvalidItemId) {
+        add_recipe(hand("craft_ladder", "misc",
+                        {nm(stick, 4)},
+                        LADDER_ITEM, 1));
+    }
 }
 
 } // namespace science_and_theology::gt

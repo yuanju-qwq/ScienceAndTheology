@@ -21,6 +21,7 @@ set(SOURCES
     magic/gd_glyph_registry.cpp
     magic/gd_spell_book.cpp
     magic/gd_mana_pool.cpp
+    fuel/gd_fuel_registry.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

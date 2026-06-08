@@ -10,6 +10,11 @@ target_sources(snt_core PRIVATE
     fluid/fluid_registry.cpp
 )
 
+# Fuel system (item + fluid based)
+target_sources(snt_core PRIVATE
+    fuel/fuel_registry.cpp
+)
+
 # Machine/material systems
 target_sources(snt_core PRIVATE
     material/material_item.cpp

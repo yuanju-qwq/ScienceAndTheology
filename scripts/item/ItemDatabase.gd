@@ -22,6 +22,8 @@ const K_MAT_ITEM_BASE  = 1
 const K_NON_MAT_BASE   = K_MAT_ITEM_BASE + 113 * K_FORM_COUNT + 1
 
 const ITEM_WORKBENCH   = K_NON_MAT_BASE + 52
+const ITEM_FURNACE     = K_NON_MAT_BASE + 53
+const ITEM_LADDER      = K_NON_MAT_BASE + 54
 const ITEM_WOODEN_PICKAXE = K_NON_MAT_BASE + 36
 const ITEM_STONE_PICKAXE  = K_NON_MAT_BASE + 37
 const ITEM_IRON_PICKAXE   = K_NON_MAT_BASE + 38
@@ -138,3 +140,5 @@ func _register_tool_items() -> void:
 
 func _register_survival_items() -> void:
 	_register(ITEM_WORKBENCH, "Workbench", Color(0.50, 0.35, 0.20), 64)
+	_register(ITEM_FURNACE, "Stone Furnace", Color(0.45, 0.35, 0.25), 64)
+	_register(ITEM_LADDER, "Ladder", Color(0.55, 0.30, 0.15), 64)
