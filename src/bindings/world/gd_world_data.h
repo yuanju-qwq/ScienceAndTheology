@@ -56,6 +56,8 @@ public:
         MAT_ORE_IRON  = 6,
         MAT_ORE_COPPER = 7,
         MAT_ORE_COAL  = 8,
+        MAT_WOOD      = 9,
+        MAT_LEAVES    = 10,
     };
 
     // Seed property. Changing the seed rebuilds the internal generator.

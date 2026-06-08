@@ -44,25 +44,13 @@ static std::vector<ResourceStack> condense_stacks(
 
 AECraftingPattern::AECraftingPattern(const CraftingRecipe* recipe)
     : recipe_(recipe) {
-    // Build condensed inputs from the recipe's shaped pattern.
-    if (recipe->is_shaped()) {
-        for (int i = 0; i < recipe->grid_width * recipe->grid_height; ++i) {
-            if (recipe->pattern[i] != kInvalidItemId) {
-                condensed_inputs_.push_back(
-                    ResourceStack::item(recipe->pattern[i],
-                                        recipe->pattern_counts[i]));
-            }
-        }
-    } else {
-        for (const auto& input : recipe->shapeless_inputs) {
-            if (input.is_valid()) {
-                condensed_inputs_.push_back(input);
-            }
+    for (const auto& input : recipe->inputs) {
+        if (input.is_valid()) {
+            condensed_inputs_.push_back(input);
         }
     }
     condensed_inputs_ = condense_stacks(condensed_inputs_);
 
-    // Output.
     if (recipe->output.is_valid()) {
         outputs_.push_back(recipe->output);
     }

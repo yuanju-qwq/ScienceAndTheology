@@ -64,8 +64,11 @@ inline constexpr ItemId STONE_SWORD      = kNonMaterialItemBase + 49;
 inline constexpr ItemId IRON_SWORD       = kNonMaterialItemBase + 50;
 inline constexpr ItemId DIAMOND_SWORD    = kNonMaterialItemBase + 51;
 
+// ---- Survival Items ----
+inline constexpr ItemId WORKBENCH_ITEM   = kNonMaterialItemBase + 52;
+
 // Total number of non-material items.
-inline constexpr ItemId kNonMaterialItemCount = 52;
+inline constexpr ItemId kNonMaterialItemCount = 53;
 
 // Encoded patterns use dynamic IDs in [ENCODED_PATTERN_BASE, ...).
 inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemBase + kNonMaterialItemCount;
@@ -103,6 +106,8 @@ constexpr const char* kNonMaterialItemNames[] = {
     "Wooden Shovel", "Stone Shovel", "Iron Shovel", "Diamond Shovel",
     // 48-51: Swords
     "Wooden Sword", "Stone Sword", "Iron Sword", "Diamond Sword",
+    // 52: Survival
+    "Workbench",
 };
 
 // Look up the display name of a non-material item.

@@ -62,6 +62,11 @@ private:
                      int chunk_x, int chunk_y,
                      TerrainData& terrain);
 
+    // Pass 5b: Place trees (surface layer only).
+    void pass_tree(const std::string& layer_id,
+                   int chunk_x, int chunk_y,
+                   TerrainData& terrain);
+
     // Pass 6: Place gameplay elements (connectors, spawn points, etc.).
     // Receives the full chunk to populate its connectors vector.
     void pass_gameplay(const std::string& layer_id,

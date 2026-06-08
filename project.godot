@@ -18,3 +18,8 @@ config/name="科学与神学"
 run/main_scene="res://WorldMap.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+ItemDatabase="*res://scripts/item/ItemDatabase.gd"
+TerrainDropTable="*res://scripts/item/TerrainDropTable.gd"

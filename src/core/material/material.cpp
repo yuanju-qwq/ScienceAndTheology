@@ -408,6 +408,14 @@ void initialize_materials() {
     // Register it as GAS since it's water vapor.
     register_material(materials::STEAM,      "steam",      "Steam",       gf::GAS, S::GAS,
                      0xC0C0C0, 373, 373, 18.0f, "H2O", 2, kComp_H2O);
+
+    // ====================
+    // Organic solids (DUST + PLATE + ROD + BLOCK)
+    // ====================
+    register_material(materials::WOOD, "wood", "Wood",
+        gf::DUST_ONLY | static_cast<uint16_t>(MaterialGenFlag::METAL)
+        | static_cast<uint16_t>(MaterialGenFlag::BLOCK),
+        S::SOLID, 0x8B5E3C, 0, 0, 0.5f, "C6H10O5", 0, nullptr);
 }
 
 // --- Registry lookup ---

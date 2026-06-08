@@ -10,6 +10,12 @@
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="8_mechanism_manager"]
 [ext_resource type="Script" uid="uid://cfy4lfmql8ndd" path="res://scripts/LayerViewController.gd" id="9_layer_view_controller"]
 [ext_resource type="Script" uid="uid://bvr8lr3a2bd4n" path="res://scripts/ChunkRendererBridge.gd" id="13_chunk_bridge"]
+[ext_resource type="Script" path="res://scripts/ui/HotbarUI.gd" id="14_hotbar_ui"]
+[ext_resource type="Script" path="res://scripts/ui/InventoryUI.gd" id="15_inventory_ui"]
+[ext_resource type="Script" path="res://scripts/interaction/PlayerCrosshair.gd" id="16_crosshair"]
+[ext_resource type="Script" path="res://scripts/interaction/PlayerMining.gd" id="17_mining"]
+[ext_resource type="Script" path="res://scripts/world/WorkbenchManager.gd" id="18_workbench"]
+[ext_resource type="Script" path="res://scripts/crafting/CraftingUI.gd" id="19_crafting_ui"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -32,11 +38,17 @@ script = ExtResource("3_connector_manager")
 [node name="MechanismManager" type="Node" parent="." unique_id=1380428095]
 script = ExtResource("8_mechanism_manager")
 
+[node name="WorkbenchManager" type="Node" parent="." unique_id=2380428100]
+script = ExtResource("18_workbench")
+
 [node name="ChunkRendererBridge" type="Node" parent="." unique_id=1428570001]
 script = ExtResource("13_chunk_bridge")
 surface_container_path = NodePath("Layers/SurfaceLayer")
 underground_container_path = NodePath("Layers/UndergroundLayer")
 seed = 12345
+
+[node name="PlayerMining" type="Node" parent="." unique_id=2428570001]
+script = ExtResource("17_mining")
 
 [node name="ExplorationTracker" type="Node" parent="." unique_id=1727587706]
 script = ExtResource("6_exploration_tracker")
@@ -145,3 +157,26 @@ grow_vertical = 2
 text = "Moving"
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="HotbarUI" type="Control" parent="UI" unique_id=809609946]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -162.0
+offset_top = -44.0
+offset_right = 162.0
+offset_bottom = -8.0
+mouse_filter = 2
+script = ExtResource("14_hotbar_ui")
+
+[node name="InventoryUI" type="Control" parent="UI" unique_id=809609947]
+script = ExtResource("15_inventory_ui")
+
+[node name="Crosshair" type="Control" parent="UI" unique_id=809609948]
+mouse_filter = 2
+mouse_default_cursor_shape = 0
+script = ExtResource("16_crosshair")
+
+[node name="CraftingUI" type="Control" parent="UI" unique_id=809609949]
+script = ExtResource("19_crafting_ui")

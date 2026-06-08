@@ -28,6 +28,9 @@
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
 #include "core/magic/ritual_recipe_registry.hpp"
+#include "core/material/material.hpp"
+#include "core/material/material_item.hpp"
+#include "core/crafting/crafting.hpp"
 
 using namespace godot;
 
@@ -43,10 +46,13 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     magic::RuneRegistry::initialize();
     magic::GlyphRegistry::initialize();
     magic::RitualRecipeRegistry::initialize();
+    gt::initialize_materials();
+    gt::ItemRegistry::initialize();
+    gt::CraftingManager::initialize();
+    gt::CraftingManager::register_basic_recipes();
 
     ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
-    ClassDB::register_class<GDCraftingGrid>();
     ClassDB::register_class<GDCraftingManager>();
     ClassDB::register_class<GDFluidNetwork>();
     ClassDB::register_class<GDItemPipeNetwork>();

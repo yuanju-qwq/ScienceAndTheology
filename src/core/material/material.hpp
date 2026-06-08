@@ -265,8 +265,9 @@ namespace materials {
     constexpr uint16_t GLYCEROL     = 109;
     constexpr uint16_t VINYL_CHLORIDE = 110;
     constexpr uint16_t STYRENE      = 111;
+    constexpr uint16_t WOOD        = 112;
 
-    constexpr uint16_t COUNT = 112;
+    constexpr uint16_t COUNT = 113;
 } // namespace materials
 
 // Initialize the material registry (called once at startup).

@@ -3,9 +3,13 @@ extends CharacterBody2D
 
 signal connector_used(connector_id: int, from_layer: StringName, to_layer: StringName)
 signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
+signal hotbar_changed(index: int)
+signal inventory_changed
 
 @export var move_speed := 96.0
 @export var connector_cooldown := 0.25
+@export var inventory_width := 9
+@export var inventory_height := 4
 @export var layer_controller_path: NodePath = ^".."
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
@@ -14,9 +18,20 @@ signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
 @export var transition_overlay_path: NodePath = ^"../UI/TransitionOverlay"
 @export var transition_label_path: NodePath = ^"../UI/TransitionOverlay/Label"
 @export var exploration_tracker_path: NodePath = ^"../ExplorationTracker"
+@export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
+@export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
+@export var crosshair_path: NodePath = ^"../UI/Crosshair"
+@export var mining_path: NodePath = ^"../PlayerMining"
+@export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
+@export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
+
 @export var transition_fade_in_duration := 0.18
 @export var transition_hold_duration := 0.08
 @export var transition_fade_out_duration := 0.22
+
+var inventory: GDPlayerInventory
+var equipment: GDPlayerEquipment
+var selected_hotbar: int = 0
 
 @onready var layer_controller = get_node_or_null(layer_controller_path)
 @onready var connector_manager = get_node_or_null(connector_manager_path)
@@ -26,6 +41,12 @@ signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
 @onready var transition_overlay: CanvasItem = get_node_or_null(transition_overlay_path) as CanvasItem
 @onready var transition_label: Label = get_node_or_null(transition_label_path) as Label
 @onready var exploration_tracker = get_node_or_null(exploration_tracker_path)
+@onready var hotbar_ui = get_node_or_null(hotbar_ui_path)
+@onready var inventory_ui = get_node_or_null(inventory_ui_path)
+@onready var mining = get_node_or_null(mining_path)
+@onready var crosshair = get_node_or_null(crosshair_path)
+@onready var crafting_ui = get_node_or_null(crafting_ui_path)
+@onready var workbench_manager = get_node_or_null(workbench_manager_path)
 
 var _cooldown_remaining := 0.0
 var _last_layer: StringName = &""
@@ -34,11 +55,29 @@ var _input_locked := false
 
 
 func _ready() -> void:
+	inventory = GDPlayerInventory.new()
+	inventory.init(inventory_width, inventory_height)
+	equipment = GDPlayerEquipment.new()
+
 	_prepare_transition_overlay()
 	_last_layer = _get_current_layer()
 	_last_cell = _get_current_cell()
 	_mark_current_cell_visited()
 	_update_connector_prompt()
+
+	if hotbar_ui and hotbar_ui.has_method(&"set_player"):
+		hotbar_ui.set_player(self)
+	if inventory_ui and inventory_ui.has_method(&"set_player"):
+		inventory_ui.set_player(self)
+	if mining and mining.has_method(&"set_player"):
+		mining.set_player(self)
+		if mining.block_mined.is_connected(_on_block_mined):
+			mining.block_mined.disconnect(_on_block_mined)
+		mining.block_mined.connect(_on_block_mined)
+	if crafting_ui and crafting_ui.has_method(&"set_player"):
+		crafting_ui.set_player(self)
+
+	_update_hotbar_display()
 
 
 func _physics_process(delta: float) -> void:
@@ -54,14 +93,7 @@ func _physics_process(delta: float) -> void:
 	_handle_movement()
 	_try_auto_connector()
 	_update_connector_prompt()
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if _input_locked:
-		return
-
-	if _is_interact_event(event) and (_try_use_connector(false) or _try_activate_mechanism(false)):
-		get_viewport().set_input_as_handled()
+	_update_hotbar_selection()
 
 
 func _handle_movement() -> void:
@@ -80,6 +112,47 @@ func _handle_movement() -> void:
 	move_and_slide()
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if _input_locked:
+		return
+
+	if _is_interact_event(event):
+		if _try_use_connector(false) or _try_activate_mechanism(false):
+			get_viewport().set_input_as_handled()
+
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+			selected_hotbar = (selected_hotbar - 1 + 9) % 9
+			hotbar_changed.emit(selected_hotbar)
+			_update_hotbar_display()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+			selected_hotbar = (selected_hotbar + 1) % 9
+			hotbar_changed.emit(selected_hotbar)
+			_update_hotbar_display()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			_try_place_workbench()
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key := event.keycode
+		if key >= KEY_1 and key <= KEY_9:
+			selected_hotbar = key - KEY_1
+			hotbar_changed.emit(selected_hotbar)
+			_update_hotbar_display()
+		elif key == KEY_C:
+			_toggle_crafting()
+		elif key == KEY_B or key == KEY_I or key == KEY_ESCAPE:
+			_toggle_inventory()
+
+
+func _toggle_inventory() -> void:
+	if crafting_ui and crafting_ui.visible:
+		_toggle_crafting()
+	if inventory_ui and inventory_ui.has_method(&"toggle"):
+		inventory_ui.toggle()
+
+
 func _try_auto_connector() -> void:
 	var layer_id := _get_current_layer()
 	var cell_position := _get_current_cell()
@@ -95,7 +168,6 @@ func _try_auto_connector() -> void:
 	if _cooldown_remaining <= 0.0:
 		if _try_use_connector(true):
 			return
-
 		_try_activate_mechanism(true)
 
 
@@ -111,7 +183,6 @@ func _try_use_connector(auto_only: bool) -> bool:
 
 	if auto_only and not connector.activates_on_enter():
 		return false
-
 	if not auto_only and not connector.requires_interaction():
 		return false
 
@@ -131,7 +202,6 @@ func _try_activate_mechanism(auto_only: bool) -> bool:
 
 	if auto_only and not mechanism.activates_on_enter():
 		return false
-
 	if not auto_only and not mechanism.requires_interaction():
 		return false
 
@@ -178,33 +248,107 @@ func _run_connector_transition(connector, layer_id: StringName, cell_position: V
 	_set_input_locked(false)
 
 
-func _get_current_layer() -> StringName:
-	if layer_controller == null:
-		return &"surface"
+func _on_block_mined(cell: Vector2i, layer: StringName, item_id: int, count: int) -> void:
+	var overflow := inventory.add_item(item_id, count)
+	if overflow > 0:
+		pass
+	inventory_changed.emit()
 
-	return layer_controller.current_layer
+
+func _try_place_workbench() -> void:
+	if inventory == null or equipment == null or crosshair == null or workbench_manager == null:
+		return
+	if not crosshair.has_target:
+		return
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id != ItemDatabase.ITEM_WORKBENCH:
+		return
+
+	var tile_layer := _get_current_tile_layer()
+	if tile_layer == null:
+		return
+	var cell := crosshair.target_cell
+	var layer := crosshair.target_layer
+	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
+	if global_position.distance_to(world_pos) > 4.0:
+		return
+
+	var drop_idx := inventory.find_item(ItemDatabase.ITEM_WORKBENCH)
+	if drop_idx < 0:
+		return
+
+	var ok := inventory.remove_from_slot(drop_idx, 1)
+	if not ok:
+		return
+
+	var placed := workbench_manager.place_workbench(layer, cell)
+	if placed:
+		inventory_changed.emit()
 
 
 func get_current_layer() -> StringName:
 	return _get_current_layer()
 
 
+func get_current_cell() -> Vector2i:
+	return _get_current_cell()
+
+
+func get_equipped_item_id() -> int:
+	if equipment == null:
+		return 0
+	return equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+
+func get_selected_hotbar() -> int:
+	return selected_hotbar
+
+func _toggle_crafting() -> void:
+	if crafting_ui == null:
+		return
+	if not crafting_ui.has_method(&"toggle"):
+		return
+
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui.toggle()
+
+	if crafting_ui.has_method(&"set_station"):
+		var station := _get_nearby_station()
+		crafting_ui.set_station(station)
+	crafting_ui.toggle()
+	_set_input_locked(crafting_ui.visible)
+
+
+func _get_nearby_station() -> String:
+	if workbench_manager == null:
+		return ""
+	if not workbench_manager.has_method(&"has_workbench"):
+		return ""
+	var cell := _get_current_cell()
+	var layer := _get_current_layer()
+	var neighbors := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for offset in neighbors:
+		if workbench_manager.has_workbench(layer, cell + offset):
+			return "workbench"
+	return ""
+
+
+func _get_current_layer() -> StringName:
+	if layer_controller == null:
+		return &"surface"
+	return layer_controller.current_layer
+
+
 func _get_current_cell() -> Vector2i:
 	var tile_layer := _get_current_tile_layer()
 	if tile_layer == null:
 		return Vector2i.ZERO
-
 	return tile_layer.local_to_map(tile_layer.to_local(global_position))
-
-
-func get_current_cell() -> Vector2i:
-	return _get_current_cell()
 
 
 func _get_current_tile_layer() -> TileMapLayer:
 	if layer_controller == null or not layer_controller.has_method("get_current_tile_layer"):
 		return null
-
 	return layer_controller.get_current_tile_layer()
 
 
@@ -254,14 +398,12 @@ func _format_connector_type(connector_type: StringName) -> String:
 func _format_mechanism_action(mechanism) -> String:
 	if mechanism.action_label != "":
 		return mechanism.action_label
-
 	return mechanism.display_name
 
 
 func _prepare_transition_overlay() -> void:
 	if transition_overlay == null:
 		return
-
 	transition_overlay.visible = false
 	transition_overlay.modulate.a = 0.0
 
@@ -269,13 +411,10 @@ func _prepare_transition_overlay() -> void:
 func _play_transition_fade_in(connector) -> void:
 	if transition_overlay == null:
 		return
-
 	transition_overlay.visible = true
 	transition_overlay.modulate.a = 0.0
-
 	if transition_label != null:
 		transition_label.text = _get_transition_text(connector)
-
 	var tween := create_tween()
 	tween.tween_property(transition_overlay, "modulate:a", 1.0, transition_fade_in_duration)
 	await tween.finished
@@ -284,7 +423,6 @@ func _play_transition_fade_in(connector) -> void:
 func _play_transition_fade_out() -> void:
 	if transition_overlay == null:
 		return
-
 	var tween := create_tween()
 	tween.tween_property(transition_overlay, "modulate:a", 0.0, transition_fade_out_duration)
 	await tween.finished
@@ -306,7 +444,6 @@ func _get_transition_text(connector) -> String:
 func _mark_current_cell_visited() -> void:
 	if exploration_tracker == null or not exploration_tracker.has_method("mark_visited"):
 		return
-
 	exploration_tracker.mark_visited(_get_current_layer(), _get_current_cell())
 
 
@@ -314,7 +451,6 @@ func _set_input_locked(is_locked: bool) -> void:
 	_input_locked = is_locked
 	if layer_controller != null and layer_controller.has_method("set_input_locked"):
 		layer_controller.set_input_locked(is_locked)
-
 	if _input_locked:
 		velocity = Vector2.ZERO
 	_update_connector_prompt()
@@ -327,3 +463,12 @@ func _is_interact_event(event: InputEvent) -> bool:
 		and not event.echo
 		and (event.physical_keycode == KEY_E or event.physical_keycode == KEY_SPACE)
 	)
+
+
+func _update_hotbar_selection() -> void:
+	pass
+
+
+func _update_hotbar_display() -> void:
+	if hotbar_ui and hotbar_ui.has_method(&"refresh"):
+		hotbar_ui.refresh()

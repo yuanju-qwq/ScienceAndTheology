@@ -18,12 +18,16 @@ enum class TerrainMaterial : uint8_t {
     ORE_IRON,
     ORE_COPPER,
     ORE_COAL,
+
+    WOOD,
+    LEAVES,
 };
 
 // Display name for each terrain material.
 constexpr const char* kTerrainMaterialNames[] = {
     "Air", "Stone", "Dirt", "Sand", "Water", "Lava",
     "Iron Ore", "Copper Ore", "Coal Ore",
+    "Wood", "Leaves",
 };
 
 // Per-cell gameplay flags derived from material properties.
@@ -64,6 +68,10 @@ constexpr uint32_t kTerrainMaterialFlags[] = {
     TF_SOLID | TF_MINEABLE,
     // ORE_COAL
     TF_SOLID | TF_MINEABLE,
+    // WOOD
+    TF_SOLID | TF_MINEABLE,
+    // LEAVES
+    TF_WALKABLE | TF_MINEABLE,
 };
 
 // A single cell in the terrain grid.

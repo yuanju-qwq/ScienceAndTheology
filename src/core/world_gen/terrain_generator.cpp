@@ -22,6 +22,7 @@ ChunkData TerrainGenerator::generate_chunk(
     pass_ore(layer_id, chunk_x, chunk_y, chunk.terrain);
     pass_structure(layer_id, chunk_x, chunk_y, chunk.terrain);
     pass_object(layer_id, chunk_x, chunk_y, chunk.terrain);
+    pass_tree(layer_id, chunk_x, chunk_y, chunk.terrain);
     pass_gameplay(layer_id, chunk_x, chunk_y, chunk);
 
     return chunk;
@@ -857,6 +858,99 @@ float TerrainGenerator::cell_noise(
     float global_y = static_cast<float>(
         chunk_y * ChunkData::kChunkSize + local_y);
     return noise.noise_2d_scaled(global_x, global_y, scale, 4);
+}
+
+void TerrainGenerator::pass_tree(
+    const std::string& layer_id, int chunk_x, int chunk_y,
+    TerrainData& terrain) {
+    if (layer_id != "surface") return;
+
+    NoiseGenerator tree_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 10, chunk_x, chunk_y));
+    NoiseGenerator canopy_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 11, chunk_x, chunk_y));
+
+    std::vector<std::pair<int, int>> used_positions;
+
+    auto is_used = [&](int px, int py) -> bool {
+        for (const auto& pos : used_positions) {
+            if (std::abs(pos.first - px) <= 1 && std::abs(pos.second - py) <= 1) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    for (int y = 0; y < ChunkData::kChunkSize; ++y) {
+        for (int x = 0; x < ChunkData::kChunkSize; ++x) {
+            if (is_used(x, y)) continue;
+
+            TerrainCell& cell = terrain.cell_at(x, y);
+            if (cell.material != TerrainMaterial::DIRT) continue;
+
+            int global_x = chunk_x * ChunkData::kChunkSize + x;
+            int global_y = chunk_y * ChunkData::kChunkSize + y;
+
+            // Tree density noise.
+            float tree_density = tree_noise.noise_2d_scaled(
+                static_cast<float>(global_x),
+                static_cast<float>(global_y),
+                0.12f, 3);
+
+            if (tree_density < 0.45f) continue;
+
+            // Avoid placing trees near water.
+            bool near_water = false;
+            for (int dy = -2; dy <= 2 && !near_water; ++dy) {
+                for (int dx = -2; dx <= 2 && !near_water; ++dx) {
+                    int nx = x + dx;
+                    int ny = y + dy;
+                    if (terrain.is_valid_cell(nx, ny) &&
+                        terrain.cell_at(nx, ny).material == TerrainMaterial::WATER) {
+                        near_water = true;
+                    }
+                }
+            }
+            if (near_water) continue;
+
+            // Place trunk.
+            set_cell(terrain, x, y, TerrainMaterial::WOOD);
+            used_positions.push_back({x, y});
+
+            // Place canopy leaves around trunk.
+            float canopy_size = canopy_noise.noise_2d_scaled(
+                static_cast<float>(global_x + 3000),
+                static_cast<float>(global_y + 3000),
+                0.1f, 2);
+
+            int radius = (canopy_size > 0.5f) ? 2 : 1;
+
+            for (int dy = -radius; dy <= radius; ++dy) {
+                for (int dx = -radius; dx <= radius; ++dx) {
+                    if (dx == 0 && dy == 0) continue;
+
+                    int nx = x + dx;
+                    int ny = y + dy;
+                    if (!terrain.is_valid_cell(nx, ny)) continue;
+
+                    TerrainCell& nc = terrain.cell_at(nx, ny);
+                    if (nc.material != TerrainMaterial::DIRT &&
+                        nc.material != TerrainMaterial::SAND) continue;
+
+                    // Not all canopy cells fill in (gives natural shape).
+                    float fill = canopy_noise.noise_2d_scaled(
+                        static_cast<float>(global_x + dx * 7 + 5000),
+                        static_cast<float>(global_y + dy * 7 + 5000),
+                        0.2f, 1);
+
+                    if (fill > 0.0f || (std::abs(dx) <= 1 && std::abs(dy) <= 1)) {
+                        set_cell(terrain, nx, ny, TerrainMaterial::LEAVES);
+                        used_positions.push_back({nx, ny});
+                    }
+                }
+            }
+        }
+    }
 }
 
 } // namespace science_and_theology
