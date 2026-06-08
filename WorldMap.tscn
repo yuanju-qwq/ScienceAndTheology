@@ -9,8 +9,7 @@
 [ext_resource type="Script" uid="uid://bw5stwft110ke" path="res://scripts/MiniMap.gd" id="7_mini_map"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="8_mechanism_manager"]
 [ext_resource type="Script" uid="uid://cfy4lfmql8ndd" path="res://scripts/LayerViewController.gd" id="9_layer_view_controller"]
-[ext_resource type="Script" uid="uid://dfe5yf3bqqcgh" path="res://scripts/PrototypeLayerArt.gd" id="11_prototype_layer_art"]
-[ext_resource type="Texture2D" path="res://resource/dual_layer_tileset_32_clean.png" id="12_generated_tiles_32"]
+[ext_resource type="Script" uid="uid://bvr8lr3a2bd4n" path="res://scripts/ChunkRendererBridge.gd" id="13_chunk_bridge"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -23,98 +22,21 @@ script = ExtResource("1_layer_controller")
 [node name="SurfaceLayer" type="TileMapLayer" parent="Layers" unique_id=1249057088]
 tile_set = ExtResource("1_world_tileset")
 
-[node name="GeneratedSurfaceTileArt" type="Node2D" parent="Layers/SurfaceLayer" unique_id=1166787678]
-z_index = -9
-script = ExtResource("11_prototype_layer_art")
-texture = ExtResource("12_generated_tiles_32")
-
-[node name="GeneratedCaveMouthArt" type="Sprite2D" parent="Layers/SurfaceLayer" unique_id=1175146900]
-z_index = 3
-position = Vector2(64, -32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(352, 0, 32, 32)
-
-[node name="GeneratedRiftArt" type="Sprite2D" parent="Layers/SurfaceLayer" unique_id=1585231661]
-z_index = 4
-position = Vector2(-96, 32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(160, 64, 32, 32)
-
-[node name="GeneratedAltarArt" type="Sprite2D" parent="Layers/SurfaceLayer" unique_id=1936018306]
-z_index = 3
-position = Vector2(-32, -32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(128, 64, 32, 32)
-
-[node name="GeneratedBrokenBridgeArt" type="Sprite2D" parent="Layers/SurfaceLayer" unique_id=2124066361]
-z_index = 2
-position = Vector2(0, 32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(32, 64, 32, 32)
-
-[node name="GeneratedBridgeRaisedArt" type="Sprite2D" parent="Layers/SurfaceLayer" unique_id=304303666]
-visible = false
-z_index = 2
-position = Vector2(0, 32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(64, 64, 32, 32)
-
 [node name="UndergroundLayer" type="TileMapLayer" parent="Layers" unique_id=211451969]
 visible = false
 tile_set = ExtResource("1_world_tileset")
-
-[node name="GeneratedUndergroundTileArt" type="Node2D" parent="Layers/UndergroundLayer" unique_id=1903146181]
-z_index = -9
-script = ExtResource("11_prototype_layer_art")
-texture = ExtResource("12_generated_tiles_32")
-art_theme = 1
-
-[node name="GeneratedStairExitArt" type="Sprite2D" parent="Layers/UndergroundLayer" unique_id=143026514]
-z_index = 3
-position = Vector2(64, 0)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(320, 128, 32, 32)
-
-[node name="GeneratedUndergroundRiftArt" type="Sprite2D" parent="Layers/UndergroundLayer" unique_id=1639680097]
-z_index = 4
-position = Vector2(-96, 32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(224, 192, 32, 32)
-
-[node name="GeneratedSealedGateArt" type="Sprite2D" parent="Layers/UndergroundLayer" unique_id=905916450]
-z_index = 3
-position = Vector2(-64, -32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(288, 96, 32, 32)
-
-[node name="GeneratedOpenGateArt" type="Sprite2D" parent="Layers/UndergroundLayer" unique_id=1608886149]
-visible = false
-z_index = 3
-position = Vector2(-64, -32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(320, 96, 32, 32)
-
-[node name="GeneratedPumpArt" type="Sprite2D" parent="Layers/UndergroundLayer" unique_id=602142707]
-z_index = 3
-position = Vector2(0, 32)
-texture = ExtResource("12_generated_tiles_32")
-region_enabled = true
-region_rect = Rect2(352, 96, 32, 32)
 
 [node name="ConnectorManager" type="Node" parent="." unique_id=981920890]
 script = ExtResource("3_connector_manager")
 
 [node name="MechanismManager" type="Node" parent="." unique_id=1380428095]
 script = ExtResource("8_mechanism_manager")
+
+[node name="ChunkRendererBridge" type="Node" parent="." unique_id=1428570001]
+script = ExtResource("13_chunk_bridge")
+surface_container_path = NodePath("Layers/SurfaceLayer")
+underground_container_path = NodePath("Layers/UndergroundLayer")
+seed = 12345
 
 [node name="ExplorationTracker" type="Node" parent="." unique_id=1727587706]
 script = ExtResource("6_exploration_tracker")

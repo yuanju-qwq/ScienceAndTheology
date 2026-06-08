@@ -104,4 +104,26 @@ texture_region_size = Vector2i(32, 32)
 
 [resource]
 tile_size = Vector2i(32, 32)
+
+physics/layers/0/name = "terrain"
+physics/layers/0/collision_layer = 1
+physics/layers/1/name = "liquid"
+physics/layers/1/collision_layer = 2
+
+navigation/layers/0/name = "walkable"
+navigation/layers/0/layers = 1
+
+terrain/sets/0/name = "Dirt"
+terrain/sets/0/color = Color(0.45, 0.28, 0.14, 1)
+terrain/sets/1/name = "Sand"
+terrain/sets/1/color = Color(0.76, 0.7, 0.5, 1)
+terrain/sets/2/name = "Stone"
+terrain/sets/2/color = Color(0.4, 0.4, 0.42, 1)
+terrain/sets/3/name = "Water"
+terrain/sets/3/color = Color(0.2, 0.4, 0.8, 1)
+terrain/sets/4/name = "Lava"
+terrain/sets/4/color = Color(0.8, 0.3, 0.1, 1)
+terrain/sets/5/name = "CaveFloor"
+terrain/sets/5/color = Color(0.3, 0.25, 0.2, 1)
+
 sources/0 = SubResource("TileSetAtlasSource_generated")

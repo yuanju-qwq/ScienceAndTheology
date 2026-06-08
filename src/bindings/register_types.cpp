@@ -13,6 +13,8 @@
 #include "machine/gd_machine.h"
 #include "world/gd_world_data.h"
 #include "world/gd_terrain_generator.h"
+#include "world/gd_chunk_view.h"
+#include "world/gd_chunk_manager.h"
 #include "simulation/gd_tick_system.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
@@ -51,6 +53,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDMachine>();
     ClassDB::register_class<GDWorldData>();
     ClassDB::register_class<GDTerrainGenerator>();
+    ClassDB::register_class<GDChunkView>();
+    ClassDB::register_class<GDChunkManager>();
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
     ClassDB::register_class<GDMENetwork>();
