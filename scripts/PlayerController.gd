@@ -27,6 +27,7 @@ signal inventory_changed
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var ladder_manager_path: NodePath = ^"../LadderManager"
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
+@export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
 
 @export var transition_fade_in_duration := 0.18
 @export var transition_hold_duration := 0.08
@@ -53,6 +54,7 @@ var selected_hotbar: int = 0
 @onready var furnace_manager = get_node_or_null(furnace_manager_path)
 @onready var ladder_manager = get_node_or_null(ladder_manager_path)
 @onready var furnace_ui = get_node_or_null(furnace_ui_path)
+@onready var wiki_ui = get_node_or_null(wiki_ui_path)
 
 var _cooldown_remaining := 0.0
 var _last_layer: StringName = &""
@@ -158,8 +160,15 @@ func _input(event: InputEvent) -> void:
 			_update_hotbar_display()
 		elif key == KEY_C:
 			_toggle_crafting()
-		elif key == KEY_B or key == KEY_I or key == KEY_ESCAPE:
+		elif key == KEY_B:
 			if _close_furnace_if_open():
+				return
+			_toggle_wiki()
+		elif key == KEY_I or key == KEY_ESCAPE:
+			if _close_furnace_if_open():
+				return
+			if wiki_ui and wiki_ui.visible:
+				wiki_ui.toggle()
 				return
 			_toggle_inventory()
 
@@ -180,6 +189,14 @@ func _toggle_inventory() -> void:
 		_toggle_crafting()
 	if inventory_ui and inventory_ui.has_method(&"toggle"):
 		inventory_ui.toggle()
+
+func _toggle_wiki() -> void:
+	if crafting_ui and crafting_ui.visible:
+		_toggle_crafting()
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui.toggle()
+	if wiki_ui and wiki_ui.has_method(&"toggle"):
+		wiki_ui.toggle()
 
 
 func _try_auto_connector() -> void:

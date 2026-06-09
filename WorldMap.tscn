@@ -19,6 +19,7 @@
 [ext_resource type="Script" path="res://scripts/world/FurnaceManager.gd" id="20_furnace_manager"]
 [ext_resource type="Script" path="res://scripts/world/LadderManager.gd" id="21_ladder_manager"]
 [ext_resource type="PackedScene" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
+[ext_resource type="Script" path="res://scripts/wiki/WikiUI.gd" id="23_wiki_ui"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -190,5 +191,8 @@ script = ExtResource("16_crosshair")
 [node name="CraftingUI" type="Control" parent="UI" unique_id=809609949]
 script = ExtResource("19_crafting_ui")
 
-[node name="FurnaceUI" parent="UI" unique_id=809609950]
+[node name="WikiUI" type="Control" parent="UI" unique_id=809609950]
+script = ExtResource("23_wiki_ui")
+
+[node name="FurnaceUI" parent="UI" unique_id=809609951]
 instance = ExtResource("22_furnace_ui")
