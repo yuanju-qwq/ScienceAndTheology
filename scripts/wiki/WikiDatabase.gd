@@ -129,7 +129,7 @@ func _k2c(k: float) -> float:
 	return k - 273.15
 
 
-func _temp_str(kelvin: int64, show_c: bool = true) -> String:
+func _temp_str(kelvin: int, show_c: bool = true) -> String:
 	if kelvin <= 0:
 		return "—"
 	if show_c:
@@ -477,7 +477,7 @@ func _register_items() -> void:
 		var item_def = item_db.get_item(item_id)
 		if item_def:
 			var eid := "item.tool_" + str(item_id)
-			var icon := item_def.icon if item_def.icon else make_placeholder_icon(Color.hex(t[2]))
+			var icon: Texture2D = item_def.icon if item_def.icon else make_placeholder_icon(Color.hex(t[2]))
 			var e := WikiEntry.new()
 			e.id = eid
 			e.category = "items"
@@ -499,7 +499,7 @@ func _register_item_from_db(item_db: Node, item_id: int, cat: String,
 		return
 
 	var eid := "item." + str(item_id)
-	var icon := item_def.icon if item_def.icon else make_placeholder_icon(Color.GRAY)
+	var icon: Texture2D = item_def.icon if item_def.icon else make_placeholder_icon(Color.GRAY)
 	var e := WikiEntry.new()
 	e.id = eid
 	e.category = cat

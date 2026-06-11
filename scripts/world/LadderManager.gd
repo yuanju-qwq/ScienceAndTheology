@@ -14,13 +14,13 @@ func _ready() -> void:
 	_connector_manager = _find_connector_manager()
 
 
-func _find_connector_manager():
-	var node = get_parent()
+func _find_connector_manager() -> Node:
+	var node: Node = get_parent()
 	while node:
 		if node is ConnectorManager:
 			return node
-		if node.has_method(&"get_node") and node.has_node(&"ConnectorManager"):
-			return node.get_node(&"ConnectorManager")
+		if node.has_node(NodePath("ConnectorManager")):
+			return node.get_node(NodePath("ConnectorManager"))
 		node = node.get_parent()
 	return null
 
@@ -97,7 +97,7 @@ func _create_connector(layer: StringName, cell: Vector2i) -> void:
 func _remove_connector(layer: StringName, cell: Vector2i) -> void:
 	if _connector_manager == null:
 		return
-	var connector := _connector_manager.get_connector_at(layer, cell)
+	var connector: Variant = _connector_manager.get_connector_at(layer, cell)
 	if connector != null:
 		_connector_manager.remove_connector(connector.connector_id)
 

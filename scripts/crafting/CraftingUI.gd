@@ -123,14 +123,14 @@ func _build_tabs() -> void:
 
 	var seen_categories: Dictionary = {}
 	for recipe in _recipes:
-		var cat := recipe.get("category", "")
+		var cat: String = recipe.get("category", "")
 		if not cat.is_empty() and not seen_categories.has(cat):
 			seen_categories[cat] = true
 
 	for cat in CATEGORY_ORDER:
 		if not seen_categories.has(cat):
 			continue
-		var label := CATEGORY_LABELS.get(cat, cat)
+		var label: String = CATEGORY_LABELS.get(cat, cat)
 		var btn := Button.new()
 		btn.text = label
 		btn.toggle_mode = true
@@ -161,11 +161,11 @@ func _select_category(category: String) -> void:
 		if recipe.get("category", "") != category:
 			continue
 
-		var recipe_name := recipe.get("name", "")
+		var recipe_name: String = recipe.get("name", "")
 		var out_id := int(recipe.get("output_item_id", 0))
 		var out_count := int(recipe.get("output_count", 0))
-		var inputs := recipe.get("inputs", [])
-		var tool := recipe.get("required_tool", "")
+		var inputs: Array = recipe.get("inputs", [])
+		var tool: String = recipe.get("required_tool", "")
 
 		if out_id <= 0:
 			continue
@@ -245,7 +245,7 @@ func _player_has_tool(tool_name: String) -> bool:
 
 	# Scan full inventory (36 slots)
 	for i in range(inv.get_slot_count()):
-		var slot := inv.get_slot(i)
+		var slot: Dictionary = inv.get_slot(i)
 		var id := int(slot.get("item_id", 0))
 		if id > 0:
 			var name := GDCraftingManager.get_item_display_name(id)
@@ -254,7 +254,7 @@ func _player_has_tool(tool_name: String) -> bool:
 
 	# Scan equipment (6 slots)
 	for slot_idx in range(6):
-		var id := eq.get_equipped(slot_idx)
+		var id: int = eq.get_equipped(slot_idx)
 		if id > 0:
 			var name := GDCraftingManager.get_item_display_name(id)
 			if name.length() > 0 and name.to_lower().contains(tool_lower):
@@ -264,53 +264,26 @@ func _player_has_tool(tool_name: String) -> bool:
 
 
 func _on_craft_pressed(recipe: Dictionary) -> void:
-	if player == null or player.inventory == null:
+	if player == null or not player.has_method(&"get_command_server"):
 		return
 
-	var inv = player.inventory
-	var inputs := recipe.get("inputs", [])
 	var out_id := int(recipe.get("output_item_id", 0))
 	var out_count := int(recipe.get("output_count", 0))
+	var command_server: GameCommandServer = player.get_command_server()
+	if command_server == null:
+		return
 
-	# Check tools
-	var tool := recipe.get("required_tool", "")
-	if tool != null and not tool.is_empty():
-		if not _player_has_tool(tool):
-			return
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_CRAFT_RECIPE,
+		"recipe": recipe,
+		"station": _station,
+		"layer": player.get_current_layer() if player.has_method(&"get_current_layer") else &"",
+		"cell": player.get_current_cell() if player.has_method(&"get_current_cell") else Vector2i.ZERO,
+	})
+	if not bool(result.get("ok", false)):
+		return
 
-	# Check and consume inputs
-	for input in inputs:
-		var in_id := int(input.get("item_id", 0))
-		var in_count := int(input.get("count", 0))
-		if not inv.has_enough(in_id, in_count):
-			return
-
-	# Consume items
-	for input in inputs:
-		var in_id := int(input.get("item_id", 0))
-		var in_count := int(input.get("count", 0))
-		_remove_items(in_id, in_count)
-
-	# Add output
-	var overflow := inv.add_item(out_id, out_count)
-
-	crafted.emit(out_id, out_count - overflow)
-	if player.has_signal("inventory_changed"):
-		player.inventory_changed.emit()
+	crafted.emit(out_id, int(result.get("crafted_count", out_count)))
 
 	# Refresh UI to update counts
 	_select_category(_current_category)
-
-
-func _remove_items(item_id: int, count: int) -> void:
-	var inv = player.inventory
-	var remaining := count
-	while remaining > 0:
-		var idx := inv.find_item(item_id)
-		if idx < 0:
-			break
-		var slot := inv.get_slot(idx)
-		var slot_count := int(slot.get("count", 0))
-		var take := min(remaining, slot_count)
-		inv.remove_from_slot(idx, take)
-		remaining -= take

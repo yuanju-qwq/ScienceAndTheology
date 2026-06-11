@@ -81,6 +81,9 @@ func _initialize_ui() -> void:
 
 func set_player(p: Node) -> void:
 	player = p
+	if player and player.has_signal("inventory_changed"):
+		if not player.inventory_changed.is_connected(_on_player_inventory_changed):
+			player.inventory_changed.connect(_on_player_inventory_changed)
 	_on_player_inventory_changed()
 
 
@@ -111,7 +114,7 @@ func _update_all_slots() -> void:
 		return
 	var inv = player.inventory
 	for i in inventory_slots.size():
-		var data := inv.get_slot(i)
+		var data: Dictionary = inv.get_slot(i)
 		var item_id := int(data.get("item_id", 0))
 		var count := int(data.get("count", 0))
 		if item_id > 0 and count > 0:
@@ -123,11 +126,9 @@ func _update_all_slots() -> void:
 	if equip == null:
 		return
 	for i in equip_slots.size():
-		var item_id := equip.get_equipped(i)
+		var item_id: int = equip.get_equipped(i)
 		if item_id > 0:
 			equip_slots[i].item_stack = ItemStack.new(item_id, 1)
 		else:
 			equip_slots[i].item_stack = null
-
-
 

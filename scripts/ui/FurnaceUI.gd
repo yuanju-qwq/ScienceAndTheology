@@ -6,6 +6,8 @@ var player: Node
 var _furnace_manager = null
 var _furnace_data = null
 var _furnace_key: String = ""
+var _furnace_layer: StringName = &""
+var _furnace_cell: Vector2i = Vector2i.ZERO
 var _is_open := false
 
 @onready var _panel := $Panel
@@ -38,6 +40,8 @@ func _process(_delta: float) -> void:
 func open(furnace_data, layer: StringName, cell: Vector2i, furnace_manager = null) -> void:
 	_furnace_data = furnace_data
 	_furnace_key = "%s,%d,%d" % [layer, cell.x, cell.y]
+	_furnace_layer = layer
+	_furnace_cell = cell
 	_furnace_manager = furnace_manager
 	_is_open = true
 	visible = true
@@ -49,6 +53,8 @@ func close() -> void:
 	visible = false
 	_furnace_data = null
 	_furnace_key = ""
+	_furnace_layer = &""
+	_furnace_cell = Vector2i.ZERO
 	closed.emit()
 
 
@@ -107,49 +113,47 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _handle_click() -> void:
-	if player == null or _furnace_data == null:
+	if player == null or _furnace_data == null or not player.has_method(&"get_command_server"):
 		return
 
-	var db := ItemDatabase
+	var command_server: GameCommandServer = player.get_command_server()
+	if command_server == null:
+		return
 
 	# Output slot click - take items
 	if _output_slot.get_global_rect().has_point(get_global_mouse_position()):
-		if _furnace_data.output_item_id > 0 and _furnace_data.output_count > 0:
-			var taken := player.inventory.add_item(_furnace_data.output_item_id, _furnace_data.output_count)
-			if taken > 0:
-				_furnace_data.output_count -= taken
-				if _furnace_data.output_count <= 0:
-					_furnace_data.output_item_id = 0
-				player.inventory_changed.emit()
-			else:
-				_furnace_data.output_count = 0
-				_furnace_data.output_item_id = 0
-				player.inventory_changed.emit()
+		command_server.submit_command({
+			"type": GameCommandServer.COMMAND_FURNACE_TAKE_OUTPUT,
+			"furnace_data": _furnace_data,
+			"layer": _furnace_layer,
+			"cell": _furnace_cell,
+		})
 		return
 
 	# Input slot click - insert items
 	if _input_slot.get_global_rect().has_point(get_global_mouse_position()):
 		var held_id := _get_held_item_id()
 		if held_id > 0 and _is_valid_input(held_id):
-			if _furnace_data.input_item_id == 0 or _furnace_data.input_item_id == held_id:
-				var idx := player.inventory.find_item(held_id)
-				if idx >= 0:
-					player.inventory.remove_from_slot(idx, 1)
-					_furnace_data.input_item_id = held_id
-					_furnace_data.input_count += 1
-					player.inventory_changed.emit()
+			command_server.submit_command({
+				"type": GameCommandServer.COMMAND_FURNACE_INSERT_INPUT,
+				"furnace_data": _furnace_data,
+				"layer": _furnace_layer,
+				"cell": _furnace_cell,
+				"item_id": held_id,
+			})
 		return
 
 	# Fuel slot click - insert fuel
 	if _fuel_slot.get_global_rect().has_point(get_global_mouse_position()):
 		var held_id := _get_held_item_id()
 		if held_id > 0 and _is_fuel(held_id):
-			if _furnace_data.fuel_item_id == 0 or _furnace_data.fuel_item_id == held_id:
-				var idx := player.inventory.find_item(held_id)
-				if idx >= 0:
-					player.inventory.remove_from_slot(idx, 1)
-					_furnace_data.fuel_item_id = held_id
-					player.inventory_changed.emit()
+			command_server.submit_command({
+				"type": GameCommandServer.COMMAND_FURNACE_INSERT_FUEL,
+				"furnace_data": _furnace_data,
+				"layer": _furnace_layer,
+				"cell": _furnace_cell,
+				"item_id": held_id,
+			})
 		return
 
 

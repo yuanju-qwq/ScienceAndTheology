@@ -20,6 +20,7 @@
 [ext_resource type="Script" path="res://scripts/world/LadderManager.gd" id="21_ladder_manager"]
 [ext_resource type="PackedScene" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
 [ext_resource type="Script" path="res://scripts/wiki/WikiUI.gd" id="23_wiki_ui"]
+[ext_resource type="Script" path="res://scripts/simulation/GameCommandServer.gd" id="24_command_server"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -50,6 +51,9 @@ script = ExtResource("20_furnace_manager")
 
 [node name="LadderManager" type="Node" parent="." unique_id=2380428102]
 script = ExtResource("21_ladder_manager")
+
+[node name="GameCommandServer" type="GDGameCommandServer" parent="." unique_id=2380428103]
+script = ExtResource("24_command_server")
 
 [node name="ChunkRendererBridge" type="Node" parent="." unique_id=1428570001]
 script = ExtResource("13_chunk_bridge")
@@ -196,3 +200,5 @@ script = ExtResource("23_wiki_ui")
 
 [node name="FurnaceUI" parent="UI" unique_id=809609951]
 instance = ExtResource("22_furnace_ui")
+
+[connection signal="terrain_cell_synced" from="GameCommandServer" to="ChunkRendererBridge" method="on_terrain_cell_synced"]

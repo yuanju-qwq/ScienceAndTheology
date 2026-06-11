@@ -52,12 +52,10 @@ void GDWorldData::rebuild_generator() {
 
 godot::Dictionary GDWorldData::get_or_generate_chunk(
     const godot::String& layer_id, int chunk_x, int chunk_y) {
-    static const Dictionary kEmptyResult;
-
     if (!generator_) {
         UtilityFunctions::push_warning(
             "GDWorldData: generator not initialized");
-        return kEmptyResult;
+        return Dictionary();
     }
 
     std::string layer_str = layer_id.utf8().get_data();

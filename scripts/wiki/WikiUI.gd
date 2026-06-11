@@ -106,7 +106,7 @@ func _build_left_panel() -> void:
 	add_child(_cat_container)
 
 	for cat in WikiDatabase.CATEGORY_ORDER:
-		var label := WikiDatabase.CATEGORY_LABELS.get(cat, cat)
+		var label: String = WikiDatabase.CATEGORY_LABELS.get(cat, cat)
 		var btn := Button.new()
 		btn.text = label
 		btn.size = Vector2(LEFT_W - 8, 26)
@@ -281,10 +281,10 @@ func _show_entry(eid: String) -> void:
 	_detail_related.visible = e.related_ids.size() > 0
 
 	# Highlight selected entry in list.
-	for eid in _entry_buttons:
-		var btn := _entry_buttons[eid] as Button
+	for entry_id in _entry_buttons:
+		var btn := _entry_buttons[entry_id] as Button
 		if is_instance_valid(btn):
-			btn.button_pressed = (eid == _current_entry_id)
+			btn.button_pressed = (entry_id == _current_entry_id)
 
 
 # ── Callbacks ─────────────────────────────────────────────────────────────

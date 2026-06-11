@@ -6,11 +6,11 @@ var target_chunk: Vector2i = Vector2i.ZERO
 var target_local: Vector2i = Vector2i.ZERO
 var has_target := false
 
-@onready var world_data_provider := _find_world_data_provider()
+@onready var world_data_provider: Node = _find_world_data_provider()
 
 
-func _find_world_data_provider():
-	var node = get_parent()
+func _find_world_data_provider() -> Node:
+	var node: Node = get_parent()
 	while node:
 		if node.has_method(&"get_world_data"):
 			return node
@@ -18,34 +18,34 @@ func _find_world_data_provider():
 	return null
 
 
-func get_world_data():
+func get_world_data() -> GDWorldData:
 	if world_data_provider and world_data_provider.has_method(&"get_world_data"):
 		return world_data_provider.get_world_data()
 	return null
 
 
-func get_map_layer():
-	var node = get_parent()
+func get_map_layer() -> Node:
+	var node: Node = get_parent()
 	while node:
-		if node is MapLayerController or (node.has_method(&"is_current_layer") and "current_layer" in node):
+		if node.has_method(&"is_current_layer") and "current_layer" in node:
 			return node
 		node = node.get_parent()
 	return null
 
 
 func update_target(global_mouse_pos: Vector2) -> void:
-	var map_layer := get_map_layer()
+	var map_layer: Node = get_map_layer()
 	if map_layer == null:
 		has_target = false
 		return
 
-	var layer_name := map_layer.current_layer
-	var tile_layer := map_layer.get_current_tile_layer() if map_layer.has_method(&"get_current_tile_layer") else null
+	var layer_name: StringName = map_layer.current_layer
+	var tile_layer: TileMapLayer = map_layer.get_current_tile_layer() if map_layer.has_method(&"get_current_tile_layer") else null
 	if tile_layer == null:
 		has_target = false
 		return
 
-	var cell := tile_layer.local_to_map(tile_layer.to_local(global_mouse_pos))
+	var cell: Vector2i = tile_layer.local_to_map(tile_layer.to_local(global_mouse_pos))
 	target_cell = cell
 	target_layer = layer_name
 
@@ -64,17 +64,17 @@ func update_target(global_mouse_pos: Vector2) -> void:
 func _draw() -> void:
 	if not has_target:
 		return
-	var map_layer := get_map_layer()
+	var map_layer: Node = get_map_layer()
 	if map_layer == null:
 		return
-	var tile_layer := map_layer.get_current_tile_layer() if map_layer.has_method(&"get_current_tile_layer") else null
+	var tile_layer: TileMapLayer = map_layer.get_current_tile_layer() if map_layer.has_method(&"get_current_tile_layer") else null
 	if tile_layer == null:
 		return
 
 	var world_pos := tile_layer.to_global(tile_layer.map_to_local(target_cell))
 	var cam := get_viewport().get_camera_2d()
-	var screen_pos := (world_pos - cam.global_position) * cam.zoom + get_viewport().size / 2
-	var local_pos := screen_pos - global_position
+	var screen_pos: Vector2 = (world_pos - cam.global_position) * cam.zoom + Vector2(get_viewport().size) / 2.0
+	var local_pos: Vector2 = screen_pos - global_position
 
 	var cell_size := Vector2(32, 32) * cam.zoom
 	var rect := Rect2(local_pos - cell_size / 2, cell_size)

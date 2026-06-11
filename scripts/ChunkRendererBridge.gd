@@ -68,7 +68,7 @@ func _process(delta: float) -> void:
 	if world_data:
 		world_data.process_async_results()
 
-	var map_layer := _get_map_layer_controller()
+	var map_layer: Node = _get_map_layer_controller()
 	if map_layer == null:
 		return
 	var layer: StringName = map_layer.current_layer
@@ -155,13 +155,33 @@ func get_chunk_manager() -> GDChunkManager:
 	return chunk_manager
 
 
+func on_terrain_cell_synced(layer: StringName, chunk: Vector2i, _local: Vector2i, _old_material: int, _new_material: int) -> void:
+	if chunk_manager == null:
+		return
+	if not _is_chunk_visible(layer, chunk):
+		return
+	chunk_manager.hide_chunk(layer, chunk.x, chunk.y)
+	chunk_manager.show_chunk(layer, chunk.x, chunk.y)
+
+
+func _is_chunk_visible(layer: StringName, chunk: Vector2i) -> bool:
+	if chunk_manager == null:
+		return false
+	for key in chunk_manager.get_visible_chunks():
+		if StringName(key.get("layer", "")) == layer \
+				and int(key.get("chunk_x", 0)) == chunk.x \
+				and int(key.get("chunk_y", 0)) == chunk.y:
+			return true
+	return false
+
+
 func unload_all() -> void:
 	if chunk_manager:
 		chunk_manager.unload_all_chunks()
 
 
-func _get_map_layer_controller():
-	var parent := get_parent()
+func _get_map_layer_controller() -> Node:
+	var parent: Node = get_parent()
 	while parent:
 		if parent.has_method(&"is_current_layer") and "current_layer" in parent:
 			return parent
@@ -170,7 +190,7 @@ func _get_map_layer_controller():
 
 
 func _initialize_if_needed() -> void:
-	.call_deferred("initialize")
+	call_deferred("initialize")
 
 
 func _generate_initial_chunks() -> void:

@@ -9,6 +9,7 @@ const PADDING := 2
 var player: Node
 var slots: Array[SlotUI] = []
 var selected_index: int = 0
+var _slots_initialized := false
 
 
 func _ready() -> void:
@@ -26,6 +27,8 @@ func set_player(p: Node) -> void:
 
 
 func _initialize_slots() -> void:
+	if _slots_initialized:
+		return
 	for i in SLOT_COUNT:
 		var slot := SlotUI.new()
 		slot.slot_index = i
@@ -34,10 +37,12 @@ func _initialize_slots() -> void:
 		slot.clicked.connect(_on_slot_clicked)
 		add_child(slot)
 		slots.append(slot)
+	_slots_initialized = true
 	_on_player_hotbar_changed(0)
 
 
 func _on_player_hotbar_changed(index: int) -> void:
+	_initialize_slots()
 	selected_index = index
 	for i in SLOT_COUNT:
 		slots[i].set_highlight(i == index)
@@ -48,11 +53,12 @@ func _on_slot_clicked(index: int, button: int) -> void:
 
 
 func refresh() -> void:
+	_initialize_slots()
 	if player == null or player.inventory == null:
 		return
 	var inv = player.inventory
 	for i in SLOT_COUNT:
-		var data := inv.get_slot(i)
+		var data: Dictionary = inv.get_slot(i)
 		var item_id := int(data.get("item_id", 0))
 		var count := int(data.get("count", 0))
 		if item_id > 0 and count > 0:

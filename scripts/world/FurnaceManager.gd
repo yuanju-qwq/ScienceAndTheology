@@ -34,8 +34,8 @@ func _tick_furnace(data: FurnaceDataResource, delta: float) -> void:
 	if data.input_item_id == 0 or data.input_count <= 0:
 		return
 
-	var recipe := _recipes.get(data.input_item_id)
-	if recipe == null:
+	var recipe: Dictionary = _recipes.get(data.input_item_id, {})
+	if recipe.is_empty():
 		return
 
 	if data.output_item_id != 0 and data.output_item_id != recipe.output_id:

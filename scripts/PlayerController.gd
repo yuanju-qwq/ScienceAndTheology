@@ -28,6 +28,7 @@ signal inventory_changed
 @export var ladder_manager_path: NodePath = ^"../LadderManager"
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
 @export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
+@export var command_server_path: NodePath = ^"../GameCommandServer"
 
 @export var transition_fade_in_duration := 0.18
 @export var transition_hold_duration := 0.08
@@ -55,6 +56,7 @@ var selected_hotbar: int = 0
 @onready var ladder_manager = get_node_or_null(ladder_manager_path)
 @onready var furnace_ui = get_node_or_null(furnace_ui_path)
 @onready var wiki_ui = get_node_or_null(wiki_ui_path)
+@onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
 
 var _cooldown_remaining := 0.0
 var _last_layer: StringName = &""
@@ -66,6 +68,10 @@ func _ready() -> void:
 	inventory = GDPlayerInventory.new()
 	inventory.init(inventory_width, inventory_height)
 	equipment = GDPlayerEquipment.new()
+	if command_server != null:
+		command_server.configure_player(inventory, equipment)
+		if not command_server.inventory_synced.is_connected(_on_server_inventory_synced):
+			command_server.inventory_synced.connect(_on_server_inventory_synced)
 
 	_prepare_transition_overlay()
 	_last_layer = _get_current_layer()
@@ -153,7 +159,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		var key := event.keycode
+		var key: int = event.keycode
 		if key >= KEY_1 and key <= KEY_9:
 			selected_hotbar = key - KEY_1
 			hotbar_changed.emit(selected_hotbar)
@@ -294,15 +300,16 @@ func _run_connector_transition(connector, layer_id: StringName, cell_position: V
 	_set_input_locked(false)
 
 
-func _on_block_mined(cell: Vector2i, layer: StringName, item_id: int, count: int) -> void:
-	var overflow := inventory.add_item(item_id, count)
-	if overflow > 0:
-		pass
+func _on_block_mined(_cell: Vector2i, _layer: StringName, _drops: Array) -> void:
+	pass
+
+
+func _on_server_inventory_synced() -> void:
 	inventory_changed.emit()
 
 
 func _try_place_workbench() -> bool:
-	if inventory == null or equipment == null or crosshair == null or workbench_manager == null:
+	if inventory == null or equipment == null or crosshair == null or command_server == null:
 		return false
 	if not crosshair.has_target:
 		return false
@@ -314,28 +321,24 @@ func _try_place_workbench() -> bool:
 	var tile_layer := _get_current_tile_layer()
 	if tile_layer == null:
 		return false
-	var cell := crosshair.target_cell
-	var layer := crosshair.target_layer
+	var cell: Vector2i = crosshair.target_cell
+	var layer: StringName = crosshair.target_layer
 	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
 	if global_position.distance_to(world_pos) > 4.0:
 		return false
 
-	var drop_idx := inventory.find_item(ItemDatabase.ITEM_WORKBENCH)
-	if drop_idx < 0:
-		return false
-
-	var ok := inventory.remove_from_slot(drop_idx, 1)
-	if not ok:
-		return false
-
-	var placed := workbench_manager.place_workbench(layer, cell)
-	if placed:
-		inventory_changed.emit()
-	return placed
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
+		"object_type": GameCommandServer.OBJECT_WORKBENCH,
+		"layer": layer,
+		"cell": cell,
+		"item_id": ItemDatabase.ITEM_WORKBENCH,
+	})
+	return bool(result.get("ok", false))
 
 
 func _try_place_furnace() -> bool:
-	if inventory == null or equipment == null or crosshair == null or furnace_manager == null:
+	if inventory == null or equipment == null or crosshair == null or command_server == null:
 		return false
 	if not crosshair.has_target:
 		return false
@@ -347,28 +350,24 @@ func _try_place_furnace() -> bool:
 	var tile_layer := _get_current_tile_layer()
 	if tile_layer == null:
 		return false
-	var cell := crosshair.target_cell
-	var layer := crosshair.target_layer
+	var cell: Vector2i = crosshair.target_cell
+	var layer: StringName = crosshair.target_layer
 	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
 	if global_position.distance_to(world_pos) > 4.0:
 		return false
 
-	var drop_idx := inventory.find_item(ItemDatabase.ITEM_FURNACE)
-	if drop_idx < 0:
-		return false
-
-	var ok := inventory.remove_from_slot(drop_idx, 1)
-	if not ok:
-		return false
-
-	var placed := furnace_manager.place_furnace(layer, cell)
-	if placed:
-		inventory_changed.emit()
-	return placed
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
+		"object_type": GameCommandServer.OBJECT_FURNACE,
+		"layer": layer,
+		"cell": cell,
+		"item_id": ItemDatabase.ITEM_FURNACE,
+	})
+	return bool(result.get("ok", false))
 
 
 func _try_place_ladder() -> bool:
-	if inventory == null or equipment == null or crosshair == null or ladder_manager == null:
+	if inventory == null or equipment == null or crosshair == null or command_server == null:
 		return false
 	if not crosshair.has_target:
 		return false
@@ -380,24 +379,20 @@ func _try_place_ladder() -> bool:
 	var tile_layer := _get_current_tile_layer()
 	if tile_layer == null:
 		return false
-	var cell := crosshair.target_cell
-	var layer := crosshair.target_layer
+	var cell: Vector2i = crosshair.target_cell
+	var layer: StringName = crosshair.target_layer
 	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
 	if global_position.distance_to(world_pos) > 4.0:
 		return false
 
-	var drop_idx := inventory.find_item(ItemDatabase.ITEM_LADDER)
-	if drop_idx < 0:
-		return false
-
-	var ok := inventory.remove_from_slot(drop_idx, 1)
-	if not ok:
-		return false
-
-	var placed := ladder_manager.place_ladder(layer, cell)
-	if placed:
-		inventory_changed.emit()
-	return placed
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
+		"object_type": GameCommandServer.OBJECT_LADDER,
+		"layer": layer,
+		"cell": cell,
+		"item_id": ItemDatabase.ITEM_LADDER,
+	})
+	return bool(result.get("ok", false))
 
 
 func _try_open_furnace(auto_only: bool) -> bool:
@@ -412,7 +407,7 @@ func _try_open_furnace(auto_only: bool) -> bool:
 	var neighbors := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
 	for offset in neighbors:
-		var check_cell := cell_position + offset
+		var check_cell: Vector2i = cell_position + offset
 		if not furnace_manager.has_furnace(layer_id, check_cell):
 			continue
 		var data = furnace_manager.get_furnace(layer_id, check_cell)
@@ -436,6 +431,10 @@ func get_equipped_item_id() -> int:
 	if equipment == null:
 		return 0
 	return equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+
+
+func get_command_server() -> GameCommandServer:
+	return command_server
 
 func get_selected_hotbar() -> int:
 	return selected_hotbar

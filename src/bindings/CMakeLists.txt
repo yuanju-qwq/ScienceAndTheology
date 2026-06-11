@@ -14,6 +14,7 @@ set(SOURCES
     world/gd_terrain_generator.cpp
     world/gd_chunk_view.cpp
     world/gd_chunk_manager.cpp
+    simulation/gd_game_command_server.cpp
     simulation/gd_tick_system.cpp
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp
