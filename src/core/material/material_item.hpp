@@ -94,7 +94,13 @@ public:
     // Returns the ItemId for a material+form combination, or kInvalidItemId
     // if this material does not generate this form.
     static ItemId get_item_id(const Material* material, MaterialForm form);
+
+    // Look up any item by stable content key. Supports material item keys
+    // such as "ingot.copper" and non-material keys such as "gt_hammer".
     static ItemId get_item_id_by_key(const char* key);
+
+    // Returns the stable content key for any registered item, or "".
+    static const char* get_item_key(ItemId item_id);
 
     // Returns true if a material generates the given form.
     static bool is_valid_combination(const Material* material, MaterialForm form);

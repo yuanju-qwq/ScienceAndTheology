@@ -112,7 +112,16 @@ ItemId ItemRegistry::get_item_id(const Material* material, MaterialForm form) {
 
 ItemId ItemRegistry::get_item_id_by_key(const char* key) {
     const MaterialItem* item = get_item_by_key(key);
-    return (item != nullptr) ? item->id : kInvalidItemId;
+    if (item != nullptr) return item->id;
+    return get_non_material_item_id_by_key(key);
+}
+
+const char* ItemRegistry::get_item_key(ItemId item_id) {
+    const MaterialItem* item = get_item(item_id);
+    if (item != nullptr) return item->name_key;
+
+    const char* key = get_non_material_item_key(item_id);
+    return key != nullptr ? key : "";
 }
 
 bool ItemRegistry::is_valid_combination(const Material* material,

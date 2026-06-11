@@ -2,6 +2,8 @@
 
 #include "material_item.hpp"
 
+#include <cstring>
+
 namespace science_and_theology::gt {
 
 // Non-material item ID constants.
@@ -77,6 +79,44 @@ inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemBase + kNonMateri
 inline constexpr ItemId kNonMaterialItemMax =
     kNonMaterialItemBase + kNonMaterialItemCount;
 
+// Stable content keys for non-material items.
+// Indexed by (item_id - kNonMaterialItemBase).
+constexpr const char* kNonMaterialItemKeys[] = {
+    // 0-8: Tools
+    "gt_hammer", "gt_wrench", "gt_file", "gt_screwdriver", "gt_saw",
+    "gt_wire_cutter", "gt_crowbar", "gt_soft_mallet", "gt_hard_hammer",
+    // 9: unused
+    nullptr,
+    // 10-17: Machine Components
+    "machine_hull_basic", "machine_hull_advanced",
+    "electric_motor_lv", "electric_piston_lv", "robot_arm_lv",
+    "conveyor_module_lv", "pump_lv", "empty_fluid_cell",
+    // 18-19: unused
+    nullptr, nullptr,
+    // 20-24: Circuits
+    "vacuum_tube", "circuit_primitive", "circuit_basic",
+    "circuit_good", "circuit_advanced",
+    // 25-29: unused
+    nullptr, nullptr, nullptr, nullptr, nullptr,
+    // 30-34: Misc
+    "coal_block", "coke_brick", "firebrick", "stone_plate", "wood_plate",
+    // 35: AE2 Pattern
+    "blank_pattern",
+    // 36-39: Pickaxes
+    "wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe",
+    // 40-43: Axes
+    "wooden_axe", "stone_axe", "iron_axe", "diamond_axe",
+    // 44-47: Shovels
+    "wooden_shovel", "stone_shovel", "iron_shovel", "diamond_shovel",
+    // 48-51: Swords
+    "wooden_sword", "stone_sword", "iron_sword", "diamond_sword",
+    // 52: Survival
+    "workbench",
+    // 53-54: New placeable items
+    "stone_furnace",
+    "ladder",
+};
+
 // Display names for non-material items.
 // Indexed by (item_id - kNonMaterialItemBase).
 constexpr const char* kNonMaterialItemNames[] = {
@@ -115,6 +155,24 @@ constexpr const char* kNonMaterialItemNames[] = {
     "Ladder",
 };
 
+static_assert(sizeof(kNonMaterialItemKeys) / sizeof(kNonMaterialItemKeys[0]) ==
+              kNonMaterialItemCount,
+              "kNonMaterialItemKeys must have one entry per non-material item");
+
+static_assert(sizeof(kNonMaterialItemNames) / sizeof(kNonMaterialItemNames[0]) ==
+              kNonMaterialItemCount,
+              "kNonMaterialItemNames must have one entry per non-material item");
+
+// Look up the stable key of a non-material item.
+inline const char* get_non_material_item_key(ItemId item_id) {
+    if (item_id < kNonMaterialItemBase || item_id >= kNonMaterialItemMax) {
+        return nullptr;
+    }
+    uint32_t idx = static_cast<uint32_t>(item_id - kNonMaterialItemBase);
+    if (idx >= kNonMaterialItemCount) return nullptr;
+    return kNonMaterialItemKeys[idx];
+}
+
 // Look up the display name of a non-material item.
 inline const char* get_non_material_item_name(ItemId item_id) {
     if (item_id >= ENCODED_PATTERN_BASE) {
@@ -128,6 +186,21 @@ inline const char* get_non_material_item_name(ItemId item_id) {
     uint32_t idx = static_cast<uint32_t>(item_id - kNonMaterialItemBase);
     if (idx >= kNonMaterialItemCount) return nullptr;
     return kNonMaterialItemNames[idx];
+}
+
+// Look up a non-material item by stable key.
+inline ItemId get_non_material_item_id_by_key(const char* key) {
+    if (key == nullptr || key[0] == '\0') return kInvalidItemId;
+    for (uint32_t i = 0; i < kNonMaterialItemCount; ++i) {
+        const char* item_key = kNonMaterialItemKeys[i];
+        if (item_key != nullptr && std::strcmp(item_key, key) == 0) {
+            ItemId item_id = kNonMaterialItemBase + i;
+            return get_non_material_item_name(item_id) != nullptr
+                ? item_id
+                : kInvalidItemId;
+        }
+    }
+    return kInvalidItemId;
 }
 
 } // namespace science_and_theology::gt

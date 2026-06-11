@@ -209,6 +209,13 @@ RecipeMap* RecipeDatabase::get_map(const char* machine_type) {
     return find_or_create_map(machine_type);
 }
 
+RecipeMap* RecipeDatabase::find_map(const char* machine_type) {
+    auto& maps = RecipeDb::instance().maps;
+    auto it = maps.find(std::string(machine_type));
+    if (it == maps.end()) return nullptr;
+    return &it->second;
+}
+
 void RecipeDatabase::add_recipe(const Recipe& recipe) {
     RecipeMap* map = find_or_create_map(recipe.machine_type);
     map->add(recipe);

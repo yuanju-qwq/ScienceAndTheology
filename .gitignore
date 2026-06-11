@@ -4,6 +4,7 @@
 
 # C++ build artifacts
 build/
+build_local/
 bin/
 build2/
 bin/*.dll

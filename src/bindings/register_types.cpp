@@ -12,6 +12,7 @@
 #include "network/gd_fluid_network.h"
 #include "network/gd_item_pipe_network.h"
 #include "machine/gd_machine.h"
+#include "machine/gd_recipe_database.h"
 #include "world/gd_world_data.h"
 #include "world/gd_terrain_generator.h"
 #include "world/gd_chunk_view.h"
@@ -29,6 +30,7 @@
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
 #include "core/machine/module.hpp"
+#include "core/machine/recipe.hpp"
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
 #include "core/magic/ritual_recipe_registry.hpp"
@@ -56,7 +58,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     gt::ItemRegistry::initialize();
     gt::FuelRegistry::initialize();
     gt::CraftingManager::initialize();
-    gt::CraftingManager::register_basic_recipes();
+    gt::RecipeDatabase::initialize();
 
     ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
@@ -64,6 +66,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDFluidNetwork>();
     ClassDB::register_class<GDItemPipeNetwork>();
     ClassDB::register_class<GDMachine>();
+    ClassDB::register_class<GDRecipeDatabase>();
     ClassDB::register_class<GDWorldData>();
     ClassDB::register_class<GDTerrainGenerator>();
     ClassDB::register_class<GDChunkView>();

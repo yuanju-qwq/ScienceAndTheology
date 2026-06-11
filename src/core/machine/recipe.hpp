@@ -171,6 +171,9 @@ public:
     // Get or create a RecipeMap for a given machine type.
     static RecipeMap* get_map(const char* machine_type);
 
+    // Find an existing RecipeMap. Returns nullptr without creating a map.
+    static RecipeMap* find_map(const char* machine_type);
+
     // Internal: get or create a map. Used by add_recipe and register_*.
     static RecipeMap* find_or_create_map(const char* machine_type);
 

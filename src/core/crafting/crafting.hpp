@@ -59,9 +59,6 @@ public:
     // Returns direct reference to the internal registry (for AE2 autocrafting).
     static const std::vector<CraftingRecipe>& get_registry();
 
-    // Pre-register basic recipes.
-    static void register_basic_recipes();
-
 private:
     static std::vector<CraftingRecipe>& registry();
 };

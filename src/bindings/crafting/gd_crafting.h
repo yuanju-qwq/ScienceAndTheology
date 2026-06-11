@@ -1,6 +1,7 @@
 #pragma once
 
 #include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_int64_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
@@ -24,8 +25,15 @@ public:
     GDCraftingManager() = default;
     ~GDCraftingManager() override = default;
 
-    // Initialize the recipe registry and register basic recipes.
+    // Initialize or clear the recipe registry. Content is registered from GD.
     static void initialize();
+    static void clear();
+
+    // Register content-authored recipes from GDScript.
+    static bool register_recipe(const godot::Dictionary& recipe);
+    static int register_recipes(const godot::Array& recipes);
+    static godot::Array get_load_report();
+    static void clear_load_report();
 
     // Find a recipe by name. Returns Dictionary with recipe info, or empty dict.
     static godot::Dictionary find_recipe(const godot::String& name);
@@ -44,6 +52,9 @@ public:
 
     // Get the display name for any item ID (material or non-material).
     static godot::String get_item_display_name(int64_t item_id);
+
+    // Resolve a stable content key such as "ingot.copper" or "gt_hammer".
+    static int64_t get_item_id_by_key(const godot::String& item_key);
 
     // Returns true if the item ID is a valid registered item.
     static bool is_valid_item(int64_t item_id);

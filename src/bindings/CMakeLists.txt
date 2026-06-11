@@ -23,6 +23,7 @@ set(SOURCES
     magic/gd_spell_book.cpp
     magic/gd_mana_pool.cpp
     fuel/gd_fuel_registry.cpp
+    machine/gd_recipe_database.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})
