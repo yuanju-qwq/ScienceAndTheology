@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://dihduvv0omjx8" path="res://scripts/MapLayerController.gd" id="1_layer_controller"]
-[ext_resource type="TileSet" path="res://tilesets/world_tileset.tres" id="1_world_tileset"]
+[ext_resource type="TileSet" uid="uid://3sj2ajsamew3" path="res://tilesets/world_tileset.tres" id="1_world_tileset"]
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="3_connector_manager"]
 [ext_resource type="Script" uid="uid://dk4f2qoffbe2e" path="res://scripts/PlayerController.gd" id="4_player_controller"]
 [ext_resource type="Script" uid="uid://e3oxofnyd3u6" path="res://scripts/LayerCameraBounds.gd" id="5_layer_camera_bounds"]
@@ -9,18 +9,18 @@
 [ext_resource type="Script" uid="uid://bw5stwft110ke" path="res://scripts/MiniMap.gd" id="7_mini_map"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="8_mechanism_manager"]
 [ext_resource type="Script" uid="uid://cfy4lfmql8ndd" path="res://scripts/LayerViewController.gd" id="9_layer_view_controller"]
-[ext_resource type="Script" uid="uid://bvr8lr3a2bd4n" path="res://scripts/ChunkRendererBridge.gd" id="13_chunk_bridge"]
-[ext_resource type="Script" path="res://scripts/ui/HotbarUI.gd" id="14_hotbar_ui"]
-[ext_resource type="Script" path="res://scripts/ui/InventoryUI.gd" id="15_inventory_ui"]
-[ext_resource type="Script" path="res://scripts/interaction/PlayerCrosshair.gd" id="16_crosshair"]
-[ext_resource type="Script" path="res://scripts/interaction/PlayerMining.gd" id="17_mining"]
-[ext_resource type="Script" path="res://scripts/world/WorkbenchManager.gd" id="18_workbench"]
-[ext_resource type="Script" path="res://scripts/crafting/CraftingUI.gd" id="19_crafting_ui"]
-[ext_resource type="Script" path="res://scripts/world/FurnaceManager.gd" id="20_furnace_manager"]
-[ext_resource type="Script" path="res://scripts/world/LadderManager.gd" id="21_ladder_manager"]
-[ext_resource type="PackedScene" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
-[ext_resource type="Script" path="res://scripts/wiki/WikiUI.gd" id="23_wiki_ui"]
-[ext_resource type="Script" path="res://scripts/simulation/GameCommandServer.gd" id="24_command_server"]
+[ext_resource type="Script" uid="uid://bg4dhk18xtpmi" path="res://scripts/ChunkRendererBridge.gd" id="13_chunk_bridge"]
+[ext_resource type="Script" uid="uid://cyfyygalo12ip" path="res://scripts/ui/HotbarUI.gd" id="14_hotbar_ui"]
+[ext_resource type="Script" uid="uid://ban7lg82c6wpe" path="res://scripts/ui/InventoryUI.gd" id="15_inventory_ui"]
+[ext_resource type="Script" uid="uid://0ke7iwvff8kh" path="res://scripts/interaction/PlayerCrosshair.gd" id="16_crosshair"]
+[ext_resource type="Script" uid="uid://dcc2bluuesw3t" path="res://scripts/interaction/PlayerMining.gd" id="17_mining"]
+[ext_resource type="Script" uid="uid://cppkiiltbwaxc" path="res://scripts/world/WorkbenchManager.gd" id="18_workbench"]
+[ext_resource type="Script" uid="uid://dxa8g0s0ncr5d" path="res://scripts/crafting/CraftingUI.gd" id="19_crafting_ui"]
+[ext_resource type="Script" uid="uid://lvfn41gsf24d" path="res://scripts/world/FurnaceManager.gd" id="20_furnace_manager"]
+[ext_resource type="Script" uid="uid://vgv8pl5pfima" path="res://scripts/world/LadderManager.gd" id="21_ladder_manager"]
+[ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
+[ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="23_wiki_ui"]
+[ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="24_command_server"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -198,7 +198,6 @@ script = ExtResource("19_crafting_ui")
 [node name="WikiUI" type="Control" parent="UI" unique_id=809609950]
 script = ExtResource("23_wiki_ui")
 
-[node name="FurnaceUI" parent="UI" unique_id=809609951]
-instance = ExtResource("22_furnace_ui")
+[node name="FurnaceUI" parent="UI" unique_id=809609951 instance=ExtResource("22_furnace_ui")]
 
 [connection signal="terrain_cell_synced" from="GameCommandServer" to="ChunkRendererBridge" method="on_terrain_cell_synced"]

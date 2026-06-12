@@ -1,6 +1,6 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://c115rg702pdm7"]
 
-[ext_resource type="Script" path="res://scripts/ui/FurnaceUI.gd" id="1"]
+[ext_resource type="Script" uid="uid://l22ul0mjomsn" path="res://scripts/ui/FurnaceUI.gd" id="1"]
 
 [node name="FurnaceUI" type="Control"]
 anchors_preset = 15
