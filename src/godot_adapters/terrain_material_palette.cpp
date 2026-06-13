@@ -1,14 +1,21 @@
 #include "terrain_material_palette.hpp"
 
 #include <cstdint>
+#include <utility>
 
-#include "world/terrain_data.hpp"
+#include <godot_cpp/variant/utility_functions.hpp>
 
 namespace science_and_theology {
 
 TerrainMaterialPalette::TerrainMaterialPalette() {
     layer_source_ids_["surface"] = 0;
     layer_source_ids_["underground"] = 0;
+}
+
+void TerrainMaterialPalette::set_config(
+    std::shared_ptr<const WorldGenConfigSnapshot> config) {
+    config_ = std::move(config);
+    warned_missing_registered_mappings_.clear();
 }
 
 TileRenderInfo TerrainMaterialPalette::get_tile(
@@ -19,7 +26,9 @@ TileRenderInfo TerrainMaterialPalette::get_tile(
         return TileRenderInfo{};
     }
 
-    int source_id = get_layer_source_id(layer_id);
+    int source_id = tile.configured
+        ? tile.source_id
+        : get_layer_source_id(layer_id);
 
     if (tile.variant_count > 1) {
         int variant = (variant_seed & 0x7FFFFFFF) % tile.variant_count;
@@ -51,58 +60,49 @@ void TerrainMaterialPalette::set_layer_source_id(const std::string& layer_id, in
 
 TerrainMaterialPalette::MaterialTile TerrainMaterialPalette::get_tile_for_layer(
     int material, const std::string& layer_id) const {
-
-    const bool is_surface = (layer_id == "surface");
-
-    switch (static_cast<TerrainMaterial>(material)) {
-    case TerrainMaterial::AIR:
-        return {0, 0, 1, false};
-
-    case TerrainMaterial::STONE:
-        if (is_surface) {
-            return {4, 0, 1, true};
+    if (config_) {
+        MaterialTile registered_tile =
+            get_registered_tile_for_layer(material, layer_id);
+        if (registered_tile.configured) {
+            return registered_tile;
         }
-        return {3, 3, 1, true};
-
-    case TerrainMaterial::DIRT:
-        if (is_surface) {
-            return {0, 0, 4, true};
-        }
-        return {0, 3, 3, true};
-
-    case TerrainMaterial::SAND:
-        if (is_surface) {
-            return {0, 0, 4, true};
-        }
-        return {0, 3, 3, true};
-
-    case TerrainMaterial::WATER:
-        return {8, 0, 1, true};
-
-    case TerrainMaterial::LAVA:
-        return {9, 0, 1, true};
-
-    case TerrainMaterial::ORE_IRON:
-        if (is_surface) {
-            return {5, 0, 1, true};
-        }
-        return {4, 3, 1, true};
-
-    case TerrainMaterial::ORE_COPPER:
-        if (is_surface) {
-            return {6, 0, 1, true};
-        }
-        return {5, 3, 1, true};
-
-    case TerrainMaterial::ORE_COAL:
-        if (is_surface) {
-            return {7, 0, 1, true};
-        }
-        return {6, 3, 1, true};
-
-    default:
-        return {0, 0, 1, false};
     }
+
+    return {};
+}
+
+TerrainMaterialPalette::MaterialTile TerrainMaterialPalette::get_registered_tile_for_layer(
+    int material, const std::string& layer_id) const {
+    if (!config_) {
+        return {};
+    }
+
+    for (const auto& mapping : config_->tile_mappings) {
+        if (mapping.material_id == static_cast<TerrainMaterialId>(material) &&
+            mapping.layer_id == layer_id) {
+            return {
+                mapping.source_id,
+                mapping.atlas_x,
+                mapping.atlas_y,
+                mapping.variant_count,
+                mapping.enabled,
+                true
+            };
+        }
+    }
+
+    auto key = warning_key(material, layer_id);
+    if (warned_missing_registered_mappings_.insert(key).second) {
+        godot::UtilityFunctions::push_warning(
+            "TerrainMaterialPalette: missing registered tile mapping for material ",
+            material, " on layer '", layer_id.c_str(), "'.");
+    }
+    return {};
+}
+
+std::string TerrainMaterialPalette::warning_key(
+    int material, const std::string& layer_id) {
+    return std::to_string(material) + "|" + layer_id;
 }
 
 } // namespace science_and_theology

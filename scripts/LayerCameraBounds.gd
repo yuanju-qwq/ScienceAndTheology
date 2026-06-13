@@ -1,9 +1,6 @@
 class_name LayerCameraBounds
 extends Camera2D
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 @export var layer_controller_path: NodePath = ^"../.."
 @export var surface_bounds := Rect2i(-320, -192, 640, 384)
 @export var underground_bounds := Rect2i(-240, -144, 480, 288)
@@ -24,16 +21,16 @@ func _on_layer_changed(_old_layer: StringName, new_layer: StringName) -> void:
 
 func _get_current_layer() -> StringName:
 	if layer_controller == null:
-		return SURFACE_LAYER
+		return WorldLayers.SURFACE
 
 	return layer_controller.current_layer
 
 
 func _apply_bounds_for_layer(layer_id: StringName) -> void:
 	match layer_id:
-		SURFACE_LAYER:
+		WorldLayers.SURFACE:
 			_apply_bounds(surface_bounds)
-		UNDERGROUND_LAYER:
+		WorldLayers.UNDERGROUND:
 			_apply_bounds(underground_bounds)
 		_:
 			_clear_bounds()

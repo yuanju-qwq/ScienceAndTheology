@@ -1,6 +1,14 @@
 class_name PlayerController
 extends CharacterBody2D
 
+const PLAYER_IDLE_DOWN := preload("res://resource/characters/player/player_idle_down_32x48.png")
+const PLAYER_IDLE_SIDE := preload("res://resource/characters/player/player_idle_side_32x48.png")
+const PLAYER_IDLE_UP := preload("res://resource/characters/player/player_idle_up_32x48.png")
+const PLAYER_WALK_DOWN := preload("res://resource/characters/player/player_walk_down_32x48_strip.png")
+const PLAYER_WALK_SIDE := preload("res://resource/characters/player/player_walk_side_32x48_strip.png")
+const PLAYER_WALK_UP := preload("res://resource/characters/player/player_walk_up_32x48_strip.png")
+const WALK_ANIMATION_FPS := 8.0
+
 signal connector_used(connector_id: int, from_layer: StringName, to_layer: StringName)
 signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
 signal hotbar_changed(index: int)
@@ -29,6 +37,7 @@ signal inventory_changed
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
 @export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
 @export var command_server_path: NodePath = ^"../GameCommandServer"
+@export var player_sprite_path: NodePath = ^"Visual"
 
 @export var transition_fade_in_duration := 0.18
 @export var transition_hold_duration := 0.08
@@ -57,11 +66,14 @@ var selected_hotbar: int = 0
 @onready var furnace_ui = get_node_or_null(furnace_ui_path)
 @onready var wiki_ui = get_node_or_null(wiki_ui_path)
 @onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
+@onready var player_sprite: Sprite2D = get_node_or_null(player_sprite_path) as Sprite2D
 
 var _cooldown_remaining := 0.0
 var _last_layer: StringName = &""
 var _last_cell := Vector2i.ZERO
 var _input_locked := false
+var _facing: StringName = &"down"
+var _walk_animation_time := 0.0
 
 
 func _ready() -> void:
@@ -74,6 +86,7 @@ func _ready() -> void:
 			command_server.inventory_synced.connect(_on_server_inventory_synced)
 
 	_prepare_transition_overlay()
+	_update_player_visual(Vector2.ZERO, 0.0)
 	_last_layer = _get_current_layer()
 	_last_cell = _get_current_cell()
 	_mark_current_cell_visited()
@@ -106,16 +119,17 @@ func _physics_process(delta: float) -> void:
 	if _input_locked:
 		velocity = Vector2.ZERO
 		move_and_slide()
+		_update_player_visual(Vector2.ZERO, delta)
 		_update_connector_prompt()
 		return
 
-	_handle_movement()
+	_handle_movement(delta)
 	_try_auto_connector()
 	_update_connector_prompt()
 	_update_hotbar_selection()
 
 
-func _handle_movement() -> void:
+func _handle_movement(delta: float) -> void:
 	var input_vector := Vector2.ZERO
 
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
@@ -129,6 +143,49 @@ func _handle_movement() -> void:
 
 	velocity = input_vector.normalized() * move_speed
 	move_and_slide()
+	_update_player_visual(input_vector, delta)
+
+
+func _update_player_visual(input_vector: Vector2, delta: float) -> void:
+	if player_sprite == null:
+		return
+
+	var is_moving := not input_vector.is_zero_approx()
+	if is_moving:
+		if absf(input_vector.x) > absf(input_vector.y):
+			_facing = &"side"
+			player_sprite.flip_h = input_vector.x < 0.0
+		elif input_vector.y < 0.0:
+			_facing = &"up"
+			player_sprite.flip_h = false
+		else:
+			_facing = &"down"
+			player_sprite.flip_h = false
+
+		_walk_animation_time += delta
+		player_sprite.hframes = 4
+		player_sprite.frame = int(_walk_animation_time * WALK_ANIMATION_FPS) % 4
+		match _facing:
+			&"up":
+				player_sprite.texture = PLAYER_WALK_UP
+			&"side":
+				player_sprite.texture = PLAYER_WALK_SIDE
+			_:
+				player_sprite.texture = PLAYER_WALK_DOWN
+		return
+
+	_walk_animation_time = 0.0
+	player_sprite.hframes = 1
+	player_sprite.frame = 0
+	match _facing:
+		&"up":
+			player_sprite.texture = PLAYER_IDLE_UP
+			player_sprite.flip_h = false
+		&"side":
+			player_sprite.texture = PLAYER_IDLE_SIDE
+		_:
+			player_sprite.texture = PLAYER_IDLE_DOWN
+			player_sprite.flip_h = false
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -471,7 +528,7 @@ func _get_nearby_station() -> String:
 
 func _get_current_layer() -> StringName:
 	if layer_controller == null:
-		return &"surface"
+		return WorldLayers.SURFACE
 	return layer_controller.current_layer
 
 

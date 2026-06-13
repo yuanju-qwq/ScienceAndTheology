@@ -6,13 +6,10 @@ enum ActivationMode {
 	AUTO_ON_ENTER,
 }
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 @export var connector_id: int = 0
-@export var from_layer: StringName = SURFACE_LAYER
+@export var from_layer: StringName = WorldLayers.SURFACE
 @export var from_cell: Vector2i = Vector2i.ZERO
-@export var to_layer: StringName = UNDERGROUND_LAYER
+@export var to_layer: StringName = WorldLayers.UNDERGROUND
 @export var to_cell: Vector2i = Vector2i.ZERO
 @export var one_way := false
 @export var locked := false

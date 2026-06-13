@@ -1,10 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <string>
 
 #include "../world/chunk_data.hpp"
 #include "world_seed.hpp"
 #include "noise_generator.hpp"
+#include "world_gen_config.hpp"
 
 namespace science_and_theology {
 
@@ -29,7 +31,9 @@ namespace science_and_theology {
 //   ChunkData chunk = gen.generate_chunk("surface", 0, 0);
 class TerrainGenerator {
 public:
-    explicit TerrainGenerator(WorldSeed seed);
+    explicit TerrainGenerator(
+        WorldSeed seed,
+        std::shared_ptr<const WorldGenConfigSnapshot> config = nullptr);
 
     // Generates a complete chunk for the given layer and chunk coordinates.
     // Returns a fully populated ChunkData ready to be inserted into WorldData.
@@ -37,6 +41,20 @@ public:
                              int chunk_x, int chunk_y);
 
 private:
+    struct MaterialIds {
+        TerrainMaterialId air = 0;
+        TerrainMaterialId stone = 0;
+        TerrainMaterialId dirt = 0;
+        TerrainMaterialId sand = 0;
+        TerrainMaterialId water = 0;
+        TerrainMaterialId lava = 0;
+        TerrainMaterialId ore_iron = 0;
+        TerrainMaterialId ore_copper = 0;
+        TerrainMaterialId ore_coal = 0;
+        TerrainMaterialId wood = 0;
+        TerrainMaterialId leaves = 0;
+    };
+
     // Pass 1: Fill the chunk with base terrain materials.
     void pass_base_terrain(const std::string& layer_id,
                            int chunk_x, int chunk_y,
@@ -76,15 +94,29 @@ private:
     // Sets a cell's material and derives its flags automatically.
     void set_cell(TerrainData& terrain, int x, int y,
                   TerrainMaterial material);
+    void set_cell_id(TerrainData& terrain, int x, int y,
+                     TerrainMaterialId material);
+
+    uint32_t flags_for_material(TerrainMaterial material) const;
+    uint32_t flags_for_material_id(TerrainMaterialId material) const;
+    TerrainMaterialId cell_material_id(const TerrainCell& cell) const;
 
     // Checks if a cell is solid stone (candidate for ore placement).
     bool is_stone_cell(const TerrainCell& cell) const;
+    bool is_material(const TerrainCell& cell, TerrainMaterialId material) const;
+    bool is_walkable_ground_cell(const TerrainCell& cell) const;
+    bool has_near_material(const TerrainData& terrain, int x, int y,
+                           TerrainMaterialId material, int radius) const;
+    bool has_floor_support(const TerrainData& terrain, int x, int y,
+                           TerrainMaterialId support_material) const;
+    MaterialIds materials() const;
 
     // Generates a noise value mapping a cell position to [0, 1].
     float cell_noise(const NoiseGenerator& noise, int local_x, int local_y,
                      int chunk_x, int chunk_y, float scale) const;
 
     WorldSeed world_seed_;
+    std::shared_ptr<const WorldGenConfigSnapshot> config_;
 };
 
 } // namespace science_and_theology

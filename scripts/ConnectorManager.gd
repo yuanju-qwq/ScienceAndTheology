@@ -6,12 +6,6 @@ const MapConnectorResource := preload("res://scripts/MapConnector.gd")
 signal connectors_changed
 
 @export var connectors: Array[MapConnectorResource] = []
-@export var create_prototype_connectors := true
-
-
-func _ready() -> void:
-	if create_prototype_connectors and connectors.is_empty():
-		_create_prototype_connectors()
 
 
 func add_connector(connector: MapConnectorResource) -> void:
@@ -20,6 +14,26 @@ func add_connector(connector: MapConnectorResource) -> void:
 
 	connectors.append(connector)
 	connectors_changed.emit()
+
+
+func add_generated_connectors(connector_data: Array) -> int:
+	var added := 0
+
+	for entry in connector_data:
+		if not (entry is Dictionary):
+			continue
+
+		var connector := _make_connector_from_dict(entry)
+		if connector == null or _has_connector_id(connector.connector_id):
+			continue
+
+		connectors.append(connector)
+		added += 1
+
+	if added > 0:
+		connectors_changed.emit()
+
+	return added
 
 
 func remove_connector(connector_id: int) -> void:
@@ -124,57 +138,34 @@ func _make_entrance_key(layer_id: StringName, cell_position: Vector2i) -> String
 	return "%s:%d:%d" % [String(layer_id), cell_position.x, cell_position.y]
 
 
-func _create_prototype_connectors() -> void:
-	add_connector(_make_connector(
-			1,
-			&"surface",
-			Vector2i(2, -1),
-			&"underground",
-			Vector2i(2, 0),
-			&"cave_entrance",
-			MapConnectorResource.ActivationMode.INTERACT,
-			false))
+func _has_connector_id(connector_id: int) -> bool:
+	if connector_id == 0:
+		return false
 
-	add_connector(_make_connector(
-			2,
-			&"surface",
-			Vector2i(-3, 1),
-			&"underground",
-			Vector2i(-3, 1),
-			&"rift",
-			MapConnectorResource.ActivationMode.AUTO_ON_ENTER,
-			true))
+	for connector in connectors:
+		if connector != null and connector.connector_id == connector_id:
+			return true
 
-	add_connector(_make_connector(
-			3,
-			&"underground",
-			Vector2i(-2, -1),
-			&"surface",
-			Vector2i(-2, -2),
-			&"ruin_gate",
-			MapConnectorResource.ActivationMode.INTERACT,
-			false,
-			true))
+	return false
 
 
-func _make_connector(
-		connector_id: int,
-		from_layer: StringName,
-		from_cell: Vector2i,
-		to_layer: StringName,
-		to_cell: Vector2i,
-		connector_type: StringName,
-		activation_mode: int,
-		one_way: bool,
-		locked := false) -> MapConnectorResource:
+func _make_connector_from_dict(data: Dictionary) -> MapConnectorResource:
 	var connector := MapConnectorResource.new()
-	connector.connector_id = connector_id
-	connector.from_layer = from_layer
-	connector.from_cell = from_cell
-	connector.to_layer = to_layer
-	connector.to_cell = to_cell
-	connector.connector_type = connector_type
-	connector.activation_mode = activation_mode
-	connector.one_way = one_way
-	connector.locked = locked
+	connector.connector_id = int(data.get("connector_id", 0))
+	connector.from_layer = StringName(str(data.get("from_layer", "")))
+	connector.from_cell = Vector2i(
+			int(data.get("from_cell_x", 0)),
+			int(data.get("from_cell_y", 0)))
+	connector.to_layer = StringName(str(data.get("to_layer", "")))
+	connector.to_cell = Vector2i(
+			int(data.get("to_cell_x", 0)),
+			int(data.get("to_cell_y", 0)))
+	connector.one_way = bool(data.get("one_way", false))
+	connector.locked = bool(data.get("locked", false))
+	connector.connector_type = StringName(str(data.get("connector_type", "")))
+	connector.activation_mode = int(data.get("activation_mode", MapConnectorResource.ActivationMode.INTERACT))
+
+	if not connector.has_valid_route():
+		return null
+
 	return connector

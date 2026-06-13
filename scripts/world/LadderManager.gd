@@ -1,8 +1,5 @@
 class_name LadderManager extends Node
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 signal ladder_placed(layer: StringName, cell: Vector2i)
 signal ladder_removed(layer: StringName, cell: Vector2i)
 
@@ -26,7 +23,7 @@ func _find_connector_manager() -> Node:
 
 
 func place_ladder(layer: StringName, cell: Vector2i) -> bool:
-	if layer != SURFACE_LAYER and layer != UNDERGROUND_LAYER:
+	if not WorldLayers.is_valid_layer(layer):
 		return false
 
 	var key := "%s,%d,%d" % [layer, cell.x, cell.y]
@@ -68,6 +65,18 @@ func has_ladder(layer: StringName, cell: Vector2i) -> bool:
 	return _ladders.has(key)
 
 
+func get_all_ladders() -> Array:
+	var result: Array = []
+	for key in _ladders.keys():
+		var parts := String(key).split(",")
+		if parts.size() == 3:
+			result.append({
+				"layer": parts[0],
+				"cell": Vector2i(int(parts[1]), int(parts[2]))
+			})
+	return result
+
+
 func get_other_side(layer: StringName, cell: Vector2i) -> Dictionary:
 	var other_layer := _get_other_layer(layer)
 	return { "layer": other_layer, "cell": cell }
@@ -103,6 +112,4 @@ func _remove_connector(layer: StringName, cell: Vector2i) -> void:
 
 
 func _get_other_layer(layer: StringName) -> StringName:
-	if layer == SURFACE_LAYER:
-		return UNDERGROUND_LAYER
-	return SURFACE_LAYER
+	return WorldLayers.other_layer(layer)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/worker_thread_pool.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
@@ -17,6 +18,7 @@
 #include "core/world_gen/terrain_generator.hpp"
 #include "core/world_gen/world_seed.hpp"
 #include "core/save/save_manager.hpp"
+#include "gd_world_gen_config.h"
 
 namespace science_and_theology {
 
@@ -45,24 +47,16 @@ public:
         STATE_SLEEPING   = 4,
     };
 
-    // Terrain material enum matching C++ TerrainMaterial.
-    enum MaterialConst {
-        MAT_AIR       = 0,
-        MAT_STONE     = 1,
-        MAT_DIRT      = 2,
-        MAT_SAND      = 3,
-        MAT_WATER     = 4,
-        MAT_LAVA      = 5,
-        MAT_ORE_IRON  = 6,
-        MAT_ORE_COPPER = 7,
-        MAT_ORE_COAL  = 8,
-        MAT_WOOD      = 9,
-        MAT_LEAVES    = 10,
-    };
-
     // Seed property. Changing the seed rebuilds the internal generator.
     int64_t get_seed() const;
     void set_seed(int64_t seed);
+
+    // Frozen terrain/world-generation content configuration.
+    void set_worldgen_config(godot::Resource* config);
+    godot::Resource* get_worldgen_config() const;
+    int64_t get_worldgen_content_hash() const;
+    std::shared_ptr<const WorldGenConfigSnapshot> get_worldgen_snapshot() const;
+    godot::Dictionary get_terrain_material_def(int64_t material_id) const;
 
     // Generates a chunk if it doesn't exist, then returns its terrain data.
     // Emits chunk_ready signal when a new chunk is generated.
@@ -95,6 +89,10 @@ public:
 
     // Retrieves only connector placements for a chunk.
     godot::Array get_chunk_connectors(const godot::String& layer_id,
+                                      int chunk_x, int chunk_y);
+
+    // Retrieves only mechanism placements for a chunk.
+    godot::Array get_chunk_mechanisms(const godot::String& layer_id,
                                       int chunk_x, int chunk_y);
 
     // Returns entity IDs owned by this chunk as an Array of uint64.
@@ -198,9 +196,13 @@ protected:
 
 private:
     void rebuild_generator();
+    godot::Dictionary terrain_drop_to_dict(const TerrainDropDef& drop) const;
+    godot::Dictionary terrain_material_to_dict(const TerrainMaterialDef& def) const;
     godot::Dictionary terrain_to_dict(const TerrainData& terrain) const;
     godot::Array connectors_to_array(
         const std::vector<ConnectorPlacement>& connectors) const;
+    godot::Array mechanisms_to_array(
+        const std::vector<MechanismPlacement>& mechanisms) const;
     godot::Array entity_ids_to_array(
         const std::vector<EntityId>& ids) const;
     static std::vector<EntityId> array_to_entity_ids(const godot::Array& arr);
@@ -226,6 +228,8 @@ private:
 
     WorldData world_;
     std::unique_ptr<TerrainGenerator> generator_;
+    godot::Ref<GDWorldGenConfig> worldgen_config_resource_;
+    std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;
     int64_t seed_ = 0;
 
     // Async generation state.

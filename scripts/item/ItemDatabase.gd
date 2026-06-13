@@ -1,5 +1,7 @@
 extends Node
 
+const ITEM_ASSET_DIR := "res://resource/items/"
+
 const FORM_DUST        = 0
 const FORM_TINY_DUST   = 1
 const FORM_CRUSHED     = 5
@@ -97,6 +99,7 @@ var _tool_stats: Dictionary = {}  # item_id -> ToolDef
 func _ready() -> void:
 	_register_material_items()
 	_register_tool_items()
+	_register_component_items()
 	_register_survival_items()
 
 func get_item(item_id: int) -> ItemDef:
@@ -108,11 +111,23 @@ func get_tool_stats(item_id: int) -> ToolDef:
 func is_valid_item(item_id: int) -> bool:
 	return _items.has(item_id)
 
-func _register(item_id: int, name: String, icon_color: Color, max_stack: int = 64, tool: ToolDef = null) -> void:
+func _load_icon(icon_file: String, fallback_color: Color) -> Texture2D:
+	if icon_file.is_empty():
+		return _make_placeholder_icon(fallback_color)
+
+	var icon := load(ITEM_ASSET_DIR + icon_file) as Texture2D
+	if icon == null:
+		push_warning("ItemDatabase: missing item icon '%s'" % icon_file)
+		return _make_placeholder_icon(fallback_color)
+	return icon
+
+
+func _register(item_id: int, name: String, icon_color: Color, max_stack: int = 64,
+		tool: ToolDef = null, icon_file: String = "") -> void:
 	var def := ItemDef.new()
 	def.item_id = item_id
 	def.display_name = name
-	def.icon = _make_placeholder_icon(icon_color)
+	def.icon = _load_icon(icon_file, icon_color)
 	def.max_stack = max_stack
 	def.tool_stats = tool
 	_items[item_id] = def
@@ -120,15 +135,26 @@ func _register(item_id: int, name: String, icon_color: Color, max_stack: int = 6
 		_tool_stats[item_id] = tool
 
 func _register_material_items() -> void:
-	_register(mat_item(MATERIAL_WOOD, FORM_DUST),       "Wood Log",      Color(0.55, 0.35, 0.15))
-	_register(mat_item(MATERIAL_WOOD, FORM_PLATE),      "Wood Plank",    Color(0.70, 0.50, 0.25))
-	_register(mat_item(MATERIAL_WOOD, FORM_ROD),        "Stick",         Color(0.60, 0.40, 0.20))
-	_register(mat_item(MATERIAL_STONE, FORM_DUST),      "Stone Dust",    Color(0.50, 0.50, 0.50))
-	_register(mat_item(MATERIAL_COAL, FORM_GEM),        "Coal",          Color(0.10, 0.10, 0.10))
-	_register(mat_item(MATERIAL_COPPER, FORM_CRUSHED),  "Crushed Copper", Color(0.80, 0.40, 0.10))
-	_register(mat_item(MATERIAL_IRON, FORM_CRUSHED),    "Crushed Iron",   Color(0.70, 0.55, 0.45))
-	_register(mat_item(MATERIAL_COPPER, FORM_DUST),     "Copper Dust",   Color(0.80, 0.50, 0.15))
-	_register(mat_item(MATERIAL_IRON, FORM_DUST),       "Iron Dust",     Color(0.65, 0.60, 0.55))
+	_register(mat_item(MATERIAL_WOOD, FORM_DUST), "Wood Log", Color(0.55, 0.35, 0.15),
+			64, null, "materials/wood_log_icon_32.png")
+	_register(mat_item(MATERIAL_WOOD, FORM_PLATE), "Wood Plank", Color(0.70, 0.50, 0.25),
+			64, null, "materials/wood_plank_icon_32.png")
+	_register(mat_item(MATERIAL_WOOD, FORM_ROD), "Stick", Color(0.60, 0.40, 0.20),
+			64, null, "materials/stick_icon_32.png")
+	_register(mat_item(MATERIAL_STONE, FORM_DUST), "Stone Dust", Color(0.50, 0.50, 0.50),
+			64, null, "materials/stone_dust_icon_32.png")
+	_register(mat_item(MATERIAL_STONE, FORM_TINY_DUST), "Stone Tiny Dust", Color(0.42, 0.42, 0.42),
+			64, null, "materials/stone_tiny_dust_icon_32.png")
+	_register(mat_item(MATERIAL_COAL, FORM_GEM), "Coal", Color(0.10, 0.10, 0.10),
+			64, null, "materials/coal_icon_32.png")
+	_register(mat_item(MATERIAL_COPPER, FORM_CRUSHED), "Crushed Copper", Color(0.80, 0.40, 0.10),
+			64, null, "materials/crushed_copper_icon_32.png")
+	_register(mat_item(MATERIAL_IRON, FORM_CRUSHED), "Crushed Iron", Color(0.70, 0.55, 0.45),
+			64, null, "materials/crushed_iron_icon_32.png")
+	_register(mat_item(MATERIAL_COPPER, FORM_DUST), "Copper Dust", Color(0.80, 0.50, 0.15),
+			64, null, "materials/copper_dust_icon_32.png")
+	_register(mat_item(MATERIAL_IRON, FORM_DUST), "Iron Dust", Color(0.65, 0.60, 0.55),
+			64, null, "materials/iron_dust_icon_32.png")
 
 func _make_tool_def(tool_type: int, tier: int, mining_level: int, speed: float, durability: int, attack: float) -> ToolDef:
 	var t := ToolDef.new()
@@ -154,20 +180,91 @@ func _register_tool_items() -> void:
 	var gray := Color(0.60, 0.60, 0.60)
 	var silver := Color(0.75, 0.75, 0.80)
 
-	_register(ITEM_WOODEN_PICKAXE, "Wooden Pickaxe", brown, 1, mk.call(PICK, W, 0, 1.5, 60, 2.0))
-	_register(ITEM_STONE_PICKAXE,  "Stone Pickaxe",  gray,  1, mk.call(PICK, S, 1, 2.0, 130, 3.0))
-	_register(ITEM_IRON_PICKAXE,   "Iron Pickaxe",   silver, 1, mk.call(PICK, I, 2, 3.0, 250, 4.0))
-	_register(ITEM_WOODEN_AXE,     "Wooden Axe",     brown,  1, mk.call(AXE, W, 0, 1.5, 60, 3.0))
-	_register(ITEM_STONE_AXE,      "Stone Axe",      gray,   1, mk.call(AXE, S, 1, 2.0, 130, 4.0))
-	_register(ITEM_IRON_AXE,       "Iron Axe",       silver, 1, mk.call(AXE, I, 2, 3.0, 250, 5.0))
-	_register(ITEM_WOODEN_SHOVEL,  "Wooden Shovel",  brown,  1, mk.call(SHOVEL, W, 0, 1.5, 60, 1.5))
-	_register(ITEM_STONE_SHOVEL,   "Stone Shovel",   gray,   1, mk.call(SHOVEL, S, 1, 2.0, 130, 2.5))
-	_register(ITEM_IRON_SHOVEL,    "Iron Shovel",    silver, 1, mk.call(SHOVEL, I, 2, 3.0, 250, 3.5))
-	_register(ITEM_WOODEN_SWORD,   "Wooden Sword",   brown,  1, mk.call(SWORD, W, 0, 1.0, 60, 4.0))
-	_register(ITEM_STONE_SWORD,    "Stone Sword",    gray,   1, mk.call(SWORD, S, 1, 1.0, 130, 5.0))
-	_register(ITEM_IRON_SWORD,     "Iron Sword",     silver, 1, mk.call(SWORD, I, 2, 1.0, 250, 6.0))
+	_register(ITEM_WOODEN_PICKAXE, "Wooden Pickaxe", brown, 1,
+			mk.call(PICK, W, 0, 1.5, 60, 2.0), "tools/wooden_pickaxe_icon_32.png")
+	_register(ITEM_STONE_PICKAXE, "Stone Pickaxe", gray, 1,
+			mk.call(PICK, S, 1, 2.0, 130, 3.0), "tools/stone_pickaxe_icon_32.png")
+	_register(ITEM_IRON_PICKAXE, "Iron Pickaxe", silver, 1,
+			mk.call(PICK, I, 2, 3.0, 250, 4.0), "tools/iron_pickaxe_icon_32.png")
+	_register(ITEM_WOODEN_AXE, "Wooden Axe", brown, 1,
+			mk.call(AXE, W, 0, 1.5, 60, 3.0), "tools/wooden_axe_icon_32.png")
+	_register(ITEM_STONE_AXE, "Stone Axe", gray, 1,
+			mk.call(AXE, S, 1, 2.0, 130, 4.0), "tools/stone_axe_icon_32.png")
+	_register(ITEM_IRON_AXE, "Iron Axe", silver, 1,
+			mk.call(AXE, I, 2, 3.0, 250, 5.0), "tools/iron_axe_icon_32.png")
+	_register(ITEM_WOODEN_SHOVEL, "Wooden Shovel", brown, 1,
+			mk.call(SHOVEL, W, 0, 1.5, 60, 1.5), "tools/wooden_shovel_icon_32.png")
+	_register(ITEM_STONE_SHOVEL, "Stone Shovel", gray, 1,
+			mk.call(SHOVEL, S, 1, 2.0, 130, 2.5), "tools/stone_shovel_icon_32.png")
+	_register(ITEM_IRON_SHOVEL, "Iron Shovel", silver, 1,
+			mk.call(SHOVEL, I, 2, 3.0, 250, 3.5), "tools/iron_shovel_icon_32.png")
+	_register(ITEM_WOODEN_SWORD, "Wooden Sword", brown, 1,
+			mk.call(SWORD, W, 0, 1.0, 60, 4.0), "tools/wooden_sword_icon_32.png")
+	_register(ITEM_STONE_SWORD, "Stone Sword", gray, 1,
+			mk.call(SWORD, S, 1, 1.0, 130, 5.0), "tools/stone_sword_icon_32.png")
+	_register(ITEM_IRON_SWORD, "Iron Sword", silver, 1,
+			mk.call(SWORD, I, 2, 1.0, 250, 6.0), "tools/iron_sword_icon_32.png")
+
+
+func _register_component_items() -> void:
+	_register(ITEM_GT_HAMMER, "Hammer", Color(0.62, 0.62, 0.65), 1, null, "tools/gt_hammer_icon_32.png")
+	_register(ITEM_GT_WRENCH, "Wrench", Color(0.58, 0.60, 0.62), 1, null, "tools/gt_wrench_icon_32.png")
+	_register(ITEM_GT_FILE, "File", Color(0.52, 0.52, 0.54), 1, null, "tools/gt_file_icon_32.png")
+	_register(ITEM_GT_SCREWDRIVER, "Screwdriver", Color(0.62, 0.42, 0.20),
+			1, null, "tools/gt_screwdriver_icon_32.png")
+	_register(ITEM_GT_SAW, "Saw", Color(0.60, 0.58, 0.54), 1, null, "tools/gt_saw_icon_32.png")
+	_register(ITEM_GT_WIRE_CUTTER, "Wire Cutter", Color(0.52, 0.54, 0.56),
+			1, null, "tools/gt_wire_cutter_icon_32.png")
+	_register(ITEM_GT_CROWBAR, "Crowbar", Color(0.45, 0.20, 0.15), 1, null, "tools/gt_crowbar_icon_32.png")
+	_register(ITEM_GT_SOFT_MALLET, "Soft Mallet", Color(0.18, 0.18, 0.18),
+			1, null, "tools/gt_soft_mallet_icon_32.png")
+	_register(ITEM_GT_HARD_HAMMER, "Hard Hammer", Color(0.56, 0.56, 0.60),
+			1, null, "tools/gt_hard_hammer_icon_32.png")
+
+	_register(ITEM_MACHINE_HULL_BASIC, "Basic Machine Hull", Color(0.34, 0.36, 0.38),
+			64, null, "components/basic_machine_hull_icon_32.png")
+	_register(ITEM_MACHINE_HULL_ADVANCED, "Advanced Machine Hull", Color(0.30, 0.42, 0.46),
+			64, null, "components/advanced_machine_hull_icon_32.png")
+	_register(ITEM_ELECTRIC_MOTOR_LV, "LV Electric Motor", Color(0.55, 0.38, 0.20),
+			64, null, "components/lv_electric_motor_icon_32.png")
+	_register(ITEM_ELECTRIC_PISTON_LV, "LV Electric Piston", Color(0.48, 0.48, 0.50),
+			64, null, "components/lv_electric_piston_icon_32.png")
+	_register(ITEM_ROBOT_ARM_LV, "LV Robot Arm", Color(0.48, 0.42, 0.34),
+			64, null, "components/lv_robot_arm_icon_32.png")
+	_register(ITEM_CONVEYOR_MODULE_LV, "LV Conveyor Module", Color(0.22, 0.24, 0.24),
+			64, null, "components/lv_conveyor_module_icon_32.png")
+	_register(ITEM_PUMP_LV, "LV Pump", Color(0.38, 0.44, 0.46), 64, null, "components/lv_pump_icon_32.png")
+	_register(ITEM_EMPTY_FLUID_CELL, "Empty Fluid Cell", Color(0.62, 0.64, 0.68),
+			64, null, "components/empty_fluid_cell_icon_32.png")
+
+	_register(ITEM_VACUUM_TUBE, "Vacuum Tube", Color(0.72, 0.45, 0.18),
+			64, null, "circuits/vacuum_tube_icon_32.png")
+	_register(ITEM_CIRCUIT_PRIMITIVE, "Primitive Circuit", Color(0.42, 0.30, 0.18),
+			64, null, "circuits/primitive_circuit_icon_32.png")
+	_register(ITEM_CIRCUIT_BASIC, "Basic Circuit", Color(0.20, 0.46, 0.30),
+			64, null, "circuits/basic_circuit_icon_32.png")
+	_register(ITEM_CIRCUIT_GOOD, "Good Circuit", Color(0.16, 0.50, 0.48),
+			64, null, "circuits/good_circuit_icon_32.png")
+	_register(ITEM_CIRCUIT_ADVANCED, "Advanced Circuit", Color(0.14, 0.34, 0.52),
+			64, null, "circuits/advanced_circuit_icon_32.png")
+
+	_register(ITEM_COAL_BLOCK, "Coal Block", Color(0.10, 0.10, 0.11),
+			64, null, "components/coal_block_icon_32.png")
+	_register(ITEM_COKE_BRICK, "Coke Brick", Color(0.18, 0.17, 0.16),
+			64, null, "components/coke_brick_icon_32.png")
+	_register(ITEM_FIREBRICK, "Firebrick", Color(0.58, 0.24, 0.12),
+			64, null, "components/firebrick_icon_32.png")
+	_register(ITEM_STONE_PLATE, "Stone Plate", Color(0.46, 0.46, 0.47),
+			64, null, "components/stone_plate_icon_32.png")
+	_register(ITEM_WOOD_PLATE, "Wood Plate", Color(0.58, 0.38, 0.18),
+			64, null, "components/wood_plate_icon_32.png")
+	_register(ITEM_BLANK_PATTERN, "Blank Pattern", Color(0.24, 0.34, 0.38),
+			64, null, "components/blank_pattern_icon_32.png")
 
 func _register_survival_items() -> void:
-	_register(ITEM_WORKBENCH, "Workbench", Color(0.50, 0.35, 0.20), 64)
-	_register(ITEM_FURNACE, "Stone Furnace", Color(0.45, 0.35, 0.25), 64)
-	_register(ITEM_LADDER, "Ladder", Color(0.55, 0.30, 0.15), 64)
+	_register(ITEM_WORKBENCH, "Workbench", Color(0.50, 0.35, 0.20),
+			64, null, "placeables/workbench_icon_32.png")
+	_register(ITEM_FURNACE, "Stone Furnace", Color(0.45, 0.35, 0.25),
+			64, null, "placeables/stone_furnace_icon_32.png")
+	_register(ITEM_LADDER, "Ladder", Color(0.55, 0.30, 0.15),
+			64, null, "placeables/ladder_icon_32.png")

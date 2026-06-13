@@ -2,10 +2,7 @@ extends Node2D
 
 signal layer_changed(old_layer: StringName, new_layer: StringName)
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
-@export var current_layer: StringName = SURFACE_LAYER
+@export var current_layer: StringName = WorldLayers.SURFACE
 @export var surface_layer_path: NodePath = ^"Layers/SurfaceLayer"
 @export var underground_layer_path: NodePath = ^"Layers/UndergroundLayer"
 @export var layer_status_label_path: NodePath = ^"UI/LayerStatusLabel"
@@ -43,7 +40,7 @@ func change_layer(target_layer: StringName) -> void:
 	if target_layer == current_layer:
 		return
 
-	if target_layer != SURFACE_LAYER and target_layer != UNDERGROUND_LAYER:
+	if not WorldLayers.is_valid_layer(target_layer):
 		push_warning("Unknown map layer: %s" % target_layer)
 		return
 
@@ -54,10 +51,7 @@ func change_layer(target_layer: StringName) -> void:
 
 
 func toggle_layer() -> void:
-	if current_layer == SURFACE_LAYER:
-		change_layer(UNDERGROUND_LAYER)
-	else:
-		change_layer(SURFACE_LAYER)
+	change_layer(WorldLayers.other_layer(current_layer))
 
 
 func is_current_layer(layer_id: StringName) -> bool:
@@ -93,17 +87,17 @@ func get_current_tile_layer() -> TileMapLayer:
 
 func get_layer_node(layer_id: StringName) -> Node:
 	match layer_id:
-		SURFACE_LAYER:
+		WorldLayers.SURFACE:
 			return surface_layer
-		UNDERGROUND_LAYER:
+		WorldLayers.UNDERGROUND:
 			return underground_layer
 		_:
 			return null
 
 
 func _apply_layer_state() -> void:
-	_apply_layer_activity(surface_layer, SURFACE_LAYER)
-	_apply_layer_activity(underground_layer, UNDERGROUND_LAYER)
+	_apply_layer_activity(surface_layer, WorldLayers.SURFACE)
+	_apply_layer_activity(underground_layer, WorldLayers.UNDERGROUND)
 	_update_layer_status_label()
 
 
@@ -132,8 +126,8 @@ func _update_layer_status_label() -> void:
 
 
 func _capture_base_layer_visuals() -> void:
-	_capture_layer_visual(SURFACE_LAYER, surface_layer)
-	_capture_layer_visual(UNDERGROUND_LAYER, underground_layer)
+	_capture_layer_visual(WorldLayers.SURFACE, surface_layer)
+	_capture_layer_visual(WorldLayers.UNDERGROUND, underground_layer)
 
 
 func _capture_layer_visual(layer_id: StringName, layer: Node) -> void:
@@ -181,13 +175,7 @@ func _set_layer_visual(layer: Node, layer_id: StringName, alpha: float, is_activ
 
 
 func _get_layer_display_name(layer_id: StringName) -> String:
-	match layer_id:
-		SURFACE_LAYER:
-			return "Surface"
-		UNDERGROUND_LAYER:
-			return "Underground"
-		_:
-			return String(layer_id)
+	return WorldLayers.display_name(layer_id)
 
 
 func _set_bool_property_if_present(object: Object, property_name: StringName, value: bool) -> void:

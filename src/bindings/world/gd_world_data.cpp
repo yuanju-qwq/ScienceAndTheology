@@ -11,7 +11,6 @@
 #include "core/world/chunk_data.hpp"
 
 VARIANT_ENUM_CAST(science_and_theology::GDWorldData::ChunkStateConst)
-VARIANT_ENUM_CAST(science_and_theology::GDWorldData::MaterialConst)
 
 namespace science_and_theology {
 
@@ -19,6 +18,7 @@ using namespace godot;
 
 GDWorldData::GDWorldData()
     : seed_(0) {
+    worldgen_config_ = make_empty_world_gen_config();
     rebuild_generator();
 }
 
@@ -38,6 +38,82 @@ void GDWorldData::set_seed(int64_t seed) {
     rebuild_generator();
 }
 
+void GDWorldData::set_worldgen_config(Resource* config) {
+    auto* worldgen_config = Object::cast_to<GDWorldGenConfig>(config);
+    if (config != nullptr && worldgen_config == nullptr) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: worldgen_config must be a GDWorldGenConfig resource.");
+        return;
+    }
+
+    if (worldgen_config != nullptr) {
+        worldgen_config_resource_ = Ref<GDWorldGenConfig>(worldgen_config);
+    } else {
+        worldgen_config_resource_.unref();
+    }
+    worldgen_config_ = worldgen_config != nullptr
+        ? worldgen_config->get_snapshot()
+        : make_empty_world_gen_config();
+    rebuild_generator();
+}
+
+Resource* GDWorldData::get_worldgen_config() const {
+    return worldgen_config_resource_.ptr();
+}
+
+int64_t GDWorldData::get_worldgen_content_hash() const {
+    if (!worldgen_config_) {
+        return 0;
+    }
+    return static_cast<int64_t>(worldgen_config_->content_hash);
+}
+
+std::shared_ptr<const WorldGenConfigSnapshot> GDWorldData::get_worldgen_snapshot() const {
+    if (worldgen_config_) {
+        return worldgen_config_;
+    }
+    return make_empty_world_gen_config();
+}
+
+Dictionary GDWorldData::terrain_drop_to_dict(const TerrainDropDef& drop) const {
+    Dictionary d;
+    d["item_key"] = String(drop.item_key.c_str());
+    d["item_id"] = static_cast<int64_t>(drop.item_id);
+    d["count"] = drop.count;
+    d["min_count"] = drop.min_count;
+    d["max_count"] = drop.max_count;
+    d["chance"] = drop.chance;
+    return d;
+}
+
+Dictionary GDWorldData::terrain_material_to_dict(const TerrainMaterialDef& def) const {
+    Dictionary d;
+    d["id"] = static_cast<int>(def.id);
+    d["key"] = String(def.key.c_str());
+    d["display_name"] = String(def.display_name.c_str());
+    d["flags"] = static_cast<int64_t>(def.flags);
+    d["hardness"] = def.hardness;
+    d["required_tool_tag"] = String(def.required_tool_tag.c_str());
+    d["required_mining_level"] = def.required_mining_level;
+
+    Array drops;
+    for (const auto& drop : def.drops) {
+        drops.append(terrain_drop_to_dict(drop));
+    }
+    d["drops"] = drops;
+    return d;
+}
+
+Dictionary GDWorldData::get_terrain_material_def(int64_t material_id) const {
+    const auto snapshot = get_worldgen_snapshot();
+    const auto* def = snapshot->find_material(
+        static_cast<TerrainMaterialId>(material_id));
+    if (def == nullptr) {
+        return Dictionary();
+    }
+    return terrain_material_to_dict(*def);
+}
+
 void GDWorldData::rebuild_generator() {
     _drain_all_async_tasks();
 
@@ -46,8 +122,12 @@ void GDWorldData::rebuild_generator() {
         async_results_ = std::queue<AsyncChunkResult>();
     }
 
+    if (!worldgen_config_) {
+        worldgen_config_ = make_empty_world_gen_config();
+    }
+
     generator_ = std::make_unique<TerrainGenerator>(
-        WorldSeed(static_cast<uint64_t>(seed_)));
+        WorldSeed(static_cast<uint64_t>(seed_)), worldgen_config_);
 }
 
 godot::Dictionary GDWorldData::get_or_generate_chunk(
@@ -67,6 +147,7 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
         if (existing != nullptr) {
             Dictionary result = terrain_to_dict(existing->terrain);
             result["connectors"] = connectors_to_array(existing->connectors);
+            result["mechanisms"] = mechanisms_to_array(existing->mechanisms);
             result["entities"] = entity_ids_to_array(existing->entities);
             result["machines"] = entity_ids_to_array(existing->machines);
             result["connector_ids"] = entity_ids_to_array(existing->connector_ids);
@@ -80,6 +161,7 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
     // Snapshot terrain and connectors before moving chunk into world.
     Dictionary result = terrain_to_dict(chunk.terrain);
     result["connectors"] = connectors_to_array(chunk.connectors);
+    result["mechanisms"] = mechanisms_to_array(chunk.mechanisms);
     result["entities"] = entity_ids_to_array(chunk.entities);
     result["machines"] = entity_ids_to_array(chunk.machines);
     result["connector_ids"] = entity_ids_to_array(chunk.connector_ids);
@@ -179,6 +261,49 @@ void GDWorldData::set_chunk_from_dict(
         chunk.connectors.push_back(std::move(conn));
     }
 
+    // Restore mechanisms from dict if present.
+    Array mechanism_array = data.get("mechanisms", Array());
+    for (int i = 0; i < mechanism_array.size(); ++i) {
+        Dictionary mechanism_dict = mechanism_array[i];
+        MechanismPlacement mechanism;
+        mechanism.mechanism_id = static_cast<std::string>(
+            String(mechanism_dict.get("mechanism_id", "")).utf8().get_data());
+        mechanism.layer_id = static_cast<std::string>(
+            String(mechanism_dict.get("layer_id", "")).utf8().get_data());
+        mechanism.cell_x = static_cast<int>(mechanism_dict.get("cell_x", 0));
+        mechanism.cell_y = static_cast<int>(mechanism_dict.get("cell_y", 0));
+        mechanism.display_name = static_cast<std::string>(
+            String(mechanism_dict.get("display_name", "")).utf8().get_data());
+        mechanism.action_label = static_cast<std::string>(
+            String(mechanism_dict.get("action_label", "")).utf8().get_data());
+        mechanism.flag_name = static_cast<std::string>(
+            String(mechanism_dict.get("flag_name", "")).utf8().get_data());
+        mechanism.activation_mode = static_cast<int>(
+            mechanism_dict.get("activation_mode", 0));
+        mechanism.one_shot = static_cast<bool>(
+            mechanism_dict.get("one_shot", true));
+        mechanism.required_flag = static_cast<std::string>(
+            String(mechanism_dict.get("required_flag", "")).utf8().get_data());
+
+        Array effect_array = mechanism_dict.get("effects", Array());
+        for (int effect_index = 0; effect_index < effect_array.size();
+             ++effect_index) {
+            Dictionary effect_dict = effect_array[effect_index];
+            MechanismEffectPlacement effect;
+            effect.effect_type = static_cast<std::string>(
+                String(effect_dict.get("type", "")).utf8().get_data());
+            effect.connector_id = static_cast<int64_t>(
+                effect_dict.get("connector_id", 0));
+            effect.when_active = static_cast<bool>(
+                effect_dict.get("when_active", false));
+            effect.when_inactive = static_cast<bool>(
+                effect_dict.get("when_inactive", true));
+            mechanism.effects.push_back(std::move(effect));
+        }
+
+        chunk.mechanisms.push_back(std::move(mechanism));
+    }
+
     // Restore entity IDs from dict if present.
     Array entity_array = data.get("entities", Array());
     chunk.entities = array_to_entity_ids(entity_array);
@@ -204,6 +329,7 @@ godot::Dictionary GDWorldData::get_chunk_terrain(
     }
     Dictionary result = terrain_to_dict(chunk->terrain);
     result["connectors"] = connectors_to_array(chunk->connectors);
+    result["mechanisms"] = mechanisms_to_array(chunk->mechanisms);
     result["entities"] = entity_ids_to_array(chunk->entities);
     result["machines"] = entity_ids_to_array(chunk->machines);
     result["connector_ids"] = entity_ids_to_array(chunk->connector_ids);
@@ -218,6 +344,16 @@ godot::Array GDWorldData::get_chunk_connectors(
         return Array();
     }
     return connectors_to_array(chunk->connectors);
+}
+
+godot::Array GDWorldData::get_chunk_mechanisms(
+    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const ChunkData* chunk = world_.get_chunk(
+        layer_id.utf8().get_data(), chunk_x, chunk_y);
+    if (chunk == nullptr) {
+        return Array();
+    }
+    return mechanisms_to_array(chunk->mechanisms);
 }
 
 void GDWorldData::remove_chunk(
@@ -284,6 +420,38 @@ godot::Array GDWorldData::connectors_to_array(
         d["locked"] = conn.locked;
         d["connector_type"] = String(conn.connector_type.c_str());
         d["activation_mode"] = conn.activation_mode;
+        arr.append(d);
+    }
+    return arr;
+}
+
+godot::Array GDWorldData::mechanisms_to_array(
+    const std::vector<MechanismPlacement>& mechanisms) const {
+    Array arr;
+    for (const auto& mechanism : mechanisms) {
+        Dictionary d;
+        d["mechanism_id"] = String(mechanism.mechanism_id.c_str());
+        d["layer_id"] = String(mechanism.layer_id.c_str());
+        d["cell_x"] = mechanism.cell_x;
+        d["cell_y"] = mechanism.cell_y;
+        d["display_name"] = String(mechanism.display_name.c_str());
+        d["action_label"] = String(mechanism.action_label.c_str());
+        d["flag_name"] = String(mechanism.flag_name.c_str());
+        d["activation_mode"] = mechanism.activation_mode;
+        d["one_shot"] = mechanism.one_shot;
+        d["required_flag"] = String(mechanism.required_flag.c_str());
+
+        Array effects;
+        for (const auto& effect : mechanism.effects) {
+            Dictionary effect_dict;
+            effect_dict["type"] = String(effect.effect_type.c_str());
+            effect_dict["connector_id"] = effect.connector_id;
+            effect_dict["when_active"] = effect.when_active;
+            effect_dict["when_inactive"] = effect.when_inactive;
+            effects.append(effect_dict);
+        }
+        d["effects"] = effects;
+
         arr.append(d);
     }
     return arr;
@@ -418,9 +586,11 @@ bool GDWorldData::set_terrain_cell(
 
     if (!chunk->terrain.is_valid_cell(local_x, local_y)) return false;
 
-    auto mat = static_cast<TerrainMaterial>(material);
-    int old_mat = static_cast<int>(chunk->terrain.cell_at(local_x, local_y).material);
-    chunk->terrain.set_cell(local_x, local_y, mat);
+    uint32_t flags = worldgen_config_
+        ? worldgen_config_->flags_for_material(static_cast<TerrainMaterialId>(material))
+        : 0;
+    chunk->terrain.set_cell(
+        local_x, local_y, static_cast<TerrainMaterial>(material), flags);
     return true;
 }
 
@@ -607,6 +777,18 @@ void GDWorldData::_bind_methods() {
     ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"),
                  "set_seed", "get_seed");
 
+    ClassDB::bind_method(D_METHOD("set_worldgen_config", "config"),
+                         &GDWorldData::set_worldgen_config);
+    ClassDB::bind_method(D_METHOD("get_worldgen_config"),
+                         &GDWorldData::get_worldgen_config);
+    ClassDB::bind_method(D_METHOD("get_worldgen_content_hash"),
+                         &GDWorldData::get_worldgen_content_hash);
+    ClassDB::bind_method(D_METHOD("get_terrain_material_def", "material_id"),
+                         &GDWorldData::get_terrain_material_def);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "worldgen_config",
+                 PROPERTY_HINT_RESOURCE_TYPE, "GDWorldGenConfig"),
+                 "set_worldgen_config", "get_worldgen_config");
+
     // Chunk generation and query.
     ClassDB::bind_method(D_METHOD("get_or_generate_chunk", "layer_id", "chunk_x", "chunk_y"),
                          &GDWorldData::get_or_generate_chunk);
@@ -622,6 +804,8 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::get_chunk_terrain);
     ClassDB::bind_method(D_METHOD("get_chunk_connectors", "layer_id", "chunk_x", "chunk_y"),
                          &GDWorldData::get_chunk_connectors);
+    ClassDB::bind_method(D_METHOD("get_chunk_mechanisms", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::get_chunk_mechanisms);
     ClassDB::bind_method(D_METHOD("get_chunk_entities", "layer_id", "chunk_x", "chunk_y"),
                          &GDWorldData::get_chunk_entities);
     ClassDB::bind_method(D_METHOD("get_chunk_machines", "layer_id", "chunk_x", "chunk_y"),
@@ -687,16 +871,6 @@ void GDWorldData::_bind_methods() {
     BIND_ENUM_CONSTANT(STATE_ACTIVE);
     BIND_ENUM_CONSTANT(STATE_SLEEPING);
 
-    // Terrain material constants.
-    BIND_ENUM_CONSTANT(MAT_AIR);
-    BIND_ENUM_CONSTANT(MAT_STONE);
-    BIND_ENUM_CONSTANT(MAT_DIRT);
-    BIND_ENUM_CONSTANT(MAT_SAND);
-    BIND_ENUM_CONSTANT(MAT_WATER);
-    BIND_ENUM_CONSTANT(MAT_LAVA);
-    BIND_ENUM_CONSTANT(MAT_ORE_IRON);
-    BIND_ENUM_CONSTANT(MAT_ORE_COPPER);
-    BIND_ENUM_CONSTANT(MAT_ORE_COAL);
 }
 
 } // namespace science_and_theology

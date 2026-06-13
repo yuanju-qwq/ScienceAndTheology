@@ -9,6 +9,7 @@ using namespace godot;
 
 GDTerrainGenerator::GDTerrainGenerator()
     : seed_(0) {
+    worldgen_config_ = make_empty_world_gen_config();
     rebuild_generator();
 }
 
@@ -26,9 +27,42 @@ void GDTerrainGenerator::set_seed(int64_t seed) {
     rebuild_generator();
 }
 
+void GDTerrainGenerator::set_worldgen_config(Resource* config) {
+    auto* worldgen_config = Object::cast_to<GDWorldGenConfig>(config);
+    if (config != nullptr && worldgen_config == nullptr) {
+        UtilityFunctions::push_warning(
+            "GDTerrainGenerator: worldgen_config must be a GDWorldGenConfig resource.");
+        return;
+    }
+
+    if (worldgen_config != nullptr) {
+        worldgen_config_resource_ = Ref<GDWorldGenConfig>(worldgen_config);
+    } else {
+        worldgen_config_resource_.unref();
+    }
+    worldgen_config_ = worldgen_config != nullptr
+        ? worldgen_config->get_snapshot()
+        : make_empty_world_gen_config();
+    rebuild_generator();
+}
+
+Resource* GDTerrainGenerator::get_worldgen_config() const {
+    return worldgen_config_resource_.ptr();
+}
+
+int64_t GDTerrainGenerator::get_worldgen_content_hash() const {
+    if (!worldgen_config_) {
+        return 0;
+    }
+    return static_cast<int64_t>(worldgen_config_->content_hash);
+}
+
 void GDTerrainGenerator::rebuild_generator() {
+    if (!worldgen_config_) {
+        worldgen_config_ = make_empty_world_gen_config();
+    }
     generator_ = std::make_unique<TerrainGenerator>(
-        WorldSeed(static_cast<uint64_t>(seed_)));
+        WorldSeed(static_cast<uint64_t>(seed_)), worldgen_config_);
 }
 
 godot::Dictionary GDTerrainGenerator::generate_chunk(
@@ -72,6 +106,16 @@ void GDTerrainGenerator::_bind_methods() {
                          &GDTerrainGenerator::set_seed);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "seed"),
                  "set_seed", "get_seed");
+
+    ClassDB::bind_method(D_METHOD("set_worldgen_config", "config"),
+                         &GDTerrainGenerator::set_worldgen_config);
+    ClassDB::bind_method(D_METHOD("get_worldgen_config"),
+                         &GDTerrainGenerator::get_worldgen_config);
+    ClassDB::bind_method(D_METHOD("get_worldgen_content_hash"),
+                         &GDTerrainGenerator::get_worldgen_content_hash);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "worldgen_config",
+                 PROPERTY_HINT_RESOURCE_TYPE, "GDWorldGenConfig"),
+                 "set_worldgen_config", "get_worldgen_config");
 
     ClassDB::bind_method(D_METHOD("generate_chunk", "layer_id", "chunk_x", "chunk_y"),
                          &GDTerrainGenerator::generate_chunk);

@@ -3,12 +3,8 @@ extends Node
 
 const LayerViewRegionResource := preload("res://scripts/LayerViewRegion.gd")
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 @export var layer_controller_path: NodePath = ^".."
 @export var player_path: NodePath = ^"../Player"
-@export var create_prototype_regions := true
 @export var view_regions: Array[LayerViewRegionResource] = []
 
 @onready var layer_controller = get_node_or_null(layer_controller_path)
@@ -20,9 +16,6 @@ var _last_region_id: StringName = &"__unset"
 
 
 func _ready() -> void:
-	if create_prototype_regions and view_regions.is_empty():
-		_create_prototype_regions()
-
 	_set_all_hints_visible(false)
 	call_deferred("_update_view_context", true)
 
@@ -124,7 +117,7 @@ func _set_node_visible(node_path: NodePath, is_visible: bool) -> void:
 
 func _get_current_layer() -> StringName:
 	if layer_controller == null:
-		return SURFACE_LAYER
+		return WorldLayers.SURFACE
 
 	return layer_controller.current_layer
 
@@ -137,10 +130,7 @@ func _get_player_cell() -> Vector2i:
 
 
 func _get_other_layer(layer_id: StringName) -> StringName:
-	if layer_id == SURFACE_LAYER:
-		return UNDERGROUND_LAYER
-
-	return SURFACE_LAYER
+	return WorldLayers.other_layer(layer_id)
 
 
 func _set_bool_property_if_present(object: Object, property_name: StringName, value: bool) -> void:
@@ -157,78 +147,3 @@ func _has_property(object: Object, property_name: StringName) -> bool:
 			return true
 
 	return false
-
-
-func _create_prototype_regions() -> void:
-	var surface_cave_peek := _make_region(
-			&"surface_cave_mouth_peek",
-			SURFACE_LAYER,
-			Vector2i(2, -1),
-			2,
-			LayerViewRegionResource.ViewMode.LOCAL_PEEK,
-			UNDERGROUND_LAYER,
-			"  Below",
-			[])
-	surface_cave_peek.show_revealed_layer = false
-	add_region(surface_cave_peek)
-
-	var underground_light_peek := _make_region(
-			&"underground_skylight_peek",
-			UNDERGROUND_LAYER,
-			Vector2i(2, 0),
-			2,
-			LayerViewRegionResource.ViewMode.LOCAL_PEEK,
-			SURFACE_LAYER,
-			"  Above",
-			[])
-	underground_light_peek.show_revealed_layer = false
-	add_region(underground_light_peek)
-
-	var rift_dual_view := _make_region(
-			&"rift_dual_layer_view",
-			&"",
-			Vector2i(-3, 1),
-			2,
-			LayerViewRegionResource.ViewMode.DUAL_LAYER,
-			&"",
-			"  Dual",
-			[])
-	rift_dual_view.active_alpha = 0.88
-	rift_dual_view.secondary_alpha = 0.52
-	add_region(rift_dual_view)
-
-
-func add_region(region: LayerViewRegionResource) -> void:
-	if region == null:
-		return
-
-	view_regions.append(region)
-
-
-func _make_region(
-		region_id: StringName,
-		trigger_layer: StringName,
-		center_cell: Vector2i,
-		radius: int,
-		view_mode: int,
-		revealed_layer: StringName,
-		status_suffix: String,
-		hint_node_paths: Array) -> LayerViewRegionResource:
-	var region := LayerViewRegionResource.new()
-	region.region_id = region_id
-	region.trigger_layer = trigger_layer
-	region.center_cell = center_cell
-	region.radius = radius
-	region.view_mode = view_mode
-	region.revealed_layer = revealed_layer
-	region.status_suffix = status_suffix
-
-	var typed_hint_paths: Array[NodePath] = []
-	for hint_path in hint_node_paths:
-		if hint_path is NodePath:
-			typed_hint_paths.append(hint_path)
-		else:
-			typed_hint_paths.append(NodePath(str(hint_path)))
-
-	region.hint_node_paths = typed_hint_paths
-	return region

@@ -21,6 +21,8 @@
 [ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
 [ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="23_wiki_ui"]
 [ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="24_command_server"]
+[ext_resource type="Script" path="res://scripts/world/WorldObjectRenderer.gd" id="25_world_object_renderer"]
+[ext_resource type="Texture2D" path="res://resource/characters/player/player_idle_down_32x48.png" id="26_player_idle"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_player"]
 radius = 6.0
@@ -55,11 +57,13 @@ script = ExtResource("21_ladder_manager")
 [node name="GameCommandServer" type="GDGameCommandServer" parent="." unique_id=2380428103]
 script = ExtResource("24_command_server")
 
+[node name="WorldObjectRenderer" type="Node" parent="."]
+script = ExtResource("25_world_object_renderer")
+
 [node name="ChunkRendererBridge" type="Node" parent="." unique_id=1428570001]
 script = ExtResource("13_chunk_bridge")
 surface_container_path = NodePath("Layers/SurfaceLayer")
 underground_container_path = NodePath("Layers/UndergroundLayer")
-seed = 12345
 
 [node name="PlayerMining" type="Node" parent="." unique_id=2428570001]
 script = ExtResource("17_mining")
@@ -71,9 +75,11 @@ reveal_radius = 1
 [node name="Player" type="CharacterBody2D" parent="." unique_id=1471742520]
 script = ExtResource("4_player_controller")
 
-[node name="Marker" type="Polygon2D" parent="Player" unique_id=909532561]
-color = Color(0.9, 0.95, 1, 1)
-polygon = PackedVector2Array(0, -12, 9, 8, 0, 4, -9, 8)
+[node name="Visual" type="Sprite2D" parent="Player" unique_id=909532561]
+texture_filter = 1
+position = Vector2(0, -16)
+z_index = 10
+texture = ExtResource("26_player_idle")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Player" unique_id=76059635]
 shape = SubResource("CircleShape2D_player")

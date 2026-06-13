@@ -8,7 +8,6 @@ signal mechanisms_changed
 signal world_flags_changed
 
 @export var mechanisms: Array[MapMechanismResource] = []
-@export var create_prototype_mechanisms := true
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 
 @onready var connector_manager = get_node_or_null(connector_manager_path)
@@ -17,9 +16,6 @@ var _world_flags := {}
 
 
 func _ready() -> void:
-	if create_prototype_mechanisms and mechanisms.is_empty():
-		_create_prototype_mechanisms()
-
 	_apply_world_state()
 
 
@@ -29,6 +25,27 @@ func add_mechanism(mechanism: MapMechanismResource) -> void:
 
 	mechanisms.append(mechanism)
 	mechanisms_changed.emit()
+
+
+func add_generated_mechanisms(mechanism_data: Array) -> int:
+	var added := 0
+
+	for entry in mechanism_data:
+		if not (entry is Dictionary):
+			continue
+
+		var mechanism := _make_mechanism_from_dict(entry)
+		if mechanism == null or _has_mechanism_id(mechanism.mechanism_id):
+			continue
+
+		mechanisms.append(mechanism)
+		added += 1
+
+	if added > 0:
+		_apply_world_state()
+		mechanisms_changed.emit()
+
+	return added
 
 
 func get_mechanism_at(layer_id: StringName, cell_position: Vector2i) -> MapMechanismResource:
@@ -203,78 +220,39 @@ func _has_property(object: Object, property_name: StringName) -> bool:
 	return false
 
 
-func _create_prototype_mechanisms() -> void:
-	add_mechanism(_make_mechanism(
-			&"surface_sun_altar_001",
-			&"surface",
-			Vector2i(-1, -1),
-			"Sun Altar",
-			"Open Ruin Gate",
-			&"underground_gate_open",
-			[
-				{
-					"type": &"node_visible",
-					"path": NodePath("../Layers/UndergroundLayer/GeneratedSealedGateArt"),
-					"when_active": false,
-					"when_inactive": true,
-				},
-				{
-					"type": &"node_visible",
-					"path": NodePath("../Layers/UndergroundLayer/GeneratedOpenGateArt"),
-					"when_active": true,
-					"when_inactive": false,
-				},
-				{
-					"type": &"connector_locked",
-					"connector_id": 3,
-					"when_active": false,
-					"when_inactive": true,
-				},
-			]))
+func _has_mechanism_id(mechanism_id: StringName) -> bool:
+	if mechanism_id == &"":
+		return false
 
-	add_mechanism(_make_mechanism(
-			&"underground_pump_001",
-			&"underground",
-			Vector2i(0, 1),
-			"Underground Pump",
-			"Raise Surface Bridge",
-			&"surface_bridge_raised",
-			[
-				{
-					"type": &"node_visible",
-					"path": NodePath("../Layers/SurfaceLayer/GeneratedBrokenBridgeArt"),
-					"when_active": false,
-					"when_inactive": true,
-				},
-				{
-					"type": &"node_visible",
-					"path": NodePath("../Layers/SurfaceLayer/GeneratedBridgeRaisedArt"),
-					"when_active": true,
-					"when_inactive": false,
-				},
-			]))
+	for mechanism in mechanisms:
+		if mechanism != null and mechanism.mechanism_id == mechanism_id:
+			return true
+
+	return false
 
 
-func _make_mechanism(
-		mechanism_id: StringName,
-		layer_id: StringName,
-		cell_position: Vector2i,
-		display_name: String,
-		action_label: String,
-		flag_name: StringName,
-		effects: Array) -> MapMechanismResource:
+func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
 	var mechanism := MapMechanismResource.new()
-	mechanism.mechanism_id = mechanism_id
-	mechanism.layer_id = layer_id
-	mechanism.cell_position = cell_position
-	mechanism.display_name = display_name
-	mechanism.action_label = action_label
-	mechanism.flag_name = flag_name
+	mechanism.mechanism_id = StringName(str(data.get("mechanism_id", "")))
+	mechanism.layer_id = StringName(str(data.get("layer_id", "")))
+	mechanism.cell_position = Vector2i(
+			int(data.get("cell_x", 0)),
+			int(data.get("cell_y", 0)))
+	mechanism.display_name = str(data.get("display_name", "Mechanism"))
+	mechanism.action_label = str(data.get("action_label", "Use Mechanism"))
+	mechanism.flag_name = StringName(str(data.get("flag_name", "")))
+	mechanism.activation_mode = int(data.get("activation_mode", MapMechanismResource.ActivationMode.INTERACT))
+	mechanism.one_shot = bool(data.get("one_shot", true))
+	mechanism.required_flag = StringName(str(data.get("required_flag", "")))
 
 	var typed_effects: Array[Dictionary] = []
+	var effects: Array = data.get("effects", [])
 	for effect in effects:
 		if effect is Dictionary:
 			typed_effects.append(effect)
-
 	mechanism.effects = typed_effects
+
+	if mechanism.mechanism_id == &"" or mechanism.layer_id == &"":
+		return null
+
 	return mechanism

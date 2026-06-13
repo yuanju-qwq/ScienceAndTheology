@@ -41,6 +41,12 @@ std::vector<uint8_t> ChunkSerializer::serialize(
         write_connector(buf, conn);
     }
 
+    // Mechanisms.
+    write_uint32(buf, static_cast<uint32_t>(chunk.mechanisms.size()));
+    for (const auto& mechanism : chunk.mechanisms) {
+        write_mechanism(buf, mechanism);
+    }
+
     // Entity IDs.
     write_uint32(buf, static_cast<uint32_t>(chunk.entities.size()));
     for (const auto& eid : chunk.entities) {
@@ -72,7 +78,7 @@ bool ChunkSerializer::deserialize(
 
     uint8_t version;
     if (!read_uint8(data, offset, version)) return false;
-    if (version != kCurrentVersion) return false;
+    if (version != 2 && version != kCurrentVersion) return false;
 
     int32_t cx, cy;
     if (!read_int32(data, offset, cx)) return false;
@@ -126,6 +132,19 @@ bool ChunkSerializer::deserialize(
         ConnectorPlacement conn;
         if (!read_connector(data, offset, conn)) return false;
         chunk.connectors.push_back(std::move(conn));
+    }
+
+    // Mechanisms.
+    chunk.mechanisms.clear();
+    if (version >= 3) {
+        uint32_t mechanism_count;
+        if (!read_uint32(data, offset, mechanism_count)) return false;
+        chunk.mechanisms.reserve(mechanism_count);
+        for (uint32_t i = 0; i < mechanism_count; ++i) {
+            MechanismPlacement mechanism;
+            if (!read_mechanism(data, offset, mechanism)) return false;
+            chunk.mechanisms.push_back(std::move(mechanism));
+        }
     }
 
     // Entity IDs.
@@ -274,8 +293,8 @@ void ChunkSerializer::write_connector(std::vector<uint8_t>& buf,
 }
 
 bool ChunkSerializer::read_connector(const std::vector<uint8_t>& data,
-                                     size_t& offset,
-                                     ConnectorPlacement& conn) {
+                                      size_t& offset,
+                                      ConnectorPlacement& conn) {
     uint64_t raw_id;
     if (!read_uint64(data, offset, raw_id)) return false;
     conn.connector_id = static_cast<int64_t>(raw_id);
@@ -295,6 +314,91 @@ bool ChunkSerializer::read_connector(const std::vector<uint8_t>& data,
     if (!read_string(data, offset, conn.connector_type)) return false;
     if (!read_uint8(data, offset, am)) return false;
     conn.activation_mode = static_cast<int>(am);
+
+    return true;
+}
+
+// --- Mechanism helpers ---
+
+void ChunkSerializer::write_mechanism(
+    std::vector<uint8_t>& buf,
+    const MechanismPlacement& mechanism) {
+    write_string(buf, mechanism.mechanism_id);
+    write_string(buf, mechanism.layer_id);
+    write_int32(buf, mechanism.cell_x);
+    write_int32(buf, mechanism.cell_y);
+    write_string(buf, mechanism.display_name);
+    write_string(buf, mechanism.action_label);
+    write_string(buf, mechanism.flag_name);
+    write_uint8(buf, static_cast<uint8_t>(mechanism.activation_mode));
+    write_uint8(buf, mechanism.one_shot ? 1 : 0);
+    write_string(buf, mechanism.required_flag);
+
+    write_uint32(buf, static_cast<uint32_t>(mechanism.effects.size()));
+    for (const auto& effect : mechanism.effects) {
+        write_mechanism_effect(buf, effect);
+    }
+}
+
+bool ChunkSerializer::read_mechanism(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    MechanismPlacement& mechanism) {
+    if (!read_string(data, offset, mechanism.mechanism_id)) return false;
+    if (!read_string(data, offset, mechanism.layer_id)) return false;
+    if (!read_int32(data, offset, mechanism.cell_x)) return false;
+    if (!read_int32(data, offset, mechanism.cell_y)) return false;
+    if (!read_string(data, offset, mechanism.display_name)) return false;
+    if (!read_string(data, offset, mechanism.action_label)) return false;
+    if (!read_string(data, offset, mechanism.flag_name)) return false;
+
+    uint8_t activation_mode;
+    uint8_t one_shot;
+    if (!read_uint8(data, offset, activation_mode)) return false;
+    if (!read_uint8(data, offset, one_shot)) return false;
+    mechanism.activation_mode = static_cast<int>(activation_mode);
+    mechanism.one_shot = (one_shot != 0);
+
+    if (!read_string(data, offset, mechanism.required_flag)) return false;
+
+    uint32_t effect_count;
+    if (!read_uint32(data, offset, effect_count)) return false;
+    mechanism.effects.clear();
+    mechanism.effects.reserve(effect_count);
+    for (uint32_t i = 0; i < effect_count; ++i) {
+        MechanismEffectPlacement effect;
+        if (!read_mechanism_effect(data, offset, effect)) return false;
+        mechanism.effects.push_back(std::move(effect));
+    }
+
+    return true;
+}
+
+void ChunkSerializer::write_mechanism_effect(
+    std::vector<uint8_t>& buf,
+    const MechanismEffectPlacement& effect) {
+    write_string(buf, effect.effect_type);
+    write_uint64(buf, static_cast<uint64_t>(effect.connector_id));
+    write_uint8(buf, effect.when_active ? 1 : 0);
+    write_uint8(buf, effect.when_inactive ? 1 : 0);
+}
+
+bool ChunkSerializer::read_mechanism_effect(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    MechanismEffectPlacement& effect) {
+    if (!read_string(data, offset, effect.effect_type)) return false;
+
+    uint64_t connector_id;
+    if (!read_uint64(data, offset, connector_id)) return false;
+    effect.connector_id = static_cast<int64_t>(connector_id);
+
+    uint8_t when_active;
+    uint8_t when_inactive;
+    if (!read_uint8(data, offset, when_active)) return false;
+    if (!read_uint8(data, offset, when_inactive)) return false;
+    effect.when_active = (when_active != 0);
+    effect.when_inactive = (when_inactive != 0);
 
     return true;
 }

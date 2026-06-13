@@ -37,6 +37,28 @@ int GDChunkView::get_chunk_y() const {
     return chunk_y_;
 }
 
+void GDChunkView::set_worldgen_config(Resource* config) {
+    auto* worldgen_config = Object::cast_to<GDWorldGenConfig>(config);
+    if (config != nullptr && worldgen_config == nullptr) {
+        UtilityFunctions::push_warning(
+            "GDChunkView: worldgen_config must be a GDWorldGenConfig resource.");
+        return;
+    }
+
+    if (worldgen_config != nullptr) {
+        worldgen_config_resource_ = Ref<GDWorldGenConfig>(worldgen_config);
+    } else {
+        worldgen_config_resource_.unref();
+    }
+    palette_.set_config(worldgen_config != nullptr
+        ? worldgen_config->get_snapshot()
+        : nullptr);
+}
+
+Resource* GDChunkView::get_worldgen_config() const {
+    return worldgen_config_resource_.ptr();
+}
+
 void GDChunkView::update_from_terrain(const Dictionary& terrain_data) {
     clear();
 
@@ -120,6 +142,14 @@ void GDChunkView::_bind_methods() {
                  "set_chunk_x", "get_chunk_x");
     ADD_PROPERTY(PropertyInfo(Variant::INT, "chunk_y"),
                  "set_chunk_y", "get_chunk_y");
+
+    ClassDB::bind_method(D_METHOD("set_worldgen_config", "config"),
+                         &GDChunkView::set_worldgen_config);
+    ClassDB::bind_method(D_METHOD("get_worldgen_config"),
+                         &GDChunkView::get_worldgen_config);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "worldgen_config",
+                 PROPERTY_HINT_RESOURCE_TYPE, "GDWorldGenConfig"),
+                 "set_worldgen_config", "get_worldgen_config");
 
     ClassDB::bind_method(D_METHOD("update_from_terrain", "terrain_data"),
                          &GDChunkView::update_from_terrain);

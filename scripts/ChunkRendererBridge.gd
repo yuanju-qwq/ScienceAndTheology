@@ -15,12 +15,15 @@ extends Node
 ##       chunk_bridge.process_frame(get_player_chunk_layer(), get_player_chunk_pos())
 ##
 ##   # Force-load a factory chunk (keeps machines running when player is far):
-##   chunk_bridge.force_load_factory_chunk("surface", 5, 3)
+##   chunk_bridge.force_load_factory_chunk(WorldLayers.SURFACE, 5, 3)
 
 signal chunk_bridge_ready
 
+const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
+
 @export var world_data: GDWorldData = null
 @export var chunk_manager: GDChunkManager = null
+@export var worldgen_config: GDWorldGenConfig = null
 
 @export var surface_container_path: NodePath = ^"Layers/SurfaceLayer"
 @export var underground_container_path: NodePath = ^"Layers/UndergroundLayer"
@@ -53,8 +56,12 @@ signal chunk_bridge_ready
 @export var start_chunk_radius := 2
 @export var player_node_path: NodePath = ^"../Player"
 @export var auto_update := true
+@export var connector_manager_path: NodePath = ^"../ConnectorManager"
+@export var mechanism_manager_path: NodePath = ^"../MechanismManager"
 
 var is_initialized := false
+var _connector_manager: Node = null
+var _mechanism_manager: Node = null
 
 
 func _ready() -> void:
@@ -90,10 +97,17 @@ func initialize() -> void:
 	if is_initialized:
 		return
 
+	_connector_manager = get_node_or_null(connector_manager_path)
+	_mechanism_manager = get_node_or_null(mechanism_manager_path)
+
 	# Create GDWorldData if not assigned.
 	if world_data == null:
 		world_data = GDWorldData.new()
 		world_data.seed = seed if seed != 0 else randi()
+
+	if worldgen_config == null:
+		worldgen_config = BuiltinTerrainContentScript.create_default_config()
+	world_data.worldgen_config = worldgen_config
 
 	# Create GDChunkManager if not assigned.
 	if chunk_manager == null:
@@ -109,6 +123,8 @@ func initialize() -> void:
 	# Connect signal: chunk_ready from world_data -> chunk_manager.
 	if not world_data.chunk_ready.is_connected(chunk_manager.on_chunk_ready):
 		world_data.chunk_ready.connect(chunk_manager.on_chunk_ready)
+	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
+		world_data.chunk_ready.connect(_on_chunk_ready)
 
 	# Generate initial chunks around origin.
 	if auto_generate_start_chunks:
@@ -164,6 +180,51 @@ func on_terrain_cell_synced(layer: StringName, chunk: Vector2i, _local: Vector2i
 	chunk_manager.show_chunk(layer, chunk.x, chunk.y)
 
 
+func _on_chunk_ready(layer: String, chunk_x: int, chunk_y: int) -> void:
+	_sync_generated_connectors(StringName(layer), chunk_x, chunk_y)
+	_sync_generated_mechanisms(StringName(layer), chunk_x, chunk_y)
+
+
+func _sync_generated_connectors(layer: StringName, chunk_x: int, chunk_y: int) -> void:
+	if world_data == null or _connector_manager == null:
+		return
+	if not _connector_manager.has_method(&"add_generated_connectors"):
+		return
+
+	var generated_connectors: Array = world_data.get_chunk_connectors(layer, chunk_x, chunk_y)
+	if generated_connectors.is_empty():
+		return
+
+	var added: int = _connector_manager.add_generated_connectors(generated_connectors)
+	if added > 0:
+		print("ChunkRendererBridge: added %d generated connector(s) from %s chunk %d,%d" % [
+				added,
+				String(layer),
+				chunk_x,
+				chunk_y,
+		])
+
+
+func _sync_generated_mechanisms(layer: StringName, chunk_x: int, chunk_y: int) -> void:
+	if world_data == null or _mechanism_manager == null:
+		return
+	if not _mechanism_manager.has_method(&"add_generated_mechanisms"):
+		return
+
+	var generated_mechanisms: Array = world_data.get_chunk_mechanisms(layer, chunk_x, chunk_y)
+	if generated_mechanisms.is_empty():
+		return
+
+	var added: int = _mechanism_manager.add_generated_mechanisms(generated_mechanisms)
+	if added > 0:
+		print("ChunkRendererBridge: added %d generated mechanism(s) from %s chunk %d,%d" % [
+				added,
+				String(layer),
+				chunk_x,
+				chunk_y,
+		])
+
+
 func _is_chunk_visible(layer: StringName, chunk: Vector2i) -> bool:
 	if chunk_manager == null:
 		return false
@@ -197,5 +258,5 @@ func _generate_initial_chunks() -> void:
 	var radius := start_chunk_radius
 	for cx in range(-radius, radius + 1):
 		for cy in range(-radius, radius + 1):
-			world_data.request_chunk_async("surface", cx, cy)
-			world_data.request_chunk_async("underground", cx, cy)
+			world_data.request_chunk_async(WorldLayers.SURFACE, cx, cy)
+			world_data.request_chunk_async(WorldLayers.UNDERGROUND, cx, cy)

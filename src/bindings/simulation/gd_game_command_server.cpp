@@ -1,5 +1,7 @@
 #include "gd_game_command_server.h"
 
+#include <algorithm>
+
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -9,8 +11,6 @@
 #include "bindings/world/gd_world_data.h"
 #include "core/crafting/crafting.hpp"
 #include "core/fuel/fuel_registry.hpp"
-#include "core/material/material.hpp"
-#include "core/material/material_form.hpp"
 #include "core/material/material_item.hpp"
 #include "core/material/tool_items.hpp"
 
@@ -33,16 +33,6 @@ StringName object_workbench() { return StringName("workbench"); }
 StringName object_furnace() { return StringName("furnace"); }
 StringName object_ladder() { return StringName("ladder"); }
 
-constexpr int32_t MAT_AIR = GDWorldData::MAT_AIR;
-constexpr int32_t MAT_STONE = GDWorldData::MAT_STONE;
-constexpr int32_t MAT_DIRT = GDWorldData::MAT_DIRT;
-constexpr int32_t MAT_SAND = GDWorldData::MAT_SAND;
-constexpr int32_t MAT_ORE_IRON = GDWorldData::MAT_ORE_IRON;
-constexpr int32_t MAT_ORE_COPPER = GDWorldData::MAT_ORE_COPPER;
-constexpr int32_t MAT_ORE_COAL = GDWorldData::MAT_ORE_COAL;
-constexpr int32_t MAT_WOOD = GDWorldData::MAT_WOOD;
-constexpr int32_t MAT_LEAVES = GDWorldData::MAT_LEAVES;
-
 Dictionary stack_dict(int64_t item_id, int32_t count) {
     Dictionary drop;
     drop["item_id"] = item_id;
@@ -50,8 +40,24 @@ Dictionary stack_dict(int64_t item_id, int32_t count) {
     return drop;
 }
 
-int64_t mat_item(uint16_t material_id, gt::MaterialForm form) {
-    return static_cast<int64_t>(gt::make_material_item_id(material_id, form));
+bool tool_tag_matches(const std::string& required_tool_tag,
+                      gt::ToolType equipped_type) {
+    if (required_tool_tag.empty()) {
+        return true;
+    }
+    if (required_tool_tag == "pickaxe") {
+        return equipped_type == gt::ToolType::PICKAXE;
+    }
+    if (required_tool_tag == "axe") {
+        return equipped_type == gt::ToolType::AXE;
+    }
+    if (required_tool_tag == "shovel") {
+        return equipped_type == gt::ToolType::SHOVEL;
+    }
+    if (required_tool_tag == "sword") {
+        return equipped_type == gt::ToolType::SWORD;
+    }
+    return false;
 }
 
 bool recipe_stack_matches_dictionary(const gt::ResourceStack& stack,
@@ -171,7 +177,8 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     if (expected_material >= 0 && material != expected_material) {
         return reject(command_mine_block(), "target material changed");
     }
-    if (material == MAT_AIR) {
+    const int32_t air_material = get_air_material_id();
+    if (material == air_material) {
         return reject(command_mine_block(), "target cell is already air");
     }
     if (!static_cast<bool>(cell.get("is_mineable", false))) {
@@ -182,7 +189,7 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     }
 
     if (!world_data_->set_terrain_cell(
-            String(layer), chunk.x, chunk.y, local.x, local.y, MAT_AIR)) {
+            String(layer), chunk.x, chunk.y, local.x, local.y, air_material)) {
         return reject(command_mine_block(), "failed to write terrain cell");
     }
 
@@ -198,7 +205,7 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
         }
     }
 
-    emit_signal("terrain_cell_synced", layer, chunk, local, material, MAT_AIR);
+    emit_signal("terrain_cell_synced", layer, chunk, local, material, air_material);
 
     Dictionary result;
     result["type"] = command_mine_block();
@@ -560,8 +567,14 @@ bool GDGameCommandServer::node_bool_call(
 }
 
 bool GDGameCommandServer::has_required_tool(int32_t terrain_material) const {
-    const int32_t required_tool_type = get_required_tool_type(terrain_material);
-    if (required_tool_type < 0) return true;
+    if (world_data_ == nullptr) return false;
+
+    const auto snapshot = world_data_->get_worldgen_snapshot();
+    const auto* material = snapshot->find_material(
+        static_cast<TerrainMaterialId>(terrain_material));
+    if (material == nullptr || material->required_tool_tag.empty()) {
+        return true;
+    }
 
     const int64_t item_id = get_equipped_item();
     if (item_id <= 0) return false;
@@ -569,18 +582,8 @@ bool GDGameCommandServer::has_required_tool(int32_t terrain_material) const {
     gt::ToolStats stats;
     if (!get_tool_stats_for_item(item_id, stats)) return false;
 
-    bool matches_type = false;
-    if (required_tool_type == static_cast<int32_t>(gt::WOODEN_PICKAXE)) {
-        matches_type = stats.type == gt::ToolType::PICKAXE;
-    } else if (required_tool_type == static_cast<int32_t>(gt::WOODEN_AXE)) {
-        matches_type = stats.type == gt::ToolType::AXE;
-    } else if (required_tool_type == static_cast<int32_t>(gt::WOODEN_SHOVEL)) {
-        matches_type = stats.type == gt::ToolType::SHOVEL;
-    } else {
-        matches_type = true;
-    }
-
-    return matches_type && stats.mining_level >= get_required_mining_level(terrain_material);
+    return tool_tag_matches(material->required_tool_tag, stats.type)
+        && stats.mining_level >= material->required_mining_level;
 }
 
 bool GDGameCommandServer::player_has_tool_named(const String& tool_name) const {
@@ -607,75 +610,44 @@ int64_t GDGameCommandServer::get_equipped_item() const {
     return equipment_->get_equipped(GDPlayerEquipment::SLOT_MAIN_HAND);
 }
 
-Array GDGameCommandServer::get_terrain_drops(int32_t terrain_material) {
+int32_t GDGameCommandServer::get_air_material_id() const {
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->roles.air);
+}
+
+Array GDGameCommandServer::get_terrain_drops(int32_t terrain_material) const {
     Array drops;
-    switch (terrain_material) {
-        case MAT_STONE:
-            drops.append(stack_dict(
-                mat_item(gt::materials::STONE, gt::MaterialForm::DUST), 1));
-            break;
-        case MAT_DIRT:
-        case MAT_SAND:
-            drops.append(stack_dict(
-                mat_item(gt::materials::STONE, gt::MaterialForm::TINY_DUST), 1));
-            break;
-        case MAT_WOOD:
-            drops.append(stack_dict(
-                mat_item(gt::materials::WOOD, gt::MaterialForm::DUST), 1));
-            break;
-        case MAT_ORE_COAL:
-            drops.append(stack_dict(
-                mat_item(gt::materials::COAL, gt::MaterialForm::GEM), 1));
-            break;
-        case MAT_ORE_COPPER:
-            drops.append(stack_dict(
-                mat_item(gt::materials::COPPER, gt::MaterialForm::CRUSHED),
-                1 + static_cast<int32_t>(UtilityFunctions::randi() % 2)));
-            break;
-        case MAT_ORE_IRON:
-            drops.append(stack_dict(
-                mat_item(gt::materials::IRON, gt::MaterialForm::CRUSHED), 1));
-            break;
-        default:
-            break;
+    if (world_data_ == nullptr) {
+        return drops;
+    }
+
+    const auto snapshot = world_data_->get_worldgen_snapshot();
+    const auto* material = snapshot->find_material(
+        static_cast<TerrainMaterialId>(terrain_material));
+    if (material == nullptr) {
+        return drops;
+    }
+
+    for (const auto& drop : material->drops) {
+        if (drop.item_id == gt::kInvalidItemId) continue;
+        if (drop.chance <= 0.0f) continue;
+        if (drop.chance < 1.0f) {
+            const float roll = static_cast<float>(UtilityFunctions::randf());
+            if (roll > drop.chance) continue;
+        }
+
+        int32_t count = std::max(1, drop.count);
+        const int32_t min_count = std::max(1, drop.min_count);
+        const int32_t max_count = std::max(min_count, drop.max_count);
+        if (max_count > min_count) {
+            count = min_count + static_cast<int32_t>(
+                UtilityFunctions::randi() % static_cast<uint64_t>(max_count - min_count + 1));
+        }
+        drops.append(stack_dict(static_cast<int64_t>(drop.item_id), count));
     }
     return drops;
-}
-
-int32_t GDGameCommandServer::get_required_tool_type(int32_t terrain_material) {
-    switch (terrain_material) {
-        case MAT_WOOD:
-        case MAT_LEAVES:
-            return static_cast<int32_t>(gt::WOODEN_AXE);
-        case MAT_STONE:
-        case MAT_ORE_IRON:
-        case MAT_ORE_COPPER:
-        case MAT_ORE_COAL:
-            return static_cast<int32_t>(gt::WOODEN_PICKAXE);
-        case MAT_DIRT:
-        case MAT_SAND:
-            return static_cast<int32_t>(gt::WOODEN_SHOVEL);
-        default:
-            return -1;
-    }
-}
-
-int32_t GDGameCommandServer::get_required_mining_level(int32_t terrain_material) {
-    switch (terrain_material) {
-        case MAT_DIRT:
-        case MAT_SAND:
-        case MAT_WOOD:
-        case MAT_LEAVES:
-        case MAT_ORE_COAL:
-            return 0;
-        case MAT_STONE:
-        case MAT_ORE_COPPER:
-            return 1;
-        case MAT_ORE_IRON:
-            return 2;
-        default:
-            return 0;
-    }
 }
 
 bool GDGameCommandServer::get_tool_stats_for_item(int64_t item_id,

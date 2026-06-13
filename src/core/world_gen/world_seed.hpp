@@ -56,7 +56,7 @@ public:
     // a globally unique int64_t that is reproducible across sessions.
     // Hash is masked to non-negative range for safe GDScript interop.
     int64_t connector_id(const std::string& layer_id,
-                          int global_x, int global_y, int index) const {
+                           int global_x, int global_y, int index) const {
         uint64_t h = sub_seed(static_cast<uint32_t>(GenerationPass::GAMEPLAY));
         h ^= std::hash<std::string>{}(layer_id) * 0x9e3779b97f4a7c15ULL;
         h ^= static_cast<uint64_t>(global_x) * 0x9e3779b97f4a7c15ULL;
@@ -65,7 +65,20 @@ public:
         h ^= h >> 33;
         h *= 0xff51afd7ed558ccdULL;
         h ^= h >> 33;
-        return h;
+        return static_cast<int64_t>(h & 0x7FFFFFFFFFFFFFFFULL);
+    }
+
+    std::string mechanism_id(const std::string& layer_id,
+                             int global_x, int global_y, int index) const {
+        uint64_t h = sub_seed(static_cast<uint32_t>(GenerationPass::GAMEPLAY) + 17);
+        h ^= std::hash<std::string>{}(layer_id) * 0x9e3779b97f4a7c15ULL;
+        h ^= static_cast<uint64_t>(global_x) * 0x9e3779b97f4a7c15ULL;
+        h ^= static_cast<uint64_t>(global_y) * 0x85ebca6b122509bbULL;
+        h ^= static_cast<uint64_t>(index) * 0xc4ceb9fe1a85ec53ULL;
+        h ^= h >> 33;
+        h *= 0xff51afd7ed558ccdULL;
+        h ^= h >> 33;
+        return "mechanism_" + std::to_string(h & 0x7FFFFFFFFFFFFFFFULL);
     }
 
     bool operator==(const WorldSeed& other) const {

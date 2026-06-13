@@ -179,14 +179,15 @@ func _get_terrain_tile_map() -> Dictionary:
 	# Maps atlas coords -> { physics, liquid, nav, terrain }.
 	# Surface terrain tiles.
 	var m := {}
-	var s := TerrainType.DIRT
+	var dirt := TerrainType.DIRT
+	var sand := TerrainType.SAND
 	var stone := TerrainType.STONE
 	var water := TerrainType.WATER
 	var lava := TerrainType.LAVA
 
 	# Row 0: Surface ground.
 	for x in range(4):
-		m[Vector2i(x, 0)] = { "physics": true, "nav": true, "terrain": s }
+		m[Vector2i(x, 0)] = { "physics": true, "nav": true, "terrain": dirt }
 
 	m[Vector2i(4, 0)] = { "physics": true, "nav": false, "terrain": stone }
 	m[Vector2i(5, 0)] = { "physics": true, "nav": false, "terrain": stone }
@@ -194,12 +195,12 @@ func _get_terrain_tile_map() -> Dictionary:
 	m[Vector2i(7, 0)] = { "physics": true, "nav": false, "terrain": stone }
 	m[Vector2i(8, 0)] = { "physics": false, "liquid": true, "nav": false, "terrain": water }
 	m[Vector2i(9, 0)] = { "physics": false, "liquid": true, "nav": false, "terrain": lava }
-	m[Vector2i(10, 0)] = { "physics": true, "nav": true, "terrain": s }
-	m[Vector2i(11, 0)] = { "physics": true, "nav": true, "terrain": s }
+	m[Vector2i(10, 0)] = { "physics": true, "nav": true, "terrain": dirt }
+	m[Vector2i(11, 0)] = { "physics": true, "nav": true, "terrain": dirt }
 
-	# Row 1: Surface misc.
+	# Row 1: Sand surface variants.
 	for x in range(12):
-		m[Vector2i(x, 1)] = { "physics": true, "nav": true, "terrain": s }
+		m[Vector2i(x, 1)] = { "physics": true, "nav": true, "terrain": sand }
 
 	# Row 2: Surface decorations (sparse).
 	m[Vector2i(1, 2)] = { "physics": false, "nav": true, "terrain": -1 }
@@ -229,9 +230,10 @@ func _get_terrain_tile_map() -> Dictionary:
 	for x in range(5):
 		m[Vector2i(x, 4)] = { "physics": true, "nav": true, "terrain": cave }
 	m[Vector2i(5, 4)] = { "physics": true, "nav": true, "terrain": cave }
-	m[Vector2i(6, 4)] = { "physics": true, "nav": true, "terrain": cave }
-	m[Vector2i(7, 4)] = { "physics": true, "nav": true, "terrain": cave }
-	m[Vector2i(8, 4)] = { "physics": true, "nav": true, "terrain": cave }
+	m[Vector2i(6, 4)] = { "physics": true, "nav": true, "terrain": sand }
+	m[Vector2i(7, 4)] = { "physics": true, "nav": true, "terrain": sand }
+	m[Vector2i(8, 4)] = { "physics": true, "nav": true, "terrain": sand }
+	m[Vector2i(9, 4)] = { "physics": true, "nav": true, "terrain": sand }
 	m[Vector2i(10, 4)] = { "physics": false, "nav": true, "terrain": -1 }
 	m[Vector2i(11, 4)] = { "physics": false, "nav": true, "terrain": -1 }
 

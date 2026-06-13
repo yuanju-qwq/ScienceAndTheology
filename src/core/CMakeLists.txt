@@ -64,6 +64,8 @@ target_sources(snt_core PRIVATE
     world_gen/world_seed.hpp
     world_gen/noise_generator.hpp
     world_gen/noise_generator.cpp
+    world_gen/world_gen_config.hpp
+    world_gen/world_gen_config.cpp
     world_gen/terrain_generator.hpp
     world_gen/terrain_generator.cpp
 )

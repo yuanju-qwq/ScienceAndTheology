@@ -1,6 +1,7 @@
 #pragma once
 
 #include <godot_cpp/classes/tile_map_layer.hpp>
+#include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
@@ -9,6 +10,7 @@
 
 #include "core/world/chunk_data.hpp"
 #include "godot_adapters/terrain_material_palette.hpp"
+#include "gd_world_gen_config.h"
 
 namespace science_and_theology {
 
@@ -41,6 +43,9 @@ public:
     void set_chunk_y(int y);
     int get_chunk_y() const;
 
+    void set_worldgen_config(godot::Resource* config);
+    godot::Resource* get_worldgen_config() const;
+
     /// Populates this TileMapLayer from a terrain data dictionary.
     /// The dictionary format matches GDWorldData.get_chunk_terrain() output:
     ///   { "size_x": int, "size_y": int,
@@ -64,6 +69,7 @@ private:
     int chunk_y_ = 0;
 
     TerrainMaterialPalette palette_;
+    godot::Ref<GDWorldGenConfig> worldgen_config_resource_;
 };
 
 } // namespace science_and_theology

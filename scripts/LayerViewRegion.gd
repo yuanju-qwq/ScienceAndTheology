@@ -6,15 +6,12 @@ enum ViewMode {
 	DUAL_LAYER,
 }
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 @export var region_id: StringName = &""
-@export var trigger_layer: StringName = SURFACE_LAYER
+@export var trigger_layer: StringName = WorldLayers.SURFACE
 @export var center_cell: Vector2i = Vector2i.ZERO
 @export var radius := 1
 @export var view_mode := ViewMode.LOCAL_PEEK
-@export var revealed_layer: StringName = UNDERGROUND_LAYER
+@export var revealed_layer: StringName = WorldLayers.UNDERGROUND
 @export var active_alpha := 1.0
 @export var secondary_alpha := 0.42
 @export var show_revealed_layer := false

@@ -85,18 +85,7 @@ func _try_mine() -> void:
 		return
 	var material := int(dict["material"])
 	var mineable := bool(dict["is_mineable"])
-	if not mineable or material == GDWorldData.MAT_AIR:
-		return
-
-	var required_tool_type := TerrainDropTable.get_required_tool_type(material)
-	var required_level := TerrainDropTable.get_required_mining_level(material)
-
-	var has_right_tool := true
-	if required_tool_type >= 0:
-		has_right_tool = false
-		if _check_has_tool(required_tool_type, required_level):
-			has_right_tool = true
-	if not has_right_tool:
+	if not mineable or material == _get_air_material_id(world_data):
 		return
 
 	var result: Dictionary = _command_server.submit_command({
@@ -131,6 +120,13 @@ func _check_has_tool(tool_type: int, min_level: int) -> bool:
 		_:
 			matches_type = true
 	return matches_type and stats.mining_level >= min_level
+
+
+func _get_air_material_id(world_data: GDWorldData) -> int:
+	var config := world_data.get_worldgen_config() as GDWorldGenConfig
+	if config == null:
+		return 0
+	return int(config.get_material_roles().get("air", 0))
 
 
 func _get_equipped_item() -> int:

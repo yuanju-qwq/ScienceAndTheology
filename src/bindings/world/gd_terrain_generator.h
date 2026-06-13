@@ -3,6 +3,7 @@
 #include <memory>
 
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
@@ -10,6 +11,7 @@
 
 #include "core/world/world_data.hpp"
 #include "core/world_gen/terrain_generator.hpp"
+#include "gd_world_gen_config.h"
 
 namespace science_and_theology {
 
@@ -32,6 +34,10 @@ public:
     int64_t get_seed() const;
     void set_seed(int64_t seed);
 
+    void set_worldgen_config(godot::Resource* config);
+    godot::Resource* get_worldgen_config() const;
+    int64_t get_worldgen_content_hash() const;
+
     // Generates a chunk and returns its terrain data as a Dictionary.
     // Returns: { "size_x": int, "size_y": int,
     //            "materials": PackedByteArray, "flags": PackedInt32Array }
@@ -45,6 +51,8 @@ private:
     void rebuild_generator();
 
     std::unique_ptr<TerrainGenerator> generator_;
+    godot::Ref<GDWorldGenConfig> worldgen_config_resource_;
+    std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;
     int64_t seed_ = 0;
 };
 

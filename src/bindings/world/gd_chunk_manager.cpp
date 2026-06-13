@@ -284,6 +284,7 @@ void GDChunkManager::show_chunk(const String& layer, int cx, int cy) {
     view->set_layer_id(layer);
     view->set_chunk_x(cx);
     view->set_chunk_y(cy);
+    view->set_worldgen_config(gd_world->get_worldgen_config());
 
     // Position at world coordinates.
     position_chunk_view(view, cx, cy);

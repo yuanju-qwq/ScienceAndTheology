@@ -6,11 +6,8 @@ enum ActivationMode {
 	AUTO_ON_ENTER,
 }
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 @export var mechanism_id: StringName = &""
-@export var layer_id: StringName = SURFACE_LAYER
+@export var layer_id: StringName = WorldLayers.SURFACE
 @export var cell_position: Vector2i = Vector2i.ZERO
 @export var display_name := "Mechanism"
 @export var action_label := "Use Mechanism"

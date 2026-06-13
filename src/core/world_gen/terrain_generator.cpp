@@ -2,12 +2,16 @@
 
 #include <cmath>
 #include <random>
+#include <utility>
 #include <vector>
 
 namespace science_and_theology {
 
-TerrainGenerator::TerrainGenerator(WorldSeed seed)
-    : world_seed_(seed) {}
+TerrainGenerator::TerrainGenerator(
+    WorldSeed seed,
+    std::shared_ptr<const WorldGenConfigSnapshot> config)
+    : world_seed_(seed),
+      config_(config ? std::move(config) : make_empty_world_gen_config()) {}
 
 ChunkData TerrainGenerator::generate_chunk(
     const std::string& layer_id, int chunk_x, int chunk_y) {
@@ -31,6 +35,11 @@ ChunkData TerrainGenerator::generate_chunk(
 void TerrainGenerator::pass_base_terrain(
     const std::string& layer_id, int chunk_x, int chunk_y,
     TerrainData& terrain) {
+    const auto* rule = config_->find_base_rule(layer_id);
+    if (rule == nullptr) {
+        return;
+    }
+
     // Each layer gets its own noise generator via sub-seed.
     NoiseGenerator elevation_noise(
         world_seed_.chunk_seed(
@@ -47,57 +56,58 @@ void TerrainGenerator::pass_base_terrain(
             int global_x = chunk_x * ChunkData::kChunkSize + x;
             int global_y = chunk_y * ChunkData::kChunkSize + y;
 
-            if (layer_id == "surface") {
+            if (rule->mode == "surface_elevation") {
                 // Large-scale elevation: dirt plains with water bodies.
                 float elevation = elevation_noise.noise_2d_scaled(
                     static_cast<float>(global_x),
                     static_cast<float>(global_y),
-                    0.02f, 4);
+                    rule->elevation_scale, rule->elevation_octaves);
 
                 float feature = detail_noise.noise_2d_scaled(
                     static_cast<float>(global_x + 10000),
                     static_cast<float>(global_y + 10000),
-                    0.05f, 3);
+                    rule->detail_scale, rule->detail_octaves);
 
                 // Water where elevation is low and feature supports it.
-                bool is_water = (elevation < -0.25f) && (feature < 0.3f);
+                bool is_water = (elevation < rule->water_elevation_max) &&
+                                (feature < rule->water_detail_max);
 
                 // Stone cliffs where elevation is very low or very high.
-                bool is_stone = (elevation < -0.55f) || (elevation > 0.55f);
+                bool is_stone = (elevation < -rule->stone_elevation_abs_min) ||
+                                (elevation > rule->stone_elevation_abs_min);
 
                 if (is_water) {
-                    set_cell(terrain, x, y, TerrainMaterial::WATER);
+                    set_cell_id(terrain, x, y, rule->low_elevation_material);
                 } else if (is_stone) {
-                    set_cell(terrain, x, y, TerrainMaterial::STONE);
+                    set_cell_id(terrain, x, y, rule->high_elevation_material);
                 } else {
-                    set_cell(terrain, x, y, TerrainMaterial::DIRT);
+                    set_cell_id(terrain, x, y, rule->default_material);
                 }
-            } else if (layer_id == "underground") {
+            } else if (rule->mode == "caves") {
                 // Underground: solid stone with cave tunnels (air pockets).
                 float cave_noise = elevation_noise.noise_2d_scaled(
                     static_cast<float>(global_x),
                     static_cast<float>(global_y),
-                    0.04f, 4);
+                    rule->cave_scale, rule->cave_octaves);
 
                 // Caves: regions where noise is above threshold.
                 // Higher threshold = fewer caves.
-                float cave_threshold = 0.35f;
+                float cave_threshold = rule->cave_threshold;
 
                 // Make caves more open near chunk center, tighter at edges.
                 float center_dist_x = std::abs(x - ChunkData::kChunkSize / 2.0f);
                 float center_dist_y = std::abs(y - ChunkData::kChunkSize / 2.0f);
                 float edge_factor = std::max(center_dist_x, center_dist_y)
                     / (ChunkData::kChunkSize / 2.0f);
-                cave_threshold += edge_factor * 0.25f;
+                cave_threshold += edge_factor * rule->cave_edge_threshold_add;
 
                 if (cave_noise > cave_threshold) {
-                    set_cell(terrain, x, y, TerrainMaterial::AIR);
+                    set_cell_id(terrain, x, y, rule->cave_air_material);
                 } else {
-                    set_cell(terrain, x, y, TerrainMaterial::STONE);
+                    set_cell_id(terrain, x, y, rule->default_material);
                 }
             } else {
-                // Unknown layer: fill with stone.
-                set_cell(terrain, x, y, TerrainMaterial::STONE);
+                set_cell_id(terrain, x, y, rule->default_material);
             }
         }
     }
@@ -111,6 +121,16 @@ void TerrainGenerator::pass_biome(
         static_cast<uint32_t>(GenerationPass::BIOME), chunk_x, chunk_y));
     NoiseGenerator humidity_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::BIOME) + 1, chunk_x, chunk_y));
+
+    std::vector<const BiomeRule*> rules;
+    for (const auto& rule : config_->biome_rules) {
+        if (rule.layer_id == layer_id) {
+            rules.push_back(&rule);
+        }
+    }
+    if (rules.empty()) {
+        return;
+    }
 
     for (int y = 0; y < ChunkData::kChunkSize; ++y) {
         for (int x = 0; x < ChunkData::kChunkSize; ++x) {
@@ -127,88 +147,37 @@ void TerrainGenerator::pass_biome(
                 static_cast<float>(global_y + 2000),
                 0.02f, 3);
 
-            if (layer_id == "surface") {
-                // Only adjust walkable (DIRT/SAND) or STONE cells.
-                if (cell.material == TerrainMaterial::DIRT) {
-                    // Desert: hot and dry → replace with SAND.
-                    if (temperature > 0.3f && humidity < -0.2f) {
-                        set_cell(terrain, x, y, TerrainMaterial::SAND);
+            for (const BiomeRule* rule : rules) {
+                if (!is_material(cell, rule->source_material)) {
+                    continue;
+                }
+                if (temperature < rule->temperature_min ||
+                    temperature > rule->temperature_max ||
+                    humidity < rule->humidity_min ||
+                    humidity > rule->humidity_max) {
+                    continue;
+                }
+                if (rule->requires_near_material &&
+                    !has_near_material(terrain, x, y, rule->near_material, rule->near_radius)) {
+                    continue;
+                }
+                if (rule->requires_floor_support &&
+                    !has_floor_support(terrain, x, y, rule->support_material)) {
+                    continue;
+                }
+                if (rule->detail_threshold > -1.0f) {
+                    float detail = humidity_noise.noise_2d_scaled(
+                        static_cast<float>(global_x + 4000),
+                        static_cast<float>(global_y + 4000),
+                        rule->detail_scale,
+                        rule->detail_octaves);
+                    if (detail <= rule->detail_threshold) {
                         continue;
                     }
-                    // Beach: moderate temperature near water (check neighbors).
-                    bool near_water = false;
-                    for (int dy = -2; dy <= 2 && !near_water; ++dy) {
-                        for (int dx = -2; dx <= 2 && !near_water; ++dx) {
-                            int nx = x + dx;
-                            int ny = y + dy;
-                            if (terrain.is_valid_cell(nx, ny) &&
-                                terrain.cell_at(nx, ny).material == TerrainMaterial::WATER) {
-                                near_water = true;
-                            }
-                        }
-                    }
-                    if (near_water) {
-                        set_cell(terrain, x, y, TerrainMaterial::SAND);
-                        continue;
-                    }
-                    // Rocky highlands: cold + low humidity → STONE outcrops.
-                    if (temperature < -0.4f && humidity < -0.1f) {
-                        set_cell(terrain, x, y, TerrainMaterial::STONE);
-                        continue;
-                    }
-                    // Fertile: warm + humid → leave as DIRT (default).
                 }
-            } else if (layer_id == "underground") {
-                // Biome adjustments for underground:
-                // Dirt floors in caves where temperature is moderate.
-                if (cell.material == TerrainMaterial::AIR) {
-                    // Check if this cave floor has stone nearby → leave as air.
-                    bool is_floor_candidate = false;
-                    for (int dy = 1; dy <= 2; ++dy) {
-                        int ny = y + dy;
-                        if (terrain.is_valid_cell(x, ny) &&
-                            terrain.cell_at(x, ny).is_solid()) {
-                            is_floor_candidate = true;
-                            break;
-                        }
-                    }
-                    // Place dirt on some cave floors for walkable paths.
-                    if (is_floor_candidate && temperature > 0.1f &&
-                        humidity > 0.0f) {
-                        float floor_noise = humidity_noise.noise_2d_scaled(
-                            static_cast<float>(global_x + 4000),
-                            static_cast<float>(global_y + 4000),
-                            0.1f, 2);
-                        if (floor_noise > 0.2f) {
-                            set_cell(terrain, x, y, TerrainMaterial::DIRT);
-                        }
-                    }
-                }
-                // Sand patches in dry underground caves.
-                if (cell.material == TerrainMaterial::AIR) {
-                    bool below_stone = false;
-                    for (int dy = -1; dy <= 1 && !below_stone; ++dy) {
-                        for (int dx = -1; dx <= 1; ++dx) {
-                            int nx = x + dx;
-                            int ny = y + dy;
-                            if (terrain.is_valid_cell(nx, ny) &&
-                                terrain.cell_at(nx, ny).material == TerrainMaterial::STONE &&
-                                y + dy > y) {
-                                below_stone = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (below_stone && temperature < -0.2f && humidity < -0.1f) {
-                        float sand_noise = temp_noise.noise_2d_scaled(
-                            static_cast<float>(global_x + 6000),
-                            static_cast<float>(global_y + 6000),
-                            0.08f, 2);
-                        if (sand_noise > 0.3f) {
-                            set_cell(terrain, x, y, TerrainMaterial::SAND);
-                        }
-                    }
-                }
+
+                set_cell_id(terrain, x, y, rule->result_material);
+                break;
             }
         }
     }
@@ -217,6 +186,16 @@ void TerrainGenerator::pass_biome(
 void TerrainGenerator::pass_ore(
     const std::string& layer_id, int chunk_x, int chunk_y,
     TerrainData& terrain) {
+    std::vector<const OreVeinRule*> rules;
+    for (const auto& rule : config_->ore_vein_rules) {
+        if (rule.layer_id == layer_id) {
+            rules.push_back(&rule);
+        }
+    }
+    if (rules.empty()) {
+        return;
+    }
+
     NoiseGenerator ore_noise(
         world_seed_.chunk_seed(
             static_cast<uint32_t>(GenerationPass::ORE),
@@ -229,9 +208,6 @@ void TerrainGenerator::pass_ore(
     for (int y = 0; y < ChunkData::kChunkSize; ++y) {
         for (int x = 0; x < ChunkData::kChunkSize; ++x) {
             TerrainCell& cell = terrain.cell_at(x, y);
-            if (!is_stone_cell(cell)) {
-                continue;
-            }
 
             int global_x = chunk_x * ChunkData::kChunkSize + x;
             int global_y = chunk_y * ChunkData::kChunkSize + y;
@@ -251,12 +227,14 @@ void TerrainGenerator::pass_ore(
             // Each ore type has a density window.
             float combined = ore_density * 0.5f + vein_shape * 0.5f;
 
-            if (combined > 0.5f) {
-                set_cell(terrain, x, y, TerrainMaterial::ORE_IRON);
-            } else if (combined > 0.25f && combined <= 0.5f) {
-                set_cell(terrain, x, y, TerrainMaterial::ORE_COPPER);
-            } else if (combined > 0.05f && combined <= 0.25f) {
-                set_cell(terrain, x, y, TerrainMaterial::ORE_COAL);
+            for (const OreVeinRule* rule : rules) {
+                if (!is_material(cell, rule->host_material)) {
+                    continue;
+                }
+                if (combined > rule->combined_min && combined <= rule->combined_max) {
+                    set_cell_id(terrain, x, y, rule->ore_material);
+                    break;
+                }
             }
         }
     }
@@ -265,6 +243,7 @@ void TerrainGenerator::pass_ore(
 void TerrainGenerator::pass_structure(
     const std::string& layer_id, int chunk_x, int chunk_y,
     TerrainData& terrain) {
+    const auto mat = materials();
     NoiseGenerator struct_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::STRUCTURE), chunk_x, chunk_y));
     NoiseGenerator detail_noise(world_seed_.chunk_seed(
@@ -293,7 +272,7 @@ void TerrainGenerator::pass_structure(
             if (layer_id == "surface") {
                 // Stone hill formations where anchor noise is high.
                 if (anchor > 0.55f && placement > 0.3f &&
-                    terrain.cell_at(x, y).material == TerrainMaterial::DIRT) {
+                    is_material(terrain.cell_at(x, y), mat.dirt)) {
                     int radius = static_cast<int>(2 + (anchor - 0.55f) * 4);
                     for (int dy = -radius; dy <= radius; ++dy) {
                         for (int dx = -radius; dx <= radius; ++dx) {
@@ -308,10 +287,9 @@ void TerrainGenerator::pass_structure(
 
                             // Inner ring → stone, outer → keep existing.
                             TerrainCell& nc = terrain.cell_at(nx, ny);
-                            if (nc.material == TerrainMaterial::DIRT ||
-                                nc.material == TerrainMaterial::SAND) {
+                            if (is_walkable_ground_cell(nc)) {
                                 if (dist < max_dist * 0.5f) {
-                                    set_cell(terrain, nx, ny, TerrainMaterial::STONE);
+                                    set_cell_id(terrain, nx, ny, mat.stone);
                                 } else if (dist < max_dist * 0.8f) {
                                     // Transition zone: stone with some dirt.
                                     float transition = detail_noise.noise_2d_scaled(
@@ -319,7 +297,7 @@ void TerrainGenerator::pass_structure(
                                         static_cast<float>(global_y + dy * 7 + 5000),
                                         0.15f, 1);
                                     if (transition > 0.0f) {
-                                        set_cell(terrain, nx, ny, TerrainMaterial::STONE);
+                                        set_cell_id(terrain, nx, ny, mat.stone);
                                     }
                                 }
                             }
@@ -328,22 +306,21 @@ void TerrainGenerator::pass_structure(
                 }
 
                 // Cliff edges: carve stone into tall vertical faces near water.
-                if (terrain.cell_at(x, y).material == TerrainMaterial::WATER) {
+                if (is_material(terrain.cell_at(x, y), mat.water)) {
                     // Look upward for dirt/stone to turn into cliff.
                     for (int dy = 1; dy <= 3; ++dy) {
                         int ny = y - dy;
                         if (!terrain.is_valid_cell(x, ny)) break;
                         TerrainCell& nc = terrain.cell_at(x, ny);
-                        if (nc.material == TerrainMaterial::DIRT &&
+                        if (is_material(nc, mat.dirt) &&
                             anchor > 0.3f && placement > 0.0f) {
-                            set_cell(terrain, x, ny, TerrainMaterial::STONE);
+                            set_cell_id(terrain, x, ny, mat.stone);
                         }
                     }
                 }
 
                 // Cross-layer: surface sinkholes above underground caverns.
-                if ((terrain.cell_at(x, y).material == TerrainMaterial::DIRT ||
-                     terrain.cell_at(x, y).material == TerrainMaterial::SAND) &&
+                if (is_walkable_ground_cell(terrain.cell_at(x, y)) &&
                     cross_noise.noise_2d_scaled(
                         static_cast<float>(global_x + 11000),
                         static_cast<float>(global_y + 11000),
@@ -358,19 +335,18 @@ void TerrainGenerator::pass_structure(
                             int ny = y + dy;
                             if (!terrain.is_valid_cell(nx, ny)) continue;
                             TerrainCell& nc = terrain.cell_at(nx, ny);
-                            if (nc.material != TerrainMaterial::DIRT &&
-                                nc.material != TerrainMaterial::SAND) continue;
+                            if (!is_walkable_ground_cell(nc)) continue;
                             if (dist > radius * 0.4f) {
-                                set_cell(terrain, nx, ny, TerrainMaterial::STONE);
+                                set_cell_id(terrain, nx, ny, mat.stone);
                             } else {
-                                set_cell(terrain, nx, ny, TerrainMaterial::AIR);
+                                set_cell_id(terrain, nx, ny, mat.air);
                             }
                         }
                     }
                 }
             } else if (layer_id == "underground") {
                 // Large cavern rooms: expand air pockets where anchor is high.
-                if (terrain.cell_at(x, y).material == TerrainMaterial::AIR &&
+                if (is_material(terrain.cell_at(x, y), mat.air) &&
                     anchor > 0.5f && placement > 0.2f) {
                     int carve_radius = static_cast<int>(2 + (anchor - 0.5f) * 5);
                     for (int dy = -carve_radius; dy <= carve_radius; ++dy) {
@@ -384,8 +360,8 @@ void TerrainGenerator::pass_structure(
                             if (!terrain.is_valid_cell(nx, ny)) continue;
 
                             TerrainCell& nc = terrain.cell_at(nx, ny);
-                            if (nc.material == TerrainMaterial::STONE) {
-                                set_cell(terrain, nx, ny, TerrainMaterial::AIR);
+                            if (is_material(nc, mat.stone)) {
+                                set_cell_id(terrain, nx, ny, mat.air);
                             }
                         }
                     }
@@ -398,17 +374,17 @@ void TerrainGenerator::pass_structure(
                         int ny = y + dy;
                         if (!terrain.is_valid_cell(x, ny)) break;
                         TerrainCell& nc = terrain.cell_at(x, ny);
-                        if (nc.material == TerrainMaterial::STONE) {
+                        if (is_material(nc, mat.stone)) {
                             // This air cell is just above stone → lava pool floor.
                             for (int py = y; py >= y - 1 && py >= 0; --py) {
                                 TerrainCell& pool_cell = terrain.cell_at(x, py);
-                                if (pool_cell.material == TerrainMaterial::AIR) {
+                                if (is_material(pool_cell, mat.air)) {
                                     float lava_chance = detail_noise.noise_2d_scaled(
                                         static_cast<float>(global_x + 7000),
                                         static_cast<float>(global_y + 7000),
                                         0.1f, 2);
                                     if (lava_chance > 0.4f) {
-                                        set_cell(terrain, x, py, TerrainMaterial::LAVA);
+                                        set_cell_id(terrain, x, py, mat.lava);
                                     }
                                 }
                             }
@@ -423,16 +399,16 @@ void TerrainGenerator::pass_structure(
                         int ny = y + dy;
                         if (!terrain.is_valid_cell(x, ny)) break;
                         TerrainCell& nc = terrain.cell_at(x, ny);
-                        if (nc.material == TerrainMaterial::STONE) {
+                        if (is_material(nc, mat.stone)) {
                             for (int py = y; py >= y - 1 && py >= 0; --py) {
                                 TerrainCell& pool_cell = terrain.cell_at(x, py);
-                                if (pool_cell.material == TerrainMaterial::AIR) {
+                                if (is_material(pool_cell, mat.air)) {
                                     float water_chance = detail_noise.noise_2d_scaled(
                                         static_cast<float>(global_x + 9000),
                                         static_cast<float>(global_y + 9000),
                                         0.08f, 2);
                                     if (water_chance > 0.3f) {
-                                        set_cell(terrain, x, py, TerrainMaterial::WATER);
+                                        set_cell_id(terrain, x, py, mat.water);
                                     }
                                 }
                             }
@@ -442,7 +418,7 @@ void TerrainGenerator::pass_structure(
                 }
 
                 // Cross-layer: underground entrance chambers below surface connectors.
-                if (y < 8 && terrain.cell_at(x, y).material == TerrainMaterial::STONE &&
+                if (y < 8 && is_material(terrain.cell_at(x, y), mat.stone) &&
                     cross_noise.noise_2d_scaled(
                         static_cast<float>(global_x + 13000),
                         static_cast<float>(global_y + 13000),
@@ -457,12 +433,12 @@ void TerrainGenerator::pass_structure(
                             int ny = y + dy;
                             if (!terrain.is_valid_cell(nx, ny)) continue;
                             TerrainCell& nc = terrain.cell_at(nx, ny);
-                            if (nc.material != TerrainMaterial::STONE) continue;
+                            if (!is_material(nc, mat.stone)) continue;
                             // Floor near bottom of chamber, walls elsewhere.
                             if (dy > 0 && dist < radius * 0.5f) {
-                                set_cell(terrain, nx, ny, TerrainMaterial::DIRT);
+                                set_cell_id(terrain, nx, ny, mat.dirt);
                             } else {
-                                set_cell(terrain, nx, ny, TerrainMaterial::AIR);
+                                set_cell_id(terrain, nx, ny, mat.air);
                             }
                         }
                     }
@@ -475,6 +451,7 @@ void TerrainGenerator::pass_structure(
 void TerrainGenerator::pass_object(
     const std::string& layer_id, int chunk_x, int chunk_y,
     TerrainData& terrain) {
+    const auto mat = materials();
     NoiseGenerator obj_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::OBJECT), chunk_x, chunk_y));
     NoiseGenerator place_noise(world_seed_.chunk_seed(
@@ -502,9 +479,7 @@ void TerrainGenerator::pass_object(
                 TerrainCell& cell = terrain.cell_at(x, y);
 
                 // --- Rock clusters on walkable terrain ---
-                if ((cell.material == TerrainMaterial::DIRT ||
-                     cell.material == TerrainMaterial::SAND) &&
-                    !cell.is_solid()) {
+                if (is_walkable_ground_cell(cell) && !cell.is_solid()) {
                     float rock_density = obj_noise.noise_2d_scaled(
                         static_cast<float>(global_x),
                         static_cast<float>(global_y),
@@ -524,9 +499,8 @@ void TerrainGenerator::pass_object(
                                 int ny = y + dy;
                                 if (!terrain.is_valid_cell(nx, ny)) continue;
                                 TerrainCell& nc = terrain.cell_at(nx, ny);
-                                if (nc.material == TerrainMaterial::DIRT ||
-                                    nc.material == TerrainMaterial::SAND) {
-                                    set_cell(terrain, nx, ny, TerrainMaterial::STONE);
+                                if (is_walkable_ground_cell(nc)) {
+                                    set_cell_id(terrain, nx, ny, mat.stone);
                                     used_positions.push_back({nx, ny});
                                 }
                             }
@@ -535,14 +509,14 @@ void TerrainGenerator::pass_object(
                 }
 
                 // --- Stone circles near water (ruin remains) ---
-                if (cell.material == TerrainMaterial::DIRT) {
+                if (is_material(cell, mat.dirt)) {
                     bool near_water = false;
                     for (int dy = -3; dy <= 3 && !near_water; ++dy) {
                         for (int dx = -3; dx <= 3 && !near_water; ++dx) {
                             int nx = x + dx;
                             int ny = y + dy;
                             if (terrain.is_valid_cell(nx, ny) &&
-                                terrain.cell_at(nx, ny).material == TerrainMaterial::WATER) {
+                                is_material(terrain.cell_at(nx, ny), mat.water)) {
                                 near_water = true;
                             }
                         }
@@ -561,8 +535,8 @@ void TerrainGenerator::pass_object(
                                     int ny = y + ring_dy;
                                     if (!terrain.is_valid_cell(nx, ny)) continue;
                                     TerrainCell& nc = terrain.cell_at(nx, ny);
-                                    if (nc.material == TerrainMaterial::DIRT) {
-                                        set_cell(terrain, nx, ny, TerrainMaterial::STONE);
+                                    if (is_material(nc, mat.dirt)) {
+                                        set_cell_id(terrain, nx, ny, mat.stone);
                                         used_positions.push_back({nx, ny});
                                     }
                                 }
@@ -584,7 +558,7 @@ void TerrainGenerator::pass_object(
                 TerrainCell& cell = terrain.cell_at(x, y);
 
                 // --- Stalactite pillars: stone from ceiling to floor ---
-                if (cell.material == TerrainMaterial::AIR) {
+                if (is_material(cell, mat.air)) {
                     // Check if there's stone above (ceiling) and below (floor).
                     bool has_ceiling = false;
                     bool has_floor = false;
@@ -626,8 +600,8 @@ void TerrainGenerator::pass_object(
                             for (int py = top; py <= bottom; ++py) {
                                 if (terrain.is_valid_cell(x, py)) {
                                     TerrainCell& pc = terrain.cell_at(x, py);
-                                    if (pc.material == TerrainMaterial::AIR) {
-                                        set_cell(terrain, x, py, TerrainMaterial::STONE);
+                                    if (is_material(pc, mat.air)) {
+                                        set_cell_id(terrain, x, py, mat.stone);
                                         used_positions.push_back({x, py});
                                     }
                                 }
@@ -637,7 +611,7 @@ void TerrainGenerator::pass_object(
                 }
 
                 // --- Ore cluster decorations near exposed ore veins ---
-                if (cell.material == TerrainMaterial::STONE) {
+                if (is_material(cell, mat.stone)) {
                     // Check if a nearby cell (within 2) already has ore.
                     bool near_ore = false;
                     for (int dy = -2; dy <= 2 && !near_ore; ++dy) {
@@ -645,10 +619,10 @@ void TerrainGenerator::pass_object(
                             int nx = x + dx;
                             int ny = y + dy;
                             if (terrain.is_valid_cell(nx, ny)) {
-                                auto nm = terrain.cell_at(nx, ny).material;
-                                if (nm == TerrainMaterial::ORE_IRON ||
-                                    nm == TerrainMaterial::ORE_COPPER ||
-                                    nm == TerrainMaterial::ORE_COAL) {
+                                auto nm = cell_material_id(terrain.cell_at(nx, ny));
+                                if (nm == mat.ore_iron ||
+                                    nm == mat.ore_copper ||
+                                    nm == mat.ore_coal) {
                                     near_ore = true;
                                 }
                             }
@@ -666,10 +640,10 @@ void TerrainGenerator::pass_object(
                                 static_cast<float>(global_x + 10000),
                                 static_cast<float>(global_y + 10000),
                                 0.15f, 1);
-                            TerrainMaterial ore_type = TerrainMaterial::ORE_COAL;
-                            if (type > 0.3f) ore_type = TerrainMaterial::ORE_COPPER;
-                            if (type > 0.6f) ore_type = TerrainMaterial::ORE_IRON;
-                            set_cell(terrain, x, y, ore_type);
+                            TerrainMaterialId ore_type = mat.ore_coal;
+                            if (type > 0.3f) ore_type = mat.ore_copper;
+                            if (type > 0.6f) ore_type = mat.ore_iron;
+                            set_cell_id(terrain, x, y, ore_type);
                             used_positions.push_back({x, y});
                         }
                     }
@@ -683,6 +657,7 @@ void TerrainGenerator::pass_gameplay(
     const std::string& layer_id,
     int chunk_x, int chunk_y,
     ChunkData& chunk) {
+    const auto mat = materials();
     NoiseGenerator placement_noise(
         world_seed_.chunk_seed(
             static_cast<uint32_t>(GenerationPass::GAMEPLAY),
@@ -711,7 +686,7 @@ void TerrainGenerator::pass_gameplay(
                         int ny = y + dy;
                         if (terrain.is_valid_cell(nx, ny)) {
                             const TerrainCell& neighbor = terrain.cell_at(nx, ny);
-                            if (neighbor.material == TerrainMaterial::STONE) {
+                            if (is_material(neighbor, mat.stone)) {
                                 near_stone = true;
                             }
                         }
@@ -776,7 +751,7 @@ void TerrainGenerator::pass_gameplay(
                 const TerrainCell& cell = terrain.cell_at(x, y);
 
                 // Connectors only in cave air pockets.
-                if (cell.material != TerrainMaterial::AIR) {
+                if (!is_material(cell, mat.air)) {
                     continue;
                 }
 
@@ -831,7 +806,29 @@ void TerrainGenerator::pass_gameplay(
                 conn.one_way = false;
                 conn.locked = true;
 
+                const int64_t connector_id = conn.connector_id;
                 chunk.connectors.push_back(std::move(conn));
+
+                MechanismPlacement mechanism;
+                mechanism.mechanism_id = world_seed_.mechanism_id(
+                    layer_id, global_x, global_y, placed);
+                mechanism.layer_id = "underground";
+                mechanism.cell_x = global_x;
+                mechanism.cell_y = global_y;
+                mechanism.display_name = "Ruin Gate Sigil";
+                mechanism.action_label = "Unlock Ruin Gate";
+                mechanism.flag_name = mechanism.mechanism_id + "_active";
+                mechanism.activation_mode = 0;  // INTERACT
+                mechanism.one_shot = true;
+
+                MechanismEffectPlacement effect;
+                effect.effect_type = "connector_locked";
+                effect.connector_id = connector_id;
+                effect.when_active = false;
+                effect.when_inactive = true;
+                mechanism.effects.push_back(std::move(effect));
+
+                chunk.mechanisms.push_back(std::move(mechanism));
                 ++placed;
             }
         }
@@ -840,14 +837,84 @@ void TerrainGenerator::pass_gameplay(
 
 void TerrainGenerator::set_cell(
     TerrainData& terrain, int x, int y, TerrainMaterial material) {
+    set_cell_id(terrain, x, y, static_cast<TerrainMaterialId>(material));
+}
+
+void TerrainGenerator::set_cell_id(
+    TerrainData& terrain, int x, int y, TerrainMaterialId material) {
     TerrainCell& cell = terrain.cell_at(x, y);
-    cell.material = material;
-    cell.flags = kTerrainMaterialFlags[
-        static_cast<size_t>(material)];
+    cell.material = static_cast<TerrainMaterial>(material);
+    cell.flags = flags_for_material_id(material);
+}
+
+uint32_t TerrainGenerator::flags_for_material(TerrainMaterial material) const {
+    return flags_for_material_id(static_cast<TerrainMaterialId>(material));
+}
+
+uint32_t TerrainGenerator::flags_for_material_id(TerrainMaterialId material) const {
+    return config_->flags_for_material(material);
+}
+
+TerrainMaterialId TerrainGenerator::cell_material_id(const TerrainCell& cell) const {
+    return static_cast<TerrainMaterialId>(cell.material);
 }
 
 bool TerrainGenerator::is_stone_cell(const TerrainCell& cell) const {
-    return cell.material == TerrainMaterial::STONE;
+    return is_material(cell, materials().stone);
+}
+
+bool TerrainGenerator::is_material(
+    const TerrainCell& cell, TerrainMaterialId material) const {
+    return cell_material_id(cell) == material;
+}
+
+bool TerrainGenerator::is_walkable_ground_cell(const TerrainCell& cell) const {
+    return config_->is_walkable_ground(cell_material_id(cell));
+}
+
+bool TerrainGenerator::has_near_material(
+    const TerrainData& terrain, int x, int y,
+    TerrainMaterialId material, int radius) const {
+    for (int dy = -radius; dy <= radius; ++dy) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            int nx = x + dx;
+            int ny = y + dy;
+            if (terrain.is_valid_cell(nx, ny) &&
+                is_material(terrain.cell_at(nx, ny), material)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool TerrainGenerator::has_floor_support(
+    const TerrainData& terrain, int x, int y,
+    TerrainMaterialId support_material) const {
+    for (int dy = 1; dy <= 2; ++dy) {
+        int ny = y + dy;
+        if (terrain.is_valid_cell(x, ny) &&
+            is_material(terrain.cell_at(x, ny), support_material)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+TerrainGenerator::MaterialIds TerrainGenerator::materials() const {
+    MaterialIds ids;
+    ids.air = config_->roles.air;
+    ids.stone = config_->roles.stone;
+    ids.dirt = config_->roles.dirt;
+    ids.sand = config_->roles.sand;
+    ids.water = config_->roles.water;
+    ids.lava = config_->roles.lava;
+    ids.ore_iron = config_->roles.ore_iron;
+    ids.ore_copper = config_->roles.ore_copper;
+    ids.ore_coal = config_->roles.ore_coal;
+    ids.wood = config_->roles.wood;
+    ids.leaves = config_->roles.leaves;
+    return ids;
 }
 
 float TerrainGenerator::cell_noise(
@@ -864,6 +931,7 @@ void TerrainGenerator::pass_tree(
     const std::string& layer_id, int chunk_x, int chunk_y,
     TerrainData& terrain) {
     if (layer_id != "surface") return;
+    const auto mat = materials();
 
     NoiseGenerator tree_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::OBJECT) + 10, chunk_x, chunk_y));
@@ -886,7 +954,7 @@ void TerrainGenerator::pass_tree(
             if (is_used(x, y)) continue;
 
             TerrainCell& cell = terrain.cell_at(x, y);
-            if (cell.material != TerrainMaterial::DIRT) continue;
+            if (!is_material(cell, mat.dirt)) continue;
 
             int global_x = chunk_x * ChunkData::kChunkSize + x;
             int global_y = chunk_y * ChunkData::kChunkSize + y;
@@ -906,7 +974,7 @@ void TerrainGenerator::pass_tree(
                     int nx = x + dx;
                     int ny = y + dy;
                     if (terrain.is_valid_cell(nx, ny) &&
-                        terrain.cell_at(nx, ny).material == TerrainMaterial::WATER) {
+                        is_material(terrain.cell_at(nx, ny), mat.water)) {
                         near_water = true;
                     }
                 }
@@ -914,7 +982,7 @@ void TerrainGenerator::pass_tree(
             if (near_water) continue;
 
             // Place trunk.
-            set_cell(terrain, x, y, TerrainMaterial::WOOD);
+            set_cell_id(terrain, x, y, mat.wood);
             used_positions.push_back({x, y});
 
             // Place canopy leaves around trunk.
@@ -934,8 +1002,7 @@ void TerrainGenerator::pass_tree(
                     if (!terrain.is_valid_cell(nx, ny)) continue;
 
                     TerrainCell& nc = terrain.cell_at(nx, ny);
-                    if (nc.material != TerrainMaterial::DIRT &&
-                        nc.material != TerrainMaterial::SAND) continue;
+                    if (!is_walkable_ground_cell(nc)) continue;
 
                     // Not all canopy cells fill in (gives natural shape).
                     float fill = canopy_noise.noise_2d_scaled(
@@ -944,7 +1011,7 @@ void TerrainGenerator::pass_tree(
                         0.2f, 1);
 
                     if (fill > 0.0f || (std::abs(dx) <= 1 && std::abs(dy) <= 1)) {
-                        set_cell(terrain, nx, ny, TerrainMaterial::LEAVES);
+                        set_cell_id(terrain, nx, ny, mat.leaves);
                         used_positions.push_back({nx, ny});
                     }
                 }

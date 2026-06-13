@@ -16,7 +16,7 @@ namespace science_and_theology {
 class ChunkSerializer {
 public:
     // Current binary format version.
-    static constexpr uint8_t kCurrentVersion = 2;
+    static constexpr uint8_t kCurrentVersion = 3;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
     // The chunk's layer_id is embedded as part of the serialized data.
@@ -63,9 +63,23 @@ private:
     // --- Connector serialization ---
 
     static void write_connector(std::vector<uint8_t>& buf,
-                                const ConnectorPlacement& conn);
+                                 const ConnectorPlacement& conn);
     static bool read_connector(const std::vector<uint8_t>& data,
                                size_t& offset, ConnectorPlacement& conn);
+
+    // --- Mechanism serialization ---
+
+    static void write_mechanism(std::vector<uint8_t>& buf,
+                                const MechanismPlacement& mechanism);
+    static bool read_mechanism(const std::vector<uint8_t>& data,
+                               size_t& offset, MechanismPlacement& mechanism);
+    static void write_mechanism_effect(
+        std::vector<uint8_t>& buf,
+        const MechanismEffectPlacement& effect);
+    static bool read_mechanism_effect(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        MechanismEffectPlacement& effect);
 };
 
 } // namespace science_and_theology

@@ -66,10 +66,9 @@ private:
     bool has_required_tool(int32_t terrain_material) const;
     bool player_has_tool_named(const godot::String& tool_name) const;
     int64_t get_equipped_item() const;
+    int32_t get_air_material_id() const;
 
-    static godot::Array get_terrain_drops(int32_t terrain_material);
-    static int32_t get_required_tool_type(int32_t terrain_material);
-    static int32_t get_required_mining_level(int32_t terrain_material);
+    godot::Array get_terrain_drops(int32_t terrain_material) const;
     static bool get_tool_stats_for_item(int64_t item_id, gt::ToolStats& out_stats);
     static bool tool_name_matches(int64_t item_id, const godot::String& tool_lower);
     static bool command_recipe_matches_registered_recipe(const godot::Dictionary& recipe);

@@ -11,6 +11,8 @@ set(SOURCES
     network/gd_item_pipe_network.cpp
     machine/gd_machine.cpp
     world/gd_world_data.cpp
+    world/gd_world_gen_config.cpp
+    world/gd_terrain_content_registry.cpp
     world/gd_terrain_generator.cpp
     world/gd_chunk_view.cpp
     world/gd_chunk_manager.cpp

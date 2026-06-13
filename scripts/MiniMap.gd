@@ -1,9 +1,6 @@
 class_name MiniMap
 extends Control
 
-const SURFACE_LAYER: StringName = &"surface"
-const UNDERGROUND_LAYER: StringName = &"underground"
-
 @export var layer_controller_path: NodePath = ^"../.."
 @export var exploration_tracker_path: NodePath = ^"../../ExplorationTracker"
 @export var connector_manager_path: NodePath = ^"../../ConnectorManager"
@@ -166,7 +163,7 @@ func _on_world_flags_changed() -> void:
 
 func _get_current_layer() -> StringName:
 	if layer_controller == null:
-		return SURFACE_LAYER
+		return WorldLayers.SURFACE
 
 	return layer_controller.current_layer
 
@@ -200,9 +197,9 @@ func _get_connector_cell_for_layer(connector, layer_id: StringName):
 
 func _get_layer_cell_color(layer_id: StringName) -> Color:
 	match layer_id:
-		SURFACE_LAYER:
+		WorldLayers.SURFACE:
 			return Color(0.2, 0.56, 0.34, 0.95)
-		UNDERGROUND_LAYER:
+		WorldLayers.UNDERGROUND:
 			return Color(0.42, 0.34, 0.55, 0.95)
 		_:
 			return Color(0.45, 0.45, 0.45, 0.95)
@@ -245,10 +242,4 @@ func _update_title() -> void:
 
 
 func _get_layer_display_name(layer_id: StringName) -> String:
-	match layer_id:
-		SURFACE_LAYER:
-			return "Surface"
-		UNDERGROUND_LAYER:
-			return "Underground"
-		_:
-			return String(layer_id).capitalize()
+	return WorldLayers.display_name(layer_id)

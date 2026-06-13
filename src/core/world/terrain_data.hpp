@@ -5,30 +5,8 @@
 
 namespace science_and_theology {
 
-// World material type, not rendering semantics.
-// Determines physical properties and gameplay behavior of each cell.
-enum class TerrainMaterial : uint8_t {
-    AIR = 0,
-    STONE,
-    DIRT,
-    SAND,
-    WATER,
-    LAVA,
-
-    ORE_IRON,
-    ORE_COPPER,
-    ORE_COAL,
-
-    WOOD,
-    LEAVES,
-};
-
-// Display name for each terrain material.
-constexpr const char* kTerrainMaterialNames[] = {
-    "Air", "Stone", "Dirt", "Sand", "Water", "Lava",
-    "Iron Ore", "Copper Ore", "Coal Ore",
-    "Wood", "Leaves",
-};
+using TerrainMaterialId = uint8_t;
+using TerrainMaterial = TerrainMaterialId;
 
 // Per-cell gameplay flags derived from material properties.
 enum TerrainFlags : uint32_t {
@@ -48,35 +26,9 @@ inline constexpr bool operator&(uint32_t a, TerrainFlags b) {
     return (a & static_cast<uint32_t>(b)) != 0;
 }
 
-// Default flags for each terrain material.
-constexpr uint32_t kTerrainMaterialFlags[] = {
-    // AIR
-    0,
-    // STONE
-    TF_SOLID | TF_MINEABLE,
-    // DIRT
-    TF_WALKABLE | TF_MINEABLE,
-    // SAND
-    TF_WALKABLE | TF_MINEABLE,
-    // WATER
-    TF_LIQUID,
-    // LAVA
-    TF_LIQUID,
-    // ORE_IRON
-    TF_SOLID | TF_MINEABLE,
-    // ORE_COPPER
-    TF_SOLID | TF_MINEABLE,
-    // ORE_COAL
-    TF_SOLID | TF_MINEABLE,
-    // WOOD
-    TF_SOLID | TF_MINEABLE,
-    // LEAVES
-    TF_WALKABLE | TF_MINEABLE,
-};
-
 // A single cell in the terrain grid.
 struct TerrainCell {
-    TerrainMaterial material = TerrainMaterial::AIR;
+    TerrainMaterial material = 0;
     uint32_t flags = 0;
 
     bool is_walkable() const { return flags & TF_WALKABLE; }
@@ -110,16 +62,14 @@ struct TerrainData {
     }
 
     void set_cell(int x, int y, TerrainMaterial material) {
-        set_cell(x, y, material,
-                 kTerrainMaterialFlags[static_cast<int>(material)]);
+        set_cell(x, y, material, 0);
     }
 
     void set_cell(int x, int y, TerrainMaterial material, uint32_t flags) {
         if (!is_valid_cell(x, y)) return;
         auto& cell = cells[static_cast<size_t>(y * size_x + x)];
         cell.material = material;
-        cell.flags = (flags != 0) ? flags
-                                  : kTerrainMaterialFlags[static_cast<int>(material)];
+        cell.flags = flags;
     }
 };
 
