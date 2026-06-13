@@ -1,5 +1,7 @@
 #include "gd_world_data.h"
 
+#include <algorithm>
+
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -120,6 +122,7 @@ void GDWorldData::rebuild_generator() {
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
         async_results_ = std::queue<AsyncChunkResult>();
+        pending_async_chunks_.clear();
     }
 
     if (!worldgen_config_) {
@@ -165,6 +168,11 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
     result["entities"] = entity_ids_to_array(chunk.entities);
     result["machines"] = entity_ids_to_array(chunk.machines);
     result["connector_ids"] = entity_ids_to_array(chunk.connector_ids);
+
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        pending_async_chunks_.erase(AsyncChunkKey{layer_str, chunk_x, chunk_y});
+    }
 
     world_.set_chunk(layer_str, chunk_x, chunk_y, std::move(chunk));
 
@@ -318,6 +326,12 @@ void GDWorldData::set_chunk_from_dict(
 
     world_.set_chunk(layer_id.utf8().get_data(), chunk_x, chunk_y,
                      std::move(chunk));
+
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        pending_async_chunks_.erase(AsyncChunkKey{
+            layer_id.utf8().get_data(), chunk_x, chunk_y});
+    }
 }
 
 godot::Dictionary GDWorldData::get_chunk_terrain(
@@ -358,6 +372,11 @@ godot::Array GDWorldData::get_chunk_mechanisms(
 
 void GDWorldData::remove_chunk(
     const godot::String& layer_id, int chunk_x, int chunk_y) {
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        pending_async_chunks_.erase(AsyncChunkKey{
+            layer_id.utf8().get_data(), chunk_x, chunk_y});
+    }
     world_.remove_chunk(layer_id.utf8().get_data(), chunk_x, chunk_y);
 }
 
@@ -374,6 +393,12 @@ godot::Array GDWorldData::get_all_chunk_keys() const {
 }
 
 void GDWorldData::clear() {
+    _drain_all_async_tasks();
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        async_results_ = std::queue<AsyncChunkResult>();
+        pending_async_chunks_.clear();
+    }
     world_.clear();
 }
 
@@ -610,11 +635,21 @@ void GDWorldData::request_chunk_async(
         return;
     }
 
-    // Reject if the async pipeline is at capacity.
-    // Prevents unbounded queue growth when generation outpaces consumption.
-    if (max_async_queue_size_ > 0 &&
-        get_async_pending_count() >= max_async_queue_size_) {
-        return;
+    AsyncChunkKey key{layer_str, chunk_x, chunk_y};
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        if (pending_async_chunks_.find(key) != pending_async_chunks_.end()) {
+            return;
+        }
+
+        // Reject if the async pipeline is at capacity.
+        // Prevents unbounded queue growth when generation outpaces consumption.
+        if (max_async_queue_size_ > 0 &&
+            static_cast<int64_t>(pending_async_chunks_.size()) >= max_async_queue_size_) {
+            return;
+        }
+
+        pending_async_chunks_.insert(key);
     }
 
     // TerrainGenerator::generate_chunk() is thread-safe:
@@ -629,6 +664,10 @@ void GDWorldData::request_chunk_async(
     if (task_id != WorkerThreadPool::INVALID_TASK_ID) {
         active_native_tasks_.push_back(task_id);
     } else {
+        {
+            std::lock_guard<std::mutex> lock(async_results_mutex_);
+            pending_async_chunks_.erase(key);
+        }
         delete td;
     }
 }
@@ -636,20 +675,38 @@ void GDWorldData::request_chunk_async(
 int64_t GDWorldData::process_async_results() {
     int64_t completed = 0;
 
-    // Drain results under lock, then process outside lock.
+    // Drain a bounded result batch under lock, then process outside lock.
     std::vector<AsyncChunkResult> batch;
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
-        while (!async_results_.empty()) {
+        int64_t budget = max_async_results_per_frame_;
+        while (!async_results_.empty() &&
+               (budget <= 0 || completed < budget)) {
             batch.push_back(std::move(async_results_.front()));
             async_results_.pop();
+            ++completed;
         }
     }
 
+    completed = 0;
     for (auto& result : batch) {
         godot::String gd_layer(result.layer_id.c_str());
         int cx = result.chunk_x;
         int cy = result.chunk_y;
+
+        {
+            std::lock_guard<std::mutex> lock(async_results_mutex_);
+            auto pending_it = pending_async_chunks_.find(
+                AsyncChunkKey{result.layer_id, cx, cy});
+            if (pending_it == pending_async_chunks_.end()) {
+                continue;
+            }
+            pending_async_chunks_.erase(pending_it);
+        }
+
+        if (world_.has_chunk(result.layer_id, cx, cy)) {
+            continue;
+        }
 
         // Store the generated chunk in the world.
         world_.set_chunk(result.layer_id, cx, cy, std::move(result.chunk));
@@ -675,15 +732,22 @@ int64_t GDWorldData::process_async_results() {
 }
 
 int64_t GDWorldData::get_async_pending_count() const {
-    int64_t pool_pending = static_cast<int64_t>(active_native_tasks_.size());
-
-    int64_t result_pending = 0;
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
-        result_pending = static_cast<int64_t>(async_results_.size());
+        return static_cast<int64_t>(pending_async_chunks_.size());
     }
+}
 
-    return pool_pending + result_pending;
+int64_t GDWorldData::get_async_result_queue_size() const {
+    std::lock_guard<std::mutex> lock(async_results_mutex_);
+    return static_cast<int64_t>(async_results_.size());
+}
+
+bool GDWorldData::is_chunk_async_pending(
+    const godot::String& layer_id, int chunk_x, int chunk_y) const {
+    std::lock_guard<std::mutex> lock(async_results_mutex_);
+    return pending_async_chunks_.find(AsyncChunkKey{
+        layer_id.utf8().get_data(), chunk_x, chunk_y}) != pending_async_chunks_.end();
 }
 
 int64_t GDWorldData::get_worker_thread_count() const {
@@ -702,6 +766,14 @@ void GDWorldData::set_max_async_queue_size(int64_t size) {
     max_async_queue_size_ = (size >= 0) ? size : 0;
 }
 
+int64_t GDWorldData::get_max_async_results_per_frame() const {
+    return max_async_results_per_frame_;
+}
+
+void GDWorldData::set_max_async_results_per_frame(int64_t count) {
+    max_async_results_per_frame_ = (count >= 0) ? count : 0;
+}
+
 void GDWorldData::_async_chunk_callback(void* userdata) {
     auto* td = static_cast<AsyncChunkTaskData*>(userdata);
     GDWorldData* self = td->world_data;
@@ -716,7 +788,11 @@ void GDWorldData::_async_chunk_callback(void* userdata) {
 
     {
         std::lock_guard<std::mutex> lock(self->async_results_mutex_);
-        self->async_results_.push(std::move(result));
+        if (self->pending_async_chunks_.find(AsyncChunkKey{
+                result.layer_id, result.chunk_x, result.chunk_y}) !=
+            self->pending_async_chunks_.end()) {
+            self->async_results_.push(std::move(result));
+        }
     }
 
     delete td;
@@ -741,6 +817,13 @@ int64_t GDWorldData::save_world(const godot::String& save_dir) {
 }
 
 int64_t GDWorldData::load_world(const godot::String& save_dir) {
+    _drain_all_async_tasks();
+    {
+        std::lock_guard<std::mutex> lock(async_results_mutex_);
+        async_results_ = std::queue<AsyncChunkResult>();
+        pending_async_chunks_.clear();
+    }
+
     std::string dir_str = save_dir.utf8().get_data();
 
     auto [ok, loaded_seed] = SaveManager::load_world(dir_str, world_);
@@ -838,6 +921,10 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::process_async_results);
     ClassDB::bind_method(D_METHOD("get_async_pending_count"),
                          &GDWorldData::get_async_pending_count);
+    ClassDB::bind_method(D_METHOD("get_async_result_queue_size"),
+                         &GDWorldData::get_async_result_queue_size);
+    ClassDB::bind_method(D_METHOD("is_chunk_async_pending", "layer_id", "chunk_x", "chunk_y"),
+                         &GDWorldData::is_chunk_async_pending);
     ClassDB::bind_method(D_METHOD("get_worker_thread_count"),
                          &GDWorldData::get_worker_thread_count);
     ClassDB::bind_method(D_METHOD("get_async_completed_count"),
@@ -848,6 +935,13 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::set_max_async_queue_size);
     ADD_PROPERTY(PropertyInfo(Variant::INT, "max_async_queue_size"),
                  "set_max_async_queue_size", "get_max_async_queue_size");
+    ClassDB::bind_method(D_METHOD("get_max_async_results_per_frame"),
+                         &GDWorldData::get_max_async_results_per_frame);
+    ClassDB::bind_method(D_METHOD("set_max_async_results_per_frame", "count"),
+                         &GDWorldData::set_max_async_results_per_frame);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "max_async_results_per_frame"),
+                 "set_max_async_results_per_frame",
+                 "get_max_async_results_per_frame");
 
     // Save / load.
     ClassDB::bind_method(D_METHOD("save_world", "save_dir"),

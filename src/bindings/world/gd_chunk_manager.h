@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
@@ -78,6 +79,19 @@ public:
     /// Default: false (keep all generated chunks in memory for simplicity).
     void set_unload_distant_chunks(bool enable);
     bool get_unload_distant_chunks() const;
+
+    /// Maximum new async chunk load requests issued per refresh_chunks() call.
+    /// Default: 12. Set to 0 for unlimited.
+    void set_max_chunk_load_requests_per_frame(int64_t count);
+    int64_t get_max_chunk_load_requests_per_frame() const;
+
+    /// Maximum GDChunkView instances created per refresh_chunks() call.
+    /// Default: 2. Set to 0 for unlimited.
+    void set_max_chunk_views_per_frame(int64_t count);
+    int64_t get_max_chunk_views_per_frame() const;
+
+    /// Returns the number of visible chunks queued for view creation.
+    int64_t get_pending_visible_chunk_count() const;
 
     // -- Player tracking --
 
@@ -167,11 +181,17 @@ private:
     bool is_within_view_radius(const std::string& layer, int cx, int cy) const;
     bool should_be_loaded(const ChunkPos& pos) const;
     bool should_be_visible(const ChunkPos& pos) const;
+    int64_t chunk_priority_distance_sq(const ChunkPos& pos) const;
 
     std::string layer_to_container_str(const std::string& layer) const;
     godot::Node* get_layer_container(const std::string& layer) const;
     godot::Node* ensure_layer_container(const std::string& layer);
     void position_chunk_view(GDChunkView* view, int cx, int cy);
+    void enqueue_chunk_view(const ChunkPos& pos);
+    void remove_queued_chunk_view(const ChunkPos& pos);
+    void prune_visible_chunk_queue(
+        const std::unordered_set<ChunkPos, ChunkPosHash>& should_be_visible_set);
+    int64_t process_visible_chunk_queue(int64_t budget);
 
     // World data reference.
     godot::Resource* world_data_ = nullptr;
@@ -181,6 +201,8 @@ private:
     int64_t view_radius_ = 6;
     int64_t tile_size_ = 32;
     bool unload_distant_chunks_ = false;
+    int64_t max_chunk_load_requests_per_frame_ = 12;
+    int64_t max_chunk_views_per_frame_ = 2;
     godot::NodePath surface_container_path_;
     godot::NodePath underground_container_path_;
 
@@ -194,6 +216,11 @@ private:
 
     // Chunk views (visual): ChunkPos -> GDChunkView*.
     std::unordered_map<ChunkPos, GDChunkView*, ChunkPosHash> visible_views_;
+
+    // Visible chunks waiting for a GDChunkView. This decouples async chunk
+    // completion from expensive TileMapLayer creation.
+    std::vector<ChunkPos> pending_visible_chunks_;
+    std::unordered_set<ChunkPos, ChunkPosHash> queued_visible_chunks_;
 
     // All chunks we know to be loaded in WorldData (tracking set).
     std::unordered_set<ChunkPos, ChunkPosHash> tracked_loaded_chunks_;

@@ -46,6 +46,24 @@ const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerr
 		if chunk_manager:
 			chunk_manager.view_radius = value
 
+@export var max_async_results_per_frame: int = 4:
+	set(value):
+		max_async_results_per_frame = max(0, value)
+		if world_data:
+			world_data.max_async_results_per_frame = max_async_results_per_frame
+
+@export var max_chunk_load_requests_per_frame: int = 12:
+	set(value):
+		max_chunk_load_requests_per_frame = max(0, value)
+		if chunk_manager:
+			chunk_manager.max_chunk_load_requests_per_frame = max_chunk_load_requests_per_frame
+
+@export var max_chunk_views_per_frame: int = 2:
+	set(value):
+		max_chunk_views_per_frame = max(0, value)
+		if chunk_manager:
+			chunk_manager.max_chunk_views_per_frame = max_chunk_views_per_frame
+
 @export var tile_size: int = 32:
 	set(value):
 		tile_size = value
@@ -58,10 +76,17 @@ const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerr
 @export var auto_update := true
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
+@export var debug_chunk_streaming := false
+@export var debug_chunk_streaming_interval := 2.0
 
 var is_initialized := false
 var _connector_manager: Node = null
 var _mechanism_manager: Node = null
+var _debug_chunk_streaming_elapsed := 0.0
+var _debug_generated_connector_count := 0
+var _debug_generated_connector_chunk_count := 0
+var _debug_generated_mechanism_count := 0
+var _debug_generated_mechanism_chunk_count := 0
 
 
 func _ready() -> void:
@@ -92,6 +117,8 @@ func _process(delta: float) -> void:
 		chunk_manager.set_player_chunk(layer, cx, cy)
 		chunk_manager.refresh_chunks()
 
+	_maybe_log_chunk_streaming(delta)
+
 
 func initialize() -> void:
 	if is_initialized:
@@ -104,6 +131,7 @@ func initialize() -> void:
 	if world_data == null:
 		world_data = GDWorldData.new()
 		world_data.seed = seed if seed != 0 else randi()
+	world_data.max_async_results_per_frame = max_async_results_per_frame
 
 	if worldgen_config == null:
 		worldgen_config = BuiltinTerrainContentScript.create_default_config()
@@ -119,6 +147,8 @@ func initialize() -> void:
 		chunk_manager.surface_container_path = surface_container_path
 		chunk_manager.underground_container_path = underground_container_path
 		add_child(chunk_manager)
+	chunk_manager.max_chunk_load_requests_per_frame = max_chunk_load_requests_per_frame
+	chunk_manager.max_chunk_views_per_frame = max_chunk_views_per_frame
 
 	# Connect signal: chunk_ready from world_data -> chunk_manager.
 	if not world_data.chunk_ready.is_connected(chunk_manager.on_chunk_ready):
@@ -146,6 +176,8 @@ func process_frame(player_layer: StringName, player_chunk_pos: Vector2i) -> void
 	if chunk_manager:
 		chunk_manager.set_player_chunk(player_layer, player_chunk_pos.x, player_chunk_pos.y)
 		chunk_manager.refresh_chunks()
+
+	_maybe_log_chunk_streaming(0.0)
 
 
 func force_load_factory_chunk(layer: StringName, cx: int, cy: int) -> void:
@@ -197,12 +229,7 @@ func _sync_generated_connectors(layer: StringName, chunk_x: int, chunk_y: int) -
 
 	var added: int = _connector_manager.add_generated_connectors(generated_connectors)
 	if added > 0:
-		print("ChunkRendererBridge: added %d generated connector(s) from %s chunk %d,%d" % [
-				added,
-				String(layer),
-				chunk_x,
-				chunk_y,
-		])
+		_record_generated_connectors(added)
 
 
 func _sync_generated_mechanisms(layer: StringName, chunk_x: int, chunk_y: int) -> void:
@@ -217,12 +244,7 @@ func _sync_generated_mechanisms(layer: StringName, chunk_x: int, chunk_y: int) -
 
 	var added: int = _mechanism_manager.add_generated_mechanisms(generated_mechanisms)
 	if added > 0:
-		print("ChunkRendererBridge: added %d generated mechanism(s) from %s chunk %d,%d" % [
-				added,
-				String(layer),
-				chunk_x,
-				chunk_y,
-		])
+		_record_generated_mechanisms(added)
 
 
 func _is_chunk_visible(layer: StringName, chunk: Vector2i) -> bool:
@@ -260,3 +282,44 @@ func _generate_initial_chunks() -> void:
 		for cy in range(-radius, radius + 1):
 			world_data.request_chunk_async(WorldLayers.SURFACE, cx, cy)
 			world_data.request_chunk_async(WorldLayers.UNDERGROUND, cx, cy)
+
+
+func _maybe_log_chunk_streaming(delta: float) -> void:
+	if not debug_chunk_streaming or world_data == null or chunk_manager == null:
+		return
+	_debug_chunk_streaming_elapsed += delta
+	if _debug_chunk_streaming_elapsed < debug_chunk_streaming_interval:
+		return
+	_debug_chunk_streaming_elapsed = 0.0
+
+	print(
+		"ChunkRendererBridge: streaming pending=%d ready=%d visible_queue=%d loaded=%d visible=%d connectors=%d/%d_chunks mechanisms=%d/%d_chunks" % [
+			world_data.get_async_pending_count(),
+			world_data.get_async_result_queue_size(),
+			chunk_manager.get_pending_visible_chunk_count(),
+			chunk_manager.get_loaded_chunk_count(),
+			chunk_manager.get_visible_chunk_count(),
+			_debug_generated_connector_count,
+			_debug_generated_connector_chunk_count,
+			_debug_generated_mechanism_count,
+			_debug_generated_mechanism_chunk_count,
+		]
+	)
+	_debug_generated_connector_count = 0
+	_debug_generated_connector_chunk_count = 0
+	_debug_generated_mechanism_count = 0
+	_debug_generated_mechanism_chunk_count = 0
+
+
+func _record_generated_connectors(count: int) -> void:
+	if not debug_chunk_streaming:
+		return
+	_debug_generated_connector_count += count
+	_debug_generated_connector_chunk_count += 1
+
+
+func _record_generated_mechanisms(count: int) -> void:
+	if not debug_chunk_streaming:
+		return
+	_debug_generated_mechanism_count += count
+	_debug_generated_mechanism_chunk_count += 1

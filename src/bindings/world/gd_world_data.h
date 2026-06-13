@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <unordered_set>
 #include <vector>
 
 #include "core/world/world_data.hpp"
@@ -160,11 +161,25 @@ public:
     // Returns the total number of completed async chunk generations.
     int64_t get_async_completed_count() const;
 
+    // Returns the number of completed async chunk generations waiting to be
+    // committed on the main thread.
+    int64_t get_async_result_queue_size() const;
+
+    // Returns true if a chunk is currently queued, generating, or waiting for
+    // process_async_results().
+    bool is_chunk_async_pending(const godot::String& layer_id,
+                                int chunk_x, int chunk_y) const;
+
     // Maximum async queue size. When full, request_chunk_async silently
     // drops new requests to prevent unbounded memory growth.
     // Default: 256. Set to 0 for unlimited (not recommended).
     int64_t get_max_async_queue_size() const;
     void set_max_async_queue_size(int64_t size);
+
+    // Maximum completed async chunks to commit per process_async_results() call.
+    // Default: 4. Set to 0 for unlimited.
+    int64_t get_max_async_results_per_frame() const;
+    void set_max_async_results_per_frame(int64_t count);
 
     // --- Save / load ---
 
@@ -223,6 +238,27 @@ private:
         int chunk_y;
     };
 
+    struct AsyncChunkKey {
+        std::string layer_id;
+        int chunk_x = 0;
+        int chunk_y = 0;
+
+        bool operator==(const AsyncChunkKey& other) const {
+            return layer_id == other.layer_id &&
+                   chunk_x == other.chunk_x &&
+                   chunk_y == other.chunk_y;
+        }
+    };
+
+    struct AsyncChunkKeyHash {
+        size_t operator()(const AsyncChunkKey& key) const {
+            size_t h = std::hash<std::string>()(key.layer_id);
+            h ^= std::hash<int>()(key.chunk_x) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>()(key.chunk_y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+
     static void _async_chunk_callback(void* userdata);
     void _drain_all_async_tasks();
 
@@ -234,11 +270,14 @@ private:
 
     // Async generation state.
     static constexpr int64_t kDefaultMaxAsyncQueueSize = 256;
+    static constexpr int64_t kDefaultMaxAsyncResultsPerFrame = 4;
     std::vector<godot::WorkerThreadPool::TaskID> active_native_tasks_;
     std::queue<AsyncChunkResult> async_results_;
+    std::unordered_set<AsyncChunkKey, AsyncChunkKeyHash> pending_async_chunks_;
     mutable std::mutex async_results_mutex_;
     int64_t async_completed_count_ = 0;
     int64_t max_async_queue_size_ = kDefaultMaxAsyncQueueSize;
+    int64_t max_async_results_per_frame_ = kDefaultMaxAsyncResultsPerFrame;
 };
 
 } // namespace science_and_theology

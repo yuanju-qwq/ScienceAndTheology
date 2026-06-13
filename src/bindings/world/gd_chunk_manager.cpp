@@ -1,5 +1,7 @@
 #include "gd_chunk_manager.h"
 
+#include <algorithm>
+
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/classes/tile_map_layer.hpp>
@@ -73,6 +75,26 @@ bool GDChunkManager::get_unload_distant_chunks() const {
     return unload_distant_chunks_;
 }
 
+void GDChunkManager::set_max_chunk_load_requests_per_frame(int64_t count) {
+    max_chunk_load_requests_per_frame_ = count >= 0 ? count : 0;
+}
+
+int64_t GDChunkManager::get_max_chunk_load_requests_per_frame() const {
+    return max_chunk_load_requests_per_frame_;
+}
+
+void GDChunkManager::set_max_chunk_views_per_frame(int64_t count) {
+    max_chunk_views_per_frame_ = count >= 0 ? count : 0;
+}
+
+int64_t GDChunkManager::get_max_chunk_views_per_frame() const {
+    return max_chunk_views_per_frame_;
+}
+
+int64_t GDChunkManager::get_pending_visible_chunk_count() const {
+    return static_cast<int64_t>(pending_visible_chunks_.size());
+}
+
 void GDChunkManager::set_player_chunk(const String& layer, int cx, int cy) {
     player_layer_ = layer.utf8().get_data();
     player_cx_ = cx;
@@ -97,7 +119,7 @@ void GDChunkManager::force_load_chunk(const String& layer, int cx, int cy) {
     // Ensure it's loaded in WorldData and has a view if within view radius.
     ensure_chunk_loaded(layer, cx, cy);
     if (is_within_view_radius(layer_str, cx, cy)) {
-        show_chunk(layer, cx, cy);
+        enqueue_chunk_view(pos);
     }
 }
 
@@ -138,9 +160,9 @@ void GDChunkManager::on_chunk_ready(const String& layer, int cx, int cy) {
     // Track it as loaded.
     tracked_loaded_chunks_.insert(pos);
 
-    // If it should be visible, create the view.
+    // If it should be visible, queue the view for budgeted creation.
     if (should_be_visible(pos)) {
-        show_chunk(layer, cx, cy);
+        enqueue_chunk_view(pos);
     }
 }
 
@@ -156,32 +178,71 @@ void GDChunkManager::refresh_chunks() {
     // --- Phase 1: Determine which chunks should be loaded/simulated ---
     // We check loaded_radius + force_loaded chunks.
     std::unordered_set<ChunkPos, ChunkPosHash> should_be_loaded_set;
+    std::vector<ChunkPos> should_be_loaded_ordered;
 
     // Player-proximity loaded chunks.
     for (int dy = -load_radius; dy <= load_radius; ++dy) {
         for (int dx = -load_radius; dx <= load_radius; ++dx) {
             if (dx * dx + dy * dy > load_radius * load_radius) continue;
             ChunkPos pos{player_layer_, player_cx_ + dx, player_cy_ + dy};
-            should_be_loaded_set.insert(pos);
+            if (should_be_loaded_set.insert(pos).second) {
+                should_be_loaded_ordered.push_back(pos);
+            }
         }
     }
 
     // Force-loaded chunks always stay in the set.
     for (const auto& pos : force_loaded_chunks_) {
-        should_be_loaded_set.insert(pos);
+        if (should_be_loaded_set.insert(pos).second) {
+            should_be_loaded_ordered.push_back(pos);
+        }
     }
+
+    std::sort(should_be_loaded_ordered.begin(), should_be_loaded_ordered.end(),
+        [this](const ChunkPos& a, const ChunkPos& b) {
+            int64_t da = chunk_priority_distance_sq(a);
+            int64_t db = chunk_priority_distance_sq(b);
+            if (da != db) {
+                return da < db;
+            }
+            if (a.layer != b.layer) {
+                return a.layer < b.layer;
+            }
+            if (a.cx != b.cx) {
+                return a.cx < b.cx;
+            }
+            return a.cy < b.cy;
+        });
 
     // --- Phase 2: Determine which should be visible ---
     std::unordered_set<ChunkPos, ChunkPosHash> should_be_visible_set;
+    std::vector<ChunkPos> should_be_visible_ordered;
     for (int dy = -view_radius; dy <= view_radius; ++dy) {
         for (int dx = -view_radius; dx <= view_radius; ++dx) {
             if (dx * dx + dy * dy > view_radius * view_radius) continue;
             ChunkPos pos{player_layer_, player_cx_ + dx, player_cy_ + dy};
-            should_be_visible_set.insert(pos);
+            if (should_be_visible_set.insert(pos).second) {
+                should_be_visible_ordered.push_back(pos);
+            }
         }
     }
 
+    std::sort(should_be_visible_ordered.begin(), should_be_visible_ordered.end(),
+        [this](const ChunkPos& a, const ChunkPos& b) {
+            int64_t da = chunk_priority_distance_sq(a);
+            int64_t db = chunk_priority_distance_sq(b);
+            if (da != db) {
+                return da < db;
+            }
+            if (a.cx != b.cx) {
+                return a.cx < b.cx;
+            }
+            return a.cy < b.cy;
+        });
+
     // --- Phase 3: Unload chunks that are no longer needed ---
+    prune_visible_chunk_queue(should_be_visible_set);
+
     // Remove views for chunks that should not be visible.
     std::vector<ChunkPos> to_hide;
     for (const auto& pair : visible_views_) {
@@ -206,11 +267,13 @@ void GDChunkManager::refresh_chunks() {
             gd_world->remove_chunk(
                 String(pos.layer.c_str()), pos.cx, pos.cy);
             tracked_loaded_chunks_.erase(pos);
+            remove_queued_chunk_view(pos);
         }
     }
 
     // --- Phase 4: Ensure needed chunks exist in WorldData ---
-    for (const auto& pos : should_be_loaded_set) {
+    int64_t load_requests_issued = 0;
+    for (const auto& pos : should_be_loaded_ordered) {
         if (tracked_loaded_chunks_.find(pos) != tracked_loaded_chunks_.end()) {
             continue; // Already loaded.
         }
@@ -218,23 +281,35 @@ void GDChunkManager::refresh_chunks() {
         String layer_str(pos.layer.c_str());
         if (gd_world->has_chunk(layer_str, pos.cx, pos.cy)) {
             tracked_loaded_chunks_.insert(pos);
+            if (should_be_visible_set.find(pos) != should_be_visible_set.end()) {
+                enqueue_chunk_view(pos);
+            }
+        } else if (gd_world->is_chunk_async_pending(layer_str, pos.cx, pos.cy)) {
+            continue;
         } else {
+            if (max_chunk_load_requests_per_frame_ > 0 &&
+                load_requests_issued >= max_chunk_load_requests_per_frame_) {
+                break;
+            }
             // Request async generation.
             gd_world->request_chunk_async(layer_str, pos.cx, pos.cy);
+            ++load_requests_issued;
         }
     }
 
     // --- Phase 5: Ensure visible chunks have views ---
-    for (const auto& pos : should_be_visible_set) {
+    for (const auto& pos : should_be_visible_ordered) {
         if (visible_views_.find(pos) != visible_views_.end()) {
             continue; // Already has a view.
         }
 
         // Only create a view if the chunk data is ready.
         if (tracked_loaded_chunks_.find(pos) != tracked_loaded_chunks_.end()) {
-            show_chunk(String(pos.layer.c_str()), pos.cx, pos.cy);
+            enqueue_chunk_view(pos);
         }
     }
+
+    process_visible_chunk_queue(max_chunk_views_per_frame_);
 }
 
 void GDChunkManager::ensure_chunk_loaded(const String& layer, int cx, int cy) {
@@ -252,6 +327,8 @@ void GDChunkManager::ensure_chunk_loaded(const String& layer, int cx, int cy) {
 
     if (gd_world->has_chunk(layer, cx, cy)) {
         tracked_loaded_chunks_.insert(pos);
+    } else if (gd_world->is_chunk_async_pending(layer, cx, cy)) {
+        return;
     } else {
         gd_world->request_chunk_async(layer, cx, cy);
     }
@@ -319,6 +396,7 @@ void GDChunkManager::hide_chunk(const String& layer, int cx, int cy) {
     }
 
     visible_views_.erase(it);
+    remove_queued_chunk_view(pos);
 
     emit_signal("chunk_hidden", layer, cx, cy);
 }
@@ -334,6 +412,7 @@ void GDChunkManager::unload_chunk(const String& layer, int cx, int cy) {
 
     std::string layer_str = layer.utf8().get_data();
     tracked_loaded_chunks_.erase(ChunkPos{layer_str, cx, cy});
+    remove_queued_chunk_view(ChunkPos{layer_str, cx, cy});
 
     emit_signal("chunk_unloaded", layer, cx, cy);
 }
@@ -360,6 +439,8 @@ void GDChunkManager::unload_all_chunks() {
 
     tracked_loaded_chunks_.clear();
     force_loaded_chunks_.clear();
+    pending_visible_chunks_.clear();
+    queued_visible_chunks_.clear();
 }
 
 Array GDChunkManager::get_visible_chunks() const {
@@ -417,6 +498,15 @@ bool GDChunkManager::should_be_visible(const ChunkPos& pos) const {
     return is_within_view_radius(pos.layer, pos.cx, pos.cy);
 }
 
+int64_t GDChunkManager::chunk_priority_distance_sq(const ChunkPos& pos) const {
+    if (pos.layer != player_layer_) {
+        return INT64_MAX / 4;
+    }
+    int64_t dx = static_cast<int64_t>(pos.cx) - player_cx_;
+    int64_t dy = static_cast<int64_t>(pos.cy) - player_cy_;
+    return dx * dx + dy * dy;
+}
+
 std::string GDChunkManager::layer_to_container_str(const std::string& layer) const {
     if (layer == "surface") return "surface";
     if (layer == "underground") return "underground";
@@ -460,6 +550,94 @@ void GDChunkManager::position_chunk_view(GDChunkView* view, int cx, int cy) {
     view->set_position(Vector2(
         static_cast<float>(cx * chunk_pixels),
         static_cast<float>(cy * chunk_pixels)));
+}
+
+void GDChunkManager::enqueue_chunk_view(const ChunkPos& pos) {
+    if (visible_views_.find(pos) != visible_views_.end()) {
+        return;
+    }
+    if (queued_visible_chunks_.insert(pos).second) {
+        pending_visible_chunks_.push_back(pos);
+    }
+}
+
+void GDChunkManager::remove_queued_chunk_view(const ChunkPos& pos) {
+    if (queued_visible_chunks_.erase(pos) == 0) {
+        return;
+    }
+
+    pending_visible_chunks_.erase(
+        std::remove(pending_visible_chunks_.begin(),
+                    pending_visible_chunks_.end(),
+                    pos),
+        pending_visible_chunks_.end());
+}
+
+void GDChunkManager::prune_visible_chunk_queue(
+    const std::unordered_set<ChunkPos, ChunkPosHash>& should_be_visible_set) {
+    if (pending_visible_chunks_.empty()) {
+        return;
+    }
+
+    pending_visible_chunks_.erase(
+        std::remove_if(pending_visible_chunks_.begin(),
+                       pending_visible_chunks_.end(),
+                       [this, &should_be_visible_set](const ChunkPos& pos) {
+                           bool keep =
+                               should_be_visible_set.find(pos) != should_be_visible_set.end() &&
+                               visible_views_.find(pos) == visible_views_.end();
+                           if (!keep) {
+                               queued_visible_chunks_.erase(pos);
+                           }
+                           return !keep;
+                       }),
+        pending_visible_chunks_.end());
+}
+
+int64_t GDChunkManager::process_visible_chunk_queue(int64_t budget) {
+    if (pending_visible_chunks_.empty()) {
+        return 0;
+    }
+
+    std::stable_sort(pending_visible_chunks_.begin(), pending_visible_chunks_.end(),
+        [this](const ChunkPos& a, const ChunkPos& b) {
+            int64_t da = chunk_priority_distance_sq(a);
+            int64_t db = chunk_priority_distance_sq(b);
+            if (da != db) {
+                return da < db;
+            }
+            if (a.cx != b.cx) {
+                return a.cx < b.cx;
+            }
+            return a.cy < b.cy;
+        });
+
+    int64_t shown = 0;
+    for (auto it = pending_visible_chunks_.begin();
+         it != pending_visible_chunks_.end();) {
+        if (budget > 0 && shown >= budget) {
+            break;
+        }
+
+        ChunkPos pos = *it;
+        it = pending_visible_chunks_.erase(it);
+        queued_visible_chunks_.erase(pos);
+
+        if (visible_views_.find(pos) != visible_views_.end()) {
+            continue;
+        }
+        if (!should_be_visible(pos)) {
+            continue;
+        }
+        if (tracked_loaded_chunks_.find(pos) == tracked_loaded_chunks_.end()) {
+            continue;
+        }
+
+        show_chunk(String(pos.layer.c_str()), pos.cx, pos.cy);
+        ++shown;
+    }
+
+    return shown;
 }
 
 void GDChunkManager::_bind_methods() {
@@ -518,6 +696,24 @@ void GDChunkManager::_bind_methods() {
                          &GDChunkManager::get_unload_distant_chunks);
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "unload_distant_chunks"),
                  "set_unload_distant_chunks", "get_unload_distant_chunks");
+
+    ClassDB::bind_method(D_METHOD("set_max_chunk_load_requests_per_frame", "count"),
+                         &GDChunkManager::set_max_chunk_load_requests_per_frame);
+    ClassDB::bind_method(D_METHOD("get_max_chunk_load_requests_per_frame"),
+                         &GDChunkManager::get_max_chunk_load_requests_per_frame);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "max_chunk_load_requests_per_frame"),
+                 "set_max_chunk_load_requests_per_frame",
+                 "get_max_chunk_load_requests_per_frame");
+
+    ClassDB::bind_method(D_METHOD("set_max_chunk_views_per_frame", "count"),
+                         &GDChunkManager::set_max_chunk_views_per_frame);
+    ClassDB::bind_method(D_METHOD("get_max_chunk_views_per_frame"),
+                         &GDChunkManager::get_max_chunk_views_per_frame);
+    ADD_PROPERTY(PropertyInfo(Variant::INT, "max_chunk_views_per_frame"),
+                 "set_max_chunk_views_per_frame", "get_max_chunk_views_per_frame");
+
+    ClassDB::bind_method(D_METHOD("get_pending_visible_chunk_count"),
+                         &GDChunkManager::get_pending_visible_chunk_count);
 
     // Player tracking.
     ClassDB::bind_method(D_METHOD("set_player_chunk", "layer", "cx", "cy"),
