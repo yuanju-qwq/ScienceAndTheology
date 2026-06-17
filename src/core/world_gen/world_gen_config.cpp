@@ -71,6 +71,15 @@ const BaseTerrainRule* WorldGenConfigSnapshot::find_base_rule(
     return it != base_terrain_rules.end() ? &(*it) : nullptr;
 }
 
+const PlanetConfig* WorldGenConfigSnapshot::find_planet_config(
+    const std::string& dimension_id) const {
+    auto it = std::find_if(planet_configs.begin(), planet_configs.end(),
+        [&dimension_id](const PlanetConfig& config) {
+            return config.dimension_id == dimension_id;
+        });
+    return it != planet_configs.end() ? &(*it) : nullptr;
+}
+
 std::shared_ptr<const WorldGenConfigSnapshot> make_empty_world_gen_config() {
     auto config = std::make_shared<WorldGenConfigSnapshot>();
     config->content_hash = hash_world_gen_config(*config);
@@ -165,6 +174,22 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, rule.ore_material);
         hash_combine(hash, static_cast<uint64_t>((rule.combined_min + 2.0f) * 100000.0f));
         hash_combine(hash, static_cast<uint64_t>((rule.combined_max + 2.0f) * 100000.0f));
+    }
+    for (const auto& planet : config.planet_configs) {
+        hash_combine(hash, string_hash(planet.dimension_id));
+        hash_combine(hash, static_cast<uint64_t>(planet.planet_radius * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.center_x * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.center_y * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.center_z * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.terrain_height_scale * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.elevation_noise_scale * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.elevation_octaves));
+        hash_combine(hash, static_cast<uint64_t>(planet.detail_noise_scale * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.detail_octaves));
+        hash_combine(hash, static_cast<uint64_t>(planet.cave_noise_scale * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.cave_octaves));
+        hash_combine(hash, static_cast<uint64_t>(planet.cave_threshold * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.sea_level_fraction * 100000.0f));
     }
     return hash;
 }

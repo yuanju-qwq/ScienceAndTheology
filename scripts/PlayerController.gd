@@ -10,8 +10,9 @@ signal inventory_changed
 
 const REACH := 6.0
 const MOUSE_SENSITIVITY := 0.0025
-const GRAVITY := 22.0
+const GRAVITY_STRENGTH := 22.0
 const JUMP_VELOCITY := 7.0
+const CLIMB_SPEED := 3.0
 const OVERWORLD: StringName = &"overworld"
 
 @export var move_speed := 5.2
@@ -19,13 +20,14 @@ const OVERWORLD: StringName = &"overworld"
 @export var inventory_width := 9
 @export var inventory_height := 4
 @export var connector_cooldown := 0.25
+@export var use_planet_gravity := true
+@export var planet_gravity_radius := 600.0
 @export var world_path: NodePath = ^"../ChunkRendererBridge"
 @export var command_server_path: NodePath = ^"../GameCommandServer"
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
 @export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
-@export var ladder_manager_path: NodePath = ^"../LadderManager"
 @export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
 @export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
 @export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
@@ -51,7 +53,6 @@ var selected_hotbar := 0
 @onready var mechanism_manager: MechanismManager = get_node_or_null(mechanism_manager_path) as MechanismManager
 @onready var workbench_manager: WorkbenchManager = get_node_or_null(workbench_manager_path) as WorkbenchManager
 @onready var furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
-@onready var ladder_manager: LadderManager = get_node_or_null(ladder_manager_path) as LadderManager
 @onready var hotbar_ui: HotbarUI = get_node_or_null(hotbar_ui_path) as HotbarUI
 @onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
 @onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
@@ -71,6 +72,9 @@ var _cooldown_remaining := 0.0
 var _last_cell := Vector3i.ZERO
 var _last_debug_time := -100.0
 var _target := {}
+var _is_climbing := false
+var _gravity_direction := Vector3.DOWN
+var _planet_center := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -80,12 +84,14 @@ func _ready() -> void:
 	_update_camera_rotation()
 	_update_hotbar_display()
 	_last_cell = get_current_cell()
+	_update_gravity_direction()
 
 
 func _physics_process(delta: float) -> void:
 	if _cooldown_remaining > 0.0:
 		_cooldown_remaining = maxf(_cooldown_remaining - delta, 0.0)
 
+	_update_gravity_direction()
 	_update_target()
 	_handle_movement(delta)
 	_try_auto_cell_events()
@@ -151,9 +157,11 @@ func _handle_movement(delta: float) -> void:
 	if _input_locked:
 		velocity.x = move_toward(velocity.x, 0.0, move_speed)
 		velocity.z = move_toward(velocity.z, 0.0, move_speed)
-		velocity.y -= GRAVITY * delta
+		velocity += _gravity_direction * GRAVITY_STRENGTH * delta
 		move_and_slide()
 		return
+
+	_check_climbing()
 
 	var input_vector := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
@@ -165,26 +173,39 @@ func _handle_movement(delta: float) -> void:
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		input_vector.y += 1.0
 
+	var up := -_gravity_direction
 	var basis := global_transform.basis
 	var forward := -basis.z
-	forward.y = 0.0
-	forward = forward.normalized()
+	forward = (forward - up * forward.dot(up)).normalized()
 	var right := basis.x
-	right.y = 0.0
-	right = right.normalized()
+	right = (right - up * right.dot(up)).normalized()
 
 	var direction := (right * input_vector.x + forward * -input_vector.y).normalized()
 	var speed := move_speed * (sprint_multiplier if Input.is_key_pressed(KEY_SHIFT) else 1.0)
-	velocity.x = direction.x * speed
-	velocity.z = direction.z * speed
 
-	if is_on_floor():
+	# Project velocity onto the tangent plane for horizontal movement.
+	var vertical_vel := _gravity_direction * velocity.dot(_gravity_direction)
+	var horizontal_vel := velocity - vertical_vel
+	horizontal_vel = horizontal_vel.move_toward(direction * speed, speed * 10.0 * delta)
+	velocity = horizontal_vel + vertical_vel
+
+	if _is_climbing:
+		velocity.x *= 0.5
+		velocity.z *= 0.5
+		var climb_vel := _gravity_direction * velocity.dot(_gravity_direction)
+		velocity -= climb_vel
+		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_SPACE):
+			velocity -= _gravity_direction * CLIMB_SPEED
+		elif Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_SHIFT):
+			velocity += _gravity_direction * CLIMB_SPEED
+	elif is_on_floor():
 		if Input.is_key_pressed(KEY_SPACE):
-			velocity.y = JUMP_VELOCITY
+			velocity -= _gravity_direction * JUMP_VELOCITY
 	else:
-		velocity.y -= GRAVITY * delta
+		velocity += _gravity_direction * GRAVITY_STRENGTH * delta
 
 	move_and_slide()
+	_align_body_to_gravity(delta)
 
 
 func _setup_inventory() -> void:
@@ -381,8 +402,6 @@ func _try_use_connector(auto_only: bool) -> bool:
 		return false
 
 	_cooldown_remaining = connector_cooldown
-	if ladder_manager and connector.connector_type == &"ladder":
-		global_position = world.cell_to_world_position(target_cell)
 	connector_used.emit(connector.connector_id, dimension, target_dimension)
 	return true
 
@@ -567,6 +586,94 @@ func _set_input_locked(is_locked: bool) -> void:
 		_mouse_captured = false
 	elif not _mouse_captured:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _check_climbing() -> void:
+	if world == null:
+		_is_climbing = false
+		return
+
+	var cell := get_current_cell()
+	var dimension := get_current_dimension()
+
+	# Check the player's current cell and the cell above for climbable terrain.
+	var candidates := [cell, cell + Vector3i.UP]
+	for candidate in candidates:
+		var info := world.get_cell_info(candidate, dimension)
+		var data: Dictionary = info.get("data", {})
+		if data.get("is_climbable", false):
+			_is_climbing = true
+			return
+
+	_is_climbing = false
+
+
+# --- Planet gravity system ---
+
+func _update_gravity_direction() -> void:
+	if not use_planet_gravity or world == null:
+		_gravity_direction = Vector3.DOWN
+		return
+
+	var world_data_node := world.get_world_data()
+	if world_data_node == null:
+		_gravity_direction = Vector3.DOWN
+		return
+
+	# Get planet center from the worldgen config.
+	# The planet center is stored in the frozen config snapshot.
+	var config: Resource = world_data_node.worldgen_config
+	if config == null:
+		_gravity_direction = Vector3.DOWN
+		return
+
+	# Read planet center from the config's snapshot.
+	# For now, compute from the planet config registered in BuiltinTerrainContent.
+	# The center is at (0, -512, 0) for the default planet.
+	_planet_center = _get_planet_center_from_config(config)
+	var to_center := _planet_center - global_position
+	var dist := to_center.length()
+
+	if dist < planet_gravity_radius and dist > 0.01:
+		_gravity_direction = to_center.normalized()
+	else:
+		_gravity_direction = Vector3.DOWN
+
+
+func _get_planet_center_from_config(_config: Resource) -> Vector3:
+	# TODO: Expose planet_center through GDWorldGenConfig API.
+	# For now, use the default center matching BuiltinTerrainContent.
+	return Vector3(0.0, -512.0, 0.0)
+
+
+func _align_body_to_gravity(delta: float) -> void:
+	if not use_planet_gravity:
+		return
+
+	var target_up := -_gravity_direction
+	var current_up := global_transform.basis.y
+
+	# Skip if already well-aligned.
+	var dot := current_up.dot(target_up)
+	if dot > 0.999:
+		return
+
+	# Smooth rotation toward the target up direction.
+	var rotation_speed := 8.0
+	var max_angle := rotation_speed * delta
+
+	var axis := current_up.cross(target_up)
+	if axis.length_squared() < 0.0001:
+		return
+	axis = axis.normalized()
+	var angle := acos(clampf(dot, -1.0, 1.0))
+	var actual_angle := minf(angle, max_angle)
+
+	rotate(axis, actual_angle)
+
+	# Re-orthonormalize the basis to prevent drift.
+	var new_basis := global_transform.basis.orthonormalized()
+	global_transform.basis = new_basis
 
 
 func _debug_interaction(message: String) -> void:

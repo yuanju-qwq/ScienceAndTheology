@@ -27,6 +27,7 @@ public:
         FLAG_SOLID = TF_SOLID,
         FLAG_LIQUID = TF_LIQUID,
         FLAG_MINEABLE = TF_MINEABLE,
+        FLAG_CLIMBABLE = TF_CLIMBABLE,
     };
 
     bool register_material(const godot::Dictionary& def);
@@ -35,6 +36,7 @@ public:
     bool register_base_terrain_rule(const godot::Dictionary& def);
     bool register_biome_rule(const godot::Dictionary& def);
     bool register_ore_vein_rule(const godot::Dictionary& def);
+    bool register_planet_config(const godot::Dictionary& def);
     godot::Ref<GDWorldGenConfig> freeze();
     godot::Array validate() const;
     void clear();
@@ -60,6 +62,7 @@ private:
     std::vector<BaseTerrainRule> base_terrain_rules_;
     std::vector<BiomeRule> biome_rules_;
     std::vector<OreVeinRule> ore_vein_rules_;
+    std::vector<PlanetConfig> planet_configs_;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key_;
     std::unordered_map<int, std::string> material_keys_by_id_;
 };

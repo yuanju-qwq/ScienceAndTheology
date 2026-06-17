@@ -278,6 +278,38 @@ OreVeinRule ore_rule_from_dict(
     return rule;
 }
 
+PlanetConfig planet_config_from_dict(const Dictionary& def) {
+    PlanetConfig config;
+    config.dimension_id = dimension_from_dict(def);
+    config.planet_radius = static_cast<float>(
+        def.get("planet_radius", config.planet_radius));
+    config.center_x = static_cast<float>(
+        def.get("center_x", config.center_x));
+    config.center_y = static_cast<float>(
+        def.get("center_y", config.center_y));
+    config.center_z = static_cast<float>(
+        def.get("center_z", config.center_z));
+    config.terrain_height_scale = static_cast<float>(
+        def.get("terrain_height_scale", config.terrain_height_scale));
+    config.elevation_noise_scale = static_cast<float>(
+        def.get("elevation_noise_scale", config.elevation_noise_scale));
+    config.elevation_octaves = static_cast<int>(
+        def.get("elevation_octaves", config.elevation_octaves));
+    config.detail_noise_scale = static_cast<float>(
+        def.get("detail_noise_scale", config.detail_noise_scale));
+    config.detail_octaves = static_cast<int>(
+        def.get("detail_octaves", config.detail_octaves));
+    config.cave_noise_scale = static_cast<float>(
+        def.get("cave_noise_scale", config.cave_noise_scale));
+    config.cave_octaves = static_cast<int>(
+        def.get("cave_octaves", config.cave_octaves));
+    config.cave_threshold = static_cast<float>(
+        def.get("cave_threshold", config.cave_threshold));
+    config.sea_level_fraction = static_cast<float>(
+        def.get("sea_level_fraction", config.sea_level_fraction));
+    return config;
+}
+
 } // namespace
 
 GDTerrainContentRegistry::GDTerrainContentRegistry() = default;
@@ -443,6 +475,7 @@ bool GDTerrainContentRegistry::set_material_roles(const Dictionary& def) {
     assign_role_from_dict(roles_.ore_coal, def, "ore_coal", material_ids_by_key_);
     assign_role_from_dict(roles_.wood, def, "wood", material_ids_by_key_);
     assign_role_from_dict(roles_.leaves, def, "leaves", material_ids_by_key_);
+    assign_role_from_dict(roles_.ladder, def, "ladder", material_ids_by_key_);
     return true;
 }
 
@@ -515,6 +548,34 @@ bool GDTerrainContentRegistry::register_ore_vein_rule(const Dictionary& def) {
     return true;
 }
 
+bool GDTerrainContentRegistry::register_planet_config(const Dictionary& def) {
+    if (!check_mutable("register planet config")) {
+        return false;
+    }
+    PlanetConfig config = planet_config_from_dict(def);
+    if (config.dimension_id.empty()) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: planet config requires a dimension.");
+        return false;
+    }
+    if (config.planet_radius <= 0.0f) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: planet config requires planet_radius > 0.");
+        return false;
+    }
+
+    auto existing = std::find_if(planet_configs_.begin(), planet_configs_.end(),
+        [&config](const PlanetConfig& item) {
+            return item.dimension_id == config.dimension_id;
+        });
+    if (existing != planet_configs_.end()) {
+        *existing = std::move(config);
+    } else {
+        planet_configs_.push_back(std::move(config));
+    }
+    return true;
+}
+
 std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot() const {
     auto snapshot = std::make_shared<WorldGenConfigSnapshot>();
     snapshot->materials = materials_;
@@ -523,6 +584,7 @@ std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot
     snapshot->base_terrain_rules = base_terrain_rules_;
     snapshot->biome_rules = biome_rules_;
     snapshot->ore_vein_rules = ore_vein_rules_;
+    snapshot->planet_configs = planet_configs_;
     snapshot->material_ids_by_key = material_ids_by_key_;
     snapshot->material_keys_by_id = material_keys_by_id_;
     snapshot->content_hash = hash_world_gen_config(*snapshot);
@@ -647,6 +709,7 @@ void GDTerrainContentRegistry::clear() {
     base_terrain_rules_.clear();
     biome_rules_.clear();
     ore_vein_rules_.clear();
+    planet_configs_.clear();
     material_ids_by_key_.clear();
     material_keys_by_id_.clear();
 }
@@ -693,6 +756,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::register_biome_rule);
     ClassDB::bind_method(D_METHOD("register_ore_vein_rule", "def"),
                          &GDTerrainContentRegistry::register_ore_vein_rule);
+    ClassDB::bind_method(D_METHOD("register_planet_config", "def"),
+                         &GDTerrainContentRegistry::register_planet_config);
     ClassDB::bind_method(D_METHOD("freeze"),
                          &GDTerrainContentRegistry::freeze);
     ClassDB::bind_method(D_METHOD("validate"),
@@ -714,6 +779,7 @@ void GDTerrainContentRegistry::_bind_methods() {
     BIND_ENUM_CONSTANT(FLAG_SOLID);
     BIND_ENUM_CONSTANT(FLAG_LIQUID);
     BIND_ENUM_CONSTANT(FLAG_MINEABLE);
+    BIND_ENUM_CONSTANT(FLAG_CLIMBABLE);
 }
 
 } // namespace science_and_theology

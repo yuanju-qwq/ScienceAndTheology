@@ -57,12 +57,23 @@ ChunkData TerrainGenerator::generate_chunk(
     return chunk;
 }
 
+// --- Pass 1: Base Terrain ---
+
 void TerrainGenerator::pass_base_terrain(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     TerrainData& terrain) {
-    const auto mat = materials();
-    const auto* rule = config_->find_base_rule(dimension_id);
+    // Check if this dimension has a planet configuration.
+    const PlanetConfig* planet = config_->find_planet_config(dimension_id);
+    if (planet && planet->is_planet()) {
+        pass_base_terrain_planet(dimension_id, chunk_x, chunk_y, chunk_z,
+                                 terrain, *planet);
+        return;
+    }
+
+    // Fall back to flat world generation.
+    const BaseTerrainRule* rule = config_->find_base_rule(dimension_id);
     if (rule == nullptr) {
+        const auto mat = materials();
         for (int y = 0; y < terrain.size_y; ++y) {
             for (int z = 0; z < terrain.size_z; ++z) {
                 for (int x = 0; x < terrain.size_x; ++x) {
@@ -72,6 +83,15 @@ void TerrainGenerator::pass_base_terrain(
         }
         return;
     }
+
+    pass_base_terrain_flat(dimension_id, chunk_x, chunk_y, chunk_z, terrain, *rule);
+}
+
+void TerrainGenerator::pass_base_terrain_flat(
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
+    TerrainData& terrain, const BaseTerrainRule& rule) {
+    (void)dimension_id;
+    const auto mat = materials();
 
     NoiseGenerator elevation_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
@@ -90,45 +110,46 @@ void TerrainGenerator::pass_base_terrain(
                 const int global_y = global_coord(chunk_y, y);
                 const int global_z = global_coord(chunk_z, z);
                 const int surface_height =
-                    surface_height_at(elevation_noise, global_x, global_z, *rule);
+                    surface_height_at(elevation_noise, global_x, global_z, rule);
 
                 TerrainMaterialId material = mat.air;
                 if (global_y > surface_height) {
                     if (global_y <= 0 && surface_height < 0) {
-                        material = rule->low_elevation_material != 0
-                            ? rule->low_elevation_material
+                        material = rule.low_elevation_material != 0
+                            ? rule.low_elevation_material
                             : mat.water;
                     } else {
                         material = mat.air;
                     }
                 } else if (global_y == surface_height) {
-                    const float detail = detail_noise.noise_2d_scaled(
+                    const float detail = detail_noise.noise_3d_scaled(
                         static_cast<float>(global_x + 10000),
+                        static_cast<float>(global_y),
                         static_cast<float>(global_z + 10000),
-                        rule->detail_scale, rule->detail_octaves);
-                    if (surface_height >= 8 || std::abs(detail) > rule->stone_elevation_abs_min) {
-                        material = rule->high_elevation_material != 0
-                            ? rule->high_elevation_material
+                        rule.detail_scale, rule.detail_octaves);
+                    if (surface_height >= 8 || std::abs(detail) > rule.stone_elevation_abs_min) {
+                        material = rule.high_elevation_material != 0
+                            ? rule.high_elevation_material
                             : mat.stone;
                     } else {
-                        material = rule->default_material != 0
-                            ? rule->default_material
+                        material = rule.default_material != 0
+                            ? rule.default_material
                             : mat.dirt;
                     }
                 } else if (global_y >= surface_height - 3 && global_y >= -8) {
-                    material = rule->default_material != 0
-                        ? rule->default_material
+                    material = rule.default_material != 0
+                        ? rule.default_material
                         : mat.dirt;
                 } else {
-                    material = rule->high_elevation_material != 0
-                        ? rule->high_elevation_material
+                    material = rule.high_elevation_material != 0
+                        ? rule.high_elevation_material
                         : mat.stone;
                 }
 
                 if (material != mat.air && global_y < surface_height - 3) {
                     const float cave = cave_noise_at(
-                        cave_noise, global_x, global_y, global_z, *rule);
-                    float threshold = rule->cave_threshold;
+                        cave_noise, global_x, global_y, global_z, rule);
+                    float threshold = rule.cave_threshold;
                     threshold += std::clamp((-global_y - 8) / 64.0f, 0.0f, 0.18f);
                     if (cave > threshold) {
                         material = global_y < -24 ? mat.lava : mat.air;
@@ -140,6 +161,100 @@ void TerrainGenerator::pass_base_terrain(
         }
     }
 }
+
+void TerrainGenerator::pass_base_terrain_planet(
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
+    TerrainData& terrain, const PlanetConfig& planet) {
+    (void)dimension_id;
+    const auto mat = materials();
+
+    NoiseGenerator elevation_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+        chunk_x, chunk_y, chunk_z));
+    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
+        chunk_x, chunk_y, chunk_z));
+    NoiseGenerator cave_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 2,
+        chunk_x, chunk_y, chunk_z));
+
+    // Sea level radius: base radius + a fraction of terrain height.
+    const float sea_level_radius =
+        planet.planet_radius + planet.terrain_height_scale * planet.sea_level_fraction;
+
+    for (int y = 0; y < terrain.size_y; ++y) {
+        for (int z = 0; z < terrain.size_z; ++z) {
+            for (int x = 0; x < terrain.size_x; ++x) {
+                const float global_x = static_cast<float>(global_coord(chunk_x, x));
+                const float global_y = static_cast<float>(global_coord(chunk_y, y));
+                const float global_z = static_cast<float>(global_coord(chunk_z, z));
+
+                // Vector from planet center to this block.
+                const float dx = global_x - planet.center_x;
+                const float dy = global_y - planet.center_y;
+                const float dz = global_z - planet.center_z;
+                const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+                // Direction from center (normalized).
+                const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+                const float dir_x = dx * inv_dist;
+                const float dir_y = dy * inv_dist;
+                const float dir_z = dz * inv_dist;
+
+                // Compute surface radius at this direction using 3D noise.
+                const float surface_r = planet_surface_radius(
+                    elevation_noise, detail_noise,
+                    dir_x, dir_y, dir_z, planet);
+
+                TerrainMaterialId material = mat.air;
+                if (dist <= surface_r) {
+                    // Block is inside the planet surface.
+                    const float depth = surface_r - dist;
+
+                    // Determine material based on depth from surface.
+                    if (depth < 1.0f) {
+                        // Surface layer.
+                        if (surface_r < sea_level_radius) {
+                            // Below sea level and at surface: sand or dirt.
+                            material = mat.sand;
+                        } else {
+                            material = mat.dirt;
+                        }
+                    } else if (depth < 4.0f) {
+                        // Subsurface: dirt.
+                        material = mat.dirt;
+                    } else {
+                        // Deep: stone.
+                        material = mat.stone;
+                    }
+
+                    // Cave generation inside the planet.
+                    if (depth > 4.0f) {
+                        const float cave = cave_noise.noise_3d_scaled(
+                            global_x, global_y, global_z,
+                            planet.cave_noise_scale, planet.cave_octaves);
+                        float threshold = planet.cave_threshold;
+                        // Deeper = slightly more caves.
+                        threshold -= std::clamp(depth / 128.0f, 0.0f, 0.15f);
+                        if (cave > threshold) {
+                            // Very deep caves become lava.
+                            const float core_dist = dist;
+                            const float core_ratio = core_dist / planet.planet_radius;
+                            material = (core_ratio < 0.3f) ? mat.lava : mat.air;
+                        }
+                    }
+                } else if (dist <= sea_level_radius) {
+                    // Above surface but below sea level: water.
+                    material = mat.water;
+                }
+
+                set_cell_id(terrain, x, y, z, material);
+            }
+        }
+    }
+}
+
+// --- Pass 2: Biome ---
 
 void TerrainGenerator::pass_biome(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
@@ -169,13 +284,16 @@ void TerrainGenerator::pass_biome(
                 }
 
                 const int global_x = global_coord(chunk_x, x);
+                const int global_y = global_coord(chunk_y, y);
                 const int global_z = global_coord(chunk_z, z);
-                const float temperature = temp_noise.noise_2d_scaled(
+                const float temperature = temp_noise.noise_3d_scaled(
                     static_cast<float>(global_x),
+                    static_cast<float>(global_y),
                     static_cast<float>(global_z),
                     0.015f, 3);
-                const float humidity = humidity_noise.noise_2d_scaled(
+                const float humidity = humidity_noise.noise_3d_scaled(
                     static_cast<float>(global_x + 2000),
+                    static_cast<float>(global_y + 2000),
                     static_cast<float>(global_z + 2000),
                     0.02f, 3);
 
@@ -199,8 +317,9 @@ void TerrainGenerator::pass_biome(
                         continue;
                     }
                     if (rule->detail_threshold > -1.0f) {
-                        const float detail = humidity_noise.noise_2d_scaled(
+                        const float detail = humidity_noise.noise_3d_scaled(
                             static_cast<float>(global_x + 4000),
+                            static_cast<float>(global_y + 4000),
                             static_cast<float>(global_z + 4000),
                             rule->detail_scale,
                             rule->detail_octaves);
@@ -215,6 +334,8 @@ void TerrainGenerator::pass_biome(
         }
     }
 }
+
+// --- Pass 3: Ore ---
 
 void TerrainGenerator::pass_ore(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
@@ -242,13 +363,15 @@ void TerrainGenerator::pass_ore(
                 const int global_y = global_coord(chunk_y, y);
                 const int global_z = global_coord(chunk_z, z);
 
-                const float ore_density = ore_noise.noise_2d_scaled(
-                    static_cast<float>(global_x + global_y * 11),
-                    static_cast<float>(global_z - global_y * 7),
+                const float ore_density = ore_noise.noise_3d_scaled(
+                    static_cast<float>(global_x),
+                    static_cast<float>(global_y),
+                    static_cast<float>(global_z),
                     0.08f, 3);
-                const float vein_shape = vein_noise.noise_2d_scaled(
+                const float vein_shape = vein_noise.noise_3d_scaled(
                     static_cast<float>(global_x + 5000),
-                    static_cast<float>(global_z + global_y * 13 + 5000),
+                    static_cast<float>(global_y + 5000),
+                    static_cast<float>(global_z + 5000),
                     0.15f, 2);
                 const float depth_bonus = std::clamp((-global_y) / 64.0f, 0.0f, 0.28f);
                 const float combined = ore_density * 0.45f + vein_shape * 0.45f + depth_bonus;
@@ -266,6 +389,8 @@ void TerrainGenerator::pass_ore(
         }
     }
 }
+
+// --- Pass 4: Surface Objects ---
 
 void TerrainGenerator::pass_surface_objects(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
@@ -295,9 +420,11 @@ void TerrainGenerator::pass_surface_objects(
             }
 
             const int global_x = global_coord(chunk_x, x);
+            const int global_y = global_coord(chunk_y, ground_y);
             const int global_z = global_coord(chunk_z, z);
-            const float tree_density = tree_noise.noise_2d_scaled(
+            const float tree_density = tree_noise.noise_3d_scaled(
                 static_cast<float>(global_x),
+                static_cast<float>(global_y),
                 static_cast<float>(global_z),
                 0.12f, 3);
             if (tree_density < 0.54f) {
@@ -327,8 +454,9 @@ void TerrainGenerator::pass_surface_objects(
             }
 
             const int canopy_y = ground_y + 4;
-            const float canopy_size = canopy_noise.noise_2d_scaled(
+            const float canopy_size = canopy_noise.noise_3d_scaled(
                 static_cast<float>(global_x + 3000),
+                static_cast<float>(global_y + 3000),
                 static_cast<float>(global_z + 3000),
                 0.1f, 2);
             const int radius = canopy_size > 0.5f ? 2 : 1;
@@ -355,6 +483,8 @@ void TerrainGenerator::pass_surface_objects(
     }
 }
 
+// --- Pass 5: Gameplay ---
+
 void TerrainGenerator::pass_gameplay(
     const std::string& dimension_id,
     int chunk_x, int chunk_y, int chunk_z,
@@ -365,6 +495,8 @@ void TerrainGenerator::pass_gameplay(
     (void)chunk_z;
     (void)chunk;
 }
+
+// --- Helper methods ---
 
 void TerrainGenerator::set_cell(
     TerrainData& terrain, int x, int y, int z, TerrainMaterial material) {
@@ -448,8 +580,11 @@ TerrainGenerator::MaterialIds TerrainGenerator::materials() const {
     ids.ore_coal = config_->roles.ore_coal;
     ids.wood = config_->roles.wood;
     ids.leaves = config_->roles.leaves;
+    ids.ladder = config_->roles.ladder;
     return ids;
 }
+
+// --- Flat world helpers ---
 
 int TerrainGenerator::surface_height_at(
     const NoiseGenerator& elevation_noise,
@@ -459,12 +594,14 @@ int TerrainGenerator::surface_height_at(
         return 0;
     }
 
-    const float elevation = elevation_noise.noise_2d_scaled(
+    const float elevation = elevation_noise.noise_3d_scaled(
         static_cast<float>(global_x),
+        0.0f,
         static_cast<float>(global_z),
         rule.elevation_scale, rule.elevation_octaves);
-    const float broad = elevation_noise.noise_2d_scaled(
+    const float broad = elevation_noise.noise_3d_scaled(
         static_cast<float>(global_x + 60000),
+        0.0f,
         static_cast<float>(global_z - 60000),
         rule.elevation_scale * 0.35f, std::max(1, rule.elevation_octaves - 1));
 
@@ -475,15 +612,41 @@ float TerrainGenerator::cave_noise_at(
     const NoiseGenerator& cave_noise,
     int global_x, int global_y, int global_z,
     const BaseTerrainRule& rule) const {
-    const float horizontal = cave_noise.noise_2d_scaled(
+    const float horizontal = cave_noise.noise_3d_scaled(
         static_cast<float>(global_x),
+        static_cast<float>(global_y),
         static_cast<float>(global_z),
         rule.cave_scale, rule.cave_octaves);
-    const float vertical = cave_noise.noise_2d_scaled(
-        static_cast<float>(global_x + global_y * 17 + 30000),
-        static_cast<float>(global_z - global_y * 19 - 30000),
+    const float vertical = cave_noise.noise_3d_scaled(
+        static_cast<float>(global_x + 30000),
+        static_cast<float>(global_y + 30000),
+        static_cast<float>(global_z - 30000),
         rule.cave_scale * 1.35f, rule.cave_octaves);
     return horizontal * 0.55f + vertical * 0.45f;
+}
+
+// --- Planet helpers ---
+
+float TerrainGenerator::planet_surface_radius(
+    const NoiseGenerator& elevation_noise,
+    const NoiseGenerator& detail_noise,
+    float dir_x, float dir_y, float dir_z,
+    const PlanetConfig& planet) const {
+    // Use the normalized direction vector as noise input.
+    // This produces seamless noise on the sphere surface.
+    const float elevation = elevation_noise.noise_3d_scaled(
+        dir_x, dir_y, dir_z,
+        planet.elevation_noise_scale, planet.elevation_octaves);
+
+    const float detail = detail_noise.noise_3d_scaled(
+        dir_x + 100.0f, dir_y + 100.0f, dir_z + 100.0f,
+        planet.detail_noise_scale, planet.detail_octaves);
+
+    // Combine elevation and detail noise.
+    const float terrain_offset = (elevation * 0.7f + detail * 0.3f)
+        * planet.terrain_height_scale;
+
+    return planet.planet_radius + terrain_offset;
 }
 
 } // namespace science_and_theology

@@ -14,12 +14,16 @@ namespace science_and_theology {
 // Each pass adds one layer of detail to the chunk.
 //
 // Pass order:
-//   1. Base Terrain  - fundamental material layout
+//   1. Base Terrain  - fundamental material layout (flat or spherical)
 //   2. Biome         - biome-specific material adjustments
 //   3. Ore           - resource vein placement
 //   4. Structure     - large structural features
 //   5. Object        - small interactable objects
 //   6. Gameplay      - spawn points and future single-world structures.
+//
+// When a PlanetConfig is present for the dimension, pass_base_terrain
+// generates a spherical world: only blocks within the planet radius
+// (plus terrain noise) are solid; everything else is air.
 //
 // Thread safety: generate_chunk() is fully reentrant and safe for
 // concurrent invocation. world_seed_ is read-only after construction;
@@ -53,12 +57,26 @@ private:
         TerrainMaterialId ore_coal = 0;
         TerrainMaterialId wood = 0;
         TerrainMaterialId leaves = 0;
+        TerrainMaterialId ladder = 0;
     };
 
     // Pass 1: Fill the chunk with base terrain materials.
+    // Dispatches to flat or spherical generation based on PlanetConfig.
     void pass_base_terrain(const std::string& dimension_id,
                            int chunk_x, int chunk_y, int chunk_z,
                            TerrainData& terrain);
+
+    // Flat world base terrain (original infinite-plane model).
+    void pass_base_terrain_flat(const std::string& dimension_id,
+                                int chunk_x, int chunk_y, int chunk_z,
+                                TerrainData& terrain,
+                                const BaseTerrainRule& rule);
+
+    // Spherical planet base terrain.
+    void pass_base_terrain_planet(const std::string& dimension_id,
+                                  int chunk_x, int chunk_y, int chunk_z,
+                                  TerrainData& terrain,
+                                  const PlanetConfig& planet);
 
     // Pass 2: Apply biome overrides (temperature, humidity, etc.).
     void pass_biome(const std::string& dimension_id,
@@ -100,12 +118,22 @@ private:
                            TerrainMaterialId support_material) const;
     MaterialIds materials() const;
 
+    // Flat world: compute surface height at (x, z).
     int surface_height_at(const NoiseGenerator& elevation_noise,
                           int global_x, int global_z,
                           const BaseTerrainRule& rule) const;
+
+    // Flat world: compute cave noise at (x, y, z).
     float cave_noise_at(const NoiseGenerator& cave_noise,
                         int global_x, int global_y, int global_z,
                         const BaseTerrainRule& rule) const;
+
+    // Planet: compute surface radius at a direction from planet center.
+    // Uses 3D noise on the normalized direction vector.
+    float planet_surface_radius(const NoiseGenerator& elevation_noise,
+                                const NoiseGenerator& detail_noise,
+                                float dir_x, float dir_y, float dir_z,
+                                const PlanetConfig& planet) const;
 
     WorldSeed world_seed_;
     std::shared_ptr<const WorldGenConfigSnapshot> config_;

@@ -6,13 +6,14 @@
 
 namespace science_and_theology {
 
-// 2D fractal noise generator based on gradient noise.
-// Produces deterministic, seed-based terrain height and feature maps.
+// Fractal noise generator based on 3D gradient noise (Perlin-style).
+// Produces deterministic, seed-based terrain and feature maps.
+// All noise is 3D to support spherical planet terrain generation.
 //
 // Usage:
 //   NoiseGenerator noise(seed);
-//   float h = noise.noise_2d(x, y, 4, 0.5f);
-//   float h_scaled = noise.noise_2d_scaled(x, y, 0.02f, 4);
+//   float v = noise.noise_3d(x, y, z, 4, 0.5f);
+//   float v_scaled = noise.noise_3d_scaled(x, y, z, 0.02f, 4);
 class NoiseGenerator {
 public:
     static constexpr int kTableSize = 256;
@@ -20,25 +21,25 @@ public:
     explicit NoiseGenerator(uint64_t seed);
     ~NoiseGenerator() = default;
 
-    // Fractal (multi-octave) 2D noise. Returns values roughly in [-1, 1].
+    // Fractal (multi-octave) 3D noise. Returns values roughly in [-1, 1].
     // octaves: number of detail layers (higher = more detail, slower).
     // persistence: amplitude multiplier per octave (0.5 = standard).
-    float noise_2d(float x, float y, int octaves = 4,
+    float noise_3d(float x, float y, float z, int octaves = 4,
                    float persistence = 0.5f) const;
 
-    // Scaled 2D noise. Convenience wrapper that applies a coordinate scale
-    // before calling noise_2d(). Smaller scale = larger features.
-    float noise_2d_scaled(float x, float y, float scale,
+    // Scaled 3D noise. Convenience wrapper for noise_3d().
+    // Smaller scale = larger features.
+    float noise_3d_scaled(float x, float y, float z, float scale,
                           int octaves = 4) const;
 
 private:
     void init_permutation(uint64_t seed);
 
-    float raw_noise_2d(float x, float y) const;
+    float raw_noise_3d(float x, float y, float z) const;
 
     float fade(float t) const;
     float lerp(float a, float b, float t) const;
-    float gradient(int hash, float x, float y) const;
+    float gradient_3d(int hash, float x, float y, float z) const;
 
     std::array<uint8_t, kTableSize * 2> perm_;
 };
@@ -54,12 +55,12 @@ inline float NoiseGenerator::lerp(float a, float b, float t) const {
     return a + t * (b - a);
 }
 
-inline float NoiseGenerator::gradient(int hash, float x, float y) const {
-    // Low 3 bits determine gradient direction.
-    int h = hash & 7;
-    float u = (h < 4) ? x : y;
-    float v = (h < 4) ? y : x;
-    return ((h & 1) ? -u : u) + ((h & 2) ? -2.0f * v : 2.0f * v);
+inline float NoiseGenerator::gradient_3d(int hash, float x, float y, float z) const {
+    // Standard Perlin 3D gradient: low 4 bits select one of 12 edge directions.
+    int h = hash & 15;
+    float u = (h < 8) ? x : y;
+    float v = (h < 4) ? y : ((h == 12 || h == 14) ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
 }
 
 } // namespace science_and_theology

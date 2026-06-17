@@ -19,7 +19,6 @@ const SECONDARY_NONE := -1
 @export var chunk_bridge_path: NodePath = ^"../ChunkRendererBridge"
 @export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
-@export var ladder_manager_path: NodePath = ^"../LadderManager"
 
 var _chunk_bridge: ChunkRendererBridge
 
@@ -33,6 +32,5 @@ func _configure_server() -> void:
 	_chunk_bridge = get_node_or_null(chunk_bridge_path)
 	set_workbench_manager(get_node_or_null(workbench_manager_path))
 	set_furnace_manager(get_node_or_null(furnace_manager_path))
-	set_ladder_manager(get_node_or_null(ladder_manager_path))
 	if _chunk_bridge != null:
 		set_world_data(_chunk_bridge.get_world_data())

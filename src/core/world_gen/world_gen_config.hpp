@@ -54,6 +54,7 @@ struct TerrainMaterialRoles {
     TerrainMaterialId ore_coal = 0;
     TerrainMaterialId wood = 0;
     TerrainMaterialId leaves = 0;
+    TerrainMaterialId ladder = 0;
 };
 
 struct BaseTerrainRule {
@@ -105,8 +106,55 @@ struct OreVeinRule {
     float combined_max = 1.0f;
 };
 
+// Planet configuration for spherical world generation.
+// Each dimension can optionally be a planet with a defined radius and center.
+// When planet_radius > 0, the terrain generator uses spherical clipping
+// instead of the flat infinite-plane model.
+struct PlanetConfig {
+    std::string dimension_id = "overworld";
+
+    // Radius of the planet in voxel blocks. 0 means flat world (no planet).
+    float planet_radius = 0.0f;
+
+    // Center of the planet in world voxel coordinates.
+    float center_x = 0.0f;
+    float center_y = 0.0f;
+    float center_z = 0.0f;
+
+    // Maximum terrain displacement from the base sphere surface.
+    // Controls mountain height and ocean depth.
+    float terrain_height_scale = 16.0f;
+
+    // Noise scale for the 3D elevation noise applied on the sphere.
+    float elevation_noise_scale = 0.008f;
+
+    // Number of octaves for the elevation noise.
+    int elevation_octaves = 5;
+
+    // Noise scale for detail/roughness on the sphere surface.
+    float detail_noise_scale = 0.03f;
+
+    // Number of octaves for detail noise.
+    int detail_octaves = 3;
+
+    // Noise scale for cave generation inside the planet.
+    float cave_noise_scale = 0.04f;
+
+    // Number of octaves for cave noise.
+    int cave_octaves = 4;
+
+    // Threshold for cave generation. Higher = fewer caves.
+    float cave_threshold = 0.35f;
+
+    // Sea level as a fraction of terrain_height_scale above the base radius.
+    // 0.0 = sea at base radius, 1.0 = sea at max terrain height.
+    float sea_level_fraction = 0.3f;
+
+    bool is_planet() const { return planet_radius > 0.0f; }
+};
+
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 3;
+    static constexpr uint32_t kSchemaVersion = 4;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
@@ -116,6 +164,7 @@ struct WorldGenConfigSnapshot {
     std::vector<BaseTerrainRule> base_terrain_rules;
     std::vector<BiomeRule> biome_rules;
     std::vector<OreVeinRule> ore_vein_rules;
+    std::vector<PlanetConfig> planet_configs;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key;
     std::unordered_map<int, std::string> material_keys_by_id;
 
@@ -128,6 +177,7 @@ struct WorldGenConfigSnapshot {
     bool is_role(TerrainMaterialId id, TerrainMaterialId role_id) const;
     bool is_walkable_ground(TerrainMaterialId id) const;
     const BaseTerrainRule* find_base_rule(const std::string& dimension_id) const;
+    const PlanetConfig* find_planet_config(const std::string& dimension_id) const;
 };
 
 std::shared_ptr<const WorldGenConfigSnapshot> make_empty_world_gen_config();

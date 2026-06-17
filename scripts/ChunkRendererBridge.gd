@@ -7,6 +7,7 @@ const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerr
 const CHUNK_SIZE := 32
 const BLOCK_SIZE := 1.0
 const AIR_MATERIAL := 0
+const LADDER_MATERIAL := 11
 const OVERWORLD: StringName = &"overworld"
 
 @export var world_data: GDWorldData = null
@@ -19,6 +20,7 @@ const OVERWORLD: StringName = &"overworld"
 
 @export var loaded_radius := 5
 @export var view_radius := 4
+@export var use_spherical_loading := true
 @export var max_async_results_per_frame := 4:
 	set(value):
 		max_async_results_per_frame = max(0, value)
@@ -32,6 +34,9 @@ const OVERWORLD: StringName = &"overworld"
 @export var start_chunk_radius := 1
 @export var debug_chunk_streaming := false
 @export var debug_chunk_streaming_interval := 2.0
+@export var show_planet_lod := true
+@export var planet_lod_radius := 512.0
+@export var planet_lod_center := Vector3(0.0, -512.0, 0.0)
 
 var is_initialized := false
 var _visible_chunks: Dictionary = {}
@@ -41,6 +46,7 @@ var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
 var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
+var _planet_lod_mesh_instance: MeshInstance3D = null
 
 
 func _ready() -> void:
@@ -60,6 +66,7 @@ func _process(delta: float) -> void:
 
 	var player_chunk := world_position_to_chunk(player.global_position)
 	_refresh_chunks(player_chunk)
+	_update_planet_lod_visibility(player)
 	_maybe_log_chunk_streaming(delta)
 
 
@@ -81,6 +88,7 @@ func initialize() -> void:
 		world_data.chunk_ready.connect(_on_chunk_ready)
 
 	_build_materials()
+	_create_planet_lod()
 	if auto_generate_start_chunks:
 		_generate_initial_chunks()
 
@@ -169,33 +177,59 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	var wanted_visible: Dictionary = {}
 	var visible_order: Array[Vector3i] = []
 
-	for cz in range(player_chunk.z - loaded_radius, player_chunk.z + loaded_radius + 1):
-		for cx in range(player_chunk.x - loaded_radius, player_chunk.x + loaded_radius + 1):
-			var dx := cx - player_chunk.x
-			var dz := cz - player_chunk.z
-			if dx * dx + dz * dz > loaded_radius * loaded_radius:
+	if use_spherical_loading:
+		# Spherical loading: iterate in 3D radius around the player chunk.
+		var lr_sq := loaded_radius * loaded_radius
+		var vr_sq := view_radius * view_radius
+		for cy in range(player_chunk.y - loaded_radius, player_chunk.y + loaded_radius + 1):
+			var dy_sq := (cy - player_chunk.y) * (cy - player_chunk.y)
+			if dy_sq > lr_sq:
 				continue
-			var pos := Vector3i(cx, player_chunk.y, cz)
-			wanted_loaded[pos] = true
-			_ensure_chunk_loaded(pos)
+			for cz in range(player_chunk.z - loaded_radius, player_chunk.z + loaded_radius + 1):
+				var dz_sq := (cz - player_chunk.z) * (cz - player_chunk.z)
+				if dy_sq + dz_sq > lr_sq:
+					continue
+				for cx in range(player_chunk.x - loaded_radius, player_chunk.x + loaded_radius + 1):
+					var dx_sq := (cx - player_chunk.x) * (cx - player_chunk.x)
+					if dx_sq + dy_sq + dz_sq > lr_sq:
+						continue
+					var pos := Vector3i(cx, cy, cz)
+					wanted_loaded[pos] = true
+					_ensure_chunk_loaded(pos)
+					if dx_sq + dy_sq + dz_sq <= vr_sq:
+						wanted_visible[pos] = true
+						visible_order.append(pos)
+	else:
+		# Flat loading: original XZ-plane-only loading.
+		for cz in range(player_chunk.z - loaded_radius, player_chunk.z + loaded_radius + 1):
+			for cx in range(player_chunk.x - loaded_radius, player_chunk.x + loaded_radius + 1):
+				var dx := cx - player_chunk.x
+				var dz := cz - player_chunk.z
+				if dx * dx + dz * dz > loaded_radius * loaded_radius:
+					continue
+				var pos := Vector3i(cx, player_chunk.y, cz)
+				wanted_loaded[pos] = true
+				_ensure_chunk_loaded(pos)
 
-	for cz in range(player_chunk.z - view_radius, player_chunk.z + view_radius + 1):
-		for cx in range(player_chunk.x - view_radius, player_chunk.x + view_radius + 1):
-			var dx := cx - player_chunk.x
-			var dz := cz - player_chunk.z
-			if dx * dx + dz * dz > view_radius * view_radius:
-				continue
-			var pos := Vector3i(cx, player_chunk.y, cz)
-			wanted_visible[pos] = true
-			visible_order.append(pos)
+		for cz in range(player_chunk.z - view_radius, player_chunk.z + view_radius + 1):
+			for cx in range(player_chunk.x - view_radius, player_chunk.x + view_radius + 1):
+				var dx := cx - player_chunk.x
+				var dz := cz - player_chunk.z
+				if dx * dx + dz * dz > view_radius * view_radius:
+					continue
+				var pos := Vector3i(cx, player_chunk.y, cz)
+				wanted_visible[pos] = true
+				visible_order.append(pos)
 
 	visible_order.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
-		var da := (a.x - player_chunk.x) * (a.x - player_chunk.x) + (a.z - player_chunk.z) * (a.z - player_chunk.z)
-		var db := (b.x - player_chunk.x) * (b.x - player_chunk.x) + (b.z - player_chunk.z) * (b.z - player_chunk.z)
+		var da := (a.x - player_chunk.x) * (a.x - player_chunk.x) + (a.y - player_chunk.y) * (a.y - player_chunk.y) + (a.z - player_chunk.z) * (a.z - player_chunk.z)
+		var db := (b.x - player_chunk.x) * (b.x - player_chunk.x) + (b.y - player_chunk.y) * (b.y - player_chunk.y) + (b.z - player_chunk.z) * (b.z - player_chunk.z)
 		if da != db:
 			return da < db
 		if a.x != b.x:
 			return a.x < b.x
+		if a.y != b.y:
+			return a.y < b.y
 		return a.z < b.z
 	)
 
@@ -310,8 +344,13 @@ func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int,
 	if cells.is_empty():
 		return
 
+	# Ladder blocks use a thin panel mesh and no collision.
+	var is_ladder := material_id == LADDER_MATERIAL
 	var mesh := BoxMesh.new()
-	mesh.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+	if is_ladder:
+		mesh.size = Vector3(BLOCK_SIZE * 0.9, BLOCK_SIZE * 0.9, BLOCK_SIZE * 0.15)
+	else:
+		mesh.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
 
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -325,13 +364,22 @@ func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int,
 			chunk.y * CHUNK_SIZE + local.y,
 			chunk.z * CHUNK_SIZE + local.z)
 		var pos := cell_to_world_position(cell)
-		multimesh.set_instance_transform(i, Transform3D(Basis(), pos))
+		if is_ladder:
+			var facing := _ladder_facing(local, materials, size_x, size_y, size_z)
+			var basis := Basis().rotated(Vector3.UP, facing)
+			multimesh.set_instance_transform(i, Transform3D(basis, pos))
+		else:
+			multimesh.set_instance_transform(i, Transform3D(Basis(), pos))
 
 	var instance := MultiMeshInstance3D.new()
 	instance.name = "Material_%d" % material_id
 	instance.multimesh = multimesh
 	instance.material_override = _get_material(material_id)
 	root.add_child(instance)
+
+	# Climbable blocks (ladders) do not generate solid collision.
+	if is_ladder:
+		return
 
 	var static_body := StaticBody3D.new()
 	static_body.name = "Collision_%d" % material_id
@@ -375,9 +423,36 @@ func _is_surface_voxel(local: Vector3i, materials: PackedByteArray, size_x: int,
 		if n.x < 0 or n.x >= size_x or n.y < 0 or n.y >= size_y or n.z < 0 or n.z >= size_z:
 			return true
 		var index := _terrain_index(n.x, n.y, n.z, size_x, size_z)
-		if index >= materials.size() or int(materials[index]) == AIR_MATERIAL:
+		if index >= materials.size():
+			return true
+		var neighbor_material := int(materials[index])
+		# Air and climbable (ladder) blocks are non-solid; adjacent
+		# solid blocks should generate collision on that face.
+		if neighbor_material == AIR_MATERIAL or neighbor_material == LADDER_MATERIAL:
 			return true
 	return false
+
+
+# Returns the Y-axis rotation angle (radians) for a ladder block
+# based on which adjacent cell is solid (the wall it attaches to).
+func _ladder_facing(local: Vector3i, materials: PackedByteArray, size_x: int, size_y: int, size_z: int) -> float:
+	# Check horizontal neighbors in priority order: +Z, -Z, +X, -X.
+	# The ladder panel faces toward the solid wall.
+	var checks: Array[Dictionary] = [
+		{ "offset": Vector3i.FORWARD, "angle": PI },
+		{ "offset": Vector3i.BACK, "angle": 0.0 },
+		{ "offset": Vector3i.RIGHT, "angle": PI * 0.5 },
+		{ "offset": Vector3i.LEFT, "angle": PI * 1.5 },
+	]
+	for check in checks:
+		var n: Vector3i = local + check.get("offset", Vector3i.ZERO)
+		if n.x < 0 or n.x >= size_x or n.y < 0 or n.y >= size_y or n.z < 0 or n.z >= size_z:
+			continue
+		var index := _terrain_index(n.x, n.y, n.z, size_x, size_z)
+		if index < materials.size() and int(materials[index]) != AIR_MATERIAL:
+			return check.get("angle", 0.0)
+	# Default facing: toward -Z (no wall found).
+	return 0.0
 
 
 func _build_materials() -> void:
@@ -393,6 +468,7 @@ func _build_materials() -> void:
 		8: Color(0.13, 0.13, 0.13),
 		9: Color(0.45, 0.27, 0.12),
 		10: Color(0.21, 0.42, 0.20),
+		11: Color(0.55, 0.30, 0.15),
 	}
 
 
@@ -409,6 +485,42 @@ func _get_material(material_id: int) -> StandardMaterial3D:
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_material_cache[material_id] = material
 	return material
+
+
+func _create_planet_lod() -> void:
+	if not show_planet_lod:
+		return
+
+	var sphere := SphereMesh.new()
+	sphere.radius = planet_lod_radius
+	sphere.height = planet_lod_radius * 2.0
+	sphere.radial_segments = 64
+	sphere.rings = 32
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.35, 0.55, 0.30)
+	material.roughness = 0.95
+	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	sphere.surface_set_material(0, material)
+
+	_planet_lod_mesh_instance = MeshInstance3D.new()
+	_planet_lod_mesh_instance.name = "PlanetLOD"
+	_planet_lod_mesh_instance.mesh = sphere
+	_planet_lod_mesh_instance.global_position = planet_lod_center
+	add_child(_planet_lod_mesh_instance)
+
+
+func _update_planet_lod_visibility(player: Node3D) -> void:
+	if _planet_lod_mesh_instance == null:
+		return
+
+	var dist_to_center := player.global_position.distance_to(planet_lod_center)
+	var surface_dist := dist_to_center - planet_lod_radius
+
+	# Show LOD sphere when player is far from the surface.
+	# Hide when close enough that real chunks are visible.
+	var lod_show_distance := float(loaded_radius * CHUNK_SIZE) * 1.5
+	_planet_lod_mesh_instance.visible = surface_dist > lod_show_distance
 
 
 func _maybe_log_chunk_streaming(delta: float) -> void:

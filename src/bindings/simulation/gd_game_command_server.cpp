@@ -1,6 +1,7 @@
 #include "gd_game_command_server.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/object.hpp>
@@ -144,10 +145,6 @@ void GDGameCommandServer::set_furnace_manager(Node* manager) {
             "GDGameCommandServer: furnace manager is not GDFurnaceManager; "
             "server-side furnace state will be unavailable");
     }
-}
-
-void GDGameCommandServer::set_ladder_manager(Node* manager) {
-    ladder_manager_ = manager;
 }
 
 Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
@@ -379,11 +376,74 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
         }
         placed = furnace_manager_cpp_->place_furnace(dimension, cell);
     } else if (object_type == object_ladder()) {
-        if (ladder_manager_ == nullptr) {
+        // Ladders are placed as terrain cells (snt:ladder material).
+        if (world_data_ == nullptr) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
-            return reject(command_place_object(), "ladder manager is not available");
+            return reject(command_place_object(), "world data is not available");
         }
-        placed = node_bool_call(ladder_manager_, "place_ladder", dimension, cell);
+        const int32_t ladder_material = get_ladder_material_id();
+        if (ladder_material <= 0) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "ladder material is not registered");
+        }
+        // Compute chunk/local coordinates from the cell position.
+        const int32_t chunk_size = 32;
+        const Vector3i chunk(
+            static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+        const Vector3i local(
+            cell.x - chunk.x * chunk_size,
+            cell.y - chunk.y * chunk_size,
+            cell.z - chunk.z * chunk_size);
+        // Check that the target cell is currently air.
+        const godot::Dictionary existing = world_data_->get_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z);
+        const int32_t existing_material = static_cast<int32_t>(
+            static_cast<int64_t>(existing.get("material", -1)));
+        const int32_t air_material = get_air_material_id();
+        if (existing_material != air_material) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "target cell is not air");
+        }
+        // Ladders require at least one adjacent solid wall (horizontal neighbors).
+        const Vector3i horizontal_offsets[] = {
+            Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+            Vector3i(0, 0, 1), Vector3i(0, 0, -1),
+        };
+        bool has_wall = false;
+        for (const Vector3i& offset : horizontal_offsets) {
+            const Vector3i neighbor = cell + offset;
+            const Vector3i n_chunk(
+                static_cast<int32_t>(floorf(static_cast<float>(neighbor.x) / chunk_size)),
+                static_cast<int32_t>(floorf(static_cast<float>(neighbor.y) / chunk_size)),
+                static_cast<int32_t>(floorf(static_cast<float>(neighbor.z) / chunk_size)));
+            const Vector3i n_local(
+                neighbor.x - n_chunk.x * chunk_size,
+                neighbor.y - n_chunk.y * chunk_size,
+                neighbor.z - n_chunk.z * chunk_size);
+            const godot::Dictionary neighbor_cell = world_data_->get_terrain_cell(
+                String(dimension), n_chunk.x, n_chunk.y, n_chunk.z,
+                n_local.x, n_local.y, n_local.z);
+            const int32_t neighbor_material = static_cast<int32_t>(
+                static_cast<int64_t>(neighbor_cell.get("material", -1)));
+            if (neighbor_material != air_material && neighbor_material > 0) {
+                has_wall = true;
+                break;
+            }
+        }
+        if (!has_wall) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "ladder requires an adjacent wall");
+        }
+        placed = world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, ladder_material);
+        if (placed) {
+            emit_signal("terrain_cell_synced", dimension, chunk, local,
+                        air_material, ladder_material);
+        }
     } else {
         add_inventory_item(item_id, 1, kSecondaryNone, false);
         return reject(command_place_object(), "unknown object type");
@@ -591,7 +651,23 @@ bool GDGameCommandServer::is_world_object_occupied(
             furnace_manager_cpp_->has_furnace(dimension, cell);
     }
     if (object_type == object_ladder()) {
-        return node_bool_call(ladder_manager_, "has_ladder", dimension, cell);
+        // Ladders occupy terrain cells; check if the cell is non-air.
+        if (world_data_ == nullptr) return true;
+        const int32_t chunk_size = 32;
+        const Vector3i chunk(
+            static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+        const Vector3i local(
+            cell.x - chunk.x * chunk_size,
+            cell.y - chunk.y * chunk_size,
+            cell.z - chunk.z * chunk_size);
+        const godot::Dictionary existing = world_data_->get_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z);
+        const int32_t existing_material = static_cast<int32_t>(
+            static_cast<int64_t>(existing.get("material", -1)));
+        return existing_material != get_air_material_id();
     }
     return false;
 }
@@ -652,6 +728,13 @@ int32_t GDGameCommandServer::get_air_material_id() const {
         return 0;
     }
     return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->roles.air);
+}
+
+int32_t GDGameCommandServer::get_ladder_material_id() const {
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->roles.ladder);
 }
 
 Array GDGameCommandServer::get_terrain_drops(int32_t terrain_material) const {
@@ -781,8 +864,6 @@ void GDGameCommandServer::_bind_methods() {
                          &GDGameCommandServer::set_workbench_manager);
     ClassDB::bind_method(D_METHOD("set_furnace_manager", "manager"),
                          &GDGameCommandServer::set_furnace_manager);
-    ClassDB::bind_method(D_METHOD("set_ladder_manager", "manager"),
-                         &GDGameCommandServer::set_ladder_manager);
     ClassDB::bind_method(D_METHOD("submit_command", "command"),
                          &GDGameCommandServer::submit_command);
 
