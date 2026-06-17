@@ -3,6 +3,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "../simulation/season_def.hpp"
+
 namespace science_and_theology {
 
 // Runtime gameplay configuration, separate from world generation config.
@@ -41,6 +43,16 @@ struct GameplayConfig {
     // Maximum number of blocks that can fall in a single chain reaction.
     // Prevents infinite sand column collapse.
     int max_gravity_fall_chain = 64;
+
+    // --- Season system ---
+
+    // Number of in-game days per season. Default: 16 days.
+    // A full year = 4 × days_per_season days.
+    // At 1200 ticks/day (60s at 20 TPS), one year = 64 minutes real time.
+    int days_per_season = 16;
+
+    // Master switch for seasonal color changes on trees.
+    bool enable_season_colors = true;
 
     // --- Per-planet overrides ---
 

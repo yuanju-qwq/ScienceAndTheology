@@ -71,8 +71,36 @@ inline constexpr ItemId WORKBENCH_ITEM   = kNonMaterialItemBase + 52;
 inline constexpr ItemId FURNACE_ITEM     = kNonMaterialItemBase + 53;
 inline constexpr ItemId LADDER_ITEM      = kNonMaterialItemBase + 54;
 
+// ---- Tree Species Items ----
+inline constexpr ItemId OAK_LOG          = kNonMaterialItemBase + 60;
+inline constexpr ItemId OAK_PLANK        = kNonMaterialItemBase + 61;
+inline constexpr ItemId OAK_SAPLING      = kNonMaterialItemBase + 62;
+inline constexpr ItemId BIRCH_LOG        = kNonMaterialItemBase + 63;
+inline constexpr ItemId BIRCH_PLANK      = kNonMaterialItemBase + 64;
+inline constexpr ItemId BIRCH_SAPLING    = kNonMaterialItemBase + 65;
+inline constexpr ItemId SPRUCE_LOG       = kNonMaterialItemBase + 66;
+inline constexpr ItemId SPRUCE_PLANK     = kNonMaterialItemBase + 67;
+inline constexpr ItemId SPRUCE_SAPLING   = kNonMaterialItemBase + 68;
+inline constexpr ItemId ACACIA_LOG       = kNonMaterialItemBase + 69;
+inline constexpr ItemId ACACIA_PLANK     = kNonMaterialItemBase + 70;
+inline constexpr ItemId ACACIA_SAPLING   = kNonMaterialItemBase + 71;
+inline constexpr ItemId MAPLE_LOG        = kNonMaterialItemBase + 72;
+inline constexpr ItemId MAPLE_PLANK      = kNonMaterialItemBase + 73;
+inline constexpr ItemId MAPLE_SAPLING    = kNonMaterialItemBase + 74;
+inline constexpr ItemId SEQUOIA_LOG      = kNonMaterialItemBase + 75;
+inline constexpr ItemId SEQUOIA_PLANK    = kNonMaterialItemBase + 76;
+inline constexpr ItemId SEQUOIA_SAPLING  = kNonMaterialItemBase + 77;
+inline constexpr ItemId CHERRY_LOG       = kNonMaterialItemBase + 78;
+inline constexpr ItemId CHERRY_PLANK     = kNonMaterialItemBase + 79;
+inline constexpr ItemId CHERRY_SAPLING   = kNonMaterialItemBase + 80;
+inline constexpr ItemId CHERRY_FRUIT     = kNonMaterialItemBase + 81;
+inline constexpr ItemId OLIVE_LOG        = kNonMaterialItemBase + 82;
+inline constexpr ItemId OLIVE_PLANK      = kNonMaterialItemBase + 83;
+inline constexpr ItemId OLIVE_SAPLING    = kNonMaterialItemBase + 84;
+inline constexpr ItemId OLIVE_FRUIT      = kNonMaterialItemBase + 85;
+
 // Total number of non-material items.
-inline constexpr ItemId kNonMaterialItemCount = 55;
+inline constexpr ItemId kNonMaterialItemCount = 86;
 
 // Encoded patterns use dynamic IDs in [ENCODED_PATTERN_BASE, ...).
 inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemBase + kNonMaterialItemCount;
@@ -115,6 +143,24 @@ constexpr const char* kNonMaterialItemKeys[] = {
     // 53-54: New placeable items
     "stone_furnace",
     "ladder",
+    // 55-59: unused
+    nullptr, nullptr, nullptr, nullptr, nullptr,
+    // 60-62: Oak
+    "log.oak", "plank.oak", "sapling.oak",
+    // 63-65: Birch
+    "log.birch", "plank.birch", "sapling.birch",
+    // 66-68: Spruce
+    "log.spruce", "plank.spruce", "sapling.spruce",
+    // 69-71: Acacia
+    "log.acacia", "plank.acacia", "sapling.acacia",
+    // 72-74: Maple
+    "log.maple", "plank.maple", "sapling.maple",
+    // 75-77: Sequoia
+    "log.sequoia", "plank.sequoia", "sapling.sequoia",
+    // 78-81: Cherry (with fruit)
+    "log.cherry", "plank.cherry", "sapling.cherry", "fruit.cherry",
+    // 82-85: Olive (with fruit)
+    "log.olive", "plank.olive", "sapling.olive", "fruit.olive",
 };
 
 // Display names for non-material items.
@@ -153,6 +199,24 @@ constexpr const char* kNonMaterialItemNames[] = {
     // 53-54: New placeable items
     "Stone Furnace",
     "Ladder",
+    // 55-59: unused
+    nullptr, nullptr, nullptr, nullptr, nullptr,
+    // 60-62: Oak
+    "Oak Log", "Oak Plank", "Oak Sapling",
+    // 63-65: Birch
+    "Birch Log", "Birch Plank", "Birch Sapling",
+    // 66-68: Spruce
+    "Spruce Log", "Spruce Plank", "Spruce Sapling",
+    // 69-71: Acacia
+    "Acacia Log", "Acacia Plank", "Acacia Sapling",
+    // 72-74: Maple
+    "Maple Log", "Maple Plank", "Maple Sapling",
+    // 75-77: Sequoia
+    "Sequoia Log", "Sequoia Plank", "Sequoia Sapling",
+    // 78-81: Cherry (with fruit)
+    "Cherry Log", "Cherry Plank", "Cherry Sapling", "Cherry",
+    // 82-85: Olive (with fruit)
+    "Olive Log", "Olive Plank", "Olive Sapling", "Olive",
 };
 
 static_assert(sizeof(kNonMaterialItemKeys) / sizeof(kNonMaterialItemKeys[0]) ==

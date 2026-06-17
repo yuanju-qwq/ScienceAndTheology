@@ -97,9 +97,11 @@ private:
                   TerrainData& terrain);
 
     // Pass 4: Place trees and small surface voxel features.
+    // Also creates BlockEntityPlacement entries in chunk.block_entities.
     void pass_surface_objects(const std::string& dimension_id,
                    int chunk_x, int chunk_y, int chunk_z,
-                   TerrainData& terrain);
+                   TerrainData& terrain,
+                   std::vector<BlockEntityPlacement>& block_entities);
 
     // Pass 5: Place gameplay elements.
     void pass_gameplay(const std::string& dimension_id,

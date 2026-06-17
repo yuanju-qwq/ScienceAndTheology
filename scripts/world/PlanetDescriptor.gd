@@ -75,6 +75,18 @@ extends Resource
 # Star light energy (only used when is_star = true).
 @export var star_light_energy: float = 2.2
 
+# The star system this body belongs to.
+# Matches StarSystemDescriptor.system_id.
+@export var system_id: StringName = &""
+
+# Spectral type of this star (StarSpectralType.Type enum value).
+# Only used when is_star = true. Default is G (Sun-like).
+@export var star_spectral_type: int = 5
+
+# Whether this star is the primary star in its system.
+# Only used when is_star = true.
+@export var is_primary_star: bool = false
+
 
 # Convert this descriptor to a Dictionary suitable for
 # GDTerrainContentRegistry.register_planet_config().
@@ -110,18 +122,16 @@ func gravity_radius() -> float:
 
 
 # Check whether a given universe-space position is within the
-# gravity influence zone of this planet.
+# gravity influence zone of this body.
+# Both planets and stars exert gravity; stars are not landable
+# but still pull the player (e.g. black hole gravity slingshot).
 func is_in_gravity_range(position: Vector3) -> bool:
-	if is_star:
-		return false
 	return position.distance_to(universe_position) <= gravity_radius()
 
 
 # Compute the gravity direction at a given universe-space position.
 # Returns Vector3.ZERO if the position is outside gravity range.
 func gravity_direction_at(position: Vector3) -> Vector3:
-	if is_star:
-		return Vector3.ZERO
 	var dist := position.distance_to(universe_position)
 	if dist > gravity_radius() or dist < 0.001:
 		return Vector3.ZERO

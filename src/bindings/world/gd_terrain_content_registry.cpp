@@ -726,6 +726,99 @@ bool GDTerrainContentRegistry::register_planet_config(const Dictionary& def) {
     return true;
 }
 
+bool GDTerrainContentRegistry::register_tree_species(const Dictionary& def) {
+    if (!check_mutable("register tree species")) {
+        return false;
+    }
+
+    TreeSpeciesDef species;
+    species.species_key = to_std_string(def.get("species_key", ""));
+    species.display_name = to_std_string(def.get("display_name", ""));
+
+    if (species.species_key.empty()) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: tree species requires species_key.");
+        return false;
+    }
+
+    // Biome constraints.
+    species.temperature_min = static_cast<float>(def.get("temperature_min", -1.0));
+    species.temperature_max = static_cast<float>(def.get("temperature_max", 1.0));
+    species.humidity_min = static_cast<float>(def.get("humidity_min", -1.0));
+    species.humidity_max = static_cast<float>(def.get("humidity_max", 1.0));
+    species.density_weight = static_cast<float>(def.get("density_weight", 1.0));
+
+    // Tree shape.
+    species.min_trunk_height = static_cast<int>(def.get("min_trunk_height", 3));
+    species.max_trunk_height = static_cast<int>(def.get("max_trunk_height", 5));
+    species.canopy_radius = static_cast<int>(def.get("canopy_radius", 2));
+
+    // Canopy shape.
+    int canopy_int = static_cast<int>(def.get("canopy_shape", 0));
+    if (canopy_int >= 0 && canopy_int < static_cast<int>(CanopyShape::COUNT)) {
+        species.canopy_shape = static_cast<CanopyShape>(canopy_int);
+    }
+
+    // Material references.
+    species.wood_material_key = to_std_string(def.get("wood_material_key", ""));
+    species.leaves_material_key = to_std_string(def.get("leaves_material_key", ""));
+    species.sapling_material_key = to_std_string(def.get("sapling_material_key", ""));
+
+    // Growth.
+    species.is_evergreen = static_cast<bool>(def.get("is_evergreen", false));
+    species.ticks_to_young = static_cast<int64_t>(def.get("ticks_to_young", 24000));
+    species.ticks_to_mature = static_cast<int64_t>(def.get("ticks_to_mature", 48000));
+
+    // Fruit.
+    species.has_fruit = static_cast<bool>(def.get("has_fruit", false));
+    species.fruit_item_key = to_std_string(def.get("fruit_item_key", ""));
+    species.fruit_season = static_cast<int>(def.get("fruit_season", -1));
+
+    // Visual colors.
+    if (def.has("wood_color")) {
+        Color c = def.get("wood_color", Color(0.55f, 0.35f, 0.15f));
+        species.wood_color_r = c.r;
+        species.wood_color_g = c.g;
+        species.wood_color_b = c.b;
+    } else {
+        species.wood_color_r = static_cast<float>(def.get("wood_color_r", 0.55f));
+        species.wood_color_g = static_cast<float>(def.get("wood_color_g", 0.35f));
+        species.wood_color_b = static_cast<float>(def.get("wood_color_b", 0.15f));
+    }
+    if (def.has("leaves_color")) {
+        Color c = def.get("leaves_color", Color(0.2f, 0.6f, 0.1f));
+        species.leaves_color_r = c.r;
+        species.leaves_color_g = c.g;
+        species.leaves_color_b = c.b;
+    } else {
+        species.leaves_color_r = static_cast<float>(def.get("leaves_color_r", 0.2f));
+        species.leaves_color_g = static_cast<float>(def.get("leaves_color_g", 0.6f));
+        species.leaves_color_b = static_cast<float>(def.get("leaves_color_b", 0.1f));
+    }
+    if (def.has("autumn_color")) {
+        Color c = def.get("autumn_color", Color(0.8f, 0.5f, 0.1f));
+        species.autumn_color_r = c.r;
+        species.autumn_color_g = c.g;
+        species.autumn_color_b = c.b;
+    } else {
+        species.autumn_color_r = static_cast<float>(def.get("autumn_color_r", 0.8f));
+        species.autumn_color_g = static_cast<float>(def.get("autumn_color_g", 0.5f));
+        species.autumn_color_b = static_cast<float>(def.get("autumn_color_b", 0.1f));
+    }
+
+    // Check for duplicate.
+    auto existing = std::find_if(tree_species_.begin(), tree_species_.end(),
+        [&species](const TreeSpeciesDef& item) {
+            return item.species_key == species.species_key;
+        });
+    if (existing != tree_species_.end()) {
+        *existing = std::move(species);
+    } else {
+        tree_species_.push_back(std::move(species));
+    }
+    return true;
+}
+
 std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot() const {
     auto snapshot = std::make_shared<WorldGenConfigSnapshot>();
     snapshot->materials = materials_;
@@ -737,6 +830,7 @@ std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot
     snapshot->ore_vein_rules = ore_vein_rules_;
     snapshot->rock_layer_rules = rock_layer_rules_;
     snapshot->planet_configs = planet_configs_;
+    snapshot->tree_species = tree_species_;
     snapshot->material_ids_by_key = material_ids_by_key_;
     snapshot->material_keys_by_id = material_keys_by_id_;
     snapshot->content_hash = hash_world_gen_config(*snapshot);
@@ -859,6 +953,7 @@ void GDTerrainContentRegistry::clear() {
     ore_vein_rules_.clear();
     rock_layer_rules_.clear();
     planet_configs_.clear();
+    tree_species_.clear();
     material_ids_by_key_.clear();
     material_keys_by_id_.clear();
 }
@@ -911,6 +1006,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::register_rock_layer_rule);
     ClassDB::bind_method(D_METHOD("register_planet_config", "def"),
                          &GDTerrainContentRegistry::register_planet_config);
+    ClassDB::bind_method(D_METHOD("register_tree_species", "def"),
+                         &GDTerrainContentRegistry::register_tree_species);
     ClassDB::bind_method(D_METHOD("freeze"),
                          &GDTerrainContentRegistry::freeze);
     ClassDB::bind_method(D_METHOD("validate"),

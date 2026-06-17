@@ -17,6 +17,38 @@ const MAT_WORKBENCH := 12
 const MAT_DEEPSTONE := 13
 const MAT_CORE_BARRIER := 14
 
+// Tree species materials: wood, leaves, sapling per species.
+const MAT_OAK_WOOD := 15
+const MAT_OAK_LEAVES := 16
+const MAT_OAK_SAPLING := 17
+const MAT_BIRCH_WOOD := 18
+const MAT_BIRCH_LEAVES := 19
+const MAT_BIRCH_SAPLING := 20
+const MAT_SPRUCE_WOOD := 21
+const MAT_SPRUCE_LEAVES := 22
+const MAT_SPRUCE_SAPLING := 23
+const MAT_ACACIA_WOOD := 24
+const MAT_ACACIA_LEAVES := 25
+const MAT_ACACIA_SAPLING := 26
+const MAT_MAPLE_WOOD := 27
+const MAT_MAPLE_LEAVES := 28
+const MAT_MAPLE_SAPLING := 29
+const MAT_SEQUOIA_WOOD := 30
+const MAT_SEQUOIA_LEAVES := 31
+const MAT_SEQUOIA_SAPLING := 32
+const MAT_CHERRY_WOOD := 33
+const MAT_CHERRY_LEAVES := 34
+const MAT_CHERRY_SAPLING := 35
+const MAT_OLIVE_WOOD := 36
+const MAT_OLIVE_LEAVES := 37
+const MAT_OLIVE_SAPLING := 38
+
+// Canopy shape enum (must match C++ CanopyShape).
+const CANOPY_SPHERE := 0
+const CANOPY_CONE := 1
+const CANOPY_UMBRELLA := 2
+const CANOPY_COLUMN := 3
+
 const FLAG_WALKABLE := 1
 const FLAG_SOLID := 2
 const FLAG_LIQUID := 4
@@ -330,6 +362,264 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"hardness": -1.0,
 	})
 
+	// --- Tree species materials ---
+
+	// Oak: temperate deciduous, round canopy.
+	registry.register_material({
+		"id": MAT_OAK_WOOD,
+		"key": "snt:oak_wood",
+		"display_name": "Oak Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.oak", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_OAK_LEAVES,
+		"key": "snt:oak_leaves",
+		"display_name": "Oak Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.2,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_OAK_SAPLING,
+		"key": "snt:oak_sapling",
+		"display_name": "Oak Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.oak", "count": 1 }],
+	})
+
+	// Birch: cold-temperate deciduous, column canopy.
+	registry.register_material({
+		"id": MAT_BIRCH_WOOD,
+		"key": "snt:birch_wood",
+		"display_name": "Birch Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 0.8,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.birch", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_BIRCH_LEAVES,
+		"key": "snt:birch_leaves",
+		"display_name": "Birch Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.15,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_BIRCH_SAPLING,
+		"key": "snt:birch_sapling",
+		"display_name": "Birch Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.birch", "count": 1 }],
+	})
+
+	// Spruce: cold evergreen, cone canopy.
+	registry.register_material({
+		"id": MAT_SPRUCE_WOOD,
+		"key": "snt:spruce_wood",
+		"display_name": "Spruce Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.spruce", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_SPRUCE_LEAVES,
+		"key": "snt:spruce_leaves",
+		"display_name": "Spruce Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.2,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_SPRUCE_SAPLING,
+		"key": "snt:spruce_sapling",
+		"display_name": "Spruce Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.spruce", "count": 1 }],
+	})
+
+	// Acacia: tropical deciduous, umbrella canopy.
+	registry.register_material({
+		"id": MAT_ACACIA_WOOD,
+		"key": "snt:acacia_wood",
+		"display_name": "Acacia Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 0.9,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.acacia", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_ACACIA_LEAVES,
+		"key": "snt:acacia_leaves",
+		"display_name": "Acacia Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.15,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_ACACIA_SAPLING,
+		"key": "snt:acacia_sapling",
+		"display_name": "Acacia Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.acacia", "count": 1 }],
+	})
+
+	// Maple: temperate deciduous, sphere canopy, vivid autumn color.
+	registry.register_material({
+		"id": MAT_MAPLE_WOOD,
+		"key": "snt:maple_wood",
+		"display_name": "Maple Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.maple", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_MAPLE_LEAVES,
+		"key": "snt:maple_leaves",
+		"display_name": "Maple Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.2,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_MAPLE_SAPLING,
+		"key": "snt:maple_sapling",
+		"display_name": "Maple Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.maple", "count": 1 }],
+	})
+
+	// Sequoia: warm-temperate evergreen, cone canopy, very tall.
+	registry.register_material({
+		"id": MAT_SEQUOIA_WOOD,
+		"key": "snt:sequoia_wood",
+		"display_name": "Sequoia Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.2,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.sequoia", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_SEQUOIA_LEAVES,
+		"key": "snt:sequoia_leaves",
+		"display_name": "Sequoia Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.2,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_SEQUOIA_SAPLING,
+		"key": "snt:sequoia_sapling",
+		"display_name": "Sequoia Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.sequoia", "count": 1 }],
+	})
+
+	// Cherry: temperate deciduous, sphere canopy, fruit-bearing.
+	registry.register_material({
+		"id": MAT_CHERRY_WOOD,
+		"key": "snt:cherry_wood",
+		"display_name": "Cherry Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 0.7,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.cherry", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_CHERRY_LEAVES,
+		"key": "snt:cherry_leaves",
+		"display_name": "Cherry Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.15,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_CHERRY_SAPLING,
+		"key": "snt:cherry_sapling",
+		"display_name": "Cherry Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.cherry", "count": 1 }],
+	})
+
+	// Olive: warm-temperate evergreen, sphere canopy, fruit-bearing.
+	registry.register_material({
+		"id": MAT_OLIVE_WOOD,
+		"key": "snt:olive_wood",
+		"display_name": "Olive Wood",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.1,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "log.olive", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_OLIVE_LEAVES,
+		"key": "snt:olive_leaves",
+		"display_name": "Olive Leaves",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.2,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+	registry.register_material({
+		"id": MAT_OLIVE_SAPLING,
+		"key": "snt:olive_sapling",
+		"display_name": "Olive Sapling",
+		"flags": FLAG_MINEABLE,
+		"hardness": 0.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "sapling.olive", "count": 1 }],
+	})
+
 
 static func _register_builtin_material_visuals(registry: Object) -> void:
 	var visuals := [
@@ -374,6 +664,56 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:core_barrier", "dimension": "overworld",
 		  "albedo_color": Color(0.10, 0.0, 0.15),
 		  "emissive_color": Color(0.15, 0.0, 0.25), "roughness": 0.5 },
+
+		// Tree species visuals.
+		{ "material_key": "snt:oak_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.45, 0.27, 0.12) },
+		{ "material_key": "snt:oak_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.21, 0.42, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:oak_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.55, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:birch_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.80, 0.78, 0.70) },
+		{ "material_key": "snt:birch_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.55, 0.18), "cull_disabled": true },
+		{ "material_key": "snt:birch_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.60, 0.20), "cull_disabled": true },
+		{ "material_key": "snt:spruce_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.22, 0.10) },
+		{ "material_key": "snt:spruce_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.10, 0.30, 0.12), "cull_disabled": true },
+		{ "material_key": "snt:spruce_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.12, 0.35, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:acacia_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.35, 0.15) },
+		{ "material_key": "snt:acacia_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.55, 0.12), "cull_disabled": true },
+		{ "material_key": "snt:acacia_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.55, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:maple_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.42, 0.25, 0.10) },
+		{ "material_key": "snt:maple_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.20, 0.50, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:maple_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.28, 0.52, 0.18), "cull_disabled": true },
+		{ "material_key": "snt:sequoia_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.40, 0.23, 0.10) },
+		{ "material_key": "snt:sequoia_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.12, 0.32, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:sequoia_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.15, 0.38, 0.12), "cull_disabled": true },
+		{ "material_key": "snt:cherry_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.28, 0.22) },
+		{ "material_key": "snt:cherry_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.70, 0.35, 0.50), "cull_disabled": true },
+		{ "material_key": "snt:cherry_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.65, 0.30, 0.45), "cull_disabled": true },
+		{ "material_key": "snt:olive_wood", "dimension": "overworld",
+		  "albedo_color": Color(0.52, 0.40, 0.22) },
+		{ "material_key": "snt:olive_leaves", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.38, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:olive_sapling", "dimension": "overworld",
+		  "albedo_color": Color(0.28, 0.42, 0.18), "cull_disabled": true },
 	]
 	for visual in visuals:
 		registry.register_material_visual(visual)
@@ -531,6 +871,212 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"core_boundary_noise_scale": 0.02,
 		"core_boundary_noise_octaves": 3,
 		"core_boundary_noise_amplitude": 0.15,
+	})
+
+	// --- Tree species registration ---
+
+	// Oak: temperate deciduous, round canopy, most common.
+	registry.register_tree_species({
+		"species_key": "oak",
+		"display_name": "Oak",
+		"temperature_min": -0.2,
+		"temperature_max": 0.5,
+		"humidity_min": 0.0,
+		"humidity_max": 1.0,
+		"density_weight": 1.2,
+		"min_trunk_height": 3,
+		"max_trunk_height": 5,
+		"canopy_shape": CANOPY_SPHERE,
+		"canopy_radius": 2,
+		"wood_material_key": "snt:oak_wood",
+		"leaves_material_key": "snt:oak_leaves",
+		"sapling_material_key": "snt:oak_sapling",
+		"is_evergreen": false,
+		"ticks_to_young": 24000,
+		"ticks_to_mature": 48000,
+		"has_fruit": false,
+		"wood_color": Color(0.45, 0.27, 0.12),
+		"leaves_color": Color(0.21, 0.42, 0.15),
+		"autumn_color": Color(0.75, 0.50, 0.12),
+	})
+
+	// Birch: cold-temperate deciduous, tall narrow canopy.
+	registry.register_tree_species({
+		"species_key": "birch",
+		"display_name": "Birch",
+		"temperature_min": -0.6,
+		"temperature_max": 0.2,
+		"humidity_min": 0.1,
+		"humidity_max": 1.0,
+		"density_weight": 0.8,
+		"min_trunk_height": 5,
+		"max_trunk_height": 8,
+		"canopy_shape": CANOPY_COLUMN,
+		"canopy_radius": 1,
+		"wood_material_key": "snt:birch_wood",
+		"leaves_material_key": "snt:birch_leaves",
+		"sapling_material_key": "snt:birch_sapling",
+		"is_evergreen": false,
+		"ticks_to_young": 20000,
+		"ticks_to_mature": 40000,
+		"has_fruit": false,
+		"wood_color": Color(0.80, 0.78, 0.70),
+		"leaves_color": Color(0.25, 0.55, 0.18),
+		"autumn_color": Color(0.85, 0.75, 0.15),
+	})
+
+	// Spruce: cold evergreen, cone canopy.
+	registry.register_tree_species({
+		"species_key": "spruce",
+		"display_name": "Spruce",
+		"temperature_min": -1.0,
+		"temperature_max": -0.1,
+		"humidity_min": 0.0,
+		"humidity_max": 1.0,
+		"density_weight": 1.0,
+		"min_trunk_height": 4,
+		"max_trunk_height": 7,
+		"canopy_shape": CANOPY_CONE,
+		"canopy_radius": 2,
+		"wood_material_key": "snt:spruce_wood",
+		"leaves_material_key": "snt:spruce_leaves",
+		"sapling_material_key": "snt:spruce_sapling",
+		"is_evergreen": true,
+		"ticks_to_young": 30000,
+		"ticks_to_mature": 60000,
+		"has_fruit": false,
+		"wood_color": Color(0.35, 0.22, 0.10),
+		"leaves_color": Color(0.10, 0.30, 0.12),
+		"autumn_color": Color(0.10, 0.30, 0.12),
+	})
+
+	// Acacia: tropical deciduous, umbrella canopy.
+	registry.register_tree_species({
+		"species_key": "acacia",
+		"display_name": "Acacia",
+		"temperature_min": 0.5,
+		"temperature_max": 1.0,
+		"humidity_min": -0.5,
+		"humidity_max": 0.5,
+		"density_weight": 0.7,
+		"min_trunk_height": 3,
+		"max_trunk_height": 5,
+		"canopy_shape": CANOPY_UMBRELLA,
+		"canopy_radius": 3,
+		"wood_material_key": "snt:acacia_wood",
+		"leaves_material_key": "snt:acacia_leaves",
+		"sapling_material_key": "snt:acacia_sapling",
+		"is_evergreen": false,
+		"ticks_to_young": 28000,
+		"ticks_to_mature": 56000,
+		"has_fruit": false,
+		"wood_color": Color(0.55, 0.35, 0.15),
+		"leaves_color": Color(0.30, 0.55, 0.12),
+		"autumn_color": Color(0.70, 0.55, 0.10),
+	})
+
+	// Maple: temperate deciduous, vivid autumn red.
+	registry.register_tree_species({
+		"species_key": "maple",
+		"display_name": "Maple",
+		"temperature_min": -0.3,
+		"temperature_max": 0.4,
+		"humidity_min": 0.1,
+		"humidity_max": 1.0,
+		"density_weight": 0.6,
+		"min_trunk_height": 3,
+		"max_trunk_height": 6,
+		"canopy_shape": CANOPY_SPHERE,
+		"canopy_radius": 2,
+		"wood_material_key": "snt:maple_wood",
+		"leaves_material_key": "snt:maple_leaves",
+		"sapling_material_key": "snt:maple_sapling",
+		"is_evergreen": false,
+		"ticks_to_young": 26000,
+		"ticks_to_mature": 52000,
+		"has_fruit": false,
+		"wood_color": Color(0.42, 0.25, 0.10),
+		"leaves_color": Color(0.20, 0.50, 0.15),
+		"autumn_color": Color(0.90, 0.25, 0.10),
+	})
+
+	// Sequoia: warm-temperate evergreen, very tall cone canopy.
+	registry.register_tree_species({
+		"species_key": "sequoia",
+		"display_name": "Sequoia",
+		"temperature_min": 0.1,
+		"temperature_max": 0.6,
+		"humidity_min": 0.3,
+		"humidity_max": 1.0,
+		"density_weight": 0.4,
+		"min_trunk_height": 7,
+		"max_trunk_height": 12,
+		"canopy_shape": CANOPY_CONE,
+		"canopy_radius": 3,
+		"wood_material_key": "snt:sequoia_wood",
+		"leaves_material_key": "snt:sequoia_leaves",
+		"sapling_material_key": "snt:sequoia_sapling",
+		"is_evergreen": true,
+		"ticks_to_young": 40000,
+		"ticks_to_mature": 80000,
+		"has_fruit": false,
+		"wood_color": Color(0.40, 0.23, 0.10),
+		"leaves_color": Color(0.12, 0.32, 0.10),
+		"autumn_color": Color(0.12, 0.32, 0.10),
+	})
+
+	// Cherry: temperate deciduous, pink blossoms, fruit-bearing.
+	registry.register_tree_species({
+		"species_key": "cherry",
+		"display_name": "Cherry",
+		"temperature_min": -0.1,
+		"temperature_max": 0.5,
+		"humidity_min": 0.2,
+		"humidity_max": 1.0,
+		"density_weight": 0.3,
+		"min_trunk_height": 2,
+		"max_trunk_height": 4,
+		"canopy_shape": CANOPY_SPHERE,
+		"canopy_radius": 2,
+		"wood_material_key": "snt:cherry_wood",
+		"leaves_material_key": "snt:cherry_leaves",
+		"sapling_material_key": "snt:cherry_sapling",
+		"is_evergreen": false,
+		"ticks_to_young": 22000,
+		"ticks_to_mature": 44000,
+		"has_fruit": true,
+		"fruit_item_key": "fruit.cherry",
+		"fruit_season": 2,
+		"wood_color": Color(0.50, 0.28, 0.22),
+		"leaves_color": Color(0.70, 0.35, 0.50),
+		"autumn_color": Color(0.80, 0.30, 0.25),
+	})
+
+	// Olive: warm-temperate evergreen, fruit-bearing.
+	registry.register_tree_species({
+		"species_key": "olive",
+		"display_name": "Olive",
+		"temperature_min": 0.2,
+		"temperature_max": 0.8,
+		"humidity_min": -0.2,
+		"humidity_max": 0.6,
+		"density_weight": 0.3,
+		"min_trunk_height": 2,
+		"max_trunk_height": 4,
+		"canopy_shape": CANOPY_SPHERE,
+		"canopy_radius": 2,
+		"wood_material_key": "snt:olive_wood",
+		"leaves_material_key": "snt:olive_leaves",
+		"sapling_material_key": "snt:olive_sapling",
+		"is_evergreen": true,
+		"ticks_to_young": 32000,
+		"ticks_to_mature": 64000,
+		"has_fruit": true,
+		"fruit_item_key": "fruit.olive",
+		"fruit_season": 1,
+		"wood_color": Color(0.52, 0.40, 0.22),
+		"leaves_color": Color(0.25, 0.38, 0.15),
+		"autumn_color": Color(0.25, 0.38, 0.15),
 	})
 
 

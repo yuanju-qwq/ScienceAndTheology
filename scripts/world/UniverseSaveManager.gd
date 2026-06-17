@@ -3,11 +3,21 @@
 # Directory layout on disk:
 #   {save_dir}/
 #     universe_header.bin          ← C++ binary: seed + universe_mode
-#     universe_meta.json           ← JSON: planet descriptors (debug-friendly)
+#     universe_meta.json           ← JSON: system + planet descriptors (debug-friendly)
+#     systems/
+#       {system_id}/
+#         system_meta.json         ← JSON: system-level metadata
+#         planets/
+#           {dimension_id}/
+#             planet_data.bin      ← C++ binary: header + production summary
+#             regions/             ← C++ region files for this planet's chunks
+#
+# Legacy layout (still supported for loading old saves):
+#   {save_dir}/
 #     planets/
 #       {dimension_id}/
-#         planet_data.bin          ← C++ binary: header + production summary
-#         regions/                 ← C++ region files for this planet's chunks
+#         planet_data.bin
+#         regions/
 #
 # The C++ SaveManager handles binary chunk I/O (planet_data.bin, regions/).
 # This GDScript class handles the orchestration: which planets to save/load,
@@ -218,7 +228,7 @@ func _load_all_summaries(save_dir: String) -> void:
 
 # --- Universe metadata (JSON, for debugging) ---
 
-# Save universe metadata: planet descriptors and their state.
+# Save universe metadata: system descriptors, planet descriptors, and their state.
 func _save_universe_meta(save_dir: String) -> void:
 	if _universe_manager == null:
 		return
@@ -226,19 +236,49 @@ func _save_universe_meta(save_dir: String) -> void:
 	var meta := {
 		"universe_mode": _universe_manager.universe_mode,
 		"universe_seed": _universe_manager.universe_seed,
+		"format_version": 2,
+		"systems": [],
 		"planets": [],
 	}
 
+	# Save system-level data.
+	for sys in _universe_manager.systems:
+		var sd := {
+			"system_id": String(sys.system_id),
+			"system_type": sys.system_type,
+			"universe_position": [
+				sys.universe_position.x,
+				sys.universe_position.y,
+				sys.universe_position.z,
+			],
+			"system_radius": sys.system_radius,
+			"system_seed": sys.system_seed,
+			"generation_state": sys.generation_state,
+		}
+		meta["systems"].append(sd)
+
+	# Save planet-level data (flat list for backward compatibility).
 	for planet in _universe_manager.planets:
 		var pd := {
 			"dimension_id": String(planet.dimension_id),
 			"display_name": planet.display_name,
-			"universe_position": [planet.universe_position.x, planet.universe_position.y, planet.universe_position.z],
+			"universe_position": [
+				planet.universe_position.x,
+				planet.universe_position.y,
+				planet.universe_position.z,
+			],
 			"planet_radius": planet.planet_radius,
 			"seed": planet.seed,
 			"is_star": planet.is_star,
+			"system_id": String(planet.system_id),
+			"star_spectral_type": planet.star_spectral_type,
+			"is_primary_star": planet.is_primary_star,
 			"gravity_multiplier": planet.gravity_multiplier,
-			"atmosphere_color": [planet.atmosphere_color.r, planet.atmosphere_color.g, planet.atmosphere_color.b],
+			"atmosphere_color": [
+				planet.atmosphere_color.r,
+				planet.atmosphere_color.g,
+				planet.atmosphere_color.b,
+			],
 			"loaded": _universe_manager.is_planet_loaded(planet.dimension_id),
 		}
 		meta["planets"].append(pd)
@@ -252,7 +292,10 @@ func _save_universe_meta(save_dir: String) -> void:
 		file.close()
 
 
-# Load universe metadata and restore planet descriptors.
+# Load universe metadata and apply system/planet state.
+# Planet descriptors are regenerated from the universe seed,
+# so this primarily restores system placeholders and validates
+# the generated state against the saved metadata.
 func _load_universe_meta(save_dir: String) -> void:
 	var path := save_dir + "/universe_meta.json"
 	if not FileAccess.file_exists(path):
@@ -273,9 +316,10 @@ func _load_universe_meta(save_dir: String) -> void:
 	_universe_manager.universe_mode = meta.get("universe_mode", "solar_system")
 	_universe_manager.universe_seed = int(meta.get("universe_seed", 0))
 
-	# Planet descriptors are regenerated from the universe seed,
-	# so we don't need to restore them from the meta file.
-	# The meta file is primarily for debugging and validation.
+	# The universe is regenerated from the seed in _generate_universe(),
+	# so the meta file is primarily for debugging and validation.
+	# System generation state (realized vs placeholder) is not restored
+	# from the meta file — it is re-determined by player proximity.
 
 
 # --- Utility ---

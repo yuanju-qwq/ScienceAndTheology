@@ -1,37 +1,40 @@
 # RandomUniverseGenerator — procedurally generates a random universe layout.
-# Uses the universe seed to deterministically create a star, planets
-# with varied properties, and orbital positions. Produces an array
-# of PlanetDescriptor resources compatible with UniverseManager.
+# Uses the universe seed to deterministically create star system placeholders
+# distributed across the universe. Each placeholder contains only position,
+# type, and seed data; full star/planet generation happens on-demand via
+# StarSystemGenerator.realize() when the player approaches.
+#
+# Also provides a legacy generate_flat() method that returns a single
+# fully-realized system as a flat Array[PlanetDescriptor] for backward
+# compatibility with the old UniverseManager API.
 class_name RandomUniverseGenerator
 extends RefCounted
 
-# Minimum and maximum number of planets (excluding the star).
+# Minimum and maximum number of star systems in the universe.
+const MIN_SYSTEMS := 5
+const MAX_SYSTEMS := 20
+
+# Minimum spacing between system barycenters (in universe-space units).
+const MIN_SYSTEM_SPACING := 30000.0
+
+# Maximum Y offset for system positions (slight vertical spread).
+const MAX_SYSTEM_Y_OFFSET := 5000.0
+
+# --- Legacy constants (kept for generate_flat compatibility) ---
+
 const MIN_PLANETS := 3
 const MAX_PLANETS := 12
-
-# Minimum orbital spacing between planets (in universe-space units).
 const MIN_ORBIT_SPACING := 2000.0
-
-# Planet radius range (in voxel blocks).
 const MIN_PLANET_RADIUS := 128.0
 const MAX_PLANET_RADIUS := 800.0
-
-# Star radius range.
 const MIN_STAR_RADIUS := 200.0
 const MAX_STAR_RADIUS := 400.0
-
-# Gravity multiplier range.
 const MIN_GRAVITY_MULT := 0.2
 const MAX_GRAVITY_MULT := 2.5
-
-# Terrain height scale range.
 const MIN_TERRAIN_HEIGHT := 4.0
 const MAX_TERRAIN_HEIGHT := 24.0
-
-# Sea level fraction range (0 = no water, 0.5 = half terrain height).
 const MAX_SEA_LEVEL := 0.5
 
-# Atmosphere color palette — predefined hue ranges for variety.
 const ATMO_PALETTES: Array[Color] = [
 	Color(0.3, 0.6, 1.0, 1.0),
 	Color(0.85, 0.45, 0.25, 0.6),
@@ -46,9 +49,75 @@ const ATMO_PALETTES: Array[Color] = [
 ]
 
 
-# Generate a random universe with a star and procedurally placed planets.
-# Returns an Array of PlanetDescriptor resources.
-static func generate(universe_seed: int) -> Array[PlanetDescriptor]:
+# --- New API: system-based generation ---
+
+# Generate a random universe as an array of star system placeholders.
+# The first system (index 0) is always realized immediately so the player
+# has a starting system with full detail. All other systems remain as
+# placeholders until the player approaches them.
+# Returns an Array of StarSystemDescriptor resources.
+static func generate(universe_seed: int) -> Array[StarSystemDescriptor]:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = universe_seed
+
+	var system_count := rng.randi_range(MIN_SYSTEMS, MAX_SYSTEMS)
+	var systems: Array[StarSystemDescriptor] = []
+
+	for i in range(system_count):
+		var pos := _generate_system_position(rng, i, systems)
+		var sys := StarSystemGenerator.create_placeholder(i, universe_seed, pos)
+
+		if i == 0:
+			StarSystemGenerator.realize(sys)
+
+		systems.append(sys)
+
+	return systems
+
+
+# Generate a position for a new system that maintains minimum spacing
+# from all existing systems. Uses rejection sampling with a fallback
+# that gradually increases the allowed distance.
+static func _generate_system_position(rng: RandomNumberGenerator,
+		system_index: int, existing: Array[StarSystemDescriptor]) -> Vector3:
+	if system_index == 0:
+		return Vector3.ZERO
+
+	var max_attempts := 50
+	for _attempt in range(max_attempts):
+		var angle := rng.randf_range(0.0, TAU)
+		var dist := rng.randf_range(MIN_SYSTEM_SPACING, MIN_SYSTEM_SPACING * 3.0)
+		var offset_y := rng.randf_range(-MAX_SYSTEM_Y_OFFSET, MAX_SYSTEM_Y_OFFSET)
+		var candidate := Vector3(cos(angle) * dist, offset_y, sin(angle) * dist)
+
+		if system_index > 0:
+			candidate += existing[0].universe_position
+
+		var too_close := false
+		for other in existing:
+			if candidate.distance_to(other.universe_position) < MIN_SYSTEM_SPACING:
+				too_close = true
+				break
+
+		if not too_close:
+			return candidate
+
+	var fallback_angle := rng.randf_range(0.0, TAU)
+	var fallback_dist := MIN_SYSTEM_SPACING * (2.0 + float(system_index) * 0.5)
+	var fallback_y := rng.randf_range(-MAX_SYSTEM_Y_OFFSET, MAX_SYSTEM_Y_OFFSET)
+	var fallback_pos := Vector3(cos(fallback_angle) * fallback_dist, fallback_y, sin(fallback_angle) * fallback_dist)
+	if system_index > 0:
+		fallback_pos += existing[0].universe_position
+	return fallback_pos
+
+
+# --- Legacy API: flat planet list generation ---
+
+# Generate a random universe with a single star and procedurally placed planets.
+# Returns a flat Array of PlanetDescriptor resources.
+# This is the original generation method, kept for backward compatibility
+# and the "solar_system" mode fallback.
+static func generate_flat(universe_seed: int) -> Array[PlanetDescriptor]:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = universe_seed
 
@@ -69,7 +138,7 @@ static func generate(universe_seed: int) -> Array[PlanetDescriptor]:
 	return planets
 
 
-# --- Star generation ---
+# --- Legacy star generation ---
 
 static func _create_star(rng: RandomNumberGenerator) -> PlanetDescriptor:
 	var desc := PlanetDescriptor.new()
@@ -91,7 +160,7 @@ static func _create_star(rng: RandomNumberGenerator) -> PlanetDescriptor:
 	return desc
 
 
-# --- Planet generation ---
+# --- Legacy planet generation ---
 
 static func _create_planet(rng: RandomNumberGenerator, index: int,
 		universe_pos: Vector3) -> PlanetDescriptor:

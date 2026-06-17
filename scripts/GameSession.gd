@@ -14,3 +14,8 @@ var universe_mode: String = "solar_system"
 
 # Universe seed for deterministic generation. 0 means auto-generate.
 var universe_seed: int = 0
+
+# Maximum number of star systems in a "random" universe.
+# Only affects procedural generation; ignored for "solar_system" mode.
+# Range: 5-100. Default: 0 (use RandomUniverseGenerator defaults).
+var max_systems: int = 0

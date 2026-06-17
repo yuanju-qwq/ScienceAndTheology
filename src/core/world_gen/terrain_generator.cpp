@@ -52,7 +52,8 @@ ChunkData TerrainGenerator::generate_chunk(
     pass_rock_layer(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_biome(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_ore(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
-    pass_surface_objects(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
+    pass_surface_objects(normalized_dimension, chunk_x, chunk_y, chunk_z,
+                         chunk.terrain, chunk.block_entities);
     pass_gameplay(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk);
 
     return chunk;
@@ -672,10 +673,113 @@ void TerrainGenerator::pass_ore(
 
 // --- Pass 4: Surface Objects ---
 
+namespace {
+
+// Place a sphere-shaped canopy (oak, maple, cherry, olive).
+void place_canopy_sphere(
+    TerrainData& terrain, int cx, int cy, int cz,
+    int radius, TerrainMaterialId leaves_mat) {
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dz = -radius; dz <= radius; ++dz) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                if (std::abs(dx) + std::abs(dz) + std::abs(dy) > radius + 1) {
+                    continue;
+                }
+                const int nx = cx + dx;
+                const int ny = cy + dy;
+                const int nz = cz + dz;
+                if (!terrain.is_valid_cell(nx, ny, nz)) continue;
+                if (terrain.cell_at(nx, ny, nz).material != 0) continue;
+                terrain.cell_at(nx, ny, nz).material =
+                    static_cast<TerrainMaterial>(leaves_mat);
+                terrain.cell_at(nx, ny, nz).flags = 0;
+            }
+        }
+    }
+}
+
+// Place a cone-shaped canopy (spruce, sequoia).
+// Layers get progressively narrower toward the top.
+void place_canopy_cone(
+    TerrainData& terrain, int cx, int base_cy, int cz,
+    int radius, int height, TerrainMaterialId leaves_mat) {
+    for (int layer = 0; layer < height; ++layer) {
+        const int cy = base_cy + layer;
+        const int layer_radius = std::max(0, radius - layer);
+        for (int dz = -layer_radius; dz <= layer_radius; ++dz) {
+            for (int dx = -layer_radius; dx <= layer_radius; ++dx) {
+                if (std::abs(dx) + std::abs(dz) > layer_radius) continue;
+                const int nx = cx + dx;
+                const int ny = cy;
+                const int nz = cz + dz;
+                if (!terrain.is_valid_cell(nx, ny, nz)) continue;
+                if (terrain.cell_at(nx, ny, nz).material != 0) continue;
+                terrain.cell_at(nx, ny, nz).material =
+                    static_cast<TerrainMaterial>(leaves_mat);
+                terrain.cell_at(nx, ny, nz).flags = 0;
+            }
+        }
+    }
+}
+
+// Place an umbrella-shaped canopy (acacia).
+// Wide flat top on a short trunk section.
+void place_canopy_umbrella(
+    TerrainData& terrain, int cx, int cy, int cz,
+    int radius, TerrainMaterialId leaves_mat) {
+    for (int dy = 0; dy <= 1; ++dy) {
+        const int r = (dy == 0) ? radius : radius - 1;
+        for (int dz = -r; dz <= r; ++dz) {
+            for (int dx = -r; dx <= r; ++dx) {
+                if (std::abs(dx) + std::abs(dz) > r + 1) continue;
+                const int nx = cx + dx;
+                const int ny = cy + dy;
+                const int nz = cz + dz;
+                if (!terrain.is_valid_cell(nx, ny, nz)) continue;
+                if (terrain.cell_at(nx, ny, nz).material != 0) continue;
+                terrain.cell_at(nx, ny, nz).material =
+                    static_cast<TerrainMaterial>(leaves_mat);
+                terrain.cell_at(nx, ny, nz).flags = 0;
+            }
+        }
+    }
+}
+
+// Place a column-shaped canopy (birch).
+// Tall narrow cylinder of leaves.
+void place_canopy_column(
+    TerrainData& terrain, int cx, int base_cy, int cz,
+    int radius, int height, TerrainMaterialId leaves_mat) {
+    for (int dy = 0; dy < height; ++dy) {
+        const int cy = base_cy + dy;
+        for (int dz = -radius; dz <= radius; ++dz) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                if (std::abs(dx) + std::abs(dz) > radius) continue;
+                const int nx = cx + dx;
+                const int ny = cy;
+                const int nz = cz + dz;
+                if (!terrain.is_valid_cell(nx, ny, nz)) continue;
+                if (terrain.cell_at(nx, ny, nz).material != 0) continue;
+                terrain.cell_at(nx, ny, nz).material =
+                    static_cast<TerrainMaterial>(leaves_mat);
+                terrain.cell_at(nx, ny, nz).flags = 0;
+            }
+        }
+    }
+}
+
+} // namespace
+
 void TerrainGenerator::pass_surface_objects(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
-    TerrainData& terrain) {
-    if (dimension_id != "overworld") {
+    TerrainData& terrain,
+    std::vector<BlockEntityPlacement>& block_entities) {
+    // Collect tree species that can appear in this dimension.
+    std::vector<const TreeSpeciesDef*> species_list;
+    for (const auto& species : config_->tree_species) {
+        species_list.push_back(&species);
+    }
+    if (species_list.empty()) {
         return;
     }
 
@@ -684,6 +788,23 @@ void TerrainGenerator::pass_surface_objects(
         static_cast<uint32_t>(GenerationPass::OBJECT), chunk_x, chunk_y, chunk_z));
     NoiseGenerator canopy_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::OBJECT) + 1, chunk_x, chunk_y, chunk_z));
+
+    // Temperature and humidity noise (same seeds as pass_biome for consistency).
+    NoiseGenerator temp_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME), chunk_x, chunk_y, chunk_z));
+    NoiseGenerator humidity_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME) + 1, chunk_x, chunk_y, chunk_z));
+
+    // Species selection noise (deterministic per-position species choice).
+    NoiseGenerator species_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 2, chunk_x, chunk_y, chunk_z));
+
+    // Trunk height variation noise.
+    NoiseGenerator height_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 3, chunk_x, chunk_y, chunk_z));
+
+    // Counter for generating unique entity IDs within this chunk.
+    uint64_t next_entity_id = 1;
 
     for (int z = 0; z < terrain.size_z; ++z) {
         for (int x = 0; x < terrain.size_x; ++x) {
@@ -695,13 +816,15 @@ void TerrainGenerator::pass_surface_objects(
                     break;
                 }
             }
-            if (ground_y < 0 || ground_y + 5 >= terrain.size_y) {
+            if (ground_y < 0) {
                 continue;
             }
 
             const int global_x = global_coord(chunk_x, x);
             const int global_y = global_coord(chunk_y, ground_y);
             const int global_z = global_coord(chunk_z, z);
+
+            // Check tree density threshold.
             const float tree_density = tree_noise.noise_3d_scaled(
                 static_cast<float>(global_x),
                 static_cast<float>(global_y),
@@ -711,6 +834,7 @@ void TerrainGenerator::pass_surface_objects(
                 continue;
             }
 
+            // Avoid placing trees near water.
             bool near_water = false;
             for (int dz = -2; dz <= 2 && !near_water; ++dz) {
                 for (int dx = -2; dx <= 2 && !near_water; ++dx) {
@@ -729,36 +853,146 @@ void TerrainGenerator::pass_surface_objects(
                 continue;
             }
 
-            for (int trunk = 1; trunk <= 3; ++trunk) {
-                set_cell_id(terrain, x, ground_y + trunk, z, mat.wood);
+            // Compute temperature and humidity at this position.
+            const float temperature = temp_noise.noise_3d_scaled(
+                static_cast<float>(global_x),
+                static_cast<float>(global_y),
+                static_cast<float>(global_z),
+                0.015f, 3);
+            const float humidity = humidity_noise.noise_3d_scaled(
+                static_cast<float>(global_x + 2000),
+                static_cast<float>(global_y + 2000),
+                static_cast<float>(global_z + 2000),
+                0.02f, 3);
+
+            // Find matching species for this biome.
+            std::vector<const TreeSpeciesDef*> matching;
+            float total_weight = 0.0f;
+            for (const auto* species : species_list) {
+                if (temperature >= species->temperature_min &&
+                    temperature <= species->temperature_max &&
+                    humidity >= species->humidity_min &&
+                    humidity <= species->humidity_max) {
+                    matching.push_back(species);
+                    total_weight += species->density_weight;
+                }
+            }
+            if (matching.empty()) {
+                continue;
             }
 
-            const int canopy_y = ground_y + 4;
-            const float canopy_size = canopy_noise.noise_3d_scaled(
-                static_cast<float>(global_x + 3000),
-                static_cast<float>(global_y + 3000),
-                static_cast<float>(global_z + 3000),
-                0.1f, 2);
-            const int radius = canopy_size > 0.5f ? 2 : 1;
-            for (int dy = -1; dy <= 1; ++dy) {
-                for (int dz = -radius; dz <= radius; ++dz) {
-                    for (int dx = -radius; dx <= radius; ++dx) {
-                        if (std::abs(dx) + std::abs(dz) + std::abs(dy) > radius + 1) {
-                            continue;
+            // Select species by weighted random using species noise.
+            const float species_val = species_noise.noise_3d_scaled(
+                static_cast<float>(global_x + 7000),
+                static_cast<float>(global_y + 7000),
+                static_cast<float>(global_z + 7000),
+                0.5f, 2);
+            float threshold = (species_val * 0.5f + 0.5f) * total_weight;
+            const TreeSpeciesDef* selected = matching[0];
+            for (const auto* species : matching) {
+                threshold -= species->density_weight;
+                if (threshold <= 0.0f) {
+                    selected = species;
+                    break;
+                }
+            }
+
+            // Resolve material IDs for this species.
+            const TerrainMaterialId wood_mat = config_->material_id_or(
+                selected->wood_material_key, mat.wood);
+            const TerrainMaterialId leaves_mat = config_->material_id_or(
+                selected->leaves_material_key, mat.leaves);
+
+            // Determine trunk height with noise variation.
+            const float height_val = height_noise.noise_3d_scaled(
+                static_cast<float>(global_x + 9000),
+                static_cast<float>(global_y + 9000),
+                static_cast<float>(global_z + 9000),
+                0.5f, 2);
+            const int trunk_range = selected->max_trunk_height - selected->min_trunk_height;
+            const int trunk_height = selected->min_trunk_height +
+                static_cast<int>((height_val * 0.5f + 0.5f) * static_cast<float>(trunk_range));
+
+            // Check that there is enough vertical space.
+            if (ground_y + trunk_height + 3 >= terrain.size_y) {
+                continue;
+            }
+
+            // Place trunk blocks.
+            std::vector<OwnedCell> owned_cells;
+            for (int trunk = 1; trunk <= trunk_height; ++trunk) {
+                set_cell_id(terrain, x, ground_y + trunk, z, wood_mat);
+                owned_cells.push_back({global_x, global_y + trunk, global_z});
+            }
+
+            // Place canopy based on species shape.
+            const int canopy_base_y = ground_y + trunk_height + 1;
+            switch (selected->canopy_shape) {
+                case CanopyShape::SPHERE:
+                    place_canopy_sphere(terrain, x, canopy_base_y, z,
+                                       selected->canopy_radius, leaves_mat);
+                    break;
+                case CanopyShape::CONE: {
+                    const int cone_height = selected->canopy_radius + 1;
+                    place_canopy_cone(terrain, x, canopy_base_y, z,
+                                     selected->canopy_radius, cone_height, leaves_mat);
+                    break;
+                }
+                case CanopyShape::UMBRELLA:
+                    place_canopy_umbrella(terrain, x, canopy_base_y, z,
+                                         selected->canopy_radius, leaves_mat);
+                    break;
+                case CanopyShape::COLUMN: {
+                    const int column_height = 3;
+                    place_canopy_column(terrain, x, canopy_base_y, z,
+                                        selected->canopy_radius, column_height, leaves_mat);
+                    break;
+                }
+                default:
+                    place_canopy_sphere(terrain, x, canopy_base_y, z,
+                                       selected->canopy_radius, leaves_mat);
+                    break;
+            }
+
+            // Collect canopy cells into owned_cells.
+            // Scan the canopy area for leaves placed by this tree.
+            const int scan_radius = selected->canopy_radius + 1;
+            const int scan_top = (selected->canopy_shape == CanopyShape::CONE)
+                ? canopy_base_y + selected->canopy_radius + 1
+                : (selected->canopy_shape == CanopyShape::COLUMN)
+                    ? canopy_base_y + 3
+                    : canopy_base_y + 2;
+            for (int sy = canopy_base_y - 1; sy <= scan_top; ++sy) {
+                for (int sz = -scan_radius; sz <= scan_radius; ++sz) {
+                    for (int sx = -scan_radius; sx <= scan_radius; ++sx) {
+                        const int nx = x + sx;
+                        const int ny = sy;
+                        const int nz = z + sz;
+                        if (!terrain.is_valid_cell(nx, ny, nz)) continue;
+                        if (is_material(terrain.cell_at(nx, ny, nz), leaves_mat)) {
+                            owned_cells.push_back({
+                                global_x + sx,
+                                global_y + (ny - ground_y),
+                                global_z + sz});
                         }
-                        const int nx = x + dx;
-                        const int ny = canopy_y + dy;
-                        const int nz = z + dz;
-                        if (!terrain.is_valid_cell(nx, ny, nz)) {
-                            continue;
-                        }
-                        if (!is_material(terrain.cell_at(nx, ny, nz), mat.air)) {
-                            continue;
-                        }
-                        set_cell_id(terrain, nx, ny, nz, mat.leaves);
                     }
                 }
             }
+
+            // Create a BlockEntityPlacement for this tree.
+            BlockEntityPlacement be;
+            be.id = EntityId{next_entity_id};
+            ++next_entity_id;
+            be.entity_type = BlockEntityType::TREE;
+            be.root_x = global_x;
+            be.root_y = global_y + 1;
+            be.root_z = global_z;
+            be.type_data_json =
+                selected->species_key + "|" +
+                std::to_string(static_cast<int>(TreeGrowthStage::MATURE)) + "|" +
+                std::to_string(static_cast<int64_t>(0));
+            be.owned_cell_count = static_cast<uint32_t>(owned_cells.size());
+            block_entities.push_back(std::move(be));
         }
     }
 }

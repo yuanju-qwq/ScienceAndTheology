@@ -44,6 +44,16 @@ public:
     // and cave-in collapse for blocks after mining.
     void register_block_physics_system();
 
+    // Register the tree growth simulation subsystem.
+    // Must be called after set_world_data(). Handles tree growth
+    // from sapling → young → mature based on tick timing and conditions.
+    void register_tree_growth_system();
+
+    // Register the season simulation subsystem.
+    // Must be called after set_world_data(). Computes current season
+    // from tick counter and exposes it to other systems.
+    void register_season_system();
+
     // Advance simulation by one frame.
     void tick(float delta);
 

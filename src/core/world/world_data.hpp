@@ -6,6 +6,7 @@
 
 #include "chunk_data.hpp"
 #include "gameplay_config.hpp"
+#include "block_entity_registry.hpp"
 #include "../world_gen/world_gen_config.hpp"
 
 namespace science_and_theology {
@@ -93,6 +94,11 @@ public:
         worldgen_config_ = config ? std::move(config) : make_empty_world_gen_config();
     }
 
+    // --- Block entity registry ---
+
+    BlockEntityRegistry& block_entity_registry() { return block_entity_registry_; }
+    const BlockEntityRegistry& block_entity_registry() const { return block_entity_registry_; }
+
     // --- Block physics events ---
 
     // Enqueue a block physics event (e.g., after mining a block).
@@ -125,6 +131,9 @@ private:
 
     // Block physics event queue.
     std::queue<BlockPhysicsEvent> physics_events_;
+
+    // Block entity registry (trees, machines, etc.).
+    BlockEntityRegistry block_entity_registry_;
 };
 
 // --- Inline implementations ---

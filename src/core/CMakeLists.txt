@@ -58,6 +58,10 @@ target_sources(snt_core PRIVATE
     world/chunk_data.hpp
     world/gameplay_config.hpp
     world/world_data.hpp
+    world/entity_data.hpp
+    world/block_entity.hpp
+    world/block_entity_registry.hpp
+    world/block_entity_registry.cpp
 )
 
 # World generation system
@@ -69,6 +73,7 @@ target_sources(snt_core PRIVATE
     world_gen/world_gen_config.cpp
     world_gen/terrain_generator.hpp
     world_gen/terrain_generator.cpp
+    world_gen/tree_species_def.hpp
 )
 
 # Simulation system (tick orchestration, event bus, state sync)
@@ -84,6 +89,11 @@ target_sources(snt_core PRIVATE
     simulation/machine_system.cpp
     simulation/block_physics_system.hpp
     simulation/block_physics_system.cpp
+    simulation/tree_growth_system.hpp
+    simulation/tree_growth_system.cpp
+    simulation/season_def.hpp
+    simulation/season_system.hpp
+    simulation/season_system.cpp
     simulation/error_handler.hpp
     simulation/error_handler.cpp
     simulation/state_sync_common.hpp

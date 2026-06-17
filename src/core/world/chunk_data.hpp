@@ -8,6 +8,7 @@
 
 #include "terrain_data.hpp"
 #include "entity_data.hpp"
+#include "block_entity.hpp"
 
 namespace science_and_theology {
 
@@ -119,6 +120,10 @@ struct ChunkData {
     // Full runtime data lives in the global entity/machine registries.
     std::vector<EntityId> entities;
     std::vector<MachineId> machines;
+
+    // Block entity placements owned by this chunk.
+    // Each entry represents one block entity whose root cell is in this chunk.
+    std::vector<BlockEntityPlacement> block_entities;
 
     // Connector runtime IDs (set after ConnectorManager instantiation).
     std::vector<ConnectorId> connector_ids;

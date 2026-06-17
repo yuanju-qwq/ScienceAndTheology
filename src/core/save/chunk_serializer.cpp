@@ -69,6 +69,12 @@ std::vector<uint8_t> ChunkSerializer::serialize(
         write_uint64(buf, cid.id);
     }
 
+    // Block entities.
+    write_uint32(buf, static_cast<uint32_t>(chunk.block_entities.size()));
+    for (const auto& be : chunk.block_entities) {
+        write_block_entity(buf, be);
+    }
+
     return buf;
 }
 
@@ -81,7 +87,8 @@ bool ChunkSerializer::deserialize(
 
     uint8_t version;
     if (!read_uint8(data, offset, version)) return false;
-    if (version != kCurrentVersion) return false;
+    // Support version 4 (pre-block-entity) and version 5 (with block entities).
+    if (version < 4 || version > kCurrentVersion) return false;
 
     int32_t cx, cy, cz;
     if (!read_int32(data, offset, cx)) return false;
@@ -184,6 +191,19 @@ bool ChunkSerializer::deserialize(
         uint64_t id;
         if (!read_uint64(data, offset, id)) return false;
         chunk.connector_ids.push_back(ConnectorId{id});
+    }
+
+    // Block entities (version 5+).
+    if (version >= 5) {
+        uint32_t be_count;
+        if (!read_uint32(data, offset, be_count)) return false;
+        chunk.block_entities.clear();
+        chunk.block_entities.reserve(be_count);
+        for (uint32_t i = 0; i < be_count; ++i) {
+            BlockEntityPlacement be;
+            if (!read_block_entity(data, offset, be)) return false;
+            chunk.block_entities.push_back(std::move(be));
+        }
     }
 
     return true;
@@ -411,6 +431,43 @@ bool ChunkSerializer::read_mechanism_effect(
     if (!read_uint8(data, offset, when_inactive)) return false;
     effect.when_active = (when_active != 0);
     effect.when_inactive = (when_inactive != 0);
+
+    return true;
+}
+
+// --- Block entity helpers ---
+
+void ChunkSerializer::write_block_entity(
+    std::vector<uint8_t>& buf,
+    const BlockEntityPlacement& entity) {
+    write_uint64(buf, entity.id.id);
+    write_uint8(buf, static_cast<uint8_t>(entity.entity_type));
+    write_int32(buf, entity.root_x);
+    write_int32(buf, entity.root_y);
+    write_int32(buf, entity.root_z);
+    write_string(buf, entity.type_data_json);
+    write_uint32(buf, entity.owned_cell_count);
+}
+
+bool ChunkSerializer::read_block_entity(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    BlockEntityPlacement& entity) {
+    uint64_t raw_id;
+    if (!read_uint64(data, offset, raw_id)) return false;
+    entity.id = EntityId{raw_id};
+
+    uint8_t type_byte;
+    if (!read_uint8(data, offset, type_byte)) return false;
+    entity.entity_type = static_cast<BlockEntityType>(type_byte);
+
+    if (!read_int32(data, offset, entity.root_x)) return false;
+    if (!read_int32(data, offset, entity.root_y)) return false;
+    if (!read_int32(data, offset, entity.root_z)) return false;
+
+    if (!read_string(data, offset, entity.type_data_json)) return false;
+
+    if (!read_uint32(data, offset, entity.owned_cell_count)) return false;
 
     return true;
 }

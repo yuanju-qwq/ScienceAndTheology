@@ -70,6 +70,35 @@ const ITEM_STONE_PLATE   = K_NON_MAT_BASE + 33
 const ITEM_WOOD_PLATE    = K_NON_MAT_BASE + 34
 const ITEM_BLANK_PATTERN = K_NON_MAT_BASE + 35
 
+// Tree species items: log, plank, sapling, fruit per species.
+// These are non-material items with unique colors per species.
+const ITEM_OAK_LOG      = K_NON_MAT_BASE + 60
+const ITEM_OAK_PLANK    = K_NON_MAT_BASE + 61
+const ITEM_OAK_SAPLING  = K_NON_MAT_BASE + 62
+const ITEM_BIRCH_LOG      = K_NON_MAT_BASE + 63
+const ITEM_BIRCH_PLANK    = K_NON_MAT_BASE + 64
+const ITEM_BIRCH_SAPLING  = K_NON_MAT_BASE + 65
+const ITEM_SPRUCE_LOG      = K_NON_MAT_BASE + 66
+const ITEM_SPRUCE_PLANK    = K_NON_MAT_BASE + 67
+const ITEM_SPRUCE_SAPLING  = K_NON_MAT_BASE + 68
+const ITEM_ACACIA_LOG      = K_NON_MAT_BASE + 69
+const ITEM_ACACIA_PLANK    = K_NON_MAT_BASE + 70
+const ITEM_ACACIA_SAPLING  = K_NON_MAT_BASE + 71
+const ITEM_MAPLE_LOG      = K_NON_MAT_BASE + 72
+const ITEM_MAPLE_PLANK    = K_NON_MAT_BASE + 73
+const ITEM_MAPLE_SAPLING  = K_NON_MAT_BASE + 74
+const ITEM_SEQUOIA_LOG      = K_NON_MAT_BASE + 75
+const ITEM_SEQUOIA_PLANK    = K_NON_MAT_BASE + 76
+const ITEM_SEQUOIA_SAPLING  = K_NON_MAT_BASE + 77
+const ITEM_CHERRY_LOG      = K_NON_MAT_BASE + 78
+const ITEM_CHERRY_PLANK    = K_NON_MAT_BASE + 79
+const ITEM_CHERRY_SAPLING  = K_NON_MAT_BASE + 80
+const ITEM_CHERRY_FRUIT    = K_NON_MAT_BASE + 81
+const ITEM_OLIVE_LOG      = K_NON_MAT_BASE + 82
+const ITEM_OLIVE_PLANK    = K_NON_MAT_BASE + 83
+const ITEM_OLIVE_SAPLING  = K_NON_MAT_BASE + 84
+const ITEM_OLIVE_FRUIT    = K_NON_MAT_BASE + 85
+
 static func mat_item(mat_id: int, form: int) -> int:
 	return K_MAT_ITEM_BASE + mat_id * K_FORM_COUNT + form
 
@@ -101,6 +130,7 @@ func _ready() -> void:
 	_register_tool_items()
 	_register_component_items()
 	_register_survival_items()
+	_register_tree_species_items()
 
 func get_item(item_id: int) -> ItemDef:
 	return _items.get(item_id)
@@ -268,3 +298,47 @@ func _register_survival_items() -> void:
 			64, null, "placeables/stone_furnace_icon_32.png")
 	_register(ITEM_LADDER, "Ladder", Color(0.55, 0.30, 0.15),
 			64, null, "placeables/ladder_icon_32.png")
+
+
+func _register_tree_species_items() -> void:
+	// Oak: brown wood, green leaves.
+	_register(ITEM_OAK_LOG, "Oak Log", Color(0.45, 0.27, 0.12), 64, null, "trees/log_oak_icon_64.png")
+	_register(ITEM_OAK_PLANK, "Oak Plank", Color(0.60, 0.40, 0.18), 64, null, "trees/plank_oak_icon_64.png")
+	_register(ITEM_OAK_SAPLING, "Oak Sapling", Color(0.30, 0.55, 0.15), 64, null, "trees/sapling_oak_icon_64.png")
+
+	// Birch: white wood, light green leaves.
+	_register(ITEM_BIRCH_LOG, "Birch Log", Color(0.80, 0.78, 0.70), 64, null, "trees/log_birch_icon_64.png")
+	_register(ITEM_BIRCH_PLANK, "Birch Plank", Color(0.85, 0.82, 0.72), 64, null, "trees/plank_birch_icon_64.png")
+	_register(ITEM_BIRCH_SAPLING, "Birch Sapling", Color(0.35, 0.60, 0.20), 64, null, "trees/sapling_birch_icon_64.png")
+
+	// Spruce: dark brown wood, dark green leaves.
+	_register(ITEM_SPRUCE_LOG, "Spruce Log", Color(0.35, 0.22, 0.10), 64, null, "trees/log_spruce_icon_64.png")
+	_register(ITEM_SPRUCE_PLANK, "Spruce Plank", Color(0.45, 0.30, 0.15), 64, null, "trees/plank_spruce_icon_64.png")
+	_register(ITEM_SPRUCE_SAPLING, "Spruce Sapling", Color(0.12, 0.35, 0.15), 64, null, "trees/sapling_spruce_icon_64.png")
+
+	// Acacia: warm brown wood, olive green leaves.
+	_register(ITEM_ACACIA_LOG, "Acacia Log", Color(0.55, 0.35, 0.15), 64, null, "trees/log_acacia_icon_64.png")
+	_register(ITEM_ACACIA_PLANK, "Acacia Plank", Color(0.65, 0.42, 0.18), 64, null, "trees/plank_acacia_icon_64.png")
+	_register(ITEM_ACACIA_SAPLING, "Acacia Sapling", Color(0.35, 0.55, 0.15), 64, null, "trees/sapling_acacia_icon_64.png")
+
+	// Maple: reddish brown wood, bright green leaves.
+	_register(ITEM_MAPLE_LOG, "Maple Log", Color(0.42, 0.25, 0.10), 64, null, "trees/log_maple_icon_64.png")
+	_register(ITEM_MAPLE_PLANK, "Maple Plank", Color(0.55, 0.32, 0.14), 64, null, "trees/plank_maple_icon_64.png")
+	_register(ITEM_MAPLE_SAPLING, "Maple Sapling", Color(0.28, 0.52, 0.18), 64, null, "trees/sapling_maple_icon_64.png")
+
+	// Sequoia: deep red-brown wood, dark green leaves.
+	_register(ITEM_SEQUOIA_LOG, "Sequoia Log", Color(0.40, 0.23, 0.10), 64, null, "trees/log_sequoia_icon_64.png")
+	_register(ITEM_SEQUOIA_PLANK, "Sequoia Plank", Color(0.50, 0.28, 0.12), 64, null, "trees/plank_sequoia_icon_64.png")
+	_register(ITEM_SEQUOIA_SAPLING, "Sequoia Sapling", Color(0.15, 0.38, 0.12), 64, null, "trees/sapling_sequoia_icon_64.png")
+
+	// Cherry: pinkish wood, pink leaves, fruit-bearing.
+	_register(ITEM_CHERRY_LOG, "Cherry Log", Color(0.50, 0.28, 0.22), 64, null, "trees/log_cherry_icon_64.png")
+	_register(ITEM_CHERRY_PLANK, "Cherry Plank", Color(0.60, 0.35, 0.28), 64, null, "trees/plank_cherry_icon_64.png")
+	_register(ITEM_CHERRY_SAPLING, "Cherry Sapling", Color(0.65, 0.30, 0.45), 64, null, "trees/sapling_cherry_icon_64.png")
+	_register(ITEM_CHERRY_FRUIT, "Cherry", Color(0.85, 0.15, 0.25), 64, null, "trees/fruit_cherry_icon_64.png")
+
+	// Olive: grey-brown wood, silvery green leaves, fruit-bearing.
+	_register(ITEM_OLIVE_LOG, "Olive Log", Color(0.52, 0.40, 0.22), 64, null, "trees/log_olive_icon_64.png")
+	_register(ITEM_OLIVE_PLANK, "Olive Plank", Color(0.60, 0.48, 0.28), 64, null, "trees/plank_olive_icon_64.png")
+	_register(ITEM_OLIVE_SAPLING, "Olive Sapling", Color(0.28, 0.42, 0.18), 64, null, "trees/sapling_olive_icon_64.png")
+	_register(ITEM_OLIVE_FRUIT, "Olive", Color(0.55, 0.58, 0.20), 64, null, "trees/fruit_olive_icon_64.png")

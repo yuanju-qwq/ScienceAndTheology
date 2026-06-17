@@ -16,7 +16,7 @@ namespace science_and_theology {
 class ChunkSerializer {
 public:
     // Current binary format version.
-    static constexpr uint8_t kCurrentVersion = 4;
+    static constexpr uint8_t kCurrentVersion = 5;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
     // The chunk's dimension_id is embedded as part of the serialized data.
@@ -80,6 +80,14 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         MechanismEffectPlacement& effect);
+
+    // --- Block entity serialization ---
+
+    static void write_block_entity(std::vector<uint8_t>& buf,
+                                    const BlockEntityPlacement& entity);
+    static bool read_block_entity(const std::vector<uint8_t>& data,
+                                  size_t& offset,
+                                  BlockEntityPlacement& entity);
 };
 
 } // namespace science_and_theology

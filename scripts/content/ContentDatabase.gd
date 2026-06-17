@@ -372,6 +372,33 @@ func _add_misc_recipes(recipes: Array) -> void:
 			[_mat("rod", "wood", 4)],
 			_item_key("ladder", 1)))
 
+	// Tree species wood processing: 1 log → 4 planks (hand: 2, bench+saw: 4).
+	var tree_species := [
+		["oak", "log.oak", "plank.oak"],
+		["birch", "log.birch", "plank.birch"],
+		["spruce", "log.spruce", "plank.spruce"],
+		["acacia", "log.acacia", "plank.acacia"],
+		["maple", "log.maple", "plank.maple"],
+		["sequoia", "log.sequoia", "plank.sequoia"],
+		["cherry", "log.cherry", "plank.cherry"],
+		["olive", "log.olive", "plank.olive"],
+	]
+	for species in tree_species:
+		var sp_name: String = species[0]
+		var log_key: String = species[1]
+		var plank_key: String = species[2]
+		_add_recipe_if_valid(recipes, _hand(
+				"craft_%s_plank_hand" % sp_name,
+				"misc",
+				[_item_key(log_key, 1)],
+				_item_key(plank_key, 2)))
+		_add_recipe_if_valid(recipes, _bench(
+				"craft_%s_plank" % sp_name,
+				"misc",
+				[_item_key(log_key, 1)],
+				_item_key(plank_key, 4),
+				"saw"))
+
 func _machine_recipes() -> Array:
 	return [
 		{

@@ -8,6 +8,7 @@
 
 #include "../common/resource_types.hpp"
 #include "../world/terrain_data.hpp"
+#include "tree_species_def.hpp"
 
 namespace science_and_theology {
 
@@ -273,7 +274,7 @@ struct PlanetConfig {
 };
 
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 6;
+    static constexpr uint32_t kSchemaVersion = 7;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
@@ -286,6 +287,7 @@ struct WorldGenConfigSnapshot {
     std::vector<OreVeinRule> ore_vein_rules;
     std::vector<RockLayerRule> rock_layer_rules;
     std::vector<PlanetConfig> planet_configs;
+    std::vector<TreeSpeciesDef> tree_species;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key;
     std::unordered_map<int, std::string> material_keys_by_id;
 
@@ -299,6 +301,13 @@ struct WorldGenConfigSnapshot {
     bool is_walkable_ground(TerrainMaterialId id) const;
     const BaseTerrainRule* find_base_rule(const std::string& dimension_id) const;
     const PlanetConfig* find_planet_config(const std::string& dimension_id) const;
+
+    // Find a tree species by its key. Returns nullptr if not found.
+    const TreeSpeciesDef* find_tree_species(const std::string& species_key) const;
+
+    // Returns all tree species that can grow in the given temperature/humidity.
+    std::vector<const TreeSpeciesDef*> tree_species_for_biome(
+        float temperature, float humidity) const;
 };
 
 std::shared_ptr<const WorldGenConfigSnapshot> make_empty_world_gen_config();

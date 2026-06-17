@@ -1,7 +1,10 @@
 # SolarSystemPreset — generates a simplified solar system layout.
-# Produces an array of PlanetDescriptor resources representing
-# the Sun, inner rocky planets, and outer gas/ice giants.
-# Orbital distances and radii are scaled for gameplay (not realistic).
+# Produces a StarSystemDescriptor containing the Sun, inner rocky planets,
+# and outer gas/ice giants. Orbital distances and radii are scaled for
+# gameplay (not realistic).
+#
+# Also provides a legacy generate_flat() method that returns a flat
+# Array[PlanetDescriptor] for backward compatibility.
 class_name SolarSystemPreset
 extends RefCounted
 
@@ -10,9 +13,47 @@ extends RefCounted
 # Real solar system distances are far too large for voxel-scale gameplay.
 const ORBIT_SCALE := 3000.0
 
-# Generate the full solar system preset.
-# Returns an Array of PlanetDescriptor resources.
-static func generate(universe_seed: int) -> Array[PlanetDescriptor]:
+
+# --- New API: system-based generation ---
+
+# Generate the solar system as a realized StarSystemDescriptor.
+# Returns a single system with the Sun as primary star and 8 planets.
+static func generate(universe_seed: int) -> StarSystemDescriptor:
+	var sys := StarSystemDescriptor.new()
+	sys.system_id = &"sys_sol"
+	sys.system_type = StarSystemDescriptor.TYPE_SINGLE_STAR
+	sys.universe_position = Vector3.ZERO
+	sys.system_seed = universe_seed
+	sys.generation_state = StarSystemDescriptor.STATE_REALIZED
+
+	var sun := _create_sun(universe_seed)
+	sun.system_id = sys.system_id
+	sys.stars.append(sun)
+
+	var planets_data := [
+		_create_mercury(universe_seed),
+		_create_venus(universe_seed),
+		_create_earth(universe_seed),
+		_create_mars(universe_seed),
+		_create_jupiter(universe_seed),
+		_create_saturn(universe_seed),
+		_create_uranus(universe_seed),
+		_create_neptune(universe_seed),
+	]
+
+	for planet in planets_data:
+		planet.system_id = sys.system_id
+		sys.planets.append(planet)
+
+	_recompute_system_radius(sys)
+	return sys
+
+
+# --- Legacy API: flat planet list generation ---
+
+# Generate the solar system as a flat Array of PlanetDescriptor resources.
+# Kept for backward compatibility with the old UniverseManager API.
+static func generate_flat(universe_seed: int) -> Array[PlanetDescriptor]:
 	var planets: Array[PlanetDescriptor] = []
 	planets.append(_create_sun(universe_seed))
 	planets.append(_create_mercury(universe_seed))
@@ -37,6 +78,8 @@ static func _create_sun(_universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -256.0, 0.0)
 	desc.seed = 1
 	desc.is_star = true
+	desc.star_spectral_type = StarSpectralType.Type.G
+	desc.is_primary_star = true
 	desc.star_color = Color(1.0, 0.95, 0.8)
 	desc.star_light_energy = 2.2
 	desc.atmosphere_color = Color(1.0, 0.9, 0.4, 1.0)
@@ -266,3 +309,21 @@ static func _create_neptune(universe_seed: int) -> PlanetDescriptor:
 static func _hash_planet_seed(universe_seed: int, planet_name: String) -> int:
 	var combined := String.num_uint64(uint64_t(universe_seed)) + ":" + planet_name
 	return combined.hash()
+
+
+# Recompute the system bounding radius from the outermost planet position.
+static func _recompute_system_radius(system: StarSystemDescriptor) -> void:
+	var max_dist := 0.0
+	for star in system.stars:
+		var dist := star.universe_position.distance_to(system.universe_position)
+		dist += star.planet_radius
+		if dist > max_dist:
+			max_dist = dist
+	for planet in system.planets:
+		var dist := planet.universe_position.distance_to(system.universe_position)
+		dist += planet.planet_radius
+		if dist > max_dist:
+			max_dist = dist
+	if max_dist < 1000.0:
+		max_dist = 1000.0
+	system.system_radius = max_dist

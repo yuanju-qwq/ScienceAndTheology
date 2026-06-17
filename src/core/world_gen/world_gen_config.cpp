@@ -235,7 +235,54 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_octaves));
         hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_amplitude * 100000.0f));
     }
+    for (const auto& species : config.tree_species) {
+        hash_combine(hash, string_hash(species.species_key));
+        hash_combine(hash, string_hash(species.display_name));
+        hash_combine(hash, static_cast<uint64_t>((species.temperature_min + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((species.temperature_max + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((species.humidity_min + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((species.humidity_max + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(species.density_weight * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(species.min_trunk_height));
+        hash_combine(hash, static_cast<uint64_t>(species.max_trunk_height));
+        hash_combine(hash, static_cast<uint64_t>(species.canopy_shape));
+        hash_combine(hash, static_cast<uint64_t>(species.canopy_radius));
+        hash_combine(hash, string_hash(species.wood_material_key));
+        hash_combine(hash, string_hash(species.leaves_material_key));
+        hash_combine(hash, string_hash(species.sapling_material_key));
+        hash_combine(hash, species.is_evergreen ? 1ULL : 0ULL);
+        hash_combine(hash, static_cast<uint64_t>(species.ticks_to_young));
+        hash_combine(hash, static_cast<uint64_t>(species.ticks_to_mature));
+        hash_combine(hash, species.has_fruit ? 1ULL : 0ULL);
+        hash_combine(hash, string_hash(species.fruit_item_key));
+        hash_combine(hash, static_cast<uint64_t>(species.fruit_season));
+    }
     return hash;
+}
+
+// --- Tree species lookup ---
+
+const TreeSpeciesDef* WorldGenConfigSnapshot::find_tree_species(
+    const std::string& species_key) const {
+    auto it = std::find_if(tree_species.begin(), tree_species.end(),
+        [&species_key](const TreeSpeciesDef& def) {
+            return def.species_key == species_key;
+        });
+    return it != tree_species.end() ? &(*it) : nullptr;
+}
+
+std::vector<const TreeSpeciesDef*> WorldGenConfigSnapshot::tree_species_for_biome(
+    float temperature, float humidity) const {
+    std::vector<const TreeSpeciesDef*> result;
+    for (const auto& species : tree_species) {
+        if (temperature >= species.temperature_min &&
+            temperature <= species.temperature_max &&
+            humidity >= species.humidity_min &&
+            humidity <= species.humidity_max) {
+            result.push_back(&species);
+        }
+    }
+    return result;
 }
 
 } // namespace science_and_theology

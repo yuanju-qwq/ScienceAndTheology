@@ -7,6 +7,8 @@
 #include "core/simulation/event_types.hpp"
 #include "core/simulation/machine_system.hpp"
 #include "core/simulation/block_physics_system.hpp"
+#include "core/simulation/tree_growth_system.hpp"
+#include "core/simulation/season_system.hpp"
 #include "bindings/world/gd_world_data.h"
 
 namespace science_and_theology {
@@ -48,6 +50,18 @@ void GDTickSystem::register_machine_system() {
 void GDTickSystem::register_block_physics_system() {
     if (tick_system_) {
         tick_system_->register_subsystem(std::make_unique<BlockPhysicsSystem>());
+    }
+}
+
+void GDTickSystem::register_tree_growth_system() {
+    if (tick_system_) {
+        tick_system_->register_subsystem(std::make_unique<TreeGrowthSystem>());
+    }
+}
+
+void GDTickSystem::register_season_system() {
+    if (tick_system_) {
+        tick_system_->register_subsystem(std::make_unique<SeasonSystem>());
     }
 }
 
@@ -272,6 +286,10 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_machine_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_block_physics_system"),
         &GDTickSystem::register_block_physics_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_tree_growth_system"),
+        &GDTickSystem::register_tree_growth_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_season_system"),
+        &GDTickSystem::register_season_system);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",

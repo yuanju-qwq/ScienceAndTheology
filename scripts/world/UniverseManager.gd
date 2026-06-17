@@ -1,7 +1,11 @@
-# UniverseManager — manages all planets in the universe.
+# UniverseManager — manages all star systems and planets in the universe.
 # Supports two generation modes: "solar_system" (preset) and
-# "random" (procedural). Provides APIs for gravity computation,
-# planet loading/unloading, virtual simulation, and active planet tracking.
+# "random" (procedural with on-demand realization).
+#
+# The universe is organized as an array of StarSystemDescriptor entries.
+# Each system starts as a "placeholder" and is "realized" on-demand when
+# the player approaches. This enables a virtually infinite universe
+# without upfront generation cost.
 #
 # Performance strategy for a factory game:
 #   - Only the active planet's chunks are loaded in memory and rendered.
@@ -16,11 +20,13 @@
 #   {save_dir}/
 #     universe_header.bin
 #     universe_meta.json
-#     planets/
-#       {dimension_id}/
-#         planet_header.bin
-#         planet_summary.json
-#         regions/
+#     systems/
+#       {system_id}/
+#         system_meta.json
+#         planets/
+#           {dimension_id}/
+#             planet_data.bin
+#             regions/
 class_name UniverseManager
 extends Node3D
 
@@ -29,6 +35,7 @@ const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerr
 signal active_planet_changed(planet: PlanetDescriptor)
 signal planet_loaded(planet: PlanetDescriptor)
 signal planet_unloaded(planet: PlanetDescriptor)
+signal system_realized(system: StarSystemDescriptor)
 
 # Universe generation mode: "solar_system" or "random".
 @export var universe_mode: String = "solar_system"
@@ -42,6 +49,9 @@ signal planet_unloaded(planet: PlanetDescriptor)
 # Distance multiplier at which a planet's chunks are serialized and unloaded.
 @export var unload_distance_multiplier := 6.0
 
+# Distance at which a placeholder system gets realized.
+@export var realize_distance := 50000.0
+
 # Path to the player node for distance calculations.
 @export var player_node_path: NodePath = ^"../Player"
 
@@ -52,8 +62,22 @@ signal planet_unloaded(planet: PlanetDescriptor)
 @export var debug_universe := false
 @export var debug_interval := 1.0
 
-# All planets in the universe (including the star).
-var planets: Array[PlanetDescriptor] = []
+# All star systems in the universe.
+var systems: Array[StarSystemDescriptor] = []
+
+# Convenience: flat list of all planets across all realized systems.
+# Stars are included. Placeholder systems contribute no entries.
+var all_planets: Array[PlanetDescriptor]:
+	get:
+		var result: Array[PlanetDescriptor] = []
+		for sys in systems:
+			if sys.is_realized():
+				result.append_array(sys.all_bodies())
+		return result
+
+# Backward compatibility alias: `planets` now delegates to `all_planets`.
+var planets: Array[PlanetDescriptor]:
+	get: return all_planets
 
 # The planet the player is currently on or nearest to.
 var active_planet: PlanetDescriptor = null
@@ -85,7 +109,7 @@ func _ready() -> void:
 	_find_references()
 	_create_virtual_simulator()
 	_create_save_manager()
-	_create_lod_managers()
+	_create_lod_managers_for_realized()
 	_set_initial_active_planet()
 
 
@@ -93,6 +117,8 @@ func _process(delta: float) -> void:
 	if _player == null:
 		return
 
+	_update_system_distances()
+	_update_system_realization()
 	_update_active_planet()
 	_update_planet_loading()
 	_maybe_debug_log(delta)
@@ -115,12 +141,15 @@ func _generate_universe() -> void:
 
 	match universe_mode:
 		"solar_system":
-			planets = SolarSystemPreset.generate(universe_seed)
+			var sys := SolarSystemPreset.generate(universe_seed)
+			systems.append(sys)
 		"random":
-			planets = RandomUniverseGenerator.generate(universe_seed)
+			var sys_array := RandomUniverseGenerator.generate(universe_seed)
+			systems = sys_array
 		_:
 			push_warning("UniverseManager: unknown mode '%s', falling back to solar_system" % universe_mode)
-			planets = SolarSystemPreset.generate(universe_seed)
+			var sys := SolarSystemPreset.generate(universe_seed)
+			systems.append(sys)
 
 
 func _find_references() -> void:
@@ -144,14 +173,43 @@ func _create_save_manager() -> void:
 	add_child(_save_manager)
 
 
+# --- System distance and realization ---
+
+# Update the distance from each system to the player.
+func _update_system_distances() -> void:
+	if _player == null:
+		return
+	var player_pos := _player.global_position
+	for sys in systems:
+		sys.distance_to_player = player_pos.distance_to(sys.universe_position)
+
+
+# Realize placeholder systems that are close enough to the player.
+func _update_system_realization() -> void:
+	for sys in systems:
+		if sys.is_realized():
+			continue
+		if sys.distance_to_player <= realize_distance:
+			StarSystemGenerator.realize(sys)
+			_create_lod_managers_for_system(sys)
+			system_realized.emit(sys)
+
+
 # --- LOD manager creation ---
 
-func _create_lod_managers() -> void:
-	for planet in planets:
-		if planet.is_star:
-			_create_star_lod(planet)
-		else:
-			_create_planet_lod(planet)
+# Create LOD managers for all currently realized systems.
+func _create_lod_managers_for_realized() -> void:
+	for sys in systems:
+		if sys.is_realized():
+			_create_lod_managers_for_system(sys)
+
+
+# Create LOD managers for a single realized system.
+func _create_lod_managers_for_system(system: StarSystemDescriptor) -> void:
+	for star in system.stars:
+		_create_star_lod(star)
+	for planet in system.planets:
+		_create_planet_lod(planet)
 
 
 func _create_planet_lod(planet: PlanetDescriptor) -> void:
@@ -201,8 +259,7 @@ func _create_star_lod(planet: PlanetDescriptor) -> void:
 
 func _set_initial_active_planet() -> void:
 	if _player == null:
-		if planets.size() > 0:
-			active_planet = _find_first_landable_planet()
+		active_planet = _find_first_landable_planet()
 		return
 
 	var nearest := find_nearest_planet(_player.global_position)
@@ -229,7 +286,7 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 
 	if _chunk_bridge != null and not planet.is_star:
 		if not _bridge_initialized:
-			var config := BuiltinTerrainContentScript.create_config_for_universe(planets)
+			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
 			_chunk_bridge.initialize_for_universe(config, planet.dimension_id)
 			_bridge_initialized = true
 		else:
@@ -244,19 +301,22 @@ func _update_planet_loading() -> void:
 
 	var player_pos := _player.global_position
 
-	for planet in planets:
-		if planet.is_star:
+	for sys in systems:
+		if not sys.is_realized():
 			continue
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
 
-		var dist := player_pos.distance_to(planet.universe_position)
-		var load_dist := planet.planet_radius * load_distance_multiplier
-		var unload_dist := planet.planet_radius * unload_distance_multiplier
-		var is_loaded := _loaded_planets.has(planet.dimension_id)
+			var dist := player_pos.distance_to(planet.universe_position)
+			var load_dist := planet.planet_radius * load_distance_multiplier
+			var unload_dist := planet.planet_radius * unload_distance_multiplier
+			var is_loaded := _loaded_planets.has(planet.dimension_id)
 
-		if not is_loaded and dist <= load_dist:
-			_load_planet(planet)
-		elif is_loaded and dist > unload_dist:
-			_unload_planet(planet)
+			if not is_loaded and dist <= load_dist:
+				_load_planet(planet)
+			elif is_loaded and dist > unload_dist:
+				_unload_planet(planet)
 
 
 func _load_planet(planet: PlanetDescriptor) -> void:
@@ -369,44 +429,96 @@ func load_universe() -> bool:
 	return _save_manager.load_universe(_save_dir)
 
 
-# --- Public API ---
+# --- Public API: system queries ---
+
+# Find the nearest star system to a given universe-space position.
+func find_nearest_system(position: Vector3) -> StarSystemDescriptor:
+	var best: StarSystemDescriptor = null
+	var best_dist: float = INF
+	for sys in systems:
+		var dist := position.distance_to(sys.universe_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = sys
+	return best
+
+
+# Get a StarSystemDescriptor by its system_id.
+func get_system_by_id(system_id: StringName) -> StarSystemDescriptor:
+	for sys in systems:
+		if sys.system_id == system_id:
+			return sys
+	return null
+
+
+# Get the StarSystemDescriptor that contains a given planet dimension.
+func get_system_for_planet(dimension_id: StringName) -> StarSystemDescriptor:
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for body in sys.all_bodies():
+			if body.dimension_id == dimension_id:
+				return sys
+	return null
+
+
+# Get the number of realized systems.
+func get_realized_system_count() -> int:
+	var count := 0
+	for sys in systems:
+		if sys.is_realized():
+			count += 1
+	return count
+
+
+# Get the total number of systems (including placeholders).
+func get_system_count() -> int:
+	return systems.size()
+
+
+# --- Public API: planet queries ---
 
 # Find the nearest planet to a given universe-space position.
 # Stars are excluded from consideration.
+# Only considers planets in realized systems.
 func find_nearest_planet(position: Vector3) -> PlanetDescriptor:
 	var best: PlanetDescriptor = null
 	var best_dist: float = INF
 
-	for planet in planets:
-		if planet.is_star:
+	for sys in systems:
+		if not sys.is_realized():
 			continue
-		var dist := position.distance_to(planet.universe_position)
-		if dist < best_dist:
-			best_dist = dist
-			best = planet
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
+			var dist := position.distance_to(planet.universe_position)
+			if dist < best_dist:
+				best_dist = dist
+				best = planet
 
 	return best
 
 
 # Compute the combined gravity direction at a given universe-space position.
+# Considers gravity from both planets and stars within the nearest system.
+# Stars exert gravity but are not landable.
 func compute_gravity_direction(position: Vector3) -> Vector3:
+	var nearest_sys := find_nearest_system(position)
+	if nearest_sys == null or not nearest_sys.is_realized():
+		return Vector3.ZERO
+
 	var best_dir := Vector3.ZERO
 	var best_influence := 0.0
 
-	for planet in planets:
-		if planet.is_star:
-			continue
-		if not planet.is_in_gravity_range(position):
-			continue
-
-		var dist := position.distance_to(planet.universe_position)
-		var dir := planet.gravity_direction_at(position)
-		if dir == Vector3.ZERO:
+	for body in nearest_sys.all_bodies():
+		var dist := position.distance_to(body.universe_position)
+		var gravity_radius := body.gravity_radius()
+		if dist > gravity_radius or dist < 0.001:
 			continue
 
-		var gravity_radius := planet.gravity_radius()
+		var dir := (body.universe_position - position).normalized()
 		var t := 1.0 - (dist / gravity_radius)
-		var influence := planet.gravity_multiplier * t * t
+		var influence := body.gravity_multiplier * t * t
 
 		if influence > best_influence:
 			best_influence = influence
@@ -417,18 +529,20 @@ func compute_gravity_direction(position: Vector3) -> Vector3:
 
 # Compute the gravity strength multiplier at a given position.
 func compute_gravity_multiplier(position: Vector3) -> float:
+	var nearest_sys := find_nearest_system(position)
+	if nearest_sys == null or not nearest_sys.is_realized():
+		return 0.0
+
 	var best_mult := 0.0
 
-	for planet in planets:
-		if planet.is_star:
-			continue
-		if not planet.is_in_gravity_range(position):
+	for body in nearest_sys.all_bodies():
+		var dist := position.distance_to(body.universe_position)
+		var gravity_radius := body.gravity_radius()
+		if dist > gravity_radius:
 			continue
 
-		var dist := position.distance_to(planet.universe_position)
-		var gravity_radius := planet.gravity_radius()
 		var t := 1.0 - (dist / gravity_radius)
-		var influence := planet.gravity_multiplier * t * t
+		var influence := body.gravity_multiplier * t * t
 
 		if influence > best_mult:
 			best_mult = influence
@@ -438,19 +552,23 @@ func compute_gravity_multiplier(position: Vector3) -> float:
 
 # Check whether a position is within any planet's gravity range.
 func is_in_any_gravity_range(position: Vector3) -> bool:
-	for planet in planets:
-		if planet.is_star:
+	for sys in systems:
+		if not sys.is_realized():
 			continue
-		if planet.is_in_gravity_range(position):
-			return true
+		for planet in sys.planets:
+			if planet.is_in_gravity_range(position):
+				return true
 	return false
 
 
 # Get the PlanetDescriptor for a specific dimension_id.
 func get_planet_by_dimension(dimension_id: StringName) -> PlanetDescriptor:
-	for planet in planets:
-		if planet.dimension_id == dimension_id:
-			return planet
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for body in sys.all_bodies():
+			if body.dimension_id == dimension_id:
+				return body
 	return null
 
 
@@ -476,12 +594,12 @@ func get_planet_virtual_time(dimension_id: StringName) -> float:
 	return _virtual_sim.get_virtual_time(dimension_id)
 
 
-# Get all landable (non-star) planets.
+# Get all landable (non-star) planets across all realized systems.
 func get_landable_planets() -> Array[PlanetDescriptor]:
 	var result: Array[PlanetDescriptor] = []
-	for planet in planets:
-		if not planet.is_star:
-			result.append(planet)
+	for sys in systems:
+		if sys.is_realized():
+			result.append_array(sys.get_landable_planets())
 	return result
 
 
@@ -509,15 +627,18 @@ func _maybe_debug_log(delta: float) -> void:
 	var active_name := active_planet.display_name if active_planet else "None"
 	var loaded_count := _loaded_planets.size()
 	var sim_count := _virtual_sim.get_simulated_dimensions().size() if _virtual_sim else 0
-	print("UniverseManager: mode=%s seed=%d planets=%d active=%s loaded=%d simulating=%d pos=%s" % [
-		universe_mode, universe_seed, planets.size(), active_name, loaded_count,
-		sim_count, str(player_pos)])
+	var realized_count := get_realized_system_count()
+	print("UniverseManager: mode=%s seed=%d systems=%d realized=%d planets=%d active=%s loaded=%d simulating=%d pos=%s" % [
+		universe_mode, universe_seed, systems.size(), realized_count,
+		all_planets.size(), active_name, loaded_count, sim_count, str(player_pos)])
 
 
 # --- Internal helpers ---
 
 func _find_first_landable_planet() -> PlanetDescriptor:
-	for planet in planets:
-		if not planet.is_star:
-			return planet
+	for sys in systems:
+		if sys.is_realized():
+			var landable := sys.get_landable_planets()
+			if not landable.is_empty():
+				return landable[0]
 	return null
