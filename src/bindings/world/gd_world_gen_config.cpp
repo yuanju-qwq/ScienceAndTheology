@@ -212,6 +212,14 @@ Dictionary GDWorldGenConfig::get_material_roles() const {
     return d;
 }
 
+Dictionary GDWorldGenConfig::get_runtime_material_ids() const {
+    const auto snapshot = get_snapshot();
+    Dictionary d;
+    d["ladder"] = static_cast<int>(snapshot->runtime_ids.ladder);
+    d["workbench"] = static_cast<int>(snapshot->runtime_ids.workbench);
+    return d;
+}
+
 Array GDWorldGenConfig::get_base_terrain_rules() const {
     Array result;
     for (const auto& rule : get_snapshot()->base_terrain_rules) {
@@ -275,6 +283,8 @@ void GDWorldGenConfig::_bind_methods() {
                          &GDWorldGenConfig::get_tile_mappings);
     ClassDB::bind_method(D_METHOD("get_material_roles"),
                          &GDWorldGenConfig::get_material_roles);
+    ClassDB::bind_method(D_METHOD("get_runtime_material_ids"),
+                         &GDWorldGenConfig::get_runtime_material_ids);
     ClassDB::bind_method(D_METHOD("get_base_terrain_rules"),
                          &GDWorldGenConfig::get_base_terrain_rules);
     ClassDB::bind_method(D_METHOD("get_biome_rules"),

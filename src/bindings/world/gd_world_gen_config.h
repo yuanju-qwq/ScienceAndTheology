@@ -31,6 +31,7 @@ public:
     godot::Array get_material_defs() const;
     godot::Array get_tile_mappings() const;
     godot::Dictionary get_material_roles() const;
+    godot::Dictionary get_runtime_material_ids() const;
     godot::Array get_base_terrain_rules() const;
     godot::Array get_biome_rules() const;
     godot::Array get_ore_vein_rules() const;

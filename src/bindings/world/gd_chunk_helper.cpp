@@ -2,9 +2,15 @@
 
 #include <cmath>
 #include <algorithm>
+#include <vector>
 
+#include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/callable.hpp>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace science_and_theology {
 
@@ -190,23 +196,23 @@ godot::Dictionary GDChunkHelper::compute_visible_chunks(
 void GDChunkHelper::_bind_methods() {
     using B = GDChunkHelper;
 
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("world_position_to_cell", "world_position"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("world_position_to_cell", "world_position"),
                                 &B::world_position_to_cell);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("cell_to_world_position", "cell"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("cell_to_world_position", "cell"),
                                 &B::cell_to_world_position);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("cell_to_chunk", "cell", "chunk_size"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("cell_to_chunk", "cell", "chunk_size"),
                                 &B::cell_to_chunk);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("cell_to_local", "cell", "chunk_size"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("cell_to_local", "cell", "chunk_size"),
                                 &B::cell_to_local);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("world_position_to_chunk", "world_position", "chunk_size"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("world_position_to_chunk", "world_position", "chunk_size"),
                                 &B::world_position_to_chunk);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("terrain_index", "local_x", "local_y", "local_z", "size_x", "size_z"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("terrain_index", "local_x", "local_y", "local_z", "size_x", "size_z"),
                                 &B::terrain_index);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("is_surface_voxel", "local", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("is_surface_voxel", "local", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
                                 &B::is_surface_voxel);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("ladder_facing", "local", "materials", "size_x", "size_y", "size_z", "air_material"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("ladder_facing", "local", "materials", "size_x", "size_y", "size_z", "air_material"),
                                 &B::ladder_facing);
-    ClassDB::bind_static_method("GDChunkHelper", D_METHOD("compute_visible_chunks", "player_chunk", "loaded_radius", "view_radius", "use_spherical_loading"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_visible_chunks", "player_chunk", "loaded_radius", "view_radius", "use_spherical_loading"),
                                 &B::compute_visible_chunks);
 }
 

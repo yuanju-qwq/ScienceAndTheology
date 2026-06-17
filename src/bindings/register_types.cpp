@@ -22,6 +22,7 @@
 #include "simulation/gd_tick_system.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
+#include "player/gd_player_helper.h"
 #include "magic/gd_rune_registry.hpp"
 #include "magic/gd_glyph_registry.hpp"
 #include "magic/gd_spell_book.hpp"
@@ -80,6 +81,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDTickSystem>();
     ClassDB::register_class<GDPlayerInventory>();
     ClassDB::register_class<GDPlayerEquipment>();
+    ClassDB::register_class<GDPlayerHelper>();
     ClassDB::register_class<GDRuneRegistry>();
     ClassDB::register_class<GDGlyphRegistry>();
     ClassDB::register_class<GDSpellBook>();

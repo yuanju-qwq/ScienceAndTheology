@@ -9,10 +9,17 @@ signal chunk_bridge_ready
 const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
 const CHUNK_SIZE := 32
 const BLOCK_SIZE := 1.0
+
+# Air material ID 0 is a protocol convention: zero-initialized terrain cells
+# are air by definition. This is safe to hardcode.
 const AIR_MATERIAL := 0
-const LADDER_MATERIAL := 11
-const WORKBENCH_MATERIAL := 12
+
 const OVERWORLD: StringName = &"overworld"
+
+# Runtime material IDs resolved from worldgen_config at initialization.
+# Do NOT hardcode these — they depend on material registration order.
+var ladder_material_id: int = AIR_MATERIAL
+var workbench_material_id: int = AIR_MATERIAL
 
 @export var world_data: GDWorldData = null
 @export var worldgen_config: Resource = null
@@ -90,6 +97,8 @@ func initialize() -> void:
 		worldgen_config = BuiltinTerrainContentScript.create_default_config()
 	world_data.worldgen_config = worldgen_config
 
+	_resolve_runtime_material_ids()
+
 	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
 		world_data.chunk_ready.connect(_on_chunk_ready)
 
@@ -106,6 +115,18 @@ func initialize() -> void:
 
 func get_world_data() -> GDWorldData:
 	return world_data
+
+
+# --- Runtime material ID accessors ---
+
+# Returns the runtime material ID for ladder blocks.
+func get_ladder_material_id() -> int:
+	return ladder_material_id
+
+
+# Returns the runtime material ID for workbench blocks.
+func get_workbench_material_id() -> int:
+	return workbench_material_id
 
 
 # --- Coordinate transforms (delegated to C++ GDChunkHelper) ---
@@ -156,6 +177,17 @@ func refresh_cell(dimension: StringName, chunk: Vector3i, _local: Vector3i) -> v
 func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vector3i,
 		_old_material: int, _new_material: int) -> void:
 	refresh_cell(dimension, chunk, local)
+
+
+# Resolve runtime material IDs from the frozen worldgen config snapshot.
+# Must be called after worldgen_config is assigned to world_data.
+func _resolve_runtime_material_ids() -> void:
+	if worldgen_config == null:
+		push_warning("ChunkRendererBridge: cannot resolve runtime material IDs — no worldgen_config.")
+		return
+	var runtime_ids: Dictionary = worldgen_config.get_runtime_material_ids()
+	ladder_material_id = int(runtime_ids.get("ladder", AIR_MATERIAL))
+	workbench_material_id = int(runtime_ids.get("workbench", AIR_MATERIAL))
 
 
 # --- Chunk lifecycle ---
@@ -294,7 +326,7 @@ func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int,
 	if cells.is_empty():
 		return
 
-	var is_ladder := material_id == LADDER_MATERIAL
+	var is_ladder := material_id == ladder_material_id
 	var mesh := BoxMesh.new()
 	if is_ladder:
 		mesh.size = Vector3(BLOCK_SIZE * 0.9, BLOCK_SIZE * 0.9, BLOCK_SIZE * 0.15)
@@ -334,7 +366,7 @@ func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int,
 	root.add_child(static_body)
 
 	for local in cells:
-		if not GDChunkHelper.is_surface_voxel(local, materials, size_x, size_y, size_z, AIR_MATERIAL, LADDER_MATERIAL):
+		if not GDChunkHelper.is_surface_voxel(local, materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id):
 			continue
 		var cell := Vector3i(
 			chunk.x * CHUNK_SIZE + local.x,
