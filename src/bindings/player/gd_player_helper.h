@@ -17,8 +17,8 @@ public:
     ~GDPlayerHelper() override = default;
 
     // Compute gravity direction toward a planet center.
-    // Returns Vector3.DOWN if planet gravity is disabled or player is
-    // outside the gravity radius.
+    // Returns Vector3.DOWN if planet gravity is disabled.
+    // Returns Vector3.ZERO if player is outside the gravity radius (zero-G in space).
     static godot::Vector3 compute_gravity_direction(
         const godot::Vector3& player_position,
         const godot::Vector3& planet_center,

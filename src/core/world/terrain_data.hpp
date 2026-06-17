@@ -10,12 +10,18 @@ using TerrainMaterial = TerrainMaterialId;
 
 // Per-cell gameplay flags derived from material properties.
 enum TerrainFlags : uint32_t {
-    TF_WALKABLE      = 1 << 0,
-    TF_SOLID         = 1 << 1,
-    TF_LIQUID        = 1 << 2,
-    TF_MINEABLE      = 1 << 3,
-    TF_CLIMBABLE     = 1 << 4,
+    TF_WALKABLE       = 1 << 0,
+    TF_SOLID          = 1 << 1,
+    TF_LIQUID         = 1 << 2,
+    TF_MINEABLE       = 1 << 3,
+    TF_CLIMBABLE      = 1 << 4,
     TF_INDESTRUCTIBLE = 1 << 5,
+    // Gravity-affected: block falls when unsupported (sand, gravel).
+    TF_GRAVITY_FALL   = 1 << 6,
+    // Collapse-eligible: block can cave-in when structural support is lost (stone, deepstone).
+    TF_COLLAPSE_RISK  = 1 << 7,
+    // Support beam: provides structural support to nearby blocks, preventing cave-ins.
+    TF_SUPPORT_BEAM   = 1 << 8,
 };
 
 inline constexpr uint32_t operator|(TerrainFlags a, TerrainFlags b) {
@@ -39,6 +45,12 @@ struct TerrainCell {
     bool is_mineable() const { return flags & TF_MINEABLE; }
     bool is_climbable() const { return flags & TF_CLIMBABLE; }
     bool is_indestructible() const { return flags & TF_INDESTRUCTIBLE; }
+    // Gravity-affected: falls when the block below is empty (sand, gravel).
+    bool is_gravity_fall() const { return flags & TF_GRAVITY_FALL; }
+    // Collapse-eligible: can cave-in when structural support is lost.
+    bool is_collapse_risk() const { return flags & TF_COLLAPSE_RISK; }
+    // Support beam: prevents cave-ins within its support radius.
+    bool is_support_beam() const { return flags & TF_SUPPORT_BEAM; }
 };
 
 // Terrain data for one chunk. Pure data, no rendering information.

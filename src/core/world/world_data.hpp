@@ -3,6 +3,7 @@
 #include <unordered_map>
 
 #include "chunk_data.hpp"
+#include "gameplay_config.hpp"
 
 namespace science_and_theology {
 
@@ -56,11 +57,25 @@ public:
     // Returns the total number of loaded chunks.
     size_t chunk_count() const { return chunks_.size(); }
 
+    // --- Gameplay config ---
+
+    // Runtime gameplay configuration (collapse, gravity fall, etc.).
+    // Mutable at runtime, separate from frozen WorldGenConfigSnapshot.
+    GameplayConfig& gameplay_config() { return gameplay_config_; }
+    const GameplayConfig& gameplay_config() const { return gameplay_config_; }
+
+    void set_gameplay_config(const GameplayConfig& config) {
+        gameplay_config_ = config;
+    }
+
 private:
     ChunkKey make_key(const std::string& dimension_id,
                       int chunk_x, int chunk_y, int chunk_z) const;
 
     std::unordered_map<ChunkKey, ChunkData> chunks_;
+
+    // Runtime gameplay configuration.
+    GameplayConfig gameplay_config_;
 };
 
 // --- Inline implementations ---

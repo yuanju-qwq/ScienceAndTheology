@@ -431,21 +431,16 @@ func _remove_chunk_view(chunk: Vector3i) -> void:
 # --- Material cache ---
 
 func _build_materials() -> void:
-	_materials = {
-		0: Color(0, 0, 0, 0),
-		1: Color(0.46, 0.47, 0.45),
-		2: Color(0.33, 0.25, 0.14),
-		3: Color(0.73, 0.64, 0.40),
-		4: Color(0.18, 0.39, 0.74, 0.78),
-		5: Color(0.95, 0.28, 0.08),
-		6: Color(0.65, 0.58, 0.50),
-		7: Color(0.72, 0.37, 0.18),
-		8: Color(0.13, 0.13, 0.13),
-		9: Color(0.45, 0.27, 0.12),
-		10: Color(0.21, 0.42, 0.20),
-		11: Color(0.55, 0.30, 0.15),
-		12: Color(0.60, 0.40, 0.20),
-	}
+	_materials.clear()
+	_material_cache.clear()
+	if worldgen_config == null:
+		return
+	var visuals: Array = worldgen_config.get_material_visuals()
+	for visual: Dictionary in visuals:
+		var mid: int = visual.get("material_id", -1)
+		if mid < 0:
+			continue
+		_materials[mid] = visual
 
 
 func _get_material(material_id: int) -> StandardMaterial3D:
@@ -453,12 +448,61 @@ func _get_material(material_id: int) -> StandardMaterial3D:
 		return _material_cache[material_id]
 
 	var material := StandardMaterial3D.new()
-	material.albedo_color = _materials.get(material_id, Color(0.85, 0.20, 0.85))
-	material.roughness = 0.92
+	var visual: Dictionary = _materials.get(material_id, {})
+
+	if visual.is_empty():
+		material.albedo_color = Color(0.85, 0.20, 0.85)
+		material.roughness = 0.92
+		material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+		_material_cache[material_id] = material
+		return material
+
+	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85))
+	material.albedo_color = albedo
+	material.roughness = visual.get("roughness", 0.92)
 	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	if material.albedo_color.a < 1.0:
+
+	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0))
+	if emissive != Color(0, 0, 0):
+		material.emission_enabled = true
+		material.emission = emissive
+
+	if visual.get("transparent", false) or albedo.a < 1.0:
 		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if visual.get("cull_disabled", false) or albedo.a < 1.0:
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+	# Load per-face textures if available.
+	# Currently BoxMesh uses a single material_override, so we pick the
+	# best available texture: sides > top > bottom. Full per-face UV
+	# support requires greedy meshing (future R2 milestone).
+	var sides_tex_path: String = visual.get("sides", {}).get("texture_path", "")
+	var top_tex_path: String = visual.get("top", {}).get("texture_path", "")
+	var chosen_path := sides_tex_path if sides_tex_path != "" else top_tex_path
+	if chosen_path == "":
+		var bottom_tex_path: String = visual.get("bottom", {}).get("texture_path", "")
+		chosen_path = bottom_tex_path
+
+	if chosen_path != "":
+		var tex := load(chosen_path) as Texture2D
+		if tex != null:
+			material.albedo_texture = tex
+		else:
+			push_warning("ChunkRendererBridge: failed to load texture '%s' for material %d" % [chosen_path, material_id])
+
+	# Overlay layers: the first overlay texture is applied as a detail map
+	# with blend mode. Full multi-overlay compositing requires a custom shader
+	# or texture pre-bake (future milestone).
+	var overlays: Array = visual.get("overlays", [])
+	if overlays.size() > 0:
+		var overlay_path: String = overlays[0].get("texture_path", "")
+		if overlay_path != "":
+			var overlay_tex := load(overlay_path) as Texture2D
+			if overlay_tex != null:
+				material.detail_enabled = true
+				material.detail_albedo = overlay_tex
+				material.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+
 	_material_cache[material_id] = material
 	return material
 

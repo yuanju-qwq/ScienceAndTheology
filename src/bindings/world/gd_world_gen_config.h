@@ -24,17 +24,18 @@ public:
     int64_t get_schema_version() const;
     int64_t get_content_hash() const;
     int64_t get_material_count() const;
-    int64_t get_tile_mapping_count() const;
+    int64_t get_material_visual_count() const;
     int64_t get_material_id(const godot::String& key) const;
     godot::String get_material_key(int64_t id) const;
     godot::Dictionary get_material_def(int64_t id) const;
     godot::Array get_material_defs() const;
-    godot::Array get_tile_mappings() const;
+    godot::Array get_material_visuals() const;
     godot::Dictionary get_material_roles() const;
     godot::Dictionary get_runtime_material_ids() const;
     godot::Array get_base_terrain_rules() const;
     godot::Array get_biome_rules() const;
     godot::Array get_ore_vein_rules() const;
+    godot::Array get_rock_layer_rules() const;
     godot::Array validate() const;
 
 protected:

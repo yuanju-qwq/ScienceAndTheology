@@ -417,6 +417,101 @@ int64_t GDWorldData::get_chunk_count() const {
     return static_cast<int64_t>(world_.chunk_count());
 }
 
+// --- Gameplay config ---
+
+godot::Dictionary GDWorldData::get_gameplay_config() const {
+    const auto& gc = world_.gameplay_config();
+    godot::Dictionary d;
+    d["enable_collapse"] = gc.enable_collapse;
+    d["collapse_chance_multiplier"] = gc.collapse_chance_multiplier;
+    d["max_collapse_chain"] = gc.max_collapse_chain;
+    d["support_beam_radius"] = gc.support_beam_radius;
+    d["enable_gravity_fall"] = gc.enable_gravity_fall;
+    d["max_gravity_fall_chain"] = gc.max_gravity_fall_chain;
+
+    // Serialize planet overrides.
+    godot::Dictionary overrides;
+    for (const auto& pair : gc.planet_overrides) {
+        godot::Dictionary po;
+        const auto& o = pair.second;
+        po["has_enable_collapse"] = o.has_enable_collapse;
+        po["enable_collapse"] = o.enable_collapse;
+        po["has_collapse_chance_multiplier"] = o.has_collapse_chance_multiplier;
+        po["collapse_chance_multiplier"] = o.collapse_chance_multiplier;
+        po["has_max_collapse_chain"] = o.has_max_collapse_chain;
+        po["max_collapse_chain"] = o.max_collapse_chain;
+        po["has_support_beam_radius"] = o.has_support_beam_radius;
+        po["support_beam_radius"] = o.support_beam_radius;
+        po["has_enable_gravity_fall"] = o.has_enable_gravity_fall;
+        po["enable_gravity_fall"] = o.enable_gravity_fall;
+        po["has_max_gravity_fall_chain"] = o.has_max_gravity_fall_chain;
+        po["max_gravity_fall_chain"] = o.max_gravity_fall_chain;
+        overrides[godot::String(pair.first.c_str())] = po;
+    }
+    d["planet_overrides"] = overrides;
+    return d;
+}
+
+void GDWorldData::set_gameplay_config(const godot::Dictionary& config) {
+    GameplayConfig gc;
+    gc.enable_collapse = config.get("enable_collapse", gc.enable_collapse);
+    gc.collapse_chance_multiplier = static_cast<float>(
+        config.get("collapse_chance_multiplier", gc.collapse_chance_multiplier));
+    gc.max_collapse_chain = static_cast<int>(
+        config.get("max_collapse_chain", gc.max_collapse_chain));
+    gc.support_beam_radius = static_cast<int>(
+        config.get("support_beam_radius", gc.support_beam_radius));
+    gc.enable_gravity_fall = config.get("enable_gravity_fall", gc.enable_gravity_fall);
+    gc.max_gravity_fall_chain = static_cast<int>(
+        config.get("max_gravity_fall_chain", gc.max_gravity_fall_chain));
+
+    // Deserialize planet overrides.
+    godot::Variant overrides_var = config.get("planet_overrides", godot::Dictionary());
+    if (overrides_var.get_type() == godot::Variant::DICTIONARY) {
+        godot::Dictionary overrides = overrides_var;
+        const godot::Array keys = overrides.keys();
+        for (int i = 0; i < keys.size(); ++i) {
+            godot::String dim_key = keys[i];
+            godot::Variant po_var = overrides[dim_key];
+            if (po_var.get_type() != godot::Variant::DICTIONARY) continue;
+            godot::Dictionary po = po_var;
+
+            GameplayConfig::PlanetOverride o;
+            o.has_enable_collapse = po.get("has_enable_collapse", false);
+            o.enable_collapse = po.get("enable_collapse", true);
+            o.has_collapse_chance_multiplier = po.get("has_collapse_chance_multiplier", false);
+            o.collapse_chance_multiplier = static_cast<float>(
+                po.get("collapse_chance_multiplier", 1.0f));
+            o.has_max_collapse_chain = po.get("has_max_collapse_chain", false);
+            o.max_collapse_chain = static_cast<int>(po.get("max_collapse_chain", 64));
+            o.has_support_beam_radius = po.get("has_support_beam_radius", false);
+            o.support_beam_radius = static_cast<int>(po.get("support_beam_radius", 5));
+            o.has_enable_gravity_fall = po.get("has_enable_gravity_fall", false);
+            o.enable_gravity_fall = po.get("enable_gravity_fall", true);
+            o.has_max_gravity_fall_chain = po.get("has_max_gravity_fall_chain", false);
+            o.max_gravity_fall_chain = static_cast<int>(po.get("max_gravity_fall_chain", 64));
+
+            gc.planet_overrides[dim_key.utf8().get_data()] = o;
+        }
+    }
+
+    world_.set_gameplay_config(gc);
+}
+
+godot::Dictionary GDWorldData::get_gameplay_config_for_dimension(
+    const godot::String& dimension_id) const {
+    const auto& gc = world_.gameplay_config();
+    std::string dim = dimension_id.utf8().get_data();
+    godot::Dictionary d;
+    d["enable_collapse"] = gc.is_collapse_enabled(dim);
+    d["collapse_chance_multiplier"] = gc.get_collapse_chance_multiplier(dim);
+    d["max_collapse_chain"] = gc.get_max_collapse_chain(dim);
+    d["support_beam_radius"] = gc.get_support_beam_radius(dim);
+    d["enable_gravity_fall"] = gc.is_gravity_fall_enabled(dim);
+    d["max_gravity_fall_chain"] = gc.get_max_gravity_fall_chain(dim);
+    return d;
+}
+
 godot::Dictionary GDWorldData::terrain_to_dict(
     const TerrainData& terrain) const {
     Dictionary result;
@@ -617,6 +712,9 @@ godot::Dictionary GDWorldData::get_terrain_cell(
     d["is_liquid"] = cell.is_liquid();
     d["is_climbable"] = cell.is_climbable();
     d["is_indestructible"] = cell.is_indestructible();
+    d["is_gravity_fall"] = cell.is_gravity_fall();
+    d["is_collapse_risk"] = cell.is_collapse_risk();
+    d["is_support_beam"] = cell.is_support_beam();
     return d;
 }
 
@@ -935,6 +1033,14 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::clear);
     ClassDB::bind_method(D_METHOD("get_chunk_count"),
                          &GDWorldData::get_chunk_count);
+
+    // Gameplay config.
+    ClassDB::bind_method(D_METHOD("get_gameplay_config"),
+                         &GDWorldData::get_gameplay_config);
+    ClassDB::bind_method(D_METHOD("set_gameplay_config", "config"),
+                         &GDWorldData::set_gameplay_config);
+    ClassDB::bind_method(D_METHOD("get_gameplay_config_for_dimension", "dimension_id"),
+                         &GDWorldData::get_gameplay_config_for_dimension);
 
     // Async chunk generation.
     ClassDB::bind_method(D_METHOD("request_chunk_async", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),

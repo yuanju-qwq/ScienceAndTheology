@@ -205,6 +205,19 @@ public:
     // Returns the total number of loaded chunks.
     int64_t get_chunk_count() const;
 
+    // --- Gameplay config ---
+
+    // Returns the gameplay config as a Dictionary.
+    godot::Dictionary get_gameplay_config() const;
+
+    // Sets the gameplay config from a Dictionary.
+    void set_gameplay_config(const godot::Dictionary& config);
+
+    // Returns a specific gameplay config value for a dimension.
+    // Falls back to global defaults if no planet override exists.
+    godot::Dictionary get_gameplay_config_for_dimension(
+        const godot::String& dimension_id) const;
+
     // Returns a pointer to the underlying C++ WorldData.
     // Used by TickSystem and other simulation systems.
     WorldData* get_world_ptr() { return &world_; }

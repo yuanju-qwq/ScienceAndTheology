@@ -79,6 +79,13 @@ private:
                                   TerrainData& terrain,
                                   const PlanetConfig& planet);
 
+    // Pass 1b: Apply rock layer regional variation.
+    // Replaces standard crust stone with rock-layer-specific materials
+    // based on noise-driven regional selection and depth range.
+    void pass_rock_layer(const std::string& dimension_id,
+                         int chunk_x, int chunk_y, int chunk_z,
+                         TerrainData& terrain);
+
     // Pass 2: Apply biome overrides (temperature, humidity, etc.).
     void pass_biome(const std::string& dimension_id,
                     int chunk_x, int chunk_y, int chunk_z,

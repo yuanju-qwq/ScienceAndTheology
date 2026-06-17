@@ -49,6 +49,7 @@ ChunkData TerrainGenerator::generate_chunk(
         ChunkData::kChunkSize, ChunkData::kChunkSize, ChunkData::kChunkSize);
 
     pass_base_terrain(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
+    pass_rock_layer(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_biome(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_ore(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_surface_objects(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
@@ -294,6 +295,135 @@ void TerrainGenerator::pass_base_terrain_planet(
     }
 }
 
+// --- Pass 1b: Rock Layer ---
+
+void TerrainGenerator::pass_rock_layer(
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
+    TerrainData& terrain) {
+    std::vector<const RockLayerRule*> rules;
+    for (const auto& rule : config_->rock_layer_rules) {
+        if (rule.dimension_id == dimension_id) {
+            rules.push_back(&rule);
+        }
+    }
+    if (rules.empty()) {
+        return;
+    }
+
+    const auto mat = materials();
+    const PlanetConfig* planet = config_->find_planet_config(dimension_id);
+
+    NoiseGenerator rock_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::ROCK_LAYER),
+        chunk_x, chunk_y, chunk_z));
+
+    for (int y = 0; y < terrain.size_y; ++y) {
+        for (int z = 0; z < terrain.size_z; ++z) {
+            for (int x = 0; x < terrain.size_x; ++x) {
+                TerrainCell& cell = terrain.cell_at(x, y, z);
+                // Only replace solid mineable blocks (stone, deepstone).
+                if (!cell.is_solid() || !cell.is_mineable()) {
+                    continue;
+                }
+
+                const int global_x = global_coord(chunk_x, x);
+                const int global_y = global_coord(chunk_y, y);
+                const int global_z = global_coord(chunk_z, z);
+
+                // Compute depth from surface for this block.
+                float depth = 0.0f;
+                if (planet && planet->is_planet()) {
+                    // Spherical planet: depth = surface_radius - distance.
+                    const float dx = static_cast<float>(global_x) - planet->center_x;
+                    const float dy = static_cast<float>(global_y) - planet->center_y;
+                    const float dz = static_cast<float>(global_z) - planet->center_z;
+                    const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+                    NoiseGenerator elev_noise(world_seed_.chunk_seed(
+                        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+                        chunk_x, chunk_y, chunk_z));
+                    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+                        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
+                        chunk_x, chunk_y, chunk_z));
+                    const float surface_r = planet_surface_radius(
+                        elev_noise, detail_noise,
+                        dx * inv_dist, dy * inv_dist, dz * inv_dist, *planet);
+                    depth = surface_r - dist;
+                } else {
+                    // Flat world: depth = surface_height - global_y.
+                    const BaseTerrainRule* base_rule =
+                        config_->find_base_rule(dimension_id);
+                    if (base_rule) {
+                        NoiseGenerator elev_noise(world_seed_.chunk_seed(
+                            static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+                            chunk_x, chunk_y, chunk_z));
+                        const int surface_height = surface_height_at(
+                            elev_noise, global_x, global_z, *base_rule);
+                        depth = static_cast<float>(surface_height - global_y);
+                    }
+                }
+
+                if (depth < 0.0f) {
+                    continue;
+                }
+
+                // Compute rock layer noise for regional selection.
+                // Use the surface direction for planet, or x/z for flat world.
+                float noise_val = 0.0f;
+                if (planet && planet->is_planet()) {
+                    const float dx = static_cast<float>(global_x) - planet->center_x;
+                    const float dy = static_cast<float>(global_y) - planet->center_y;
+                    const float dz = static_cast<float>(global_z) - planet->center_z;
+                    const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+                    // Use surface direction for rock layer noise so that
+                    // the same region on the surface extends underground.
+                    noise_val = rock_noise.noise_3d_scaled(
+                        dx * inv_dist, dy * inv_dist, dz * inv_dist,
+                        rules.front()->noise_scale,
+                        rules.front()->noise_octaves);
+                } else {
+                    noise_val = rock_noise.noise_3d_scaled(
+                        static_cast<float>(global_x),
+                        0.0f,
+                        static_cast<float>(global_z),
+                        rules.front()->noise_scale,
+                        rules.front()->noise_octaves);
+                }
+
+                // Find the matching rock layer rule.
+                for (const RockLayerRule* rule : rules) {
+                    if (depth < rule->depth_min || depth > rule->depth_max) {
+                        continue;
+                    }
+                    if (noise_val < rule->noise_min || noise_val > rule->noise_max) {
+                        continue;
+                    }
+                    // This block is in this rock layer's region and depth range.
+                    // Only replace if the current material matches the layer's
+                    // rock material (or is a generic stone/deepstone).
+                    const TerrainMaterialId cur = cell_material_id(cell);
+                    if (cur == rule->rock_material ||
+                        (rule->rock_material == mat.stone && cur == mat.stone) ||
+                        (rule->rock_material == mat.deepstone && cur == mat.deepstone)) {
+                        // Already the correct material for this layer.
+                        // Update collapse_chance from the rock layer if the
+                        // material definition has a different default.
+                        // (Flags are already set by set_cell_id.)
+                        break;
+                    }
+                    // Replace generic stone with the rock layer's material.
+                    if ((cur == mat.stone || cur == mat.deepstone) &&
+                        rule->rock_material != 0) {
+                        set_cell_id(terrain, x, y, z, rule->rock_material);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
 // --- Pass 2: Biome ---
 
 void TerrainGenerator::pass_biome(
@@ -390,10 +520,24 @@ void TerrainGenerator::pass_ore(
         return;
     }
 
+    // Collect rock layer rules for ore-layer association filtering.
+    std::vector<const RockLayerRule*> rock_rules;
+    for (const auto& rule : config_->rock_layer_rules) {
+        if (rule.dimension_id == dimension_id) {
+            rock_rules.push_back(&rule);
+        }
+    }
+    const bool has_rock_layers = !rock_rules.empty();
+
+    const PlanetConfig* planet = config_->find_planet_config(dimension_id);
+
     NoiseGenerator ore_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::ORE), chunk_x, chunk_y, chunk_z));
     NoiseGenerator vein_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::ORE) + 1, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator rock_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::ROCK_LAYER),
+        chunk_x, chunk_y, chunk_z));
 
     for (int y = 0; y < terrain.size_y; ++y) {
         for (int z = 0; z < terrain.size_z; ++z) {
@@ -420,6 +564,102 @@ void TerrainGenerator::pass_ore(
                     if (!is_material(cell, rule->host_material)) {
                         continue;
                     }
+
+                    // If rock layer rules exist, check that the current
+                    // rock layer allows this ore type. If no rock layer
+                    // at this position allows the ore, skip it.
+                    if (has_rock_layers) {
+                        bool ore_allowed_by_layer = false;
+                        // Compute depth and noise to find the active rock layer.
+                        float depth = 0.0f;
+                        if (planet && planet->is_planet()) {
+                            const float dx = static_cast<float>(global_x) - planet->center_x;
+                            const float dy = static_cast<float>(global_y) - planet->center_y;
+                            const float dz = static_cast<float>(global_z) - planet->center_z;
+                            const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+                            NoiseGenerator elev_noise(world_seed_.chunk_seed(
+                                static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+                                chunk_x, chunk_y, chunk_z));
+                            NoiseGenerator detail_noise(world_seed_.chunk_seed(
+                                static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
+                                chunk_x, chunk_y, chunk_z));
+                            const float surface_r = planet_surface_radius(
+                                elev_noise, detail_noise,
+                                dx * inv_dist, dy * inv_dist, dz * inv_dist, *planet);
+                            depth = surface_r - dist;
+                        } else {
+                            const BaseTerrainRule* base_rule =
+                                config_->find_base_rule(dimension_id);
+                            if (base_rule) {
+                                NoiseGenerator elev_noise(world_seed_.chunk_seed(
+                                    static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+                                    chunk_x, chunk_y, chunk_z));
+                                const int surface_height = surface_height_at(
+                                    elev_noise, global_x, global_z, *base_rule);
+                                depth = static_cast<float>(surface_height - global_y);
+                            }
+                        }
+
+                        float noise_val = 0.0f;
+                        if (planet && planet->is_planet()) {
+                            const float dx = static_cast<float>(global_x) - planet->center_x;
+                            const float dy = static_cast<float>(global_y) - planet->center_y;
+                            const float dz = static_cast<float>(global_z) - planet->center_z;
+                            const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                            const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+                            noise_val = rock_noise.noise_3d_scaled(
+                                dx * inv_dist, dy * inv_dist, dz * inv_dist,
+                                rock_rules.front()->noise_scale,
+                                rock_rules.front()->noise_octaves);
+                        } else {
+                            noise_val = rock_noise.noise_3d_scaled(
+                                static_cast<float>(global_x),
+                                0.0f,
+                                static_cast<float>(global_z),
+                                rock_rules.front()->noise_scale,
+                                rock_rules.front()->noise_octaves);
+                        }
+
+                        // Check each rock layer: if this position falls in a
+                        // layer, check if that layer allows this ore.
+                        for (const RockLayerRule* rl : rock_rules) {
+                            if (depth < rl->depth_min || depth > rl->depth_max) {
+                                continue;
+                            }
+                            if (noise_val < rl->noise_min || noise_val > rl->noise_max) {
+                                continue;
+                            }
+                            // This is the active rock layer. Check if it
+                            // lists this ore as an associated ore.
+                            for (TerrainMaterialId allowed_ore : rl->associated_ores) {
+                                if (allowed_ore == rule->ore_material) {
+                                    ore_allowed_by_layer = true;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+
+                        // If no rock layer allows this ore, skip it.
+                        // If no rock layer matches this position, allow
+                        // the ore (backward compatibility).
+                        if (!ore_allowed_by_layer) {
+                            // Check if any rock layer matched at all.
+                            bool any_layer_matched = false;
+                            for (const RockLayerRule* rl : rock_rules) {
+                                if (depth >= rl->depth_min && depth <= rl->depth_max &&
+                                    noise_val >= rl->noise_min && noise_val <= rl->noise_max) {
+                                    any_layer_matched = true;
+                                    break;
+                                }
+                            }
+                            if (any_layer_matched) {
+                                continue;
+                            }
+                        }
+                    }
+
                     if (combined > rule->combined_min && combined <= rule->combined_max) {
                         set_cell_id(terrain, x, y, z, rule->ore_material);
                         break;

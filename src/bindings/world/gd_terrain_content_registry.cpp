@@ -8,7 +8,6 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
-#include <godot_cpp/variant/vector2i.hpp>
 
 #include "core/material/material_item.hpp"
 
@@ -88,31 +87,24 @@ String issue_duplicate_key(const std::string& key) {
     return String(out.str().c_str());
 }
 
-String issue_missing_mapping_material(
+String issue_missing_visual_material(
     const std::string& dimension_id, int material_id) {
     std::ostringstream out;
-    out << "Tile mapping for dimension '" << dimension_id
+    out << "Material visual for dimension '" << dimension_id
         << "' references missing material id " << material_id << ".";
     return String(out.str().c_str());
 }
 
-String issue_empty_mapping_dimension(int material_id) {
+String issue_empty_visual_dimension(int material_id) {
     std::ostringstream out;
-    out << "Tile mapping for material id " << material_id
+    out << "Material visual for material id " << material_id
         << " has empty dimension.";
     return String(out.str().c_str());
 }
 
-String issue_bad_variant_count(int material_id, const std::string& dimension_id) {
+String issue_duplicate_visual(int material_id, const std::string& dimension_id) {
     std::ostringstream out;
-    out << "Tile mapping for material id " << material_id
-        << " dimension '" << dimension_id << "' has variant_count < 1.";
-    return String(out.str().c_str());
-}
-
-String issue_duplicate_mapping(int material_id, const std::string& dimension_id) {
-    std::ostringstream out;
-    out << "Duplicate tile mapping for material id " << material_id
+    out << "Duplicate material visual for material id " << material_id
         << " dimension '" << dimension_id << "'.";
     return String(out.str().c_str());
 }
@@ -126,52 +118,101 @@ String issue_unresolved_drop_item(const std::string& material_key,
     return String(out.str().c_str());
 }
 
-TerrainTileMapping mapping_from_dict(
+TerrainFaceTexture face_texture_from_dict(const Dictionary& def, const char* prefix) {
+    TerrainFaceTexture face;
+    std::string path_key = std::string(prefix) + "_texture";
+    std::string count_key = std::string(prefix) + "_variant_count";
+    if (def.has(path_key.c_str())) {
+        face.texture_path = to_std_string(def.get(path_key.c_str(), ""));
+    }
+    if (def.has(count_key.c_str())) {
+        face.variant_count = std::max(1, static_cast<int>(def.get(count_key.c_str(), 1)));
+    }
+    return face;
+}
+
+TerrainMaterialVisualDef visual_from_dict(
     const Dictionary& def,
     const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
-    TerrainTileMapping mapping;
+    TerrainMaterialVisualDef visual;
 
-    mapping.dimension_id = dimension_from_dict(def);
-    mapping.source_id = static_cast<int>(def.get("source_id", 0));
-    mapping.variant_count = std::max(1, static_cast<int>(def.get("variant_count", 1)));
-    mapping.enabled = static_cast<bool>(def.get("enabled", true));
+    visual.dimension_id = dimension_from_dict(def);
+    visual.enabled = static_cast<bool>(def.get("enabled", true));
 
-    if (def.has("atlas")) {
-        Vector2i atlas = def.get("atlas", Vector2i(0, 0));
-        mapping.atlas_x = atlas.x;
-        mapping.atlas_y = atlas.y;
+    // Per-face textures.
+    visual.top = face_texture_from_dict(def, "top");
+    visual.bottom = face_texture_from_dict(def, "bottom");
+    visual.sides = face_texture_from_dict(def, "sides");
+
+    // Fallback albedo color.
+    if (def.has("albedo_color")) {
+        Color c = def.get("albedo_color", Color(0.85f, 0.20f, 0.85f));
+        visual.albedo_r = c.r;
+        visual.albedo_g = c.g;
+        visual.albedo_b = c.b;
+        visual.albedo_a = c.a;
     } else {
-        mapping.atlas_x = static_cast<int>(def.get("atlas_x", 0));
-        mapping.atlas_y = static_cast<int>(def.get("atlas_y", 0));
+        visual.albedo_r = static_cast<float>(def.get("albedo_r", visual.albedo_r));
+        visual.albedo_g = static_cast<float>(def.get("albedo_g", visual.albedo_g));
+        visual.albedo_b = static_cast<float>(def.get("albedo_b", visual.albedo_b));
+        visual.albedo_a = static_cast<float>(def.get("albedo_a", visual.albedo_a));
     }
 
+    // Material properties.
+    visual.roughness = static_cast<float>(def.get("roughness", visual.roughness));
+    if (def.has("emissive_color")) {
+        Color e = def.get("emissive_color", Color(0.0f, 0.0f, 0.0f));
+        visual.emissive_r = e.r;
+        visual.emissive_g = e.g;
+        visual.emissive_b = e.b;
+    } else {
+        visual.emissive_r = static_cast<float>(def.get("emissive_r", visual.emissive_r));
+        visual.emissive_g = static_cast<float>(def.get("emissive_g", visual.emissive_g));
+        visual.emissive_b = static_cast<float>(def.get("emissive_b", visual.emissive_b));
+    }
+    visual.transparent = static_cast<bool>(def.get("transparent", visual.transparent));
+    visual.cull_disabled = static_cast<bool>(def.get("cull_disabled", visual.cull_disabled));
+
+    // Overlay layers.
+    Array overlays = def.get("overlays", Array());
+    for (int i = 0; i < overlays.size(); ++i) {
+        Dictionary overlay_dict = overlays[i];
+        TerrainOverlayLayer overlay;
+        overlay.texture_path = to_std_string(overlay_dict.get("texture_path", ""));
+        overlay.blend = static_cast<float>(overlay_dict.get("blend", 0.5f));
+        if (!overlay.texture_path.empty()) {
+            visual.overlays.push_back(std::move(overlay));
+        }
+    }
+
+    // Resolve material key/id.
     if (def.has("material_key")) {
-        mapping.material_key = to_std_string(def.get("material_key", ""));
-        auto it = ids_by_key.find(mapping.material_key);
+        visual.material_key = to_std_string(def.get("material_key", ""));
+        auto it = ids_by_key.find(visual.material_key);
         if (it != ids_by_key.end()) {
-            mapping.material_id = it->second;
+            visual.material_id = it->second;
         }
     }
 
     if (def.has("material_id")) {
-        mapping.material_id = to_material_id(static_cast<int64_t>(
-            def.get("material_id", static_cast<int>(mapping.material_id))));
+        visual.material_id = to_material_id(static_cast<int64_t>(
+            def.get("material_id", static_cast<int>(visual.material_id))));
     } else if (def.has("id")) {
-        mapping.material_id = to_material_id(static_cast<int64_t>(
-            def.get("id", static_cast<int>(mapping.material_id))));
+        visual.material_id = to_material_id(static_cast<int64_t>(
+            def.get("id", static_cast<int>(visual.material_id))));
     }
 
-    if (mapping.material_key.empty()) {
+    if (visual.material_key.empty()) {
         auto key_it = std::find_if(ids_by_key.begin(), ids_by_key.end(),
-            [&mapping](const auto& pair) {
-                return pair.second == mapping.material_id;
+            [&visual](const auto& pair) {
+                return pair.second == visual.material_id;
             });
         if (key_it != ids_by_key.end()) {
-            mapping.material_key = key_it->first;
+            visual.material_key = key_it->first;
         }
     }
 
-    return mapping;
+    return visual;
 }
 
 BaseTerrainRule base_rule_from_dict(
@@ -278,6 +319,54 @@ OreVeinRule ore_rule_from_dict(
     return rule;
 }
 
+RockLayerRule rock_layer_rule_from_dict(
+    const Dictionary& def,
+    const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
+    RockLayerRule rule;
+    rule.key = to_std_string(def.get("key", ""));
+    rule.dimension_id = dimension_from_dict(def);
+    rule.rock_material = material_from_dict(
+        def, "rock_material_key", "rock_material_id",
+        rule.rock_material, ids_by_key);
+    rule.noise_scale = static_cast<float>(
+        def.get("noise_scale", rule.noise_scale));
+    rule.noise_octaves = static_cast<int>(
+        def.get("noise_octaves", rule.noise_octaves));
+    rule.noise_min = static_cast<float>(
+        def.get("noise_min", rule.noise_min));
+    rule.noise_max = static_cast<float>(
+        def.get("noise_max", rule.noise_max));
+    rule.depth_min = static_cast<float>(
+        def.get("depth_min", rule.depth_min));
+    rule.depth_max = static_cast<float>(
+        def.get("depth_max", rule.depth_max));
+    rule.hardness_multiplier = static_cast<float>(
+        def.get("hardness_multiplier", rule.hardness_multiplier));
+    rule.collapse_chance = static_cast<float>(
+        def.get("collapse_chance", rule.collapse_chance));
+
+    // Parse associated ores (array of material keys or IDs).
+    Array ores = def.get("associated_ores", Array());
+    for (int i = 0; i < ores.size(); ++i) {
+        TerrainMaterialId ore_id = 0;
+        const Variant& v = ores[i];
+        if (v.get_type() == Variant::STRING) {
+            std::string ore_key = String(v).utf8().get_data();
+            auto it = ids_by_key.find(ore_key);
+            if (it != ids_by_key.end()) {
+                ore_id = it->second;
+            }
+        } else if (v.get_type() == Variant::INT) {
+            ore_id = to_material_id(static_cast<int64_t>(v));
+        }
+        if (ore_id != 0) {
+            rule.associated_ores.push_back(ore_id);
+        }
+    }
+
+    return rule;
+}
+
 PlanetConfig planet_config_from_dict(const Dictionary& def) {
     PlanetConfig config;
     config.dimension_id = dimension_from_dict(def);
@@ -381,6 +470,16 @@ bool GDTerrainContentRegistry::register_material(const Dictionary& def) {
     material.required_mining_level = static_cast<int>(
         def.get("required_mining_level", 0));
 
+    // Gravity and collapse properties.
+    material.gravity_fall = (material.flags & TF_GRAVITY_FALL) != 0;
+    material.collapse_risk = (material.flags & TF_COLLAPSE_RISK) != 0;
+    material.collapse_chance = static_cast<float>(
+        def.get("collapse_chance", 0.3f));
+    material.support_radius = static_cast<int>(
+        def.get("support_radius", 5));
+    material.rock_layer_key = String(
+        def.get("rock_layer_key", "")).utf8().get_data();
+
     Array drops = def.get("drops", Array());
     for (int i = 0; i < drops.size(); ++i) {
         Dictionary drop_dict = drops[i];
@@ -439,33 +538,33 @@ bool GDTerrainContentRegistry::register_material(const Dictionary& def) {
     return true;
 }
 
-bool GDTerrainContentRegistry::register_tile_mapping(const Dictionary& def) {
-    if (!check_mutable("register tile mapping")) {
+bool GDTerrainContentRegistry::register_material_visual(const Dictionary& def) {
+    if (!check_mutable("register material visual")) {
         return false;
     }
 
-    TerrainTileMapping mapping = mapping_from_dict(def, material_ids_by_key_);
-    if (mapping.dimension_id.empty()) {
+    TerrainMaterialVisualDef visual = visual_from_dict(def, material_ids_by_key_);
+    if (visual.dimension_id.empty()) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: tile mapping requires a dimension.");
+            "GDTerrainContentRegistry: material visual requires a dimension.");
         return false;
     }
-    if (!material_keys_by_id_.contains(mapping.material_id)) {
+    if (!material_keys_by_id_.contains(visual.material_id)) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: tile mapping references missing material id ",
-            static_cast<int>(mapping.material_id), ".");
+            "GDTerrainContentRegistry: material visual references missing material id ",
+            static_cast<int>(visual.material_id), ".");
         return false;
     }
 
-    auto existing = std::find_if(tile_mappings_.begin(), tile_mappings_.end(),
-        [&mapping](const TerrainTileMapping& item) {
-            return item.material_id == mapping.material_id &&
-                   item.dimension_id == mapping.dimension_id;
+    auto existing = std::find_if(material_visuals_.begin(), material_visuals_.end(),
+        [&visual](const TerrainMaterialVisualDef& item) {
+            return item.material_id == visual.material_id &&
+                   item.dimension_id == visual.dimension_id;
         });
-    if (existing != tile_mappings_.end()) {
-        *existing = std::move(mapping);
+    if (existing != material_visuals_.end()) {
+        *existing = std::move(visual);
     } else {
-        tile_mappings_.push_back(std::move(mapping));
+        material_visuals_.push_back(std::move(visual));
     }
     return true;
 }
@@ -568,6 +667,37 @@ bool GDTerrainContentRegistry::register_ore_vein_rule(const Dictionary& def) {
     return true;
 }
 
+bool GDTerrainContentRegistry::register_rock_layer_rule(const Dictionary& def) {
+    if (!check_mutable("register rock layer rule")) {
+        return false;
+    }
+
+    RockLayerRule rule = rock_layer_rule_from_dict(def, material_ids_by_key_);
+    if (rule.key.empty() || rule.dimension_id.empty()) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: rock layer rule requires key and dimension.");
+        return false;
+    }
+    if (rule.rock_material == 0) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: rock layer rule '",
+            String(rule.key.c_str()),
+            "' requires a valid rock_material.");
+        return false;
+    }
+
+    auto existing = std::find_if(rock_layer_rules_.begin(), rock_layer_rules_.end(),
+        [&rule](const RockLayerRule& item) {
+            return item.key == rule.key;
+        });
+    if (existing != rock_layer_rules_.end()) {
+        *existing = std::move(rule);
+    } else {
+        rock_layer_rules_.push_back(std::move(rule));
+    }
+    return true;
+}
+
 bool GDTerrainContentRegistry::register_planet_config(const Dictionary& def) {
     if (!check_mutable("register planet config")) {
         return false;
@@ -599,12 +729,13 @@ bool GDTerrainContentRegistry::register_planet_config(const Dictionary& def) {
 std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot() const {
     auto snapshot = std::make_shared<WorldGenConfigSnapshot>();
     snapshot->materials = materials_;
-    snapshot->tile_mappings = tile_mappings_;
+    snapshot->material_visuals = material_visuals_;
     snapshot->roles = roles_;
     snapshot->runtime_ids = runtime_ids_;
     snapshot->base_terrain_rules = base_terrain_rules_;
     snapshot->biome_rules = biome_rules_;
     snapshot->ore_vein_rules = ore_vein_rules_;
+    snapshot->rock_layer_rules = rock_layer_rules_;
     snapshot->planet_configs = planet_configs_;
     snapshot->material_ids_by_key = material_ids_by_key_;
     snapshot->material_keys_by_id = material_keys_by_id_;
@@ -665,28 +796,24 @@ Array GDTerrainContentRegistry::validate() const {
         issues.append("Terrain registry must register id 0 as air.");
     }
 
-    std::unordered_set<std::string> mapping_keys;
-    for (const auto& mapping : tile_mappings_) {
-        if (!keys_by_id.contains(mapping.material_id)) {
-            issues.append(issue_missing_mapping_material(
-                mapping.dimension_id, static_cast<int>(mapping.material_id)));
+    std::unordered_set<std::string> visual_keys;
+    for (const auto& visual : material_visuals_) {
+        if (!keys_by_id.contains(visual.material_id)) {
+            issues.append(issue_missing_visual_material(
+                visual.dimension_id, static_cast<int>(visual.material_id)));
             continue;
         }
-        if (mapping.dimension_id.empty()) {
-            issues.append(issue_empty_mapping_dimension(
-                static_cast<int>(mapping.material_id)));
-        }
-        if (mapping.variant_count < 1) {
-            issues.append(issue_bad_variant_count(
-                static_cast<int>(mapping.material_id), mapping.dimension_id));
+        if (visual.dimension_id.empty()) {
+            issues.append(issue_empty_visual_dimension(
+                static_cast<int>(visual.material_id)));
         }
 
-        std::string unique_key = std::to_string(mapping.material_id) + "|" + mapping.dimension_id;
-        if (mapping_keys.contains(unique_key)) {
-            issues.append(issue_duplicate_mapping(
-                static_cast<int>(mapping.material_id), mapping.dimension_id));
+        std::string unique_key = std::to_string(visual.material_id) + "|" + visual.dimension_id;
+        if (visual_keys.contains(unique_key)) {
+            issues.append(issue_duplicate_visual(
+                static_cast<int>(visual.material_id), visual.dimension_id));
         }
-        mapping_keys.insert(std::move(unique_key));
+        visual_keys.insert(std::move(unique_key));
     }
 
     const TerrainMaterialId role_values[] = {
@@ -725,11 +852,12 @@ void GDTerrainContentRegistry::clear() {
         return;
     }
     materials_.clear();
-    tile_mappings_.clear();
+    material_visuals_.clear();
     roles_ = TerrainMaterialRoles{};
     base_terrain_rules_.clear();
     biome_rules_.clear();
     ore_vein_rules_.clear();
+    rock_layer_rules_.clear();
     planet_configs_.clear();
     material_ids_by_key_.clear();
     material_keys_by_id_.clear();
@@ -760,15 +888,15 @@ int64_t GDTerrainContentRegistry::get_material_count() const {
     return static_cast<int64_t>(materials_.size());
 }
 
-int64_t GDTerrainContentRegistry::get_tile_mapping_count() const {
-    return static_cast<int64_t>(tile_mappings_.size());
+int64_t GDTerrainContentRegistry::get_material_visual_count() const {
+    return static_cast<int64_t>(material_visuals_.size());
 }
 
 void GDTerrainContentRegistry::_bind_methods() {
     ClassDB::bind_method(D_METHOD("register_material", "def"),
                          &GDTerrainContentRegistry::register_material);
-    ClassDB::bind_method(D_METHOD("register_tile_mapping", "def"),
-                         &GDTerrainContentRegistry::register_tile_mapping);
+    ClassDB::bind_method(D_METHOD("register_material_visual", "def"),
+                         &GDTerrainContentRegistry::register_material_visual);
     ClassDB::bind_method(D_METHOD("set_material_roles", "def"),
                          &GDTerrainContentRegistry::set_material_roles);
     ClassDB::bind_method(D_METHOD("set_runtime_material_ids", "def"),
@@ -779,6 +907,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::register_biome_rule);
     ClassDB::bind_method(D_METHOD("register_ore_vein_rule", "def"),
                          &GDTerrainContentRegistry::register_ore_vein_rule);
+    ClassDB::bind_method(D_METHOD("register_rock_layer_rule", "def"),
+                         &GDTerrainContentRegistry::register_rock_layer_rule);
     ClassDB::bind_method(D_METHOD("register_planet_config", "def"),
                          &GDTerrainContentRegistry::register_planet_config);
     ClassDB::bind_method(D_METHOD("freeze"),
@@ -795,8 +925,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::get_material_key);
     ClassDB::bind_method(D_METHOD("get_material_count"),
                          &GDTerrainContentRegistry::get_material_count);
-    ClassDB::bind_method(D_METHOD("get_tile_mapping_count"),
-                         &GDTerrainContentRegistry::get_tile_mapping_count);
+    ClassDB::bind_method(D_METHOD("get_material_visual_count"),
+                         &GDTerrainContentRegistry::get_material_visual_count);
 
     BIND_ENUM_CONSTANT(FLAG_WALKABLE);
     BIND_ENUM_CONSTANT(FLAG_SOLID);

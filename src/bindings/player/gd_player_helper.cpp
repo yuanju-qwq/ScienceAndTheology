@@ -26,7 +26,8 @@ godot::Vector3 GDPlayerHelper::compute_gravity_direction(
     if (dist < planet_gravity_radius && dist > 0.01f) {
         return to_center.normalized();
     }
-    return godot::Vector3(0.0f, -1.0f, 0.0f);
+    // Outside gravity radius — zero-G in outer space.
+    return godot::Vector3(0.0f, 0.0f, 0.0f);
 }
 
 godot::Basis GDPlayerHelper::align_body_to_gravity(
@@ -40,6 +41,30 @@ godot::Basis GDPlayerHelper::align_body_to_gravity(
     // Already well-aligned.
     if (dot > 0.999f) {
         return current_basis;
+    }
+
+    // Nearly opposite: cross product is degenerate, use fallback axis.
+    if (dot < -0.999f) {
+        const godot::Vector3 fallback_axis = current_basis.rows[2];
+        const float angle = static_cast<float>(M_PI);
+        const float max_angle = rotation_speed * delta;
+        const float actual_angle = std::fmin(angle, max_angle);
+
+        const float c = std::cos(actual_angle);
+        const float s = std::sin(actual_angle);
+        const float t = 1.0f - c;
+
+        const float x = fallback_axis.x;
+        const float y = fallback_axis.y;
+        const float z = fallback_axis.z;
+
+        godot::Basis rot;
+        rot.rows[0] = godot::Vector3(t * x * x + c,     t * x * y - s * z, t * x * z + s * y);
+        rot.rows[1] = godot::Vector3(t * x * y + s * z, t * y * y + c,     t * y * z - s * x);
+        rot.rows[2] = godot::Vector3(t * x * z - s * y, t * y * z + s * x, t * z * z + c);
+
+        godot::Basis result = rot * current_basis;
+        return result.orthonormalized();
     }
 
     const godot::Vector3 axis = current_up.cross(target_up);

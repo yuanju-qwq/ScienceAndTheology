@@ -15,6 +15,18 @@ const JUMP_VELOCITY := 7.0
 const CLIMB_SPEED := 3.0
 const OVERWORLD: StringName = &"overworld"
 
+# Creative fly mode — toggled via /fly console command.
+var fly_mode := false:
+	set(value):
+		if fly_mode == value:
+			return
+		fly_mode = value
+		if fly_mode:
+			_is_climbing = false
+
+# Fly movement speed (adjustable via /speed console command).
+var fly_speed := 20.0
+
 @export var move_speed := 5.2
 @export var sprint_multiplier := 1.45
 @export var inventory_width := 9
@@ -32,6 +44,7 @@ const OVERWORLD: StringName = &"overworld"
 @export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
 @export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
+@export var console_ui_path: NodePath = ^"../UI/ConsoleUI"
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
 @export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
 @export var target_label_path: NodePath = ^"../UI/TargetLabel"
@@ -56,6 +69,7 @@ var selected_hotbar := 0
 @onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
 @onready var furnace_ui: FurnaceUI = get_node_or_null(furnace_ui_path) as FurnaceUI
 @onready var wiki_ui: WikiUI = get_node_or_null(wiki_ui_path) as WikiUI
+@onready var console_ui: ConsoleUI = get_node_or_null(console_ui_path) as ConsoleUI
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
 @onready var target_label: Label = get_node_or_null(target_label_path) as Label
@@ -92,6 +106,7 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_setup_inventory()
 	_ui_connector.connect_ui()
+	_connect_console()
 	_update_camera_rotation()
 	_select_hotbar(selected_hotbar)
 	_last_cell = get_current_cell()
@@ -105,11 +120,15 @@ func _physics_process(delta: float) -> void:
 	_handle_movement(delta)
 	_interaction.try_auto_cell_events()
 	_ui_connector.update_connector_prompt()
+	_update_status_label()
 
 
 # --- Input handling ---
 
 func _unhandled_input(event: InputEvent) -> void:
+	if console_ui and console_ui.is_open():
+		return
+
 	if event is InputEventMouseMotion and _mouse_captured and not _input_locked:
 		rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
@@ -174,6 +193,11 @@ func _handle_movement(delta: float) -> void:
 		move_and_slide()
 		return
 
+	# Creative fly mode — 6DoF camera-relative movement.
+	if fly_mode:
+		_handle_fly_movement(delta)
+		return
+
 	_check_climbing()
 
 	var input_vector := Vector2.ZERO
@@ -185,6 +209,13 @@ func _handle_movement(delta: float) -> void:
 		input_vector.y -= 1.0
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		input_vector.y += 1.0
+
+	# Zero-G in space: no gravity, free camera-relative movement.
+	var is_zero_g := _gravity_direction == Vector3.ZERO
+
+	if is_zero_g:
+		_handle_zero_g_movement(delta, input_vector)
+		return
 
 	var up := -_gravity_direction
 	var basis := global_transform.basis
@@ -218,6 +249,58 @@ func _handle_movement(delta: float) -> void:
 
 	move_and_slide()
 	_align_body_to_gravity(delta)
+
+
+# Creative fly mode: 6DoF movement relative to camera.
+func _handle_fly_movement(delta: float) -> void:
+	var basis := global_transform.basis
+	var forward := -basis.z
+	var right := basis.x
+	var up := basis.y
+
+	var direction := Vector3.ZERO
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+		direction += forward
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+		direction -= forward
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		direction += right
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		direction -= right
+	if Input.is_key_pressed(KEY_SPACE):
+		direction += up
+	if Input.is_key_pressed(KEY_SHIFT):
+		direction -= up
+
+	if direction != Vector3.ZERO:
+		direction = direction.normalized()
+
+	var speed := fly_speed * (sprint_multiplier if Input.is_key_pressed(KEY_CTRL) else 1.0)
+	velocity = velocity.move_toward(direction * speed, speed * 12.0 * delta)
+
+	move_and_slide()
+
+
+# Zero-G movement (space, no fly mode): camera-relative with Space/Shift for up/down.
+func _handle_zero_g_movement(delta: float, input_vector: Vector2) -> void:
+	var basis := global_transform.basis
+	var forward := -basis.z
+	var right := basis.x
+	var up := basis.y
+
+	var direction := right * input_vector.x + forward * -input_vector.y
+	if Input.is_key_pressed(KEY_SPACE):
+		direction += up
+	if Input.is_key_pressed(KEY_SHIFT):
+		direction -= up
+
+	if direction != Vector3.ZERO:
+		direction = direction.normalized()
+
+	var speed := move_speed * (sprint_multiplier if Input.is_key_pressed(KEY_CTRL) else 1.0)
+	velocity = velocity.move_toward(direction * speed, speed * 10.0 * delta)
+
+	move_and_slide()
 
 
 func _check_climbing() -> void:
@@ -255,6 +338,10 @@ func _update_gravity_direction() -> void:
 	_gravity_direction = GDPlayerHelper.compute_gravity_direction(
 		global_position, _planet_center, planet_gravity_radius, use_planet_gravity)
 
+	# In fly mode, override gravity to zero so player has full 6DoF control.
+	if fly_mode:
+		_gravity_direction = Vector3.ZERO
+
 
 func _get_planet_center_from_config(_config: Resource) -> Vector3:
 	# TODO: Expose planet_center through GDWorldGenConfig API.
@@ -262,6 +349,10 @@ func _get_planet_center_from_config(_config: Resource) -> Vector3:
 
 
 func _align_body_to_gravity(delta: float) -> void:
+	# Skip alignment in zero-G (space or fly mode).
+	if _gravity_direction == Vector3.ZERO:
+		return
+
 	if not use_planet_gravity:
 		return
 
@@ -410,3 +501,39 @@ func _debug_interaction(message: String) -> void:
 		return
 	_last_debug_time = now
 	print("PlayerController3D: ", message)
+
+
+# --- Console integration ---
+
+func _connect_console() -> void:
+	if console_ui:
+		console_ui.set_player(self)
+		if not console_ui.console_opened.is_connected(_on_console_opened):
+			console_ui.console_opened.connect(_on_console_opened)
+		if not console_ui.console_closed.is_connected(_on_console_closed):
+			console_ui.console_closed.connect(_on_console_closed)
+
+
+func _on_console_opened() -> void:
+	_set_input_locked(true)
+
+
+func _on_console_closed() -> void:
+	_set_input_locked(false)
+	_mouse_captured = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+# --- Status label ---
+
+func _update_status_label() -> void:
+	var label := get_node_or_null(^"../UI/LayerStatusLabel") as Label
+	if label == null:
+		return
+
+	if fly_mode:
+		label.text = "Fly (creative)"
+	elif _gravity_direction == Vector3.ZERO:
+		label.text = "Space (zero-G)"
+	else:
+		label.text = "3D Surface"

@@ -9,11 +9,12 @@ namespace science_and_theology {
 // Pass IDs for the generation pipeline.
 enum class GenerationPass : uint32_t {
     BASE_TERRAIN = 0,
-    BIOME       = 1,
-    ORE         = 2,
-    STRUCTURE   = 3,
-    OBJECT      = 4,
-    GAMEPLAY    = 5,
+    ROCK_LAYER  = 1,
+    BIOME       = 2,
+    ORE         = 3,
+    STRUCTURE   = 4,
+    OBJECT      = 5,
+    GAMEPLAY    = 6,
 };
 
 // Manages the world generation seed and derived parameters.

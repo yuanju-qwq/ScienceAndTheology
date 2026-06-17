@@ -56,6 +56,7 @@ target_sources(snt_core PRIVATE
 target_sources(snt_core PRIVATE
     world/terrain_data.hpp
     world/chunk_data.hpp
+    world/gameplay_config.hpp
     world/world_data.hpp
 )
 

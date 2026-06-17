@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=15 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -13,6 +13,7 @@
 [ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="13_furnace_ui"]
 [ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="14_wiki_ui"]
 [ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
+[ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -189,5 +190,17 @@ script = ExtResource("12_crafting_ui")
 script = ExtResource("14_wiki_ui")
 
 [node name="FurnaceUI" parent="UI" instance=ExtResource("13_furnace_ui")]
+
+[node name="ConsoleUI" type="Control" parent="UI"]
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+mouse_filter = 0
+script = ExtResource("16_console_ui")
 
 [connection signal="terrain_cell_synced" from="GameCommandServer" to="ChunkRendererBridge" method="on_terrain_cell_synced"]

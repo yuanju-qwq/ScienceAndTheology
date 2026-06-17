@@ -29,17 +29,70 @@ struct TerrainMaterialDef {
     std::string required_tool_tag;
     int required_mining_level = 0;
     std::vector<TerrainDropDef> drops;
+
+    // Gravity behavior: block falls when unsupported (e.g., sand, gravel).
+    // Derived from TF_GRAVITY_FALL flag at registration time.
+    bool gravity_fall = false;
+
+    // Collapse behavior: block can cave-in when structural support is lost.
+    // Derived from TF_COLLAPSE_RISK flag at registration time.
+    bool collapse_risk = false;
+
+    // Base probability of collapse when unsupported (0.0 = never, 1.0 = always).
+    // Multiplied by GameplayConfig::collapse_chance_multiplier at runtime.
+    float collapse_chance = 0.3f;
+
+    // If this block is a support beam (TF_SUPPORT_BEAM), how far it reaches.
+    // Measured in blocks along the gravity direction.
+    int support_radius = 5;
+
+    // Rock layer key: which rock layer this material belongs to.
+    // Empty string means no rock layer association.
+    std::string rock_layer_key;
 };
 
-struct TerrainTileMapping {
+// Face-specific texture reference for one face group of a voxel material.
+struct TerrainFaceTexture {
+    std::string texture_path;
+    int variant_count = 1;
+};
+
+// Overlay layer: a texture blended on top of the base face textures.
+// Used for ore veins, moss, cracks, etc. stacked in order (first = bottom).
+struct TerrainOverlayLayer {
+    std::string texture_path;
+    float blend = 0.5f;
+};
+
+// Visual definition for a single terrain material in 3D rendering.
+// Replaces the old 2D TerrainTileMapping.
+struct TerrainMaterialVisualDef {
     TerrainMaterialId material_id = 0;
     std::string material_key;
     std::string dimension_id = "overworld";
-    int source_id = 0;
-    int atlas_x = 0;
-    int atlas_y = 0;
-    int variant_count = 1;
     bool enabled = true;
+
+    // Per-face textures (empty texture_path = use albedo_color fallback).
+    TerrainFaceTexture top;
+    TerrainFaceTexture bottom;
+    TerrainFaceTexture sides;
+
+    // Fallback color when no texture is assigned.
+    float albedo_r = 0.85f;
+    float albedo_g = 0.20f;
+    float albedo_b = 0.85f;
+    float albedo_a = 1.0f;
+
+    // Material properties.
+    float roughness = 0.92f;
+    float emissive_r = 0.0f;
+    float emissive_g = 0.0f;
+    float emissive_b = 0.0f;
+    bool transparent = false;
+    bool cull_disabled = false;
+
+    // Overlay layers blended on top of base face textures (bottom-up order).
+    std::vector<TerrainOverlayLayer> overlays;
 };
 
 struct TerrainMaterialRoles {
@@ -115,6 +168,42 @@ struct OreVeinRule {
     float combined_max = 1.0f;
 };
 
+// Rock layer: determines underground rock type per region on the planet surface.
+// Rock layers are selected by noise-driven regional variation, so different
+// areas of the planet have different base rock types (granite, basalt, etc.).
+// Each rock layer defines its material, depth range, hardness, collapse
+// properties, and which ores can spawn in it.
+struct RockLayerRule {
+    std::string key;
+    std::string dimension_id = "overworld";
+
+    // The rock material placed by this layer.
+    TerrainMaterialId rock_material = 0;
+
+    // Noise-driven region selection: this layer appears where the rock layer
+    // noise falls within [noise_min, noise_max].
+    float noise_scale = 0.005f;
+    int noise_octaves = 3;
+    float noise_min = -1.0f;
+    float noise_max = 1.0f;
+
+    // Depth range: distance from the planet surface toward the core.
+    // depth_min = 0 means starting from the surface.
+    // depth_max controls how deep this rock extends.
+    float depth_min = 0.0f;
+    float depth_max = 100.0f;
+
+    // Physical properties of this rock layer.
+    float hardness_multiplier = 1.0f;
+
+    // Base probability of cave-in for blocks in this layer.
+    // Multiplied by GameplayConfig::collapse_chance_multiplier at runtime.
+    float collapse_chance = 0.3f;
+
+    // Ores that can spawn in this rock layer (material IDs).
+    std::vector<TerrainMaterialId> associated_ores;
+};
+
 // Planet configuration for spherical world generation.
 // Each dimension can optionally be a planet with a defined radius and center.
 // When planet_radius > 0, the terrain generator uses spherical clipping
@@ -184,17 +273,18 @@ struct PlanetConfig {
 };
 
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 4;
+    static constexpr uint32_t kSchemaVersion = 6;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
     std::vector<TerrainMaterialDef> materials;
-    std::vector<TerrainTileMapping> tile_mappings;
+    std::vector<TerrainMaterialVisualDef> material_visuals;
     TerrainMaterialRoles roles;
     RuntimeMaterialIds runtime_ids;
     std::vector<BaseTerrainRule> base_terrain_rules;
     std::vector<BiomeRule> biome_rules;
     std::vector<OreVeinRule> ore_vein_rules;
+    std::vector<RockLayerRule> rock_layer_rules;
     std::vector<PlanetConfig> planet_configs;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key;
     std::unordered_map<int, std::string> material_keys_by_id;

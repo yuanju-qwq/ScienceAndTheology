@@ -48,7 +48,7 @@ const LOD_LOW_POLY := 3
 @export var horizon_fog_max_distance := 200.0
 @export var world_environment_path: NodePath = ^"../WorldEnvironment"
 
-@export var player_node_path: NodePath = ^"../../Player"
+@export var player_node_path: NodePath = ^"../Player"
 @export var show_debug_info := false
 @export var debug_info_interval := 0.5
 
@@ -254,7 +254,9 @@ func _apply_fade_alpha() -> void:
 	if material == null:
 		return
 
-	var alpha := 1.0 - _fade_alpha * 0.5
+	# _fade_alpha: 0.0 = fully in current LOD, 1.0 = ready to switch (should be fully transparent).
+	# alpha: 1.0 = fully opaque, 0.0 = fully transparent (matches shader convention).
+	var alpha := 1.0 - _fade_alpha
 
 	if material is ShaderMaterial:
 		var shader_mat: ShaderMaterial = material

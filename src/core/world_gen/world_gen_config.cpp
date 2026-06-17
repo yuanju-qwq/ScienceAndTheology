@@ -99,6 +99,11 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, static_cast<uint64_t>(material.hardness * 1000.0f));
         hash_combine(hash, string_hash(material.required_tool_tag));
         hash_combine(hash, static_cast<uint64_t>(material.required_mining_level));
+        hash_combine(hash, material.gravity_fall ? 1ULL : 0ULL);
+        hash_combine(hash, material.collapse_risk ? 1ULL : 0ULL);
+        hash_combine(hash, static_cast<uint64_t>(material.collapse_chance * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(material.support_radius));
+        hash_combine(hash, string_hash(material.rock_layer_key));
         for (const auto& drop : material.drops) {
             hash_combine(hash, string_hash(drop.item_key));
             hash_combine(hash, static_cast<uint64_t>(drop.item_id));
@@ -108,15 +113,31 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
             hash_combine(hash, static_cast<uint64_t>(drop.chance * 100000.0f));
         }
     }
-    for (const auto& mapping : config.tile_mappings) {
-        hash_combine(hash, mapping.material_id);
-        hash_combine(hash, string_hash(mapping.material_key));
-        hash_combine(hash, string_hash(mapping.dimension_id));
-        hash_combine(hash, static_cast<uint64_t>(mapping.source_id));
-        hash_combine(hash, static_cast<uint64_t>(mapping.atlas_x));
-        hash_combine(hash, static_cast<uint64_t>(mapping.atlas_y));
-        hash_combine(hash, static_cast<uint64_t>(mapping.variant_count));
-        hash_combine(hash, mapping.enabled ? 1ULL : 0ULL);
+    for (const auto& visual : config.material_visuals) {
+        hash_combine(hash, visual.material_id);
+        hash_combine(hash, string_hash(visual.material_key));
+        hash_combine(hash, string_hash(visual.dimension_id));
+        hash_combine(hash, visual.enabled ? 1ULL : 0ULL);
+        hash_combine(hash, string_hash(visual.top.texture_path));
+        hash_combine(hash, static_cast<uint64_t>(visual.top.variant_count));
+        hash_combine(hash, string_hash(visual.bottom.texture_path));
+        hash_combine(hash, static_cast<uint64_t>(visual.bottom.variant_count));
+        hash_combine(hash, string_hash(visual.sides.texture_path));
+        hash_combine(hash, static_cast<uint64_t>(visual.sides.variant_count));
+        hash_combine(hash, static_cast<uint64_t>(visual.albedo_r * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.albedo_g * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.albedo_b * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.albedo_a * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.roughness * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.emissive_r * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.emissive_g * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(visual.emissive_b * 100000.0f));
+        hash_combine(hash, visual.transparent ? 1ULL : 0ULL);
+        hash_combine(hash, visual.cull_disabled ? 1ULL : 0ULL);
+        for (const auto& overlay : visual.overlays) {
+            hash_combine(hash, string_hash(overlay.texture_path));
+            hash_combine(hash, static_cast<uint64_t>(overlay.blend * 100000.0f));
+        }
     }
     hash_combine(hash, config.roles.air);
     hash_combine(hash, config.roles.stone);
@@ -176,6 +197,22 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, rule.ore_material);
         hash_combine(hash, static_cast<uint64_t>((rule.combined_min + 2.0f) * 100000.0f));
         hash_combine(hash, static_cast<uint64_t>((rule.combined_max + 2.0f) * 100000.0f));
+    }
+    for (const auto& rule : config.rock_layer_rules) {
+        hash_combine(hash, string_hash(rule.key));
+        hash_combine(hash, string_hash(rule.dimension_id));
+        hash_combine(hash, rule.rock_material);
+        hash_combine(hash, static_cast<uint64_t>(rule.noise_scale * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(rule.noise_octaves));
+        hash_combine(hash, static_cast<uint64_t>((rule.noise_min + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((rule.noise_max + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((rule.depth_min + 100.0f) * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>((rule.depth_max + 100.0f) * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(rule.hardness_multiplier * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(rule.collapse_chance * 100000.0f));
+        for (const auto& ore : rule.associated_ores) {
+            hash_combine(hash, ore);
+        }
     }
     for (const auto& planet : config.planet_configs) {
         hash_combine(hash, string_hash(planet.dimension_id));

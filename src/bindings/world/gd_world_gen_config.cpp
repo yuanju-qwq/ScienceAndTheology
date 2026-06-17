@@ -32,6 +32,11 @@ Dictionary material_to_dict(const TerrainMaterialDef& def) {
     d["hardness"] = def.hardness;
     d["required_tool_tag"] = String(def.required_tool_tag.c_str());
     d["required_mining_level"] = def.required_mining_level;
+    d["gravity_fall"] = def.gravity_fall;
+    d["collapse_risk"] = def.collapse_risk;
+    d["collapse_chance"] = def.collapse_chance;
+    d["support_radius"] = def.support_radius;
+    d["rock_layer_key"] = String(def.rock_layer_key.c_str());
 
     Array drops;
     for (const auto& drop : def.drops) {
@@ -41,16 +46,41 @@ Dictionary material_to_dict(const TerrainMaterialDef& def) {
     return d;
 }
 
-Dictionary mapping_to_dict(const TerrainTileMapping& mapping) {
+Dictionary face_texture_to_dict(const TerrainFaceTexture& face) {
     Dictionary d;
-    d["material_id"] = static_cast<int>(mapping.material_id);
-    d["material_key"] = String(mapping.material_key.c_str());
-    d["dimension"] = String(mapping.dimension_id.c_str());
-    d["source_id"] = mapping.source_id;
-    d["atlas_x"] = mapping.atlas_x;
-    d["atlas_y"] = mapping.atlas_y;
-    d["variant_count"] = mapping.variant_count;
-    d["enabled"] = mapping.enabled;
+    d["texture_path"] = String(face.texture_path.c_str());
+    d["variant_count"] = face.variant_count;
+    return d;
+}
+
+Dictionary overlay_to_dict(const TerrainOverlayLayer& overlay) {
+    Dictionary d;
+    d["texture_path"] = String(overlay.texture_path.c_str());
+    d["blend"] = overlay.blend;
+    return d;
+}
+
+Dictionary visual_to_dict(const TerrainMaterialVisualDef& visual) {
+    Dictionary d;
+    d["material_id"] = static_cast<int>(visual.material_id);
+    d["material_key"] = String(visual.material_key.c_str());
+    d["dimension"] = String(visual.dimension_id.c_str());
+    d["enabled"] = visual.enabled;
+    d["top"] = face_texture_to_dict(visual.top);
+    d["bottom"] = face_texture_to_dict(visual.bottom);
+    d["sides"] = face_texture_to_dict(visual.sides);
+    d["albedo_color"] = Color(visual.albedo_r, visual.albedo_g,
+                              visual.albedo_b, visual.albedo_a);
+    d["roughness"] = visual.roughness;
+    d["emissive_color"] = Color(visual.emissive_r, visual.emissive_g,
+                                visual.emissive_b);
+    d["transparent"] = visual.transparent;
+    d["cull_disabled"] = visual.cull_disabled;
+    Array overlays;
+    for (const auto& overlay : visual.overlays) {
+        overlays.append(overlay_to_dict(overlay));
+    }
+    d["overlays"] = overlays;
     return d;
 }
 
@@ -109,9 +139,30 @@ Dictionary ore_rule_to_dict(const OreVeinRule& rule) {
     return d;
 }
 
-String issue_missing_mapping_material(int material_id) {
+Dictionary rock_layer_rule_to_dict(const RockLayerRule& rule) {
+    Dictionary d;
+    d["key"] = String(rule.key.c_str());
+    d["dimension"] = String(rule.dimension_id.c_str());
+    d["rock_material_id"] = static_cast<int>(rule.rock_material);
+    d["noise_scale"] = rule.noise_scale;
+    d["noise_octaves"] = rule.noise_octaves;
+    d["noise_min"] = rule.noise_min;
+    d["noise_max"] = rule.noise_max;
+    d["depth_min"] = rule.depth_min;
+    d["depth_max"] = rule.depth_max;
+    d["hardness_multiplier"] = rule.hardness_multiplier;
+    d["collapse_chance"] = rule.collapse_chance;
+    Array ores;
+    for (const auto& ore_id : rule.associated_ores) {
+        ores.append(static_cast<int>(ore_id));
+    }
+    d["associated_ores"] = ores;
+    return d;
+}
+
+String issue_missing_visual_material(int material_id) {
     std::ostringstream out;
-    out << "Tile mapping references missing material id "
+    out << "Material visual references missing material id "
         << material_id << ".";
     return String(out.str().c_str());
 }
@@ -147,8 +198,8 @@ int64_t GDWorldGenConfig::get_material_count() const {
     return static_cast<int64_t>(get_snapshot()->materials.size());
 }
 
-int64_t GDWorldGenConfig::get_tile_mapping_count() const {
-    return static_cast<int64_t>(get_snapshot()->tile_mappings.size());
+int64_t GDWorldGenConfig::get_material_visual_count() const {
+    return static_cast<int64_t>(get_snapshot()->material_visuals.size());
 }
 
 int64_t GDWorldGenConfig::get_material_id(const String& key) const {
@@ -187,10 +238,10 @@ Array GDWorldGenConfig::get_material_defs() const {
     return result;
 }
 
-Array GDWorldGenConfig::get_tile_mappings() const {
+Array GDWorldGenConfig::get_material_visuals() const {
     Array result;
-    for (const auto& mapping : get_snapshot()->tile_mappings) {
-        result.append(mapping_to_dict(mapping));
+    for (const auto& visual : get_snapshot()->material_visuals) {
+        result.append(visual_to_dict(visual));
     }
     return result;
 }
@@ -244,6 +295,14 @@ Array GDWorldGenConfig::get_ore_vein_rules() const {
     return result;
 }
 
+Array GDWorldGenConfig::get_rock_layer_rules() const {
+    Array result;
+    for (const auto& rule : get_snapshot()->rock_layer_rules) {
+        result.append(rock_layer_rule_to_dict(rule));
+    }
+    return result;
+}
+
 Array GDWorldGenConfig::validate() const {
     Array issues;
     const auto snapshot = get_snapshot();
@@ -253,10 +312,10 @@ Array GDWorldGenConfig::validate() const {
     if (!snapshot->has_material(0)) {
         issues.append("WorldGenConfig is missing material id 0 (air).");
     }
-    for (const auto& mapping : snapshot->tile_mappings) {
-        if (!snapshot->has_material(mapping.material_id)) {
-            issues.append(issue_missing_mapping_material(
-                static_cast<int>(mapping.material_id)));
+    for (const auto& visual : snapshot->material_visuals) {
+        if (!snapshot->has_material(visual.material_id)) {
+            issues.append(issue_missing_visual_material(
+                static_cast<int>(visual.material_id)));
         }
     }
     return issues;
@@ -269,8 +328,8 @@ void GDWorldGenConfig::_bind_methods() {
                          &GDWorldGenConfig::get_content_hash);
     ClassDB::bind_method(D_METHOD("get_material_count"),
                          &GDWorldGenConfig::get_material_count);
-    ClassDB::bind_method(D_METHOD("get_tile_mapping_count"),
-                         &GDWorldGenConfig::get_tile_mapping_count);
+    ClassDB::bind_method(D_METHOD("get_material_visual_count"),
+                         &GDWorldGenConfig::get_material_visual_count);
     ClassDB::bind_method(D_METHOD("get_material_id", "key"),
                          &GDWorldGenConfig::get_material_id);
     ClassDB::bind_method(D_METHOD("get_material_key", "id"),
@@ -279,8 +338,8 @@ void GDWorldGenConfig::_bind_methods() {
                          &GDWorldGenConfig::get_material_def);
     ClassDB::bind_method(D_METHOD("get_material_defs"),
                          &GDWorldGenConfig::get_material_defs);
-    ClassDB::bind_method(D_METHOD("get_tile_mappings"),
-                         &GDWorldGenConfig::get_tile_mappings);
+    ClassDB::bind_method(D_METHOD("get_material_visuals"),
+                         &GDWorldGenConfig::get_material_visuals);
     ClassDB::bind_method(D_METHOD("get_material_roles"),
                          &GDWorldGenConfig::get_material_roles);
     ClassDB::bind_method(D_METHOD("get_runtime_material_ids"),
@@ -291,6 +350,8 @@ void GDWorldGenConfig::_bind_methods() {
                          &GDWorldGenConfig::get_biome_rules);
     ClassDB::bind_method(D_METHOD("get_ore_vein_rules"),
                          &GDWorldGenConfig::get_ore_vein_rules);
+    ClassDB::bind_method(D_METHOD("get_rock_layer_rules"),
+                         &GDWorldGenConfig::get_rock_layer_rules);
     ClassDB::bind_method(D_METHOD("validate"),
                          &GDWorldGenConfig::validate);
 }
