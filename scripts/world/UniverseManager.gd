@@ -1,12 +1,26 @@
 # UniverseManager — manages all planets in the universe.
 # Supports two generation modes: "solar_system" (preset) and
 # "random" (procedural). Provides APIs for gravity computation,
-# planet loading/unloading, and active planet tracking.
+# planet loading/unloading, virtual simulation, and active planet tracking.
 #
-# Each planet is represented by a PlanetDescriptor and has its own
-# PlanetLodManager for LOD rendering. The ChunkRendererBridge
-# switches its active dimension based on which planet the player
-# is currently near.
+# Performance strategy for a factory game:
+#   - Only the active planet's chunks are loaded in memory and rendered.
+#   - When the player leaves a planet, its chunks are serialized to disk
+#     and unloaded from memory. A PlanetSummary captures production rates.
+#   - VirtualPlanetSimulator advances time for unloaded planets using
+#     their summaries, approximating factory output without full chunk data.
+#   - When the player returns, chunks are loaded from disk and the
+#     accumulated virtual production is reconciled into the game state.
+#
+# Save layout (each planet stored independently):
+#   {save_dir}/
+#     universe_header.bin
+#     universe_meta.json
+#     planets/
+#       {dimension_id}/
+#         planet_header.bin
+#         planet_summary.json
+#         regions/
 class_name UniverseManager
 extends Node3D
 
@@ -22,13 +36,10 @@ signal planet_unloaded(planet: PlanetDescriptor)
 # Universe seed for deterministic generation.
 @export var universe_seed: int = 0
 
-# Distance threshold at which a planet's voxel chunks are loaded.
-# When the player is closer than this to a planet, chunks start loading.
+# Distance multiplier at which a planet's chunks are loaded.
 @export var load_distance_multiplier := 4.0
 
-# Distance threshold at which a planet's voxel chunks are unloaded.
-# When the player is farther than this, chunks are removed from memory.
-# Should be larger than load_distance to avoid flickering at boundaries.
+# Distance multiplier at which a planet's chunks are serialized and unloaded.
 @export var unload_distance_multiplier := 6.0
 
 # Path to the player node for distance calculations.
@@ -53,6 +64,15 @@ var _loaded_planets: Dictionary = {}
 # PlanetLodManager instances keyed by dimension_id.
 var _lod_managers: Dictionary = {}
 
+# Virtual planet simulator for distant unloaded planets.
+var _virtual_sim: VirtualPlanetSimulator = null
+
+# Universe save manager for per-planet serialization and universe metadata.
+var _save_manager: UniverseSaveManager = null
+
+# Save directory for per-planet chunk serialization.
+var _save_dir: String = ""
+
 var _player: Node3D = null
 var _chunk_bridge: ChunkRendererBridge = null
 var _debug_elapsed := 0.0
@@ -63,16 +83,10 @@ func _ready() -> void:
 	_apply_game_session_overrides()
 	_generate_universe()
 	_find_references()
+	_create_virtual_simulator()
+	_create_save_manager()
 	_create_lod_managers()
 	_set_initial_active_planet()
-
-
-# Override exported values from GameSession when entering from the main menu.
-func _apply_game_session_overrides() -> void:
-	if GameSession.universe_mode != "":
-		universe_mode = GameSession.universe_mode
-	if GameSession.universe_seed != 0:
-		universe_seed = GameSession.universe_seed
 
 
 func _process(delta: float) -> void:
@@ -82,6 +96,15 @@ func _process(delta: float) -> void:
 	_update_active_planet()
 	_update_planet_loading()
 	_maybe_debug_log(delta)
+
+
+# --- Game session overrides ---
+
+func _apply_game_session_overrides() -> void:
+	if GameSession.universe_mode != "":
+		universe_mode = GameSession.universe_mode
+	if GameSession.universe_seed != 0:
+		universe_seed = GameSession.universe_seed
 
 
 # --- Universe generation ---
@@ -103,6 +126,22 @@ func _generate_universe() -> void:
 func _find_references() -> void:
 	_player = get_node_or_null(player_node_path) as Node3D
 	_chunk_bridge = get_node_or_null(chunk_renderer_bridge_path) as ChunkRendererBridge
+
+
+# --- Virtual simulator ---
+
+func _create_virtual_simulator() -> void:
+	_virtual_sim = VirtualPlanetSimulator.new()
+	_virtual_sim.name = "VirtualPlanetSimulator"
+	add_child(_virtual_sim)
+
+
+# --- Save manager ---
+
+func _create_save_manager() -> void:
+	_save_manager = UniverseSaveManager.new()
+	_save_manager.name = "UniverseSaveManager"
+	add_child(_save_manager)
 
 
 # --- LOD manager creation ---
@@ -197,7 +236,7 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 			_chunk_bridge.set_active_dimension(planet.dimension_id)
 
 
-# --- Planet loading / unloading ---
+# --- Planet loading / unloading with serialization ---
 
 func _update_planet_loading() -> void:
 	if _player == null:
@@ -221,13 +260,113 @@ func _update_planet_loading() -> void:
 
 
 func _load_planet(planet: PlanetDescriptor) -> void:
-	_loaded_planets[planet.dimension_id] = true
+	var dim := planet.dimension_id
+	_loaded_planets[dim] = true
+
+	# If we have a virtual simulation summary, reconcile it before loading chunks.
+	if _virtual_sim != null and _virtual_sim.is_simulating(dim):
+		_reconcile_virtual_production(dim)
+		_virtual_sim.unregister_planet(dim)
+
+	# Load chunk data from disk via the save manager.
+	if _save_manager != null and _save_dir != "":
+		_save_manager.load_planet(_save_dir, dim)
+
 	planet_loaded.emit(planet)
 
 
 func _unload_planet(planet: PlanetDescriptor) -> void:
-	_loaded_planets.erase(planet.dimension_id)
+	var dim := planet.dimension_id
+
+	# Capture a production summary before unloading.
+	var summary := PlanetSummary.create_from_world(dim, 0)
+
+	# Serialize chunk data to disk and unload from memory via the save manager.
+	if _save_manager != null and _save_dir != "":
+		_save_manager.save_planet(_save_dir, dim)
+
+	# Unload chunks from memory.
+	if _chunk_bridge != null:
+		var world_data := _chunk_bridge.get_world_data()
+		if world_data != null:
+			world_data.unload_dimension(String(dim))
+
+	# Register the planet for virtual simulation.
+	if _virtual_sim != null and summary.has_production():
+		_virtual_sim.register_planet(summary)
+
+	_loaded_planets.erase(dim)
 	planet_unloaded.emit(planet)
+
+
+# --- Virtual production reconciliation ---
+
+# When a player returns to a planet, inject the accumulated virtual
+# production into the actual game state. This is the "reconciliation"
+# step that makes distant factories feel like they kept running.
+func _reconcile_virtual_production(dimension_id: StringName) -> void:
+	if _virtual_sim == null:
+		return
+
+	var summary := _virtual_sim.get_summary(dimension_id)
+	if summary == null:
+		return
+
+	var accumulated := summary.get_all_accumulated_production()
+	if accumulated.is_empty():
+		summary.clear_accumulated()
+		return
+
+	# TODO: Inject accumulated items into the planet's storage/logistics.
+	# This requires scanning the loaded chunk data for storage containers
+	# and logistics towers, then adding items to their inventories.
+	# For now, log the reconciliation for debugging.
+	if debug_universe:
+		for item_key in accumulated.keys():
+			var count: int = accumulated[item_key]
+			print("UniverseManager: reconcile %d x %s for %s" % [
+				count, item_key, String(dimension_id)])
+
+	summary.clear_accumulated()
+
+
+# --- Save / load universe ---
+
+# Set the save directory for per-planet chunk serialization.
+# Must be called before any planet is unloaded.
+func set_save_dir(path: String) -> void:
+	_save_dir = path
+
+
+# Get the current save directory.
+func get_save_dir() -> String:
+	return _save_dir
+
+
+# Save the entire universe (all loaded planets + metadata + summaries).
+func save_universe() -> bool:
+	if _save_manager == null or _save_dir == "":
+		push_warning("UniverseManager: save_dir not set, cannot save")
+		return false
+
+	# Ensure the save manager has the right references.
+	var world_data := _chunk_bridge.get_world_data() if _chunk_bridge else null
+	_save_manager.setup(self, world_data)
+
+	return _save_manager.save_universe(_save_dir)
+
+
+# Load the universe (header + metadata + summaries).
+# Planet chunks are loaded on-demand when the player approaches.
+func load_universe() -> bool:
+	if _save_manager == null or _save_dir == "":
+		push_warning("UniverseManager: save_dir not set, cannot load")
+		return false
+
+	var world_data := _chunk_bridge.get_world_data() if _chunk_bridge else null
+	_save_manager.setup(self, world_data)
+
+	return _save_manager.load_universe(_save_dir)
 
 
 # --- Public API ---
@@ -250,9 +389,6 @@ func find_nearest_planet(position: Vector3) -> PlanetDescriptor:
 
 
 # Compute the combined gravity direction at a given universe-space position.
-# Iterates all landable planets, picks the one with the strongest gravity
-# influence (closest / highest gravity_multiplier), and returns its
-# gravity direction. Returns Vector3.ZERO if in deep space (no gravity range).
 func compute_gravity_direction(position: Vector3) -> Vector3:
 	var best_dir := Vector3.ZERO
 	var best_influence := 0.0
@@ -268,8 +404,6 @@ func compute_gravity_direction(position: Vector3) -> Vector3:
 		if dir == Vector3.ZERO:
 			continue
 
-		# Gravity influence: stronger when closer and higher multiplier.
-		# Uses inverse-square falloff within the gravity radius.
 		var gravity_radius := planet.gravity_radius()
 		var t := 1.0 - (dist / gravity_radius)
 		var influence := planet.gravity_multiplier * t * t
@@ -282,7 +416,6 @@ func compute_gravity_direction(position: Vector3) -> Vector3:
 
 
 # Compute the gravity strength multiplier at a given position.
-# Returns 0.0 if in deep space.
 func compute_gravity_multiplier(position: Vector3) -> float:
 	var best_mult := 0.0
 
@@ -331,6 +464,18 @@ func is_planet_loaded(dimension_id: StringName) -> bool:
 	return _loaded_planets.has(dimension_id)
 
 
+# Check whether a planet is currently being virtually simulated.
+func is_planet_simulating(dimension_id: StringName) -> bool:
+	return _virtual_sim != null and _virtual_sim.is_simulating(dimension_id)
+
+
+# Get the virtual simulation time for a planet.
+func get_planet_virtual_time(dimension_id: StringName) -> float:
+	if _virtual_sim == null:
+		return 0.0
+	return _virtual_sim.get_virtual_time(dimension_id)
+
+
 # Get all landable (non-star) planets.
 func get_landable_planets() -> Array[PlanetDescriptor]:
 	var result: Array[PlanetDescriptor] = []
@@ -338,6 +483,16 @@ func get_landable_planets() -> Array[PlanetDescriptor]:
 		if not planet.is_star:
 			result.append(planet)
 	return result
+
+
+# Get the virtual planet simulator (for external access).
+func get_virtual_simulator() -> VirtualPlanetSimulator:
+	return _virtual_sim
+
+
+# Get the universe save manager (for external access).
+func get_save_manager() -> UniverseSaveManager:
+	return _save_manager
 
 
 # --- Debug ---
@@ -353,9 +508,10 @@ func _maybe_debug_log(delta: float) -> void:
 	var player_pos := _player.global_position if _player else Vector3.ZERO
 	var active_name := active_planet.display_name if active_planet else "None"
 	var loaded_count := _loaded_planets.size()
-	print("UniverseManager: mode=%s seed=%d planets=%d active=%s loaded=%d pos=%s" % [
+	var sim_count := _virtual_sim.get_simulated_dimensions().size() if _virtual_sim else 0
+	print("UniverseManager: mode=%s seed=%d planets=%d active=%s loaded=%d simulating=%d pos=%s" % [
 		universe_mode, universe_seed, planets.size(), active_name, loaded_count,
-		str(player_pos)])
+		sim_count, str(player_pos)])
 
 
 # --- Internal helpers ---

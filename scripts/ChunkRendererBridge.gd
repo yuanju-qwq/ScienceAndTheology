@@ -137,7 +137,7 @@ func get_world_data() -> GDWorldData:
 # Called by UniverseManager instead of the default single-planet initialize().
 func initialize_for_universe(config: Resource, initial_dimension: StringName) -> void:
 	if is_initialized:
-		return
+		_clear_all_chunk_views()
 
 	if world_data == null:
 		world_data = GDWorldData.new()
@@ -169,12 +169,7 @@ func set_active_dimension(dimension_id: StringName) -> void:
 	if dimension_id == active_dimension:
 		return
 
-	# Remove all current chunk views before switching.
-	for chunk in _visible_chunks.keys():
-		_remove_chunk_view(chunk)
-	_visible_chunks.clear()
-	_pending_view_queue.clear()
-	_tracked_chunks.clear()
+	_clear_all_chunk_views()
 
 	active_dimension = dimension_id
 
@@ -489,6 +484,16 @@ func _remove_chunk_view(chunk: Vector3i) -> void:
 		return
 	_visible_chunks.erase(chunk)
 	node.queue_free()
+
+
+# Clear all chunk views, pending queue, and tracked chunks.
+# Used when switching dimensions or re-initializing the universe.
+func _clear_all_chunk_views() -> void:
+	for chunk in _visible_chunks.keys():
+		_remove_chunk_view(chunk)
+	_visible_chunks.clear()
+	_pending_view_queue.clear()
+	_tracked_chunks.clear()
 
 
 # --- Material cache ---

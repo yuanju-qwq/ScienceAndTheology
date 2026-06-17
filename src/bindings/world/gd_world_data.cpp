@@ -974,6 +974,282 @@ godot::Array GDWorldData::list_saves(const godot::String& base_saves_dir) {
     return result;
 }
 
+int64_t GDWorldData::save_dimension(const godot::String& save_dir,
+                                     const godot::String& dimension_id) {
+    std::string dir_str = save_dir.utf8().get_data();
+    std::string dim_str = dimension_id.utf8().get_data();
+
+    // Use the per-dimension save API which writes to a planet subdirectory.
+    std::string pdir = SaveManager::planet_dir(dir_str, dim_str);
+    int count = SaveManager::save_dimension(pdir, seed_, dim_str, world_);
+    if (count < 0) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: save_dimension failed for dimension: ", dimension_id);
+    }
+    return static_cast<int64_t>(count);
+}
+
+int64_t GDWorldData::load_dimension(const godot::String& save_dir,
+                                     const godot::String& dimension_id) {
+    std::string dir_str = save_dir.utf8().get_data();
+    std::string dim_str = dimension_id.utf8().get_data();
+
+    // Use the per-dimension load API which reads from a planet subdirectory.
+    std::string pdir = SaveManager::planet_dir(dir_str, dim_str);
+    int count = SaveManager::load_dimension(pdir, dim_str, world_);
+    if (count < 0) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: load_dimension failed for dimension: ", dimension_id);
+        return -1;
+    }
+
+    return static_cast<int64_t>(count);
+}
+
+int64_t GDWorldData::unload_dimension(const godot::String& dimension_id) {
+    std::string dim_str = dimension_id.utf8().get_data();
+    int64_t removed = 0;
+
+    // Collect all chunk keys for this dimension, then remove them.
+    auto keys = world_.all_chunk_keys();
+    for (const auto& key : keys) {
+        if (key.dimension_id == dim_str) {
+            world_.remove_chunk(key.dimension_id,
+                               key.chunk_x, key.chunk_y, key.chunk_z);
+            removed++;
+        }
+    }
+
+    return removed;
+}
+
+int64_t GDWorldData::get_dimension_chunk_count(
+        const godot::String& dimension_id) const {
+    std::string dim_str = dimension_id.utf8().get_data();
+    int64_t count = 0;
+
+    for (const auto& key : world_.all_chunk_keys()) {
+        if (key.dimension_id == dim_str) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+// --- Universe header ---
+
+bool GDWorldData::write_universe_header(const godot::String& save_dir,
+                                         int64_t seed,
+                                         const godot::String& universe_mode) {
+    std::string dir_str = save_dir.utf8().get_data();
+    std::string mode_str = universe_mode.utf8().get_data();
+    return SaveManager::write_universe_header(dir_str, seed, mode_str);
+}
+
+godot::Dictionary GDWorldData::read_universe_header(
+        const godot::String& save_dir) {
+    std::string dir_str = save_dir.utf8().get_data();
+    auto [ok, seed, mode] = SaveManager::read_universe_header(dir_str);
+
+    Dictionary result;
+    result["ok"] = ok;
+    result["seed"] = seed;
+    result["universe_mode"] = String(mode.c_str());
+    return result;
+}
+
+godot::Array GDWorldData::list_planets(const godot::String& save_dir) {
+    std::string dir_str = save_dir.utf8().get_data();
+    auto planets = SaveManager::list_planets(dir_str);
+
+    Array result;
+    for (const auto& dim : planets) {
+        result.append(String(dim.c_str()));
+    }
+    return result;
+}
+
+// --- Planet data (header + summary binary) ---
+
+// Helper: convert a PlanetSummaryData to a Dictionary for GDScript.
+static godot::Dictionary summary_data_to_dict(const PlanetSummaryData& s) {
+    using namespace godot;
+
+    Dictionary d;
+    d["captured_tick"] = s.captured_tick;
+
+    // Production lines.
+    Array pl;
+    for (const auto& line : s.production_lines) {
+        Dictionary entry;
+        entry["recipe_key"] = String(line.recipe_key.c_str());
+        entry["rate_per_minute"] = line.rate_per_minute;
+        entry["active_count"] = line.active_count;
+        pl.append(entry);
+    }
+    d["production_lines"] = pl;
+
+    // Mining sites.
+    Array ms;
+    for (const auto& site : s.mining_sites) {
+        Dictionary entry;
+        entry["ore_key"] = String(site.ore_key.c_str());
+        entry["rate_per_minute"] = site.rate_per_minute;
+        entry["remaining_approx"] = site.remaining_approx;
+        ms.append(entry);
+    }
+    d["mining_sites"] = ms;
+
+    // Storage levels.
+    Array sl;
+    for (const auto& entry : s.storage_levels) {
+        Dictionary e;
+        e["item_key"] = String(entry.item_key.c_str());
+        e["count"] = entry.count;
+        e["capacity"] = entry.capacity;
+        sl.append(e);
+    }
+    d["storage_levels"] = sl;
+
+    // Power.
+    Dictionary power;
+    power["consumption_mw"] = s.power_consumption_mw;
+    power["generation_mw"] = s.power_generation_mw;
+    power["surplus_mw"] = s.power_surplus_mw;
+    d["power_summary"] = power;
+
+    // Accumulated production.
+    Array ap;
+    for (const auto& entry : s.accumulated_production) {
+        Dictionary e;
+        e["item_key"] = String(entry.item_key.c_str());
+        e["amount"] = entry.amount;
+        ap.append(e);
+    }
+    d["accumulated_production"] = ap;
+
+    // Accumulated consumption.
+    Array ac;
+    for (const auto& entry : s.accumulated_consumption) {
+        Dictionary e;
+        e["item_key"] = String(entry.item_key.c_str());
+        e["amount"] = entry.amount;
+        ac.append(e);
+    }
+    d["accumulated_consumption"] = ac;
+
+    return d;
+}
+
+// Helper: convert a Dictionary to a PlanetSummaryData for C++.
+static PlanetSummaryData dict_to_summary_data(const godot::Dictionary& d) {
+    PlanetSummaryData s;
+
+    s.captured_tick = d.get("captured_tick", 0);
+
+    // Production lines.
+    Array pl = d.get("production_lines", Array());
+    for (int i = 0; i < pl.size(); ++i) {
+        Dictionary entry = pl[i];
+        PlanetSummaryData::ProductionLine line;
+        line.recipe_key = String(entry.get("recipe_key", "")).utf8().get_data();
+        line.rate_per_minute = entry.get("rate_per_minute", 0.0);
+        line.active_count = entry.get("active_count", 0);
+        s.production_lines.push_back(std::move(line));
+    }
+
+    // Mining sites.
+    Array ms = d.get("mining_sites", Array());
+    for (int i = 0; i < ms.size(); ++i) {
+        Dictionary entry = ms[i];
+        PlanetSummaryData::MiningSite site;
+        site.ore_key = String(entry.get("ore_key", "")).utf8().get_data();
+        site.rate_per_minute = entry.get("rate_per_minute", 0.0);
+        site.remaining_approx = entry.get("remaining_approx", 0);
+        s.mining_sites.push_back(std::move(site));
+    }
+
+    // Storage levels.
+    Array sl = d.get("storage_levels", Array());
+    for (int i = 0; i < sl.size(); ++i) {
+        Dictionary entry = sl[i];
+        PlanetSummaryData::StorageEntry e;
+        e.item_key = String(entry.get("item_key", "")).utf8().get_data();
+        e.count = entry.get("count", 0);
+        e.capacity = entry.get("capacity", 0);
+        s.storage_levels.push_back(std::move(e));
+    }
+
+    // Power.
+    Dictionary power = d.get("power_summary", Dictionary());
+    s.power_consumption_mw = power.get("consumption_mw", 0.0);
+    s.power_generation_mw = power.get("generation_mw", 0.0);
+    s.power_surplus_mw = power.get("surplus_mw", 0.0);
+
+    // Accumulated production.
+    Array ap = d.get("accumulated_production", Array());
+    for (int i = 0; i < ap.size(); ++i) {
+        Dictionary entry = ap[i];
+        PlanetSummaryData::AccumulatedEntry e;
+        e.item_key = String(entry.get("item_key", "")).utf8().get_data();
+        e.amount = entry.get("amount", 0.0);
+        s.accumulated_production.push_back(std::move(e));
+    }
+
+    // Accumulated consumption.
+    Array ac = d.get("accumulated_consumption", Array());
+    for (int i = 0; i < ac.size(); ++i) {
+        Dictionary entry = ac[i];
+        PlanetSummaryData::AccumulatedEntry e;
+        e.item_key = String(entry.get("item_key", "")).utf8().get_data();
+        e.amount = entry.get("amount", 0.0);
+        s.accumulated_consumption.push_back(std::move(e));
+    }
+
+    return s;
+}
+
+bool GDWorldData::write_planet_data(const godot::String& planet_dir,
+                                     int64_t seed,
+                                     const godot::String& dimension_id,
+                                     const godot::Dictionary& summary_dict) {
+    std::string pdir_str = planet_dir.utf8().get_data();
+    std::string dim_str = dimension_id.utf8().get_data();
+
+    PlanetSummaryData summary;
+    const PlanetSummaryData* summary_ptr = nullptr;
+
+    if (!summary_dict.is_empty()) {
+        summary = dict_to_summary_data(summary_dict);
+        summary_ptr = &summary;
+    }
+
+    return SaveManager::write_planet_data(pdir_str, seed, dim_str, summary_ptr);
+}
+
+godot::Dictionary GDWorldData::read_planet_data(const godot::String& planet_dir) {
+    std::string pdir_str = planet_dir.utf8().get_data();
+
+    int64_t seed = 0;
+    std::string dimension_id;
+    PlanetSummaryData summary;
+    bool has_summary = false;
+
+    bool ok = SaveManager::read_planet_data(pdir_str, seed, dimension_id,
+                                             summary, has_summary);
+
+    Dictionary result;
+    result["ok"] = ok;
+    if (ok) {
+        result["seed"] = seed;
+        result["dimension_id"] = String(dimension_id.c_str());
+        result["has_summary"] = has_summary;
+        result["summary"] = has_summary ? summary_data_to_dict(summary) : Dictionary();
+    }
+    return result;
+}
+
 void GDWorldData::_bind_methods() {
     // Seed property.
     ClassDB::bind_method(D_METHOD("get_seed"),
@@ -1082,6 +1358,35 @@ void GDWorldData::_bind_methods() {
     ClassDB::bind_static_method("GDWorldData",
         D_METHOD("list_saves", "base_saves_dir"),
         &GDWorldData::list_saves);
+
+    // Per-dimension save / load / unload.
+    ClassDB::bind_method(D_METHOD("save_dimension", "save_dir", "dimension_id"),
+                         &GDWorldData::save_dimension);
+    ClassDB::bind_method(D_METHOD("load_dimension", "save_dir", "dimension_id"),
+                         &GDWorldData::load_dimension);
+    ClassDB::bind_method(D_METHOD("unload_dimension", "dimension_id"),
+                         &GDWorldData::unload_dimension);
+    ClassDB::bind_method(D_METHOD("get_dimension_chunk_count", "dimension_id"),
+                         &GDWorldData::get_dimension_chunk_count);
+
+    // Universe header.
+    ClassDB::bind_static_method("GDWorldData",
+        D_METHOD("write_universe_header", "save_dir", "seed", "universe_mode"),
+        &GDWorldData::write_universe_header);
+    ClassDB::bind_static_method("GDWorldData",
+        D_METHOD("read_universe_header", "save_dir"),
+        &GDWorldData::read_universe_header);
+    ClassDB::bind_static_method("GDWorldData",
+        D_METHOD("list_planets", "save_dir"),
+        &GDWorldData::list_planets);
+
+    // Planet data (header + summary binary).
+    ClassDB::bind_static_method("GDWorldData",
+        D_METHOD("write_planet_data", "planet_dir", "seed", "dimension_id", "summary_dict"),
+        &GDWorldData::write_planet_data);
+    ClassDB::bind_static_method("GDWorldData",
+        D_METHOD("read_planet_data", "planet_dir"),
+        &GDWorldData::read_planet_data);
 
     // Signal: emitted when a new chunk has been generated and stored.
     ADD_SIGNAL(MethodInfo("chunk_ready",

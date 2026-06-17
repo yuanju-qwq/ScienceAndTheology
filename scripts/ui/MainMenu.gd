@@ -49,6 +49,8 @@ var _world_list_panel: Control
 var _world_list_container: VBoxContainer
 var _new_world_panel: Control
 var _new_world_input: LineEdit
+var _universe_mode_option: OptionButton
+var _seed_input: LineEdit
 var _status_label: Label
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -95,20 +97,22 @@ func _scan_worlds() -> Array[Dictionary]:
 
 func _load_world_meta(path: String, folder_name: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
-		return {"name": folder_name, "folder": folder_name, "date": ""}
+		return {"name": folder_name, "folder": folder_name, "date": "", "universe_mode": ""}
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		return {"name": folder_name, "folder": folder_name, "date": ""}
+		return {"name": folder_name, "folder": folder_name, "date": "", "universe_mode": ""}
 	var json_text := f.get_as_text()
 	f.close()
 	var json := JSON.new()
 	if json.parse(json_text) != OK:
-		return {"name": folder_name, "folder": folder_name, "date": ""}
+		return {"name": folder_name, "folder": folder_name, "date": "", "universe_mode": ""}
 	var data: Dictionary = json.data
 	return {
 		"name": str(data.get("name", folder_name)),
 		"folder": folder_name,
 		"date": str(data.get("created_at", "")),
+		"universe_mode": str(data.get("universe_mode", "solar_system")),
+		"universe_seed": int(data.get("universe_seed", 0)),
 	}
 
 
@@ -116,7 +120,7 @@ func _compare_worlds_by_date(a: Dictionary, b: Dictionary) -> bool:
 	return str(a.get("date", "")) > str(b.get("date", ""))
 
 
-func _create_world(world_name: String) -> bool:
+func _create_world(world_name: String, mode: String, seed_value: int) -> bool:
 	var folder_name := world_name.strip_edges().validate_filename()
 	if folder_name == "":
 		folder_name = "World_%d" % Time.get_unix_time_from_system()
@@ -129,6 +133,8 @@ func _create_world(world_name: String) -> bool:
 		"name": world_name.strip_edges(),
 		"folder": folder_name,
 		"created_at": Time.get_datetime_string_from_system(),
+		"universe_mode": mode,
+		"universe_seed": seed_value,
 	}
 	var json_text := JSON.stringify(meta, "\t")
 	var f := FileAccess.open(full_path + META_FILE, FileAccess.WRITE)
@@ -139,12 +145,16 @@ func _create_world(world_name: String) -> bool:
 	f.close()
 	GameSession.world_name = meta["name"]
 	GameSession.save_path = full_path
+	GameSession.universe_mode = mode
+	GameSession.universe_seed = seed_value
 	return true
 
 
 func _load_world(entry: Dictionary) -> void:
 	GameSession.world_name = str(entry.get("name", ""))
 	GameSession.save_path = SAVE_ROOT + str(entry.get("folder", "")) + "/"
+	GameSession.universe_mode = str(entry.get("universe_mode", "solar_system"))
+	GameSession.universe_seed = int(entry.get("universe_seed", 0))
 
 
 # ── Scene transition ──────────────────────────────────────────────────────────
@@ -327,7 +337,7 @@ func _build_new_world_dialog() -> void:
 
 	var dialog_bg := PanelContainer.new()
 	dialog_bg.name = "DialogBg"
-	dialog_bg.custom_minimum_size = Vector2(360, 160)
+	dialog_bg.custom_minimum_size = Vector2(400, 280)
 	var dialog_style := StyleBoxFlat.new()
 	dialog_style.bg_color = COLOR_PANEL
 	dialog_style.border_color = Color(0.15, 0.16, 0.20, 1.0)
@@ -341,18 +351,81 @@ func _build_new_world_dialog() -> void:
 	vbox.add_theme_constant_override("separation", 10)
 	dialog_bg.add_child(vbox)
 
+	# Dialog title.
 	var dialog_title := Label.new()
 	dialog_title.text = "新建世界"
 	dialog_title.add_theme_font_size_override("font_size", 20)
 	dialog_title.add_theme_color_override("font_color", COLOR_TEXT)
 	vbox.add_child(dialog_title)
 
+	# World name input row.
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 8)
+
+	var name_label := Label.new()
+	name_label.text = "世界名称"
+	name_label.add_theme_font_size_override("font_size", 14)
+	name_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	name_label.custom_minimum_size = Vector2(80, 0)
+	name_row.add_child(name_label)
+
 	_new_world_input = LineEdit.new()
 	_new_world_input.name = "WorldNameInput"
 	_new_world_input.placeholder_text = "输入世界名称"
+	_new_world_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_new_world_input.custom_minimum_size = Vector2(0, 32)
-	vbox.add_child(_new_world_input)
+	name_row.add_child(_new_world_input)
 
+	vbox.add_child(name_row)
+
+	# Universe mode selection row.
+	var mode_row := HBoxContainer.new()
+	mode_row.add_theme_constant_override("separation", 8)
+
+	var mode_label := Label.new()
+	mode_label.text = "宇宙模式"
+	mode_label.add_theme_font_size_override("font_size", 14)
+	mode_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	mode_label.custom_minimum_size = Vector2(80, 0)
+	mode_row.add_child(mode_label)
+
+	_universe_mode_option = OptionButton.new()
+	_universe_mode_option.name = "UniverseModeOption"
+	_universe_mode_option.add_item("标准太阳系", 0)
+	_universe_mode_option.add_item("随机星系", 1)
+	_universe_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_universe_mode_option.custom_minimum_size = Vector2(0, 32)
+	_universe_mode_option.item_selected.connect(_on_universe_mode_changed)
+	mode_row.add_child(_universe_mode_option)
+
+	vbox.add_child(mode_row)
+
+	# Seed input row.
+	var seed_row := HBoxContainer.new()
+	seed_row.add_theme_constant_override("separation", 8)
+
+	var seed_label := Label.new()
+	seed_label.text = "世界种子"
+	seed_label.add_theme_font_size_override("font_size", 14)
+	seed_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	seed_label.custom_minimum_size = Vector2(80, 0)
+	seed_row.add_child(seed_label)
+
+	_seed_input = LineEdit.new()
+	_seed_input.name = "SeedInput"
+	_seed_input.placeholder_text = "留空则随机生成"
+	_seed_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_seed_input.custom_minimum_size = Vector2(0, 32)
+	seed_row.add_child(_seed_input)
+
+	var randomize_btn := _make_button("🎲", 36, 32)
+	randomize_btn.add_theme_font_size_override("font_size", 16)
+	randomize_btn.pressed.connect(_on_randomize_seed)
+	seed_row.add_child(randomize_btn)
+
+	vbox.add_child(seed_row)
+
+	# Bottom button row.
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -432,6 +505,16 @@ func _make_world_list_item(entry: Dictionary, index: int) -> Control:
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(name_label)
 
+	# Universe mode tag.
+	var mode_tag := Label.new()
+	var mode_str := str(entry.get("universe_mode", "solar_system"))
+	mode_tag.text = "太阳系" if mode_str == "solar_system" else "随机"
+	mode_tag.add_theme_font_size_override("font_size", 11)
+	mode_tag.add_theme_color_override("font_color", COLOR_ACCENT)
+	mode_tag.custom_minimum_size = Vector2(40, 0)
+	mode_tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hbox.add_child(mode_tag)
+
 	var date_label := Label.new()
 	date_label.text = str(entry.get("date", ""))
 	date_label.add_theme_font_size_override("font_size", 12)
@@ -473,6 +556,8 @@ func _show_new_world_dialog() -> void:
 	_state = State.NEW_WORLD_DIALOG
 	_new_world_panel.visible = true
 	_new_world_input.text = ""
+	_universe_mode_option.select(0)
+	_seed_input.text = ""
 	_new_world_input.grab_focus()
 	_recenter_panels()
 
@@ -529,7 +614,7 @@ func _recenter_panels() -> void:
 	_world_list_panel.position = center - Vector2(PANEL_WIDTH / 2.0, PANEL_HEIGHT / 2.0)
 
 	# New world dialog.
-	_new_world_panel.position = center - Vector2(180, 80)
+	_new_world_panel.position = center - Vector2(200, 140)
 
 
 # ── Status label helper ───────────────────────────────────────────────────────
@@ -537,6 +622,28 @@ func _recenter_panels() -> void:
 
 func _set_status(text: String) -> void:
 	_status_label.text = text
+
+
+# ── Universe mode helpers ─────────────────────────────────────────────────────
+
+
+func _get_selected_universe_mode() -> String:
+	var idx := _universe_mode_option.get_selected_id()
+	match idx:
+		0: return "solar_system"
+		1: return "random"
+		_: return "solar_system"
+
+
+func _parse_seed_value() -> int:
+	var text := _seed_input.text.strip_edges()
+	if text == "":
+		return 0
+	# Accept numeric seeds.
+	if text.is_valid_int():
+		return text.to_int()
+	# Non-numeric: hash the string.
+	return text.hash()
 
 
 # ── Button callbacks ──────────────────────────────────────────────────────────
@@ -580,12 +687,22 @@ func _on_create_world() -> void:
 	if name == "":
 		_set_status("世界名称不能为空")
 		return
-	if _create_world(name):
+	var mode := _get_selected_universe_mode()
+	var seed_value := _parse_seed_value()
+	if _create_world(name, mode, seed_value):
 		_start_game()
 
 
 func _on_cancel_new_world() -> void:
 	_show_world_list()
+
+
+func _on_universe_mode_changed(_index: int) -> void:
+	pass
+
+
+func _on_randomize_seed() -> void:
+	_seed_input.text = str(randi() % 1000000)
 
 
 # ── World list item click ─────────────────────────────────────────────────────

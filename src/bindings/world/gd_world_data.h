@@ -198,6 +198,55 @@ public:
     // Lists save names with valid world_header.bin in a base directory.
     static godot::Array list_saves(const godot::String& base_saves_dir);
 
+    // --- Per-dimension save / load / unload ---
+
+    // Saves only chunks belonging to a specific dimension to disk.
+    // Returns the number of chunks saved, or -1 on error.
+    int64_t save_dimension(const godot::String& save_dir,
+                           const godot::String& dimension_id);
+
+    // Loads only chunks belonging to a specific dimension from disk.
+    // Does NOT clear existing chunks. Returns the number of chunks loaded,
+    // or -1 on error.
+    int64_t load_dimension(const godot::String& save_dir,
+                           const godot::String& dimension_id);
+
+    // Removes all chunks belonging to a specific dimension from memory.
+    // Returns the number of chunks removed.
+    int64_t unload_dimension(const godot::String& dimension_id);
+
+    // Returns the number of chunks currently loaded for a specific dimension.
+    int64_t get_dimension_chunk_count(const godot::String& dimension_id) const;
+
+    // --- Universe header ---
+
+    // Writes a universe header (seed + mode) to the save root directory.
+    static bool write_universe_header(const godot::String& save_dir,
+                                      int64_t seed,
+                                      const godot::String& universe_mode);
+
+    // Reads a universe header. Returns Dictionary with keys:
+    //   "ok": bool, "seed": int, "universe_mode": String
+    static godot::Dictionary read_universe_header(const godot::String& save_dir);
+
+    // Lists all planet dimension IDs in a save directory.
+    static godot::Array list_planets(const godot::String& save_dir);
+
+    // --- Planet data (header + summary binary) ---
+
+    // Writes a planet_data.bin file with header and optional summary.
+    // The summary_dict follows PlanetSummary.to_dict() format.
+    // Pass an empty Dictionary to write header-only (no summary).
+    static bool write_planet_data(const godot::String& planet_dir,
+                                  int64_t seed,
+                                  const godot::String& dimension_id,
+                                  const godot::Dictionary& summary_dict);
+
+    // Reads a planet_data.bin file. Returns Dictionary with keys:
+    //   "ok": bool, "seed": int, "dimension_id": String,
+    //   "has_summary": bool, "summary": Dictionary (empty if no summary)
+    static godot::Dictionary read_planet_data(const godot::String& planet_dir);
+
     // ---
 
     // ---
