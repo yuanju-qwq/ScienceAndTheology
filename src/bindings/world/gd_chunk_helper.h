@@ -3,6 +3,10 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/vector3.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
@@ -10,8 +14,8 @@ namespace science_and_theology {
 
 // Pure-computation helper for chunk rendering and coordinate transforms.
 // All methods are static and stateless; they exist so that hot-path
-// calculations (visibility, coordinate math, ladder facing) run in C++
-// instead of interpreted GDScript.
+// calculations (visibility, coordinate math, ladder facing, greedy mesh)
+// run in C++ instead of interpreted GDScript.
 class GDChunkHelper : public godot::Node {
     GDCLASS(GDChunkHelper, godot::Node)
 
@@ -45,17 +49,42 @@ public:
     // Compute a surface mask for the chunk: one byte per voxel.
     // 1 = surface voxel (at least one neighbor is air/ladder),
     // 0 = fully interior voxel (all 6 neighbors are solid).
-    // This is used for LOD 1 simplified rendering where only
-    // surface voxels are drawn, skipping interior geometry.
     static godot::PackedByteArray compute_surface_mask(
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t air_material, int32_t ladder_material);
+
+    // --- Greedy meshing ---
+
+    // Build a greedy-meshed chunk. Returns a Dictionary keyed by material_id (int).
+    // Each value is a Dictionary with:
+    //   "vertices": PackedVector3Array  - vertex positions in chunk-local space
+    //   "normals":  PackedVector3Array  - face normals
+    //   "uvs":      PackedVector2Array  - UV coordinates (per-face, supports atlas)
+    //   "uvs2":     PackedVector2Array  - UV2: x = face_type (0=top, 1=bottom, 2=sides)
+    //   "indices":  PackedInt32Array    - triangle indices
+    //
+    // The greedy algorithm merges adjacent same-material faces along the
+    // secondary axis, producing wider/taller quads instead of one quad per
+    // voxel face. This drastically reduces vertex/tri count.
+    // UV2.x encodes the face type for per-face texture selection in shader.
+    static godot::Dictionary build_greedy_mesh(
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t air_material, int32_t ladder_material);
+
+    // Build collision faces for a chunk. Returns a Dictionary with:
+    //   "vertices": PackedVector3Array  - vertex positions in chunk-local space
+    //   "indices":  PackedInt32Array    - triangle indices
+    // Only exposed faces (neighbor is air/ladder) are included.
+    // Intended for a single ConcavePolygonShape3D per chunk.
+    static godot::Dictionary build_collision_faces(
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
         int32_t air_material, int32_t ladder_material);
 
     // --- Chunk visibility ---
 
-    // Returns a Dictionary with keys "wanted_visible" (Dictionary of Vector3i->bool)
-    // and "visible_order" (Array of Vector3i sorted by distance to player_chunk).
     static godot::Dictionary compute_visible_chunks(
         const godot::Vector3i& player_chunk,
         int32_t loaded_radius, int32_t view_radius,

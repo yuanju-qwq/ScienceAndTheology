@@ -82,6 +82,8 @@ target_sources(snt_core PRIVATE
     simulation/tick_system.cpp
     simulation/machine_system.hpp
     simulation/machine_system.cpp
+    simulation/block_physics_system.hpp
+    simulation/block_physics_system.cpp
     simulation/error_handler.hpp
     simulation/error_handler.cpp
     simulation/state_sync_common.hpp

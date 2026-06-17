@@ -16,6 +16,7 @@
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
 #include "core/material/tool_items.hpp"
+#include "core/world/world_data.hpp"
 
 namespace science_and_theology {
 
@@ -211,6 +212,17 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     }
 
     emit_signal("terrain_cell_synced", dimension, chunk, local, material, air_material);
+
+    // Enqueue a block physics event so BlockPhysicsSystem can check
+    // gravity fall and collapse for neighboring blocks.
+    {
+        BlockPhysicsEvent evt;
+        evt.dimension_id = String(dimension).utf8().get_data();
+        evt.block_x = chunk.x * ChunkData::kChunkSize + local.x;
+        evt.block_y = chunk.y * ChunkData::kChunkSize + local.y;
+        evt.block_z = chunk.z * ChunkData::kChunkSize + local.z;
+        world_data_->get_world_ptr()->push_physics_event(evt);
+    }
 
     Dictionary result;
     result["type"] = command_mine_block();
@@ -501,6 +513,17 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     if (!placed) {
         add_inventory_item(item_id, 1, kSecondaryNone, false);
         return reject(command_place_object(), "world object could not be placed");
+    }
+
+    // Enqueue a block physics event so BlockPhysicsSystem can check
+    // if the newly placed block should fall (e.g., sand placed in mid-air).
+    {
+        BlockPhysicsEvent evt;
+        evt.dimension_id = String(dimension).utf8().get_data();
+        evt.block_x = cell.x;
+        evt.block_y = cell.y;
+        evt.block_z = cell.z;
+        world_data_->get_world_ptr()->push_physics_event(evt);
     }
 
     emit_signal("inventory_synced");

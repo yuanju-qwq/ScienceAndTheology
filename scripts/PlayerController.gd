@@ -33,7 +33,8 @@ var fly_speed := 20.0
 @export var inventory_height := 4
 @export var connector_cooldown := 0.25
 @export var use_planet_gravity := true
-@export var planet_gravity_radius := 600.0
+@export var planet_gravity_radius := 2048.0
+@export var universe_manager_path: NodePath = ^"../UniverseManager"
 @export var world_path: NodePath = ^"../ChunkRendererBridge"
 @export var command_server_path: NodePath = ^"../GameCommandServer"
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
@@ -81,6 +82,9 @@ var selected_hotbar := 0
 var _interaction: PlayerInteraction
 var _ui_connector: PlayerUIConnector
 
+# UniverseManager reference for multi-planet gravity.
+var _universe_manager: UniverseManager = null
+
 var _input_locked := false
 var _mouse_captured := true
 var _pitch := deg_to_rad(-18.0)
@@ -104,6 +108,7 @@ func _ready() -> void:
 	_ui_connector.setup(self)
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_connect_universe_manager()
 	_setup_inventory()
 	_ui_connector.connect_ui()
 	_connect_console()
@@ -329,6 +334,14 @@ func _update_gravity_direction() -> void:
 		_gravity_direction = Vector3.DOWN
 		return
 
+	# Prefer multi-planet gravity from UniverseManager.
+	if _universe_manager != null:
+		_gravity_direction = _universe_manager.compute_gravity_direction(global_position)
+		if fly_mode:
+			_gravity_direction = Vector3.ZERO
+		return
+
+	# Fallback: single-planet gravity (backward compatible).
 	var world_data_node := world.get_world_data()
 	if world_data_node == null:
 		_gravity_direction = Vector3.DOWN
@@ -460,6 +473,10 @@ func _select_hotbar(index: int) -> void:
 # --- Public queries ---
 
 func get_current_dimension() -> StringName:
+	if _universe_manager != null and _universe_manager.active_planet != null:
+		return _universe_manager.active_planet.dimension_id
+	if world != null:
+		return world.active_dimension
 	return OVERWORLD
 
 
@@ -505,6 +522,10 @@ func _debug_interaction(message: String) -> void:
 
 # --- Console integration ---
 
+func _connect_universe_manager() -> void:
+	_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+
+
 func _connect_console() -> void:
 	if console_ui:
 		console_ui.set_player(self)
@@ -535,5 +556,7 @@ func _update_status_label() -> void:
 		label.text = "Fly (creative)"
 	elif _gravity_direction == Vector3.ZERO:
 		label.text = "Space (zero-G)"
+	elif _universe_manager != null and _universe_manager.active_planet != null:
+		label.text = _universe_manager.active_planet.display_name
 	else:
 		label.text = "3D Surface"

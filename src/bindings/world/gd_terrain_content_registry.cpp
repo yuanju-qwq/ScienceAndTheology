@@ -473,10 +473,10 @@ bool GDTerrainContentRegistry::register_material(const Dictionary& def) {
     // Gravity and collapse properties.
     material.gravity_fall = (material.flags & TF_GRAVITY_FALL) != 0;
     material.collapse_risk = (material.flags & TF_COLLAPSE_RISK) != 0;
-    material.collapse_chance = static_cast<float>(
-        def.get("collapse_chance", 0.3f));
-    material.support_radius = static_cast<int>(
-        def.get("support_radius", 5));
+    material.collapse_chance = std::clamp(
+        static_cast<float>(def.get("collapse_chance", 0.3f)), 0.0f, 1.0f);
+    material.support_radius = std::max(
+        0, static_cast<int>(def.get("support_radius", 5)));
     material.rock_layer_key = String(
         def.get("rock_layer_key", "")).utf8().get_data();
 

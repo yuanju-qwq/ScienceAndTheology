@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 
 #include <godot_cpp/core/class_db.hpp>
@@ -243,6 +244,507 @@ godot::PackedByteArray GDChunkHelper::compute_surface_mask(
     return mask;
 }
 
+// --- Greedy meshing internals ---
+
+namespace {
+
+// Face direction constants: 0=+Y(top), 1=-Y(bottom), 2=+X, 3=-X, 4=+Z, 5=-Z.
+// Face type for UV selection: 0=top(+Y), 1=bottom(-Y), 2=sides(rest).
+struct FaceDir {
+    static constexpr int kTop = 0;
+    static constexpr int kBottom = 1;
+    static constexpr int kPosX = 2;
+    static constexpr int kNegX = 3;
+    static constexpr int kPosZ = 4;
+    static constexpr int kNegZ = 5;
+    static constexpr int kCount = 6;
+};
+
+// Map face direction to face type for UV selection.
+// 0=top, 1=bottom, 2=sides.
+inline int face_type(int dir) {
+    if (dir == FaceDir::kTop) return 0;
+    if (dir == FaceDir::kBottom) return 1;
+    return 2;
+}
+
+// Normal vector for each face direction.
+inline godot::Vector3 face_normal(int dir) {
+    switch (dir) {
+        case FaceDir::kTop:    return godot::Vector3(0, 1, 0);
+        case FaceDir::kBottom: return godot::Vector3(0, -1, 0);
+        case FaceDir::kPosX:   return godot::Vector3(1, 0, 0);
+        case FaceDir::kNegX:   return godot::Vector3(-1, 0, 0);
+        case FaceDir::kPosZ:   return godot::Vector3(0, 0, 1);
+        case FaceDir::kNegZ:   return godot::Vector3(0, 0, -1);
+        default:               return godot::Vector3(0, 1, 0);
+    }
+}
+
+// Neighbor offset for each face direction.
+inline godot::Vector3i neighbor_offset(int dir) {
+    switch (dir) {
+        case FaceDir::kTop:    return godot::Vector3i(0, 1, 0);
+        case FaceDir::kBottom: return godot::Vector3i(0, -1, 0);
+        case FaceDir::kPosX:   return godot::Vector3i(1, 0, 0);
+        case FaceDir::kNegX:   return godot::Vector3i(-1, 0, 0);
+        case FaceDir::kPosZ:   return godot::Vector3i(0, 0, 1);
+        case FaceDir::kNegZ:   return godot::Vector3i(0, 0, -1);
+        default:               return godot::Vector3i(0, 0, 0);
+    }
+}
+
+// Check if a voxel at (x,y,z) is transparent (air or ladder) for face culling.
+bool is_transparent_for_face(int32_t x, int32_t y, int32_t z,
+                              const godot::PackedByteArray& materials,
+                              int32_t size_x, int32_t size_y, int32_t size_z,
+                              int32_t air_material, int32_t ladder_material) {
+    if (x < 0 || x >= size_x || y < 0 || y >= size_y || z < 0 || z >= size_z) {
+        return true;  // Chunk boundary = exposed face.
+    }
+    const int64_t idx = GDChunkHelper::terrain_index(x, y, z, size_x, size_z);
+    if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
+        return true;
+    }
+    const int32_t mat = static_cast<int32_t>(materials[idx]);
+    return mat == air_material || mat == ladder_material;
+}
+
+// Per-material mesh data accumulator.
+struct MeshAccum {
+    std::vector<godot::Vector3> vertices;
+    std::vector<godot::Vector3> normals;
+    std::vector<godot::Vector2> uvs;
+    // UV2 encodes face type per vertex: x = face_type (0=top, 1=bottom, 2=sides).
+    // UV2.y = variant hash (0..1) for random texture variant selection.
+    std::vector<godot::Vector2> uvs2;
+    std::vector<int32_t> indices;
+    int32_t vertex_count = 0;
+
+    void add_quad(const godot::Vector3 v0, const godot::Vector3 v1,
+                  const godot::Vector3 v2, const godot::Vector3 v3,
+                  const godot::Vector3& normal, const godot::Vector2& uv0,
+                  const godot::Vector2& uv1, const godot::Vector2& uv2,
+                  const godot::Vector2& uv3, int32_t ftype, float variant_hash) {
+        vertices.push_back(v0);
+        vertices.push_back(v1);
+        vertices.push_back(v2);
+        vertices.push_back(v3);
+        normals.push_back(normal);
+        normals.push_back(normal);
+        normals.push_back(normal);
+        normals.push_back(normal);
+        uvs.push_back(uv0);
+        uvs.push_back(uv1);
+        uvs.push_back(uv2);
+        uvs.push_back(uv3);
+        // Encode face type into UV2.x, variant hash into UV2.y.
+        const float ft = static_cast<float>(ftype);
+        const godot::Vector2 uv2_val(ft, variant_hash);
+        uvs2.push_back(uv2_val);
+        uvs2.push_back(uv2_val);
+        uvs2.push_back(uv2_val);
+        uvs2.push_back(uv2_val);
+        // Two triangles: 0-1-2, 0-2-3.
+        indices.push_back(vertex_count);
+        indices.push_back(vertex_count + 1);
+        indices.push_back(vertex_count + 2);
+        indices.push_back(vertex_count);
+        indices.push_back(vertex_count + 2);
+        indices.push_back(vertex_count + 3);
+        vertex_count += 4;
+    }
+
+    godot::Dictionary to_dict() const {
+        godot::Dictionary d;
+        godot::PackedVector3Array verts;
+        godot::PackedVector3Array norms;
+        godot::PackedVector2Array uvs_packed;
+        godot::PackedVector2Array uvs2_packed;
+        godot::PackedInt32Array idx_packed;
+
+        verts.resize(static_cast<int64_t>(vertices.size()));
+        norms.resize(static_cast<int64_t>(normals.size()));
+        uvs_packed.resize(static_cast<int64_t>(uvs.size()));
+        uvs2_packed.resize(static_cast<int64_t>(uvs2.size()));
+        idx_packed.resize(static_cast<int64_t>(indices.size()));
+
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            verts.ptrw()[i] = vertices[i];
+        }
+        for (size_t i = 0; i < normals.size(); ++i) {
+            norms.ptrw()[i] = normals[i];
+        }
+        for (size_t i = 0; i < uvs.size(); ++i) {
+            uvs_packed.ptrw()[i] = uvs[i];
+        }
+        for (size_t i = 0; i < uvs2.size(); ++i) {
+            uvs2_packed.ptrw()[i] = uvs2[i];
+        }
+        for (size_t i = 0; i < indices.size(); ++i) {
+            idx_packed.ptrw()[i] = indices[i];
+        }
+
+        d["vertices"] = verts;
+        d["normals"] = norms;
+        d["uvs"] = uvs_packed;
+        d["uvs2"] = uvs2_packed;
+        d["indices"] = idx_packed;
+        return d;
+    }
+};
+
+// Simple position hash for texture variant selection.
+// Returns a value in [0, 1) based on 3D integer coordinates.
+inline float position_hash(int32_t x, int32_t y, int32_t z) {
+    // FNV-1a inspired hash, mapped to [0, 1).
+    uint32_t h = 2166136261u;
+    h ^= static_cast<uint32_t>(x); h *= 16777619u;
+    h ^= static_cast<uint32_t>(y); h *= 16777619u;
+    h ^= static_cast<uint32_t>(z); h *= 16777619u;
+    return static_cast<float>(h & 0x00FFFFFFu) / 16777216.0f;
+}
+
+// Emit a quad for a face. The quad occupies [x,x+w] x [y,y+h] in the
+// face plane, at depth d along the normal axis.
+// dir: face direction (FaceDir constant).
+// ft: face type (0=top, 1=bottom, 2=sides).
+// variant_hash: position-based hash [0,1) for texture variant selection.
+void emit_face_quad(MeshAccum& accum, int dir, int32_t d,
+                    int32_t u_start, int32_t u_end,
+                    int32_t v_start, int32_t v_end,
+                    float variant_hash) {
+    const float fd = static_cast<float>(d);
+    const float fu0 = static_cast<float>(u_start);
+    const float fu1 = static_cast<float>(u_end);
+    const float fv0 = static_cast<float>(v_start);
+    const float fv1 = static_cast<float>(v_end);
+
+    godot::Vector3 v0, v1, v2, v3;
+    godot::Vector2 uv0, uv1, uv2, uv3;
+
+    switch (dir) {
+        case FaceDir::kTop:  // +Y, plane: X-Z at y=d+1
+            v0 = godot::Vector3(fu0, fd + 1.0f, fv0);
+            v1 = godot::Vector3(fu1, fd + 1.0f, fv0);
+            v2 = godot::Vector3(fu1, fd + 1.0f, fv1);
+            v3 = godot::Vector3(fu0, fd + 1.0f, fv1);
+            uv0 = godot::Vector2(0.0f, 0.0f);
+            uv1 = godot::Vector2(fu1 - fu0, 0.0f);
+            uv2 = godot::Vector2(fu1 - fu0, fv1 - fv0);
+            uv3 = godot::Vector2(0.0f, fv1 - fv0);
+            break;
+        case FaceDir::kBottom:  // -Y, plane: X-Z at y=d
+            v0 = godot::Vector3(fu0, fd, fv1);
+            v1 = godot::Vector3(fu1, fd, fv1);
+            v2 = godot::Vector3(fu1, fd, fv0);
+            v3 = godot::Vector3(fu0, fd, fv0);
+            uv0 = godot::Vector2(0.0f, 0.0f);
+            uv1 = godot::Vector2(fu1 - fu0, 0.0f);
+            uv2 = godot::Vector2(fu1 - fu0, fv1 - fv0);
+            uv3 = godot::Vector2(0.0f, fv1 - fv0);
+            break;
+        case FaceDir::kPosX:  // +X, plane: Z-Y at x=d+1
+            v0 = godot::Vector3(fd + 1.0f, fv0, fu1);
+            v1 = godot::Vector3(fd + 1.0f, fv1, fu1);
+            v2 = godot::Vector3(fd + 1.0f, fv1, fu0);
+            v3 = godot::Vector3(fd + 1.0f, fv0, fu0);
+            uv0 = godot::Vector2(0.0f, 0.0f);
+            uv1 = godot::Vector2(0.0f, fv1 - fv0);
+            uv2 = godot::Vector2(fu1 - fu0, fv1 - fv0);
+            uv3 = godot::Vector2(fu1 - fu0, 0.0f);
+            break;
+        case FaceDir::kNegX:  // -X, plane: Z-Y at x=d
+            v0 = godot::Vector3(fd, fv0, fu0);
+            v1 = godot::Vector3(fd, fv1, fu0);
+            v2 = godot::Vector3(fd, fv1, fu1);
+            v3 = godot::Vector3(fd, fv0, fu1);
+            uv0 = godot::Vector2(0.0f, 0.0f);
+            uv1 = godot::Vector2(0.0f, fv1 - fv0);
+            uv2 = godot::Vector2(fu1 - fu0, fv1 - fv0);
+            uv3 = godot::Vector2(fu1 - fu0, 0.0f);
+            break;
+        case FaceDir::kPosZ:  // +Z, plane: X-Y at z=d+1
+            v0 = godot::Vector3(fu0, fv0, fd + 1.0f);
+            v1 = godot::Vector3(fu0, fv1, fd + 1.0f);
+            v2 = godot::Vector3(fu1, fv1, fd + 1.0f);
+            v3 = godot::Vector3(fu1, fv0, fd + 1.0f);
+            uv0 = godot::Vector2(0.0f, 0.0f);
+            uv1 = godot::Vector2(0.0f, fv1 - fv0);
+            uv2 = godot::Vector2(fu1 - fu0, fv1 - fv0);
+            uv3 = godot::Vector2(fu1 - fu0, 0.0f);
+            break;
+        case FaceDir::kNegZ:  // -Z, plane: X-Y at z=d
+            v0 = godot::Vector3(fu1, fv0, fd);
+            v1 = godot::Vector3(fu1, fv1, fd);
+            v2 = godot::Vector3(fu0, fv1, fd);
+            v3 = godot::Vector3(fu0, fv0, fd);
+            uv0 = godot::Vector2(0.0f, 0.0f);
+            uv1 = godot::Vector2(0.0f, fv1 - fv0);
+            uv2 = godot::Vector2(fu1 - fu0, fv1 - fv0);
+            uv3 = godot::Vector2(fu1 - fu0, 0.0f);
+            break;
+    }
+
+    accum.add_quad(v0, v1, v2, v3, face_normal(dir),
+                   uv0, uv1, uv2, uv3, face_type(dir), variant_hash);
+}
+
+} // namespace
+
+godot::Dictionary GDChunkHelper::build_greedy_mesh(
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t air_material, int32_t ladder_material) {
+    // Accumulate mesh data per material.
+    std::unordered_map<int32_t, MeshAccum> accum_by_material;
+
+    // For each of the 6 face directions, sweep the chunk in slices
+    // along the normal axis and greedily merge same-material faces.
+    for (int dir = 0; dir < FaceDir::kCount; ++dir) {
+        // Determine sweep axis (d) and in-plane axes (u, v).
+        // d = depth axis (normal direction), u/v = in-plane axes.
+        int32_t d_size, u_size, v_size;
+        switch (dir) {
+            case FaceDir::kTop:
+            case FaceDir::kBottom:
+                d_size = size_y; u_size = size_x; v_size = size_z;
+                break;
+            case FaceDir::kPosX:
+            case FaceDir::kNegX:
+                d_size = size_x; u_size = size_z; v_size = size_y;
+                break;
+            case FaceDir::kPosZ:
+            case FaceDir::kNegZ:
+                d_size = size_z; u_size = size_x; v_size = size_y;
+                break;
+            default:
+                continue;
+        }
+
+        for (int32_t d = 0; d < d_size; ++d) {
+            // 2D mask: mask[u][v] = material_id if face is exposed, -1 otherwise.
+            std::vector<std::vector<int32_t>> mask(
+                static_cast<size_t>(u_size),
+                std::vector<int32_t>(static_cast<size_t>(v_size), -1));
+
+            for (int32_t u = 0; u < u_size; ++u) {
+                for (int32_t v = 0; v < v_size; ++v) {
+                    // Convert (d, u, v) back to (x, y, z).
+                    int32_t x, y, z;
+                    switch (dir) {
+                        case FaceDir::kTop:
+                        case FaceDir::kBottom:
+                            x = u; y = d; z = v; break;
+                        case FaceDir::kPosX:
+                        case FaceDir::kNegX:
+                            x = d; y = v; z = u; break;
+                        case FaceDir::kPosZ:
+                        case FaceDir::kNegZ:
+                            x = u; y = v; z = d; break;
+                        default:
+                            x = u; y = d; z = v; break;
+                    }
+
+                    const int64_t idx = terrain_index(x, y, z, size_x, size_z);
+                    if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
+                        continue;
+                    }
+                    const int32_t mat = static_cast<int32_t>(materials[idx]);
+                    if (mat == air_material || mat == ladder_material) {
+                        continue;
+                    }
+
+                    // Check if this face is exposed.
+                    godot::Vector3i off = neighbor_offset(dir);
+                    int32_t nx = x + off.x;
+                    int32_t ny = y + off.y;
+                    int32_t nz = z + off.z;
+                    if (!is_transparent_for_face(nx, ny, nz, materials,
+                                                 size_x, size_y, size_z,
+                                                 air_material, ladder_material)) {
+                        continue;
+                    }
+
+                    mask[static_cast<size_t>(u)][static_cast<size_t>(v)] = mat;
+                }
+            }
+
+            // Greedy merge: scan the mask, find rectangles of same material.
+            std::vector<std::vector<bool>> visited(
+                static_cast<size_t>(u_size),
+                std::vector<bool>(static_cast<size_t>(v_size), false));
+
+            for (int32_t u = 0; u < u_size; ++u) {
+                for (int32_t v = 0; v < v_size; ++v) {
+                    if (visited[static_cast<size_t>(u)][static_cast<size_t>(v)]) continue;
+                    const int32_t mat = mask[static_cast<size_t>(u)][static_cast<size_t>(v)];
+                    if (mat < 0) continue;
+
+                    // Extend along v (secondary axis) as far as possible.
+                    int32_t v_end = v + 1;
+                    while (v_end < v_size &&
+                           !visited[static_cast<size_t>(u)][static_cast<size_t>(v_end)] &&
+                           mask[static_cast<size_t>(u)][static_cast<size_t>(v_end)] == mat) {
+                        ++v_end;
+                    }
+
+                    // Extend along u (primary axis) as far as possible.
+                    int32_t u_end = u + 1;
+                    bool can_extend = true;
+                    while (can_extend && u_end < u_size) {
+                        for (int32_t vv = v; vv < v_end; ++vv) {
+                            if (visited[static_cast<size_t>(u_end)][static_cast<size_t>(vv)] ||
+                                mask[static_cast<size_t>(u_end)][static_cast<size_t>(vv)] != mat) {
+                                can_extend = false;
+                                break;
+                            }
+                        }
+                        if (can_extend) ++u_end;
+                    }
+
+                    // Mark visited.
+                    for (int32_t uu = u; uu < u_end; ++uu) {
+                        for (int32_t vv = v; vv < v_end; ++vv) {
+                            visited[static_cast<size_t>(uu)][static_cast<size_t>(vv)] = true;
+                        }
+                    }
+
+                    // Emit the merged quad.
+                    auto& accum = accum_by_material[mat];
+                    // Compute variant hash from the quad's origin position.
+                    // Convert (d, u, v) back to (x, y, z) for consistent hashing.
+                    int32_t hx, hy, hz;
+                    switch (dir) {
+                        case FaceDir::kTop:
+                        case FaceDir::kBottom:
+                            hx = u; hy = d; hz = v; break;
+                        case FaceDir::kPosX:
+                        case FaceDir::kNegX:
+                            hx = d; hy = v; hz = u; break;
+                        case FaceDir::kPosZ:
+                        case FaceDir::kNegZ:
+                            hx = u; hy = v; hz = d; break;
+                        default:
+                            hx = u; hy = d; hz = v; break;
+                    }
+                    float vhash = position_hash(hx, hy, hz);
+                    emit_face_quad(accum, dir, d, u, u_end, v, v_end, vhash);
+                }
+            }
+        }
+    }
+
+    // Build result dictionary: material_id -> mesh data.
+    godot::Dictionary result;
+    for (auto& [mat, accum] : accum_by_material) {
+        result[mat] = accum.to_dict();
+    }
+    return result;
+}
+
+godot::Dictionary GDChunkHelper::build_collision_faces(
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t air_material, int32_t ladder_material) {
+    std::vector<godot::Vector3> verts;
+    std::vector<int32_t> indices;
+    int32_t vertex_count = 0;
+
+    for (int32_t y = 0; y < size_y; ++y) {
+        for (int32_t z = 0; z < size_z; ++z) {
+            for (int32_t x = 0; x < size_x; ++x) {
+                const int64_t idx = terrain_index(x, y, z, size_x, size_z);
+                if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) continue;
+                const int32_t mat = static_cast<int32_t>(materials[idx]);
+                if (mat == air_material || mat == ladder_material) continue;
+
+                // For each of 6 faces, check if exposed.
+                for (int dir = 0; dir < FaceDir::kCount; ++dir) {
+                    godot::Vector3i off = neighbor_offset(dir);
+                    if (!is_transparent_for_face(x + off.x, y + off.y, z + off.z,
+                                                 materials, size_x, size_y, size_z,
+                                                 air_material, ladder_material)) {
+                        continue;
+                    }
+
+                    // Emit 4 vertices and 2 triangles for this face.
+                    const float fx = static_cast<float>(x);
+                    const float fy = static_cast<float>(y);
+                    const float fz = static_cast<float>(z);
+
+                    godot::Vector3 v0, v1, v2, v3;
+                    switch (dir) {
+                        case FaceDir::kTop:
+                            v0 = godot::Vector3(fx, fy + 1, fz);
+                            v1 = godot::Vector3(fx + 1, fy + 1, fz);
+                            v2 = godot::Vector3(fx + 1, fy + 1, fz + 1);
+                            v3 = godot::Vector3(fx, fy + 1, fz + 1);
+                            break;
+                        case FaceDir::kBottom:
+                            v0 = godot::Vector3(fx, fy, fz + 1);
+                            v1 = godot::Vector3(fx + 1, fy, fz + 1);
+                            v2 = godot::Vector3(fx + 1, fy, fz);
+                            v3 = godot::Vector3(fx, fy, fz);
+                            break;
+                        case FaceDir::kPosX:
+                            v0 = godot::Vector3(fx + 1, fy, fz + 1);
+                            v1 = godot::Vector3(fx + 1, fy + 1, fz + 1);
+                            v2 = godot::Vector3(fx + 1, fy + 1, fz);
+                            v3 = godot::Vector3(fx + 1, fy, fz);
+                            break;
+                        case FaceDir::kNegX:
+                            v0 = godot::Vector3(fx, fy, fz);
+                            v1 = godot::Vector3(fx, fy + 1, fz);
+                            v2 = godot::Vector3(fx, fy + 1, fz + 1);
+                            v3 = godot::Vector3(fx, fy, fz + 1);
+                            break;
+                        case FaceDir::kPosZ:
+                            v0 = godot::Vector3(fx, fy, fz + 1);
+                            v1 = godot::Vector3(fx, fy + 1, fz + 1);
+                            v2 = godot::Vector3(fx + 1, fy + 1, fz + 1);
+                            v3 = godot::Vector3(fx + 1, fy, fz + 1);
+                            break;
+                        case FaceDir::kNegZ:
+                            v0 = godot::Vector3(fx + 1, fy, fz);
+                            v1 = godot::Vector3(fx + 1, fy + 1, fz);
+                            v2 = godot::Vector3(fx, fy + 1, fz);
+                            v3 = godot::Vector3(fx, fy, fz);
+                            break;
+                    }
+
+                    verts.push_back(v0);
+                    verts.push_back(v1);
+                    verts.push_back(v2);
+                    verts.push_back(v3);
+                    indices.push_back(vertex_count);
+                    indices.push_back(vertex_count + 1);
+                    indices.push_back(vertex_count + 2);
+                    indices.push_back(vertex_count);
+                    indices.push_back(vertex_count + 2);
+                    indices.push_back(vertex_count + 3);
+                    vertex_count += 4;
+                }
+            }
+        }
+    }
+
+    godot::Dictionary result;
+    godot::PackedVector3Array verts_packed;
+    godot::PackedInt32Array idx_packed;
+    verts_packed.resize(static_cast<int64_t>(verts.size()));
+    idx_packed.resize(static_cast<int64_t>(indices.size()));
+    for (size_t i = 0; i < verts.size(); ++i) {
+        verts_packed.ptrw()[i] = verts[i];
+    }
+    for (size_t i = 0; i < indices.size(); ++i) {
+        idx_packed.ptrw()[i] = indices[i];
+    }
+    result["vertices"] = verts_packed;
+    result["indices"] = idx_packed;
+    return result;
+}
+
 // --- Bindings ---
 
 void GDChunkHelper::_bind_methods() {
@@ -266,6 +768,10 @@ void GDChunkHelper::_bind_methods() {
                                 &B::ladder_facing);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_surface_mask", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
                                 &B::compute_surface_mask);
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_greedy_mesh", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
+                                &B::build_greedy_mesh);
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
+                                &B::build_collision_faces);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_visible_chunks", "player_chunk", "loaded_radius", "view_radius", "use_spherical_loading"),
                                 &B::compute_visible_chunks);
 }

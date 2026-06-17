@@ -10,6 +10,7 @@ signal lod_level_changed(new_level: int, old_level: int)
 const PlanetSurfaceShader := preload("res://resource/shaders/planet_surface.gdshader")
 const PlanetAtmosphereShader := preload("res://resource/shaders/planet_atmosphere.gdshader")
 const PlanetCloudsShader := preload("res://resource/shaders/planet_clouds.gdshader")
+const SpaceSkyShader := preload("res://resource/shaders/space_sky.gdshader")
 
 # LOD level constants matching the C++ GDPlanetLod definitions.
 const LOD_REAL_CHUNKS := 0
@@ -48,6 +49,10 @@ const LOD_LOW_POLY := 3
 @export var horizon_fog_max_distance := 200.0
 @export var world_environment_path: NodePath = ^"../WorldEnvironment"
 
+@export var space_sky_enabled := true
+@export var space_star_brightness := 1.5
+@export var space_nebula_intensity := 0.3
+
 @export var player_node_path: NodePath = ^"../Player"
 @export var show_debug_info := false
 @export var debug_info_interval := 0.5
@@ -70,10 +75,19 @@ var _cloud_time := 0.0
 var _distances_cache: Dictionary = {}
 var _is_initialized := false
 
+# Space sky state.
+var _space_sky_material: ShaderMaterial = null
+var _surface_sky: Sky = null
+var _surface_bg_mode: int = Environment.BG_CLEAR_COLOR
+var _surface_ambient_color: Color = Color.WHITE
+var _surface_ambient_energy: float = 0.62
+var _is_space_env_active := false
+
 
 func _ready() -> void:
 	_create_lod_meshes()
 	_create_horizon_fog()
+	_create_space_sky()
 	_update_lod_distances_cache()
 	_current_lod_level = _compute_current_lod()
 	_previous_lod_level = _current_lod_level
@@ -95,6 +109,7 @@ func _process(delta: float) -> void:
 	_apply_fade_alpha()
 	_update_cloud_time(delta)
 	_update_horizon_fog()
+	_update_space_environment()
 
 	if show_debug_info:
 		_maybe_log_debug(delta)
@@ -323,7 +338,9 @@ func _rebuild_lod_meshes() -> void:
 	_owns_world_env = false
 	_create_lod_meshes()
 	_create_horizon_fog()
+	_create_space_sky()
 	_apply_lod_visibility()
+	_is_space_env_active = false
 
 
 # --- Horizon fog ---
@@ -384,6 +401,80 @@ func _update_cloud_time(delta: float) -> void:
 	var cloud_mat := _cloud_mesh.mesh.surface_get_material(0) as ShaderMaterial
 	if cloud_mat:
 		cloud_mat.set_shader_parameter("time", _cloud_time)
+
+
+# --- Space sky and environment switching ---
+
+func _create_space_sky() -> void:
+	if not space_sky_enabled:
+		return
+
+	# Create the ShaderMaterial for the procedural star field.
+	_space_sky_material = ShaderMaterial.new()
+	_space_sky_material.shader = SpaceSkyShader
+	_space_sky_material.set_shader_parameter("star_brightness", space_star_brightness)
+	_space_sky_material.set_shader_parameter("star_seed", _world_seed_float() * 100.0)
+	_space_sky_material.set_shader_parameter("nebula_intensity", space_nebula_intensity)
+
+
+func _update_space_environment() -> void:
+	if _env == null or not space_sky_enabled:
+		return
+
+	# Space environment is active when player is at LOD 2+ (far from planet).
+	var should_be_space := _current_lod_level >= LOD_PROXY_SPHERE
+
+	if should_be_space == _is_space_env_active:
+		return
+
+	_is_space_env_active = should_be_space
+
+	if should_be_space:
+		_activate_space_environment()
+	else:
+		_activate_surface_environment()
+
+
+func _activate_space_environment() -> void:
+	# Save the current surface environment state for restoration.
+	_surface_sky = _env.sky
+	_surface_bg_mode = _env.background_mode
+	_surface_ambient_color = _env.ambient_light_color
+	_surface_ambient_energy = _env.ambient_light_energy
+
+	# Create a new Sky resource with the space shader material.
+	var space_sky := Sky.new()
+	space_sky.sky_material = _space_sky_material
+	_env.sky = space_sky
+	_env.background_mode = Environment.BG_SKY
+
+	# Disable fog in space.
+	_env.fog_enabled = false
+
+	# Reduce ambient light in space — no atmosphere scattering.
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	_env.ambient_light_color = Color(0.02, 0.02, 0.04, 1.0)
+	_env.ambient_light_energy = 0.15
+
+
+func _activate_surface_environment() -> void:
+	# Restore the original surface sky.
+	if _surface_sky != null:
+		_env.sky = _surface_sky
+		_surface_sky = null
+	else:
+		_env.sky = null
+
+	_env.background_mode = _surface_bg_mode
+
+	# Re-enable fog for surface view.
+	if horizon_fog_enabled:
+		_env.fog_enabled = true
+
+	# Restore ambient light to surface levels.
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	_env.ambient_light_color = _surface_ambient_color
+	_env.ambient_light_energy = _surface_ambient_energy
 
 
 # --- Seed helpers ---

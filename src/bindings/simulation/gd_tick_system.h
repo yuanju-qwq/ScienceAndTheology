@@ -39,6 +39,11 @@ public:
     // Register the machine simulation subsystem.
     void register_machine_system();
 
+    // Register the block physics simulation subsystem.
+    // Must be called after set_world_data(). Handles gravity fall
+    // and cave-in collapse for blocks after mining.
+    void register_block_physics_system();
+
     // Advance simulation by one frame.
     void tick(float delta);
 

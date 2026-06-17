@@ -28,6 +28,8 @@ const FLAG_COLLAPSE_RISK := 128
 const FLAG_SUPPORT_BEAM := 256
 
 
+# Create the default single-planet config (backward compatible).
+# Uses the original "overworld" planet with radius 512.
 static func create_default_config() -> Resource:
 	var registry: Object = ClassDB.instantiate("GDTerrainContentRegistry")
 	if registry == null:
@@ -38,6 +40,150 @@ static func create_default_config() -> Resource:
 	_register_builtin_generation_rules(registry)
 	_register_runtime_material_ids(registry)
 	return registry.freeze()
+
+
+# Create a multi-planet config from an array of PlanetDescriptor resources.
+# Registers base terrain rules, biome rules, ore vein rules, rock layer rules,
+# and planet configs for each landable planet. Stars are skipped.
+# All planets share the same material set and biome/ore/rock rules,
+# but each planet has its own dimension_id and PlanetConfig.
+static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]) -> Resource:
+	var registry: Object = ClassDB.instantiate("GDTerrainContentRegistry")
+	if registry == null:
+		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
+		return null
+	_register_builtin_material_interactions(registry)
+	_register_builtin_material_visuals(registry)
+	_register_runtime_material_ids(registry)
+
+	# Register generation rules and planet configs for each landable planet.
+	for planet in universe_planets:
+		if planet.is_star:
+			continue
+		_register_planet_generation_rules(registry, planet)
+		registry.register_planet_config(planet.to_planet_config_dict())
+
+	return registry.freeze()
+
+
+# Register generation rules for a single planet dimension.
+# Each planet gets its own base terrain rule, biome rules, ore vein rules,
+# and rock layer rules, all scoped to the planet's dimension_id.
+static func _register_planet_generation_rules(registry: Object, planet: PlanetDescriptor) -> void:
+	var dim := String(planet.dimension_id)
+
+	# Base terrain rule — same structure as overworld, but per-dimension.
+	registry.register_base_terrain_rule({
+		"dimension": dim,
+		"mode": "surface_elevation",
+		"default_material_key": "snt:dirt",
+		"low_elevation_material_key": "snt:water",
+		"high_elevation_material_key": "snt:stone",
+		"elevation_scale": 0.02,
+		"elevation_octaves": 4,
+		"detail_scale": 0.05,
+		"detail_octaves": 3,
+		"water_elevation_max": -0.25,
+		"water_detail_max": 0.3,
+		"stone_elevation_abs_min": 0.55,
+	})
+
+	# Biome rules — same as overworld, scoped to this dimension.
+	registry.register_biome_rule({
+		"key": "snt:desert_sand",
+		"dimension": dim,
+		"source_material_key": "snt:dirt",
+		"result_material_key": "snt:sand",
+		"temperature_min": 0.3,
+		"humidity_max": -0.2,
+	})
+	registry.register_biome_rule({
+		"key": "snt:beach_sand",
+		"dimension": dim,
+		"source_material_key": "snt:dirt",
+		"result_material_key": "snt:sand",
+		"requires_near_material": true,
+		"near_material_key": "snt:water",
+		"near_radius": 2,
+	})
+	registry.register_biome_rule({
+		"key": "snt:rocky_highlands",
+		"dimension": dim,
+		"source_material_key": "snt:dirt",
+		"result_material_key": "snt:stone",
+		"temperature_max": -0.4,
+		"humidity_max": -0.1,
+	})
+
+	# Ore vein rules — same as overworld, scoped to this dimension.
+	registry.register_ore_vein_rule({
+		"key": "snt:ore_iron",
+		"dimension": dim,
+		"host_material_key": "snt:stone",
+		"ore_material_key": "snt:ore_iron",
+		"combined_min": 0.5,
+		"combined_max": 1.0,
+	})
+	registry.register_ore_vein_rule({
+		"key": "snt:ore_copper",
+		"dimension": dim,
+		"host_material_key": "snt:stone",
+		"ore_material_key": "snt:ore_copper",
+		"combined_min": 0.25,
+		"combined_max": 0.5,
+	})
+	registry.register_ore_vein_rule({
+		"key": "snt:ore_coal",
+		"dimension": dim,
+		"host_material_key": "snt:stone",
+		"ore_material_key": "snt:ore_coal",
+		"combined_min": 0.05,
+		"combined_max": 0.25,
+	})
+
+	# Rock layer rules — same as overworld, scoped to this dimension.
+	registry.register_rock_layer_rule({
+		"key": "snt:granite",
+		"dimension": dim,
+		"rock_material_key": "snt:stone",
+		"noise_scale": 0.005,
+		"noise_octaves": 3,
+		"noise_min": -1.0,
+		"noise_max": 0.0,
+		"depth_min": 0.0,
+		"depth_max": 100.0,
+		"hardness_multiplier": 1.0,
+		"collapse_chance": 0.3,
+		"associated_ores": ["snt:ore_iron", "snt:ore_copper"],
+	})
+	registry.register_rock_layer_rule({
+		"key": "snt:basalt",
+		"dimension": dim,
+		"rock_material_key": "snt:stone",
+		"noise_scale": 0.005,
+		"noise_octaves": 3,
+		"noise_min": 0.0,
+		"noise_max": 1.0,
+		"depth_min": 0.0,
+		"depth_max": 100.0,
+		"hardness_multiplier": 1.2,
+		"collapse_chance": 0.25,
+		"associated_ores": ["snt:ore_iron"],
+	})
+	registry.register_rock_layer_rule({
+		"key": "snt:deeprock",
+		"dimension": dim,
+		"rock_material_key": "snt:deepstone",
+		"noise_scale": 0.003,
+		"noise_octaves": 2,
+		"noise_min": -1.0,
+		"noise_max": 1.0,
+		"depth_min": 60.0,
+		"depth_max": 10000.0,
+		"hardness_multiplier": 1.5,
+		"collapse_chance": 0.5,
+		"associated_ores": [],
+	})
 
 
 static func _register_builtin_material_interactions(registry: Object) -> void:

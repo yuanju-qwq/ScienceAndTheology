@@ -6,6 +6,7 @@
 
 #include "core/simulation/event_types.hpp"
 #include "core/simulation/machine_system.hpp"
+#include "core/simulation/block_physics_system.hpp"
 #include "bindings/world/gd_world_data.h"
 
 namespace science_and_theology {
@@ -41,6 +42,12 @@ void GDTickSystem::set_world_data(godot::Resource* gd_world) {
 void GDTickSystem::register_machine_system() {
     if (tick_system_) {
         tick_system_->register_subsystem(std::make_unique<MachineSystem>());
+    }
+}
+
+void GDTickSystem::register_block_physics_system() {
+    if (tick_system_) {
+        tick_system_->register_subsystem(std::make_unique<BlockPhysicsSystem>());
     }
 }
 
@@ -263,6 +270,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::set_world_data);
     godot::ClassDB::bind_method(godot::D_METHOD("register_machine_system"),
         &GDTickSystem::register_machine_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_block_physics_system"),
+        &GDTickSystem::register_block_physics_system);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",

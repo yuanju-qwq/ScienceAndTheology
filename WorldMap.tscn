@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=16 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -14,6 +14,7 @@
 [ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="14_wiki_ui"]
 [ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
 [ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
+[ext_resource type="Script" path="res://scripts/world/UniverseManager.gd" id="17_universe_manager"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -64,11 +65,12 @@ script = ExtResource("6_command_server")
 script = ExtResource("7_chunk_bridge")
 debug_chunk_streaming = false
 
-[node name="PlanetLodManager" type="Node3D" parent="."]
-script = ExtResource("15_planet_lod_manager")
-planet_center = Vector3(0, -512, 0)
-planet_radius = 512.0
-world_environment_path = NodePath("../WorldEnvironment")
+[node name="UniverseManager" type="Node3D" parent="."]
+script = ExtResource("17_universe_manager")
+universe_mode = "solar_system"
+universe_seed = 0
+player_node_path = NodePath("../Player")
+chunk_renderer_bridge_path = NodePath("../ChunkRendererBridge")
 
 [node name="WorldObjectRenderer" type="Node3D" parent="."]
 script = ExtResource("8_object_renderer")
@@ -92,6 +94,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.72, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.32, 0)
 current = true
 fov = 78.0
+far = 100000.0
 
 [node name="UI" type="CanvasLayer" parent="."]
 

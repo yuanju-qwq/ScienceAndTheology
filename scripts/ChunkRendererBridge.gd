@@ -1,6 +1,6 @@
 # ChunkRendererBridge — 3D chunk rendering bridge for the voxel world.
 # Delegates pure-computation helpers to GDChunkHelper (C++) and keeps
-# Godot scene-tree operations (MultiMesh, collision) in GDScript.
+# Godot scene-tree operations (ArrayMesh, collision) in GDScript.
 # Planet LOD is managed by PlanetLodManager (sibling node).
 class_name ChunkRendererBridge
 extends Node3D
@@ -47,6 +47,7 @@ var workbench_material_id: int = AIR_MATERIAL
 @export var debug_chunk_streaming := false
 @export var debug_chunk_streaming_interval := 2.0
 @export var planet_lod_manager_path: NodePath = ^"../PlanetLodManager"
+@export var universe_manager_path: NodePath = ^"../UniverseManager"
 
 var is_initialized := false
 
@@ -63,9 +64,19 @@ var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _planet_lod_manager: PlanetLodManager = null
 var _current_chunk_lod := 0
+var _universe_manager: UniverseManager = null
+
+# Active dimension — the planet currently being rendered and streamed.
+# Switched by UniverseManager when the player moves between planets.
+var active_dimension: StringName = OVERWORLD
 
 
 func _ready() -> void:
+	# If UniverseManager is present, it will call initialize_for_universe()
+	# after setting up the multi-planet config. Skip auto-initialization.
+	var um := get_node_or_null(universe_manager_path) as UniverseManager
+	if um != null:
+		return
 	initialize()
 
 
@@ -122,6 +133,55 @@ func get_world_data() -> GDWorldData:
 	return world_data
 
 
+# Initialize with a multi-planet universe config.
+# Called by UniverseManager instead of the default single-planet initialize().
+func initialize_for_universe(config: Resource, initial_dimension: StringName) -> void:
+	if is_initialized:
+		return
+
+	if world_data == null:
+		world_data = GDWorldData.new()
+		world_data.seed = seed if seed != 0 else randi()
+	if world_data:
+		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
+
+	worldgen_config = config
+	world_data.worldgen_config = worldgen_config
+	active_dimension = initial_dimension
+
+	_resolve_runtime_material_ids()
+
+	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
+		world_data.chunk_ready.connect(_on_chunk_ready)
+
+	_build_materials()
+	_connect_planet_lod_manager()
+	if auto_generate_start_chunks:
+		_generate_initial_chunks()
+
+	is_initialized = true
+	chunk_bridge_ready.emit()
+
+
+# Switch the active dimension (planet) being rendered.
+# Clears current chunk views and starts streaming the new planet.
+func set_active_dimension(dimension_id: StringName) -> void:
+	if dimension_id == active_dimension:
+		return
+
+	# Remove all current chunk views before switching.
+	for chunk in _visible_chunks.keys():
+		_remove_chunk_view(chunk)
+	_visible_chunks.clear()
+	_pending_view_queue.clear()
+	_tracked_chunks.clear()
+
+	active_dimension = dimension_id
+
+	if auto_generate_start_chunks:
+		_generate_initial_chunks()
+
+
 # --- Runtime material ID accessors ---
 
 # Returns the runtime material ID for ladder blocks.
@@ -171,7 +231,7 @@ func get_cell_info(cell: Vector3i, dimension: StringName = OVERWORLD) -> Diction
 
 
 func refresh_cell(dimension: StringName, chunk: Vector3i, _local: Vector3i) -> void:
-	if dimension != OVERWORLD:
+	if dimension != active_dimension:
 		return
 	if not _visible_chunks.has(chunk):
 		return
@@ -237,23 +297,23 @@ func _ensure_chunk_loaded(chunk: Vector3i) -> void:
 	if _tracked_chunks.has(chunk):
 		return
 
-	if world_data.has_chunk(OVERWORLD, chunk.x, chunk.y, chunk.z):
+	if world_data.has_chunk(active_dimension, chunk.x, chunk.y, chunk.z):
 		_tracked_chunks[chunk] = true
 		return
 
-	if world_data.is_chunk_async_pending(OVERWORLD, chunk.x, chunk.y, chunk.z):
+	if world_data.is_chunk_async_pending(active_dimension, chunk.x, chunk.y, chunk.z):
 		return
 
 	if max_chunk_load_requests_per_frame > 0 \
 			and _chunk_request_count_this_frame >= max_chunk_load_requests_per_frame:
 		return
 
-	world_data.request_chunk_async(OVERWORLD, chunk.x, chunk.y, chunk.z)
+	world_data.request_chunk_async(active_dimension, chunk.x, chunk.y, chunk.z)
 	_chunk_request_count_this_frame += 1
 
 
 func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int) -> void:
-	if StringName(dimension) != OVERWORLD:
+	if StringName(dimension) != active_dimension:
 		return
 	var chunk := Vector3i(chunk_x, chunk_y, chunk_z)
 	_tracked_chunks[chunk] = true
@@ -280,7 +340,7 @@ func _process_visible_queue() -> void:
 			_pending_view_queue.remove_at(index)
 			continue
 
-		if world_data == null or not world_data.has_chunk(OVERWORLD, chunk.x, chunk.y, chunk.z):
+		if world_data == null or not world_data.has_chunk(active_dimension, chunk.x, chunk.y, chunk.z):
 			index += 1
 			continue
 
@@ -292,7 +352,7 @@ func _process_visible_queue() -> void:
 # --- Chunk rendering (scene-tree operations, stays in GDScript) ---
 
 func _create_chunk_view(chunk: Vector3i) -> void:
-	var terrain := world_data.get_chunk_terrain(OVERWORLD, chunk.x, chunk.y, chunk.z)
+	var terrain := world_data.get_chunk_terrain(active_dimension, chunk.x, chunk.y, chunk.z)
 	if terrain.is_empty():
 		return
 
@@ -304,52 +364,52 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	var size_y := int(terrain.get("size_y", CHUNK_SIZE))
 	var size_z := int(terrain.get("size_z", CHUNK_SIZE))
 
-	# Compute surface mask for LOD 1 simplified rendering.
-	var surface_mask: PackedByteArray = GDChunkHelper.compute_surface_mask(
+	# Build greedy mesh (C++ hot path).
+	var greedy_mesh: Dictionary = GDChunkHelper.build_greedy_mesh(
 		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id)
 
-	# Classify voxels by material and surface status.
-	var by_material: Dictionary = {}
-	var by_material_surface_only: Dictionary = {}
-	for local_y in range(size_y):
-		for local_z in range(size_z):
-			for local_x in range(size_x):
-				var idx := GDChunkHelper.terrain_index(local_x, local_y, local_z, size_x, size_z)
-				if idx >= materials.size():
-					continue
-				var material_id := int(materials[idx])
-				if material_id == AIR_MATERIAL:
-					continue
-				var local := Vector3i(local_x, local_y, local_z)
-				if not by_material.has(material_id):
-					by_material[material_id] = []
-				by_material[material_id].append(local)
-				if idx < surface_mask.size() and surface_mask[idx] != 0:
-					if not by_material_surface_only.has(material_id):
-						by_material_surface_only[material_id] = []
-					by_material_surface_only[material_id].append(local)
+	# Build collision faces (C++ hot path).
+	var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
+		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id)
 
 	# Root node holds both LOD 0 and LOD 1 children.
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d_%d" % [chunk.x, chunk.y, chunk.z]
 	add_child(root)
 
-	# LOD 0: full chunk (all voxels + collision).
+	# Chunk world offset for positioning.
+	var chunk_offset := Vector3(
+		chunk.x * CHUNK_SIZE,
+		chunk.y * CHUNK_SIZE,
+		chunk.z * CHUNK_SIZE)
+
+	# LOD 0: greedy meshed chunk (exposed faces only) + collision.
 	var full_node := Node3D.new()
 	full_node.name = "LOD0_Full"
 	root.add_child(full_node)
-	for material_id in by_material.keys():
-		_create_material_multimesh(full_node, chunk, int(material_id),
-			by_material[material_id], materials, size_x, size_y, size_z, true)
 
-	# LOD 1: simplified chunk (surface voxels only, no collision).
+	for material_id_key in greedy_mesh.keys():
+		var mid: int = int(material_id_key)
+		var mesh_data: Dictionary = greedy_mesh[material_id_key]
+		_create_greedy_mesh_instance(full_node, mid, mesh_data, chunk_offset)
+
+	# Chunk-level collision: one ConcavePolygonShape3D.
+	if not collision_data.is_empty():
+		var col_verts: PackedVector3Array = collision_data.get("vertices", PackedVector3Array())
+		var col_indices: PackedInt32Array = collision_data.get("indices", PackedInt32Array())
+		if col_verts.size() > 0 and col_indices.size() > 0:
+			_create_chunk_collision(full_node, col_verts, col_indices, chunk_offset)
+
+	# LOD 1: simplified (same greedy mesh, no collision, slightly different visibility).
 	var simplified_node := Node3D.new()
 	simplified_node.name = "LOD1_Simplified"
 	simplified_node.visible = false
 	root.add_child(simplified_node)
-	for material_id in by_material_surface_only.keys():
-		_create_material_multimesh(simplified_node, chunk, int(material_id),
-			by_material_surface_only[material_id], materials, size_x, size_y, size_z, false)
+
+	for material_id_key in greedy_mesh.keys():
+		var mid: int = int(material_id_key)
+		var mesh_data: Dictionary = greedy_mesh[material_id_key]
+		_create_greedy_mesh_instance(simplified_node, mid, mesh_data, chunk_offset)
 
 	_visible_chunks[chunk] = {
 		"root": root,
@@ -358,65 +418,68 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	}
 
 
-func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int, cells: Array,
-		materials: PackedByteArray, size_x: int, size_y: int, size_z: int,
-		create_collision: bool) -> void:
-	if cells.is_empty():
+# Create a MeshInstance3D from greedy mesh data for a single material.
+func _create_greedy_mesh_instance(root: Node3D, material_id: int,
+		mesh_data: Dictionary, chunk_offset: Vector3) -> void:
+	var verts: PackedVector3Array = mesh_data.get("vertices", PackedVector3Array())
+	var norms: PackedVector3Array = mesh_data.get("normals", PackedVector3Array())
+	var uvs: PackedVector2Array = mesh_data.get("uvs", PackedVector2Array())
+	var uvs2: PackedVector2Array = mesh_data.get("uvs2", PackedVector2Array())
+	var indices: PackedInt32Array = mesh_data.get("indices", PackedInt32Array())
+
+	if verts.size() == 0 or indices.size() == 0:
 		return
 
-	var is_ladder := material_id == ladder_material_id
-	var mesh := BoxMesh.new()
-	if is_ladder:
-		mesh.size = Vector3(BLOCK_SIZE * 0.9, BLOCK_SIZE * 0.9, BLOCK_SIZE * 0.15)
-	else:
-		mesh.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+	# Apply chunk offset to vertices.
+	var offset_verts := PackedVector3Array()
+	offset_verts.resize(verts.size())
+	for i in range(verts.size()):
+		offset_verts[i] = verts[i] + chunk_offset
 
-	var multimesh := MultiMesh.new()
-	multimesh.transform_format = MultiMesh.TRANSFORM_3D
-	multimesh.mesh = mesh
-	multimesh.instance_count = cells.size()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = offset_verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_TEX_UV2] = uvs2
+	arrays[Mesh.ARRAY_INDEX] = indices
 
-	for i in range(cells.size()):
-		var local: Vector3i = cells[i]
-		var cell := Vector3i(
-			chunk.x * CHUNK_SIZE + local.x,
-			chunk.y * CHUNK_SIZE + local.y,
-			chunk.z * CHUNK_SIZE + local.z)
-		var pos := cell_to_world_position(cell)
-		if is_ladder:
-			var facing := GDChunkHelper.ladder_facing(local, materials, size_x, size_y, size_z, AIR_MATERIAL)
-			var basis := Basis().rotated(Vector3.UP, facing)
-			multimesh.set_instance_transform(i, Transform3D(basis, pos))
-		else:
-			multimesh.set_instance_transform(i, Transform3D(Basis(), pos))
+	var array_mesh := ArrayMesh.new()
+	array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
-	var instance := MultiMeshInstance3D.new()
+	var instance := MeshInstance3D.new()
 	instance.name = "Material_%d" % material_id
-	instance.multimesh = multimesh
+	instance.mesh = array_mesh
 	instance.material_override = _get_material(material_id)
 	root.add_child(instance)
 
-	if not create_collision or is_ladder:
-		return
 
-	# Collision only for LOD 0 full view.
+# Create a single chunk-level collision body from exposed face triangles.
+func _create_chunk_collision(root: Node3D, col_verts: PackedVector3Array,
+		col_indices: PackedInt32Array, chunk_offset: Vector3) -> void:
+	# Build triangle array for ConcavePolygonShape3D.
+	# Each triangle = 3 Vector3 points, extracted from indexed data.
+	var triangles: PackedVector3Array = PackedVector3Array()
+	var tri_count := col_indices.size() / 3
+	triangles.resize(tri_count * 3)
+	for i in range(tri_count):
+		var i0: int = col_indices[i * 3]
+		var i1: int = col_indices[i * 3 + 1]
+		var i2: int = col_indices[i * 3 + 2]
+		triangles[i * 3] = col_verts[i0] + chunk_offset
+		triangles[i * 3 + 1] = col_verts[i1] + chunk_offset
+		triangles[i * 3 + 2] = col_verts[i2] + chunk_offset
+
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(triangles)
+
+	var collision_shape := CollisionShape3D.new()
+	collision_shape.shape = shape
+
 	var static_body := StaticBody3D.new()
-	static_body.name = "Collision_%d" % material_id
+	static_body.name = "Collision"
+	static_body.add_child(collision_shape)
 	root.add_child(static_body)
-
-	for local in cells:
-		if not GDChunkHelper.is_surface_voxel(local, materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id):
-			continue
-		var cell := Vector3i(
-			chunk.x * CHUNK_SIZE + local.x,
-			chunk.y * CHUNK_SIZE + local.y,
-			chunk.z * CHUNK_SIZE + local.z)
-		var shape := CollisionShape3D.new()
-		var box := BoxShape3D.new()
-		box.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
-		shape.shape = box
-		shape.position = cell_to_world_position(cell)
-		static_body.add_child(shape)
 
 
 func _remove_chunk_view(chunk: Vector3i) -> void:
@@ -443,65 +506,120 @@ func _build_materials() -> void:
 		_materials[mid] = visual
 
 
-func _get_material(material_id: int) -> StandardMaterial3D:
+const TERRAIN_BLOCK_SHADER := preload("res://resource/shaders/terrain_block.gdshader")
+
+
+func _get_material(material_id: int) -> Material:
 	if _material_cache.has(material_id):
 		return _material_cache[material_id]
 
-	var material := StandardMaterial3D.new()
 	var visual: Dictionary = _materials.get(material_id, {})
+	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85)) if not visual.is_empty() else Color(0.85, 0.20, 0.85)
+	var roughness: float = visual.get("roughness", 0.92) if not visual.is_empty() else 0.92
+	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0)) if not visual.is_empty() else Color(0, 0, 0)
+	var is_transparent: bool = visual.get("transparent", false) if not visual.is_empty() else false
+	var is_cull_disabled: bool = visual.get("cull_disabled", false) if not visual.is_empty() else false
 
-	if visual.is_empty():
-		material.albedo_color = Color(0.85, 0.20, 0.85)
-		material.roughness = 0.92
-		material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-		_material_cache[material_id] = material
-		return material
+	# Check if any per-face texture is defined.
+	var top_tex_path: String = visual.get("top", {}).get("texture_path", "") if not visual.is_empty() else ""
+	var bottom_tex_path: String = visual.get("bottom", {}).get("texture_path", "") if not visual.is_empty() else ""
+	var sides_tex_path: String = visual.get("sides", {}).get("texture_path", "") if not visual.is_empty() else ""
+	var has_per_face_tex: bool = top_tex_path != "" or bottom_tex_path != "" or sides_tex_path != ""
 
-	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85))
-	material.albedo_color = albedo
-	material.roughness = visual.get("roughness", 0.92)
-	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	# Overlay layers (first overlay only for now).
+	var overlays: Array = visual.get("overlays", []) if not visual.is_empty() else []
+	var overlay_path: String = overlays[0].get("texture_path", "") if overlays.size() > 0 else ""
 
-	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0))
-	if emissive != Color(0, 0, 0):
-		material.emission_enabled = true
-		material.emission = emissive
+	var material: Material
 
-	if visual.get("transparent", false) or albedo.a < 1.0:
-		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	if visual.get("cull_disabled", false) or albedo.a < 1.0:
-		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	if has_per_face_tex:
+		# Use ShaderMaterial with per-face texture selection via UV2.
+		var shader_mat := ShaderMaterial.new()
+		shader_mat.shader = TERRAIN_BLOCK_SHADER
+		shader_mat.set_shader_parameter("albedo_color", albedo)
+		shader_mat.set_shader_parameter("roughness", roughness)
+		shader_mat.set_shader_parameter("emissive_color", emissive)
 
-	# Load per-face textures if available.
-	# Currently BoxMesh uses a single material_override, so we pick the
-	# best available texture: sides > top > bottom. Full per-face UV
-	# support requires greedy meshing (future R2 milestone).
-	var sides_tex_path: String = visual.get("sides", {}).get("texture_path", "")
-	var top_tex_path: String = visual.get("top", {}).get("texture_path", "")
-	var chosen_path := sides_tex_path if sides_tex_path != "" else top_tex_path
-	if chosen_path == "":
-		var bottom_tex_path: String = visual.get("bottom", {}).get("texture_path", "")
-		chosen_path = bottom_tex_path
+		# Per-face textures and variant counts.
+		var top_variant: int = visual.get("top", {}).get("variant_count", 1) if not visual.is_empty() else 1
+		var bottom_variant: int = visual.get("bottom", {}).get("variant_count", 1) if not visual.is_empty() else 1
+		var sides_variant: int = visual.get("sides", {}).get("variant_count", 1) if not visual.is_empty() else 1
+		shader_mat.set_shader_parameter("top_variant_count", top_variant)
+		shader_mat.set_shader_parameter("bottom_variant_count", bottom_variant)
+		shader_mat.set_shader_parameter("sides_variant_count", sides_variant)
 
-	if chosen_path != "":
-		var tex := load(chosen_path) as Texture2D
-		if tex != null:
-			material.albedo_texture = tex
-		else:
-			push_warning("ChunkRendererBridge: failed to load texture '%s' for material %d" % [chosen_path, material_id])
+		if top_tex_path != "":
+			var tex := load(top_tex_path) as Texture2D
+			if tex != null:
+				shader_mat.set_shader_parameter("top_texture", tex)
+				shader_mat.set_shader_parameter("has_top_texture", true)
+			else:
+				push_warning("ChunkRendererBridge: failed to load top texture '%s' for material %d" % [top_tex_path, material_id])
 
-	# Overlay layers: the first overlay texture is applied as a detail map
-	# with blend mode. Full multi-overlay compositing requires a custom shader
-	# or texture pre-bake (future milestone).
-	var overlays: Array = visual.get("overlays", [])
-	if overlays.size() > 0:
-		var overlay_path: String = overlays[0].get("texture_path", "")
+		if bottom_tex_path != "":
+			var tex := load(bottom_tex_path) as Texture2D
+			if tex != null:
+				shader_mat.set_shader_parameter("bottom_texture", tex)
+				shader_mat.set_shader_parameter("has_bottom_texture", true)
+			else:
+				push_warning("ChunkRendererBridge: failed to load bottom texture '%s' for material %d" % [bottom_tex_path, material_id])
+
+		if sides_tex_path != "":
+			var tex := load(sides_tex_path) as Texture2D
+			if tex != null:
+				shader_mat.set_shader_parameter("sides_texture", tex)
+				shader_mat.set_shader_parameter("has_sides_texture", true)
+			else:
+				push_warning("ChunkRendererBridge: failed to load sides texture '%s' for material %d" % [sides_tex_path, material_id])
+
+		# Overlay layer.
 		if overlay_path != "":
 			var overlay_tex := load(overlay_path) as Texture2D
 			if overlay_tex != null:
-				material.detail_enabled = true
-				material.detail_albedo = overlay_tex
-				material.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+				shader_mat.set_shader_parameter("overlay_texture", overlay_tex)
+				var overlay_blend_val: float = overlays[0].get("blend", 0.5) if overlays.size() > 0 else 0.5
+				shader_mat.set_shader_parameter("overlay_blend", overlay_blend_val)
+				shader_mat.set_shader_parameter("has_overlay", true)
+			else:
+				push_warning("ChunkRendererBridge: failed to load overlay texture '%s' for material %d" % [overlay_path, material_id])
+
+		material = shader_mat
+	else:
+		# Fallback to StandardMaterial3D when no per-face textures.
+		var std_mat := StandardMaterial3D.new()
+		std_mat.albedo_color = albedo
+		std_mat.roughness = roughness
+		std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+
+		if emissive != Color(0, 0, 0):
+			std_mat.emission_enabled = true
+			std_mat.emission = emissive
+
+		if is_transparent or albedo.a < 1.0:
+			std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		if is_cull_disabled or albedo.a < 1.0:
+			std_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+
+		# Single texture fallback: pick the best available.
+		var chosen_path := sides_tex_path if sides_tex_path != "" else top_tex_path
+		if chosen_path == "":
+			chosen_path = bottom_tex_path
+		if chosen_path != "":
+			var tex := load(chosen_path) as Texture2D
+			if tex != null:
+				std_mat.albedo_texture = tex
+			else:
+				push_warning("ChunkRendererBridge: failed to load texture '%s' for material %d" % [chosen_path, material_id])
+
+		# Overlay as detail map.
+		if overlay_path != "":
+			var overlay_tex := load(overlay_path) as Texture2D
+			if overlay_tex != null:
+				std_mat.detail_enabled = true
+				std_mat.detail_albedo = overlay_tex
+				std_mat.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+
+		material = std_mat
 
 	_material_cache[material_id] = material
 	return material
@@ -510,14 +628,34 @@ func _get_material(material_id: int) -> StandardMaterial3D:
 # --- Planet LOD integration ---
 
 func _connect_planet_lod_manager() -> void:
+	# Try UniverseManager first (multi-planet mode).
+	_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+	if _universe_manager != null:
+		_refresh_lod_manager_from_universe()
+		return
+
+	# Fallback: direct PlanetLodManager reference (single-planet mode).
 	_planet_lod_manager = get_node_or_null(planet_lod_manager_path) as PlanetLodManager
 	if _planet_lod_manager == null:
 		push_warning("ChunkRendererBridge: PlanetLodManager not found at %s" % planet_lod_manager_path)
 
 
+# Refresh the LOD manager reference from UniverseManager's active planet.
+func _refresh_lod_manager_from_universe() -> void:
+	if _universe_manager == null or _universe_manager.active_planet == null:
+		_planet_lod_manager = null
+		return
+	_planet_lod_manager = _universe_manager.get_lod_manager(
+		_universe_manager.active_planet.dimension_id)
+
+
 # Switch between LOD 0 (full) and LOD 1 (simplified) chunk views,
 # or hide chunks entirely when the proxy sphere is active (LOD 2+).
 func _update_chunk_visibility_for_lod() -> void:
+	# In multi-planet mode, refresh LOD manager from UniverseManager.
+	if _universe_manager != null:
+		_refresh_lod_manager_from_universe()
+
 	if _planet_lod_manager == null:
 		return
 
