@@ -7,22 +7,25 @@ namespace science_and_theology {
 // --- Serialize ---
 
 std::vector<uint8_t> ChunkSerializer::serialize(
-    const std::string& layer_id, const ChunkData& chunk) {
+    const std::string& dimension_id, const ChunkData& chunk) {
     std::vector<uint8_t> buf;
 
     // Header.
     write_uint8(buf, kCurrentVersion);
     write_int32(buf, chunk.chunk_x);
     write_int32(buf, chunk.chunk_y);
+    write_int32(buf, chunk.chunk_z);
     write_uint8(buf, static_cast<uint8_t>(chunk.state));
-    write_string(buf, layer_id);
+    write_string(buf, dimension_id);
 
     // Terrain.
     int size_x = chunk.terrain.size_x;
     int size_y = chunk.terrain.size_y;
-    int cell_count = size_x * size_y;
+    int size_z = chunk.terrain.size_z;
+    int cell_count = size_x * size_y * size_z;
     write_uint32(buf, static_cast<uint32_t>(size_x));
     write_uint32(buf, static_cast<uint32_t>(size_y));
+    write_uint32(buf, static_cast<uint32_t>(size_z));
     write_uint32(buf, static_cast<uint32_t>(cell_count));
 
     // Materials (uint8 per cell).
@@ -73,41 +76,46 @@ std::vector<uint8_t> ChunkSerializer::serialize(
 
 bool ChunkSerializer::deserialize(
     const std::vector<uint8_t>& data,
-    std::string& layer_id, ChunkData& chunk) {
+    std::string& dimension_id, ChunkData& chunk) {
     size_t offset = 0;
 
     uint8_t version;
     if (!read_uint8(data, offset, version)) return false;
-    if (version != 2 && version != kCurrentVersion) return false;
+    if (version != kCurrentVersion) return false;
 
-    int32_t cx, cy;
+    int32_t cx, cy, cz;
     if (!read_int32(data, offset, cx)) return false;
     if (!read_int32(data, offset, cy)) return false;
+    if (!read_int32(data, offset, cz)) return false;
     chunk.chunk_x = cx;
     chunk.chunk_y = cy;
+    chunk.chunk_z = cz;
 
     uint8_t state_byte;
     if (!read_uint8(data, offset, state_byte)) return false;
     chunk.state = static_cast<ChunkState>(state_byte);
 
-    if (!read_string(data, offset, layer_id)) return false;
+    if (!read_string(data, offset, dimension_id)) return false;
 
     // Terrain.
-    uint32_t sx, sy, cc;
+    uint32_t sx, sy, sz, cc;
     if (!read_uint32(data, offset, sx)) return false;
     if (!read_uint32(data, offset, sy)) return false;
+    if (!read_uint32(data, offset, sz)) return false;
     if (!read_uint32(data, offset, cc)) return false;
 
     int size_x = static_cast<int>(sx);
     int size_y = static_cast<int>(sy);
+    int size_z = static_cast<int>(sz);
     int cell_count = static_cast<int>(cc);
 
-    if (cell_count != size_x * size_y) return false;
-    if (cell_count <= 0 || cell_count > ChunkData::kChunkSize * ChunkData::kChunkSize) {
+    if (cell_count != size_x * size_y * size_z) return false;
+    if (cell_count <= 0 ||
+        cell_count > ChunkData::kChunkSize * ChunkData::kChunkSize * ChunkData::kChunkSize) {
         return false;
     }
 
-    chunk.terrain.resize(size_x, size_y);
+    chunk.terrain.resize(size_x, size_y, size_z);
 
     // Materials.
     for (int i = 0; i < cell_count; ++i) {
@@ -136,15 +144,13 @@ bool ChunkSerializer::deserialize(
 
     // Mechanisms.
     chunk.mechanisms.clear();
-    if (version >= 3) {
-        uint32_t mechanism_count;
-        if (!read_uint32(data, offset, mechanism_count)) return false;
-        chunk.mechanisms.reserve(mechanism_count);
-        for (uint32_t i = 0; i < mechanism_count; ++i) {
-            MechanismPlacement mechanism;
-            if (!read_mechanism(data, offset, mechanism)) return false;
-            chunk.mechanisms.push_back(std::move(mechanism));
-        }
+    uint32_t mechanism_count;
+    if (!read_uint32(data, offset, mechanism_count)) return false;
+    chunk.mechanisms.reserve(mechanism_count);
+    for (uint32_t i = 0; i < mechanism_count; ++i) {
+        MechanismPlacement mechanism;
+        if (!read_mechanism(data, offset, mechanism)) return false;
+        chunk.mechanisms.push_back(std::move(mechanism));
     }
 
     // Entity IDs.
@@ -280,12 +286,14 @@ bool ChunkSerializer::read_bytes(const std::vector<uint8_t>& data,
 void ChunkSerializer::write_connector(std::vector<uint8_t>& buf,
                                       const ConnectorPlacement& conn) {
     write_uint64(buf, static_cast<uint64_t>(conn.connector_id));
-    write_string(buf, conn.from_layer);
+    write_string(buf, conn.from_dimension);
     write_int32(buf, conn.from_cell_x);
     write_int32(buf, conn.from_cell_y);
-    write_string(buf, conn.to_layer);
+    write_int32(buf, conn.from_cell_z);
+    write_string(buf, conn.to_dimension);
     write_int32(buf, conn.to_cell_x);
     write_int32(buf, conn.to_cell_y);
+    write_int32(buf, conn.to_cell_z);
     write_uint8(buf, conn.one_way ? 1 : 0);
     write_uint8(buf, conn.locked ? 1 : 0);
     write_string(buf, conn.connector_type);
@@ -298,12 +306,14 @@ bool ChunkSerializer::read_connector(const std::vector<uint8_t>& data,
     uint64_t raw_id;
     if (!read_uint64(data, offset, raw_id)) return false;
     conn.connector_id = static_cast<int64_t>(raw_id);
-    if (!read_string(data, offset, conn.from_layer)) return false;
+    if (!read_string(data, offset, conn.from_dimension)) return false;
     if (!read_int32(data, offset, conn.from_cell_x)) return false;
     if (!read_int32(data, offset, conn.from_cell_y)) return false;
-    if (!read_string(data, offset, conn.to_layer)) return false;
+    if (!read_int32(data, offset, conn.from_cell_z)) return false;
+    if (!read_string(data, offset, conn.to_dimension)) return false;
     if (!read_int32(data, offset, conn.to_cell_x)) return false;
     if (!read_int32(data, offset, conn.to_cell_y)) return false;
+    if (!read_int32(data, offset, conn.to_cell_z)) return false;
 
     uint8_t ow, lk, am;
     if (!read_uint8(data, offset, ow)) return false;
@@ -324,9 +334,10 @@ void ChunkSerializer::write_mechanism(
     std::vector<uint8_t>& buf,
     const MechanismPlacement& mechanism) {
     write_string(buf, mechanism.mechanism_id);
-    write_string(buf, mechanism.layer_id);
+    write_string(buf, mechanism.dimension_id);
     write_int32(buf, mechanism.cell_x);
     write_int32(buf, mechanism.cell_y);
+    write_int32(buf, mechanism.cell_z);
     write_string(buf, mechanism.display_name);
     write_string(buf, mechanism.action_label);
     write_string(buf, mechanism.flag_name);
@@ -345,9 +356,10 @@ bool ChunkSerializer::read_mechanism(
     size_t& offset,
     MechanismPlacement& mechanism) {
     if (!read_string(data, offset, mechanism.mechanism_id)) return false;
-    if (!read_string(data, offset, mechanism.layer_id)) return false;
+    if (!read_string(data, offset, mechanism.dimension_id)) return false;
     if (!read_int32(data, offset, mechanism.cell_x)) return false;
     if (!read_int32(data, offset, mechanism.cell_y)) return false;
+    if (!read_int32(data, offset, mechanism.cell_z)) return false;
     if (!read_string(data, offset, mechanism.display_name)) return false;
     if (!read_string(data, offset, mechanism.action_label)) return false;
     if (!read_string(data, offset, mechanism.flag_name)) return false;

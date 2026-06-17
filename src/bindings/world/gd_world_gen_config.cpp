@@ -45,7 +45,7 @@ Dictionary mapping_to_dict(const TerrainTileMapping& mapping) {
     Dictionary d;
     d["material_id"] = static_cast<int>(mapping.material_id);
     d["material_key"] = String(mapping.material_key.c_str());
-    d["layer"] = String(mapping.layer_id.c_str());
+    d["dimension"] = String(mapping.dimension_id.c_str());
     d["source_id"] = mapping.source_id;
     d["atlas_x"] = mapping.atlas_x;
     d["atlas_y"] = mapping.atlas_y;
@@ -56,7 +56,7 @@ Dictionary mapping_to_dict(const TerrainTileMapping& mapping) {
 
 Dictionary base_rule_to_dict(const BaseTerrainRule& rule) {
     Dictionary d;
-    d["layer"] = String(rule.layer_id.c_str());
+    d["dimension"] = String(rule.dimension_id.c_str());
     d["mode"] = String(rule.mode.c_str());
     d["default_material_id"] = static_cast<int>(rule.default_material);
     d["low_elevation_material_id"] = static_cast<int>(rule.low_elevation_material);
@@ -79,7 +79,7 @@ Dictionary base_rule_to_dict(const BaseTerrainRule& rule) {
 Dictionary biome_rule_to_dict(const BiomeRule& rule) {
     Dictionary d;
     d["key"] = String(rule.key.c_str());
-    d["layer"] = String(rule.layer_id.c_str());
+    d["dimension"] = String(rule.dimension_id.c_str());
     d["source_material_id"] = static_cast<int>(rule.source_material);
     d["result_material_id"] = static_cast<int>(rule.result_material);
     d["condition"] = String(rule.condition.c_str());
@@ -101,7 +101,7 @@ Dictionary biome_rule_to_dict(const BiomeRule& rule) {
 Dictionary ore_rule_to_dict(const OreVeinRule& rule) {
     Dictionary d;
     d["key"] = String(rule.key.c_str());
-    d["layer"] = String(rule.layer_id.c_str());
+    d["dimension"] = String(rule.dimension_id.c_str());
     d["host_material_id"] = static_cast<int>(rule.host_material);
     d["ore_material_id"] = static_cast<int>(rule.ore_material);
     d["combined_min"] = rule.combined_min;

@@ -2,7 +2,6 @@
 
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
-#include <godot_cpp/variant/utility_functions.hpp>
 
 #include "hello_world/gd_hello_world.h"
 #include "network/gd_power_network.h"
@@ -17,8 +16,7 @@
 #include "world/gd_world_gen_config.h"
 #include "world/gd_terrain_content_registry.h"
 #include "world/gd_terrain_generator.h"
-#include "world/gd_chunk_view.h"
-#include "world/gd_chunk_manager.h"
+#include "world/gd_furnace_manager.h"
 #include "simulation/gd_game_command_server.h"
 #include "simulation/gd_tick_system.h"
 #include "player/gd_player_inventory.h"
@@ -49,8 +47,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
         return;
     }
 
-    UtilityFunctions::print("ScienceAndTheology GDExtension: initializing scene classes");
-
     gt::FluidRegistry::initialize();
     gt::ModuleRegistry::initialize();
     magic::RuneRegistry::initialize();
@@ -73,8 +69,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDWorldGenConfig>();
     ClassDB::register_class<GDTerrainContentRegistry>();
     ClassDB::register_class<GDTerrainGenerator>();
-    ClassDB::register_class<GDChunkView>();
-    ClassDB::register_class<GDChunkManager>();
+    ClassDB::register_class<GDFurnaceData>();
+    ClassDB::register_class<GDFurnaceManager>();
     ClassDB::register_class<GDGameCommandServer>();
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
@@ -94,7 +90,6 @@ void uninitialize_snt_extension(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
-    UtilityFunctions::print("ScienceAndTheology GDExtension: uninitializing scene classes");
 }
 
 } // namespace science_and_theology
@@ -105,8 +100,6 @@ GDExtensionBool GDE_EXPORT science_and_theology_library_init(
     GDExtensionInterfaceGetProcAddress p_get_proc_address,
     GDExtensionClassLibraryPtr p_library,
     GDExtensionInitialization *r_initialization) {
-
-    printf("ScienceAndTheology GDExtension: library_init entry\n");
 
     godot::GDExtensionBinding::InitObject init_obj(
         p_get_proc_address, p_library, r_initialization);

@@ -16,18 +16,18 @@ namespace science_and_theology {
 class ChunkSerializer {
 public:
     // Current binary format version.
-    static constexpr uint8_t kCurrentVersion = 3;
+    static constexpr uint8_t kCurrentVersion = 4;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
-    // The chunk's layer_id is embedded as part of the serialized data.
+    // The chunk's dimension_id is embedded as part of the serialized data.
     static std::vector<uint8_t> serialize(
-        const std::string& layer_id, const ChunkData& chunk);
+        const std::string& dimension_id, const ChunkData& chunk);
 
-    // Deserializes raw bytes back into a ChunkData and its layer_id.
+    // Deserializes raw bytes back into a ChunkData and its dimension_id.
     // Returns true on success. The caller must validate the version.
     static bool deserialize(
         const std::vector<uint8_t>& data,
-        std::string& layer_id, ChunkData& chunk);
+        std::string& dimension_id, ChunkData& chunk);
 
     // Returns the version byte from serialized data without full parsing.
     // Returns 0 if the data is too short or corrupted.

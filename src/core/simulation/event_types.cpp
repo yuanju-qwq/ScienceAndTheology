@@ -52,13 +52,14 @@ GameEvent GameEvent::power_overload(
 }
 
 GameEvent GameEvent::chunk_state_changed(
-    int cx, int cy, const std::string& layer,
+    const std::string& dimension, int cx, int cy, int cz,
     int old_state, int new_state) {
     GameEvent ev;
     ev.type = GameEventType::CHUNK_STATE_CHANGED;
+    ev.source_dimension = dimension;
     ev.chunk_x = cx;
     ev.chunk_y = cy;
-    ev.source_layer = layer;
+    ev.chunk_z = cz;
     ev.int_data["old_state"] = old_state;
     ev.int_data["new_state"] = new_state;
     ev.timestamp = now_ms();
@@ -67,48 +68,54 @@ GameEvent GameEvent::chunk_state_changed(
 
 GameEvent GameEvent::entity_created(
     uint64_t entity_id, const std::string& type_name,
-    int cx, int cy) {
+    const std::string& dimension, int cx, int cy, int cz) {
     GameEvent ev;
     ev.type = GameEventType::ENTITY_CREATED;
     ev.source_id = entity_id;
+    ev.source_dimension = dimension;
     ev.string_data["type_name"] = type_name;
     ev.chunk_x = cx;
     ev.chunk_y = cy;
+    ev.chunk_z = cz;
     ev.timestamp = now_ms();
     return ev;
 }
 
 GameEvent GameEvent::entity_destroyed(
-    uint64_t entity_id, const std::string& layer) {
+    uint64_t entity_id, const std::string& dimension) {
     GameEvent ev;
     ev.type = GameEventType::ENTITY_DESTROYED;
     ev.source_id = entity_id;
-    ev.source_layer = layer;
+    ev.source_dimension = dimension;
     ev.timestamp = now_ms();
     return ev;
 }
 
 GameEvent GameEvent::entity_damaged(
-    uint64_t entity_id, float damage, const std::string& source_layer) {
+    uint64_t entity_id, float damage, const std::string& source_dimension) {
     GameEvent ev;
     ev.type = GameEventType::ENTITY_DAMAGED;
     ev.source_id = entity_id;
-    ev.source_layer = source_layer;
+    ev.source_dimension = source_dimension;
     ev.float_data["damage"] = static_cast<double>(damage);
     ev.timestamp = now_ms();
     return ev;
 }
 
 GameEvent GameEvent::terrain_changed(
-    const std::string& layer, int cx, int cy, int local_x, int local_y,
+    const std::string& dimension,
+    int cx, int cy, int cz,
+    int local_x, int local_y, int local_z,
     int old_material, int new_material) {
     GameEvent ev;
     ev.type = GameEventType::TERRAIN_CHANGED;
-    ev.source_layer = layer;
+    ev.source_dimension = dimension;
     ev.chunk_x = cx;
     ev.chunk_y = cy;
+    ev.chunk_z = cz;
     ev.cell_x = local_x;
     ev.cell_y = local_y;
+    ev.cell_z = local_z;
     ev.int_data["old_material"] = old_material;
     ev.int_data["new_material"] = new_material;
     ev.timestamp = now_ms();
@@ -116,27 +123,30 @@ GameEvent GameEvent::terrain_changed(
 }
 
 GameEvent GameEvent::item_dropped(
-    uint64_t item_id, int32_t count, const std::string& layer,
-    int cx, int cy, int local_x, int local_y) {
+    uint64_t item_id, int32_t count, const std::string& dimension,
+    int cx, int cy, int cz,
+    int local_x, int local_y, int local_z) {
     GameEvent ev;
     ev.type = GameEventType::ITEM_DROPPED;
     ev.source_id = item_id;
-    ev.source_layer = layer;
+    ev.source_dimension = dimension;
     ev.chunk_x = cx;
     ev.chunk_y = cy;
+    ev.chunk_z = cz;
     ev.cell_x = local_x;
     ev.cell_y = local_y;
+    ev.cell_z = local_z;
     ev.int_data["count"] = count;
     ev.timestamp = now_ms();
     return ev;
 }
 
 GameEvent GameEvent::item_picked_up(
-    uint64_t item_id, int32_t count, const std::string& layer) {
+    uint64_t item_id, int32_t count, const std::string& dimension) {
     GameEvent ev;
     ev.type = GameEventType::ITEM_PICKED_UP;
     ev.source_id = item_id;
-    ev.source_layer = layer;
+    ev.source_dimension = dimension;
     ev.int_data["count"] = count;
     ev.timestamp = now_ms();
     return ev;

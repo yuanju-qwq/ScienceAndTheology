@@ -24,6 +24,10 @@ std::string to_std_string(const Variant& value) {
     return String(value).utf8().get_data();
 }
 
+std::string dimension_from_dict(const Dictionary& def) {
+    return to_std_string(def.get("dimension", def.get("dimension_id", "overworld")));
+}
+
 TerrainMaterialId to_material_id(int64_t id) {
     if (id < 0) {
         return 0;
@@ -85,31 +89,31 @@ String issue_duplicate_key(const std::string& key) {
 }
 
 String issue_missing_mapping_material(
-    const std::string& layer_id, int material_id) {
+    const std::string& dimension_id, int material_id) {
     std::ostringstream out;
-    out << "Tile mapping for layer '" << layer_id
+    out << "Tile mapping for dimension '" << dimension_id
         << "' references missing material id " << material_id << ".";
     return String(out.str().c_str());
 }
 
-String issue_empty_mapping_layer(int material_id) {
+String issue_empty_mapping_dimension(int material_id) {
     std::ostringstream out;
     out << "Tile mapping for material id " << material_id
-        << " has empty layer.";
+        << " has empty dimension.";
     return String(out.str().c_str());
 }
 
-String issue_bad_variant_count(int material_id, const std::string& layer_id) {
+String issue_bad_variant_count(int material_id, const std::string& dimension_id) {
     std::ostringstream out;
     out << "Tile mapping for material id " << material_id
-        << " layer '" << layer_id << "' has variant_count < 1.";
+        << " dimension '" << dimension_id << "' has variant_count < 1.";
     return String(out.str().c_str());
 }
 
-String issue_duplicate_mapping(int material_id, const std::string& layer_id) {
+String issue_duplicate_mapping(int material_id, const std::string& dimension_id) {
     std::ostringstream out;
     out << "Duplicate tile mapping for material id " << material_id
-        << " layer '" << layer_id << "'.";
+        << " dimension '" << dimension_id << "'.";
     return String(out.str().c_str());
 }
 
@@ -127,8 +131,7 @@ TerrainTileMapping mapping_from_dict(
     const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
     TerrainTileMapping mapping;
 
-    String layer = def.get("layer", def.get("layer_id", "surface"));
-    mapping.layer_id = layer.utf8().get_data();
+    mapping.dimension_id = dimension_from_dict(def);
     mapping.source_id = static_cast<int>(def.get("source_id", 0));
     mapping.variant_count = std::max(1, static_cast<int>(def.get("variant_count", 1)));
     mapping.enabled = static_cast<bool>(def.get("enabled", true));
@@ -175,7 +178,7 @@ BaseTerrainRule base_rule_from_dict(
     const Dictionary& def,
     const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
     BaseTerrainRule rule;
-    rule.layer_id = to_std_string(def.get("layer", def.get("layer_id", "")));
+    rule.dimension_id = dimension_from_dict(def);
     rule.mode = to_std_string(def.get("mode", "solid"));
     rule.default_material = material_from_dict(
         def, "default_material_key", "default_material_id",
@@ -219,7 +222,7 @@ BiomeRule biome_rule_from_dict(
     const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
     BiomeRule rule;
     rule.key = to_std_string(def.get("key", ""));
-    rule.layer_id = to_std_string(def.get("layer", def.get("layer_id", "")));
+    rule.dimension_id = dimension_from_dict(def);
     rule.source_material = material_from_dict(
         def, "source_material_key", "source_material_id",
         rule.source_material, ids_by_key);
@@ -261,7 +264,7 @@ OreVeinRule ore_rule_from_dict(
     const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
     OreVeinRule rule;
     rule.key = to_std_string(def.get("key", ""));
-    rule.layer_id = to_std_string(def.get("layer", def.get("layer_id", rule.layer_id.c_str())));
+    rule.dimension_id = dimension_from_dict(def);
     rule.host_material = material_from_dict(
         def, "host_material_key", "host_material_id",
         rule.host_material, ids_by_key);
@@ -400,9 +403,9 @@ bool GDTerrainContentRegistry::register_tile_mapping(const Dictionary& def) {
     }
 
     TerrainTileMapping mapping = mapping_from_dict(def, material_ids_by_key_);
-    if (mapping.layer_id.empty()) {
+    if (mapping.dimension_id.empty()) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: tile mapping requires a layer.");
+            "GDTerrainContentRegistry: tile mapping requires a dimension.");
         return false;
     }
     if (!material_keys_by_id_.contains(mapping.material_id)) {
@@ -415,7 +418,7 @@ bool GDTerrainContentRegistry::register_tile_mapping(const Dictionary& def) {
     auto existing = std::find_if(tile_mappings_.begin(), tile_mappings_.end(),
         [&mapping](const TerrainTileMapping& item) {
             return item.material_id == mapping.material_id &&
-                   item.layer_id == mapping.layer_id;
+                   item.dimension_id == mapping.dimension_id;
         });
     if (existing != tile_mappings_.end()) {
         *existing = std::move(mapping);
@@ -448,15 +451,15 @@ bool GDTerrainContentRegistry::register_base_terrain_rule(const Dictionary& def)
         return false;
     }
     BaseTerrainRule rule = base_rule_from_dict(def, material_ids_by_key_);
-    if (rule.layer_id.empty()) {
+    if (rule.dimension_id.empty()) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: base terrain rule requires a layer.");
+            "GDTerrainContentRegistry: base terrain rule requires a dimension.");
         return false;
     }
 
     auto existing = std::find_if(base_terrain_rules_.begin(), base_terrain_rules_.end(),
         [&rule](const BaseTerrainRule& item) {
-            return item.layer_id == rule.layer_id;
+            return item.dimension_id == rule.dimension_id;
         });
     if (existing != base_terrain_rules_.end()) {
         *existing = std::move(rule);
@@ -471,9 +474,9 @@ bool GDTerrainContentRegistry::register_biome_rule(const Dictionary& def) {
         return false;
     }
     BiomeRule rule = biome_rule_from_dict(def, material_ids_by_key_);
-    if (rule.key.empty() || rule.layer_id.empty()) {
+    if (rule.key.empty() || rule.dimension_id.empty()) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: biome rule requires key and layer.");
+            "GDTerrainContentRegistry: biome rule requires key and dimension.");
         return false;
     }
 
@@ -494,9 +497,9 @@ bool GDTerrainContentRegistry::register_ore_vein_rule(const Dictionary& def) {
         return false;
     }
     OreVeinRule rule = ore_rule_from_dict(def, material_ids_by_key_);
-    if (rule.key.empty() || rule.layer_id.empty()) {
+    if (rule.key.empty() || rule.dimension_id.empty()) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: ore vein rule requires key and layer.");
+            "GDTerrainContentRegistry: ore vein rule requires key and dimension.");
         return false;
     }
 
@@ -583,22 +586,22 @@ Array GDTerrainContentRegistry::validate() const {
     for (const auto& mapping : tile_mappings_) {
         if (!keys_by_id.contains(mapping.material_id)) {
             issues.append(issue_missing_mapping_material(
-                mapping.layer_id, static_cast<int>(mapping.material_id)));
+                mapping.dimension_id, static_cast<int>(mapping.material_id)));
             continue;
         }
-        if (mapping.layer_id.empty()) {
-            issues.append(issue_empty_mapping_layer(
+        if (mapping.dimension_id.empty()) {
+            issues.append(issue_empty_mapping_dimension(
                 static_cast<int>(mapping.material_id)));
         }
         if (mapping.variant_count < 1) {
             issues.append(issue_bad_variant_count(
-                static_cast<int>(mapping.material_id), mapping.layer_id));
+                static_cast<int>(mapping.material_id), mapping.dimension_id));
         }
 
-        std::string unique_key = std::to_string(mapping.material_id) + "|" + mapping.layer_id;
+        std::string unique_key = std::to_string(mapping.material_id) + "|" + mapping.dimension_id;
         if (mapping_keys.contains(unique_key)) {
             issues.append(issue_duplicate_mapping(
-                static_cast<int>(mapping.material_id), mapping.layer_id));
+                static_cast<int>(mapping.material_id), mapping.dimension_id));
         }
         mapping_keys.insert(std::move(unique_key));
     }
@@ -616,18 +619,18 @@ Array GDTerrainContentRegistry::validate() const {
     }
 
     for (const auto& rule : base_terrain_rules_) {
-        if (rule.layer_id.empty()) {
-            issues.append("Base terrain rule has empty layer.");
+        if (rule.dimension_id.empty()) {
+            issues.append("Base terrain rule has empty dimension.");
         }
     }
     for (const auto& rule : biome_rules_) {
-        if (rule.key.empty() || rule.layer_id.empty()) {
-            issues.append("Biome rule has empty key or layer.");
+        if (rule.key.empty() || rule.dimension_id.empty()) {
+            issues.append("Biome rule has empty key or dimension.");
         }
     }
     for (const auto& rule : ore_vein_rules_) {
-        if (rule.key.empty() || rule.layer_id.empty()) {
-            issues.append("Ore vein rule has empty key or layer.");
+        if (rule.key.empty() || rule.dimension_id.empty()) {
+            issues.append("Ore vein rule has empty key or dimension.");
         }
     }
 

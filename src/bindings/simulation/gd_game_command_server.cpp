@@ -5,9 +5,11 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/variant/vector3i.hpp>
 
 #include "bindings/player/gd_player_equipment.h"
 #include "bindings/player/gd_player_inventory.h"
+#include "bindings/world/gd_furnace_manager.h"
 #include "bindings/world/gd_world_data.h"
 #include "core/crafting/crafting.hpp"
 #include "core/fuel/fuel_registry.hpp"
@@ -136,6 +138,12 @@ void GDGameCommandServer::set_workbench_manager(Node* manager) {
 
 void GDGameCommandServer::set_furnace_manager(Node* manager) {
     furnace_manager_ = manager;
+    furnace_manager_cpp_ = Object::cast_to<GDFurnaceManager>(manager);
+    if (manager != nullptr && furnace_manager_cpp_ == nullptr) {
+        UtilityFunctions::push_warning(
+            "GDGameCommandServer: furnace manager is not GDFurnaceManager; "
+            "server-side furnace state will be unavailable");
+    }
 }
 
 void GDGameCommandServer::set_ladder_manager(Node* manager) {
@@ -160,14 +168,14 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
         return reject(command_mine_block(), "world data is not available");
     }
 
-    const StringName layer = command.get("layer", StringName());
-    const Vector2i chunk = command.get("chunk", Vector2i());
-    const Vector2i local = command.get("local", Vector2i());
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i chunk = command.get("chunk", Vector3i());
+    const Vector3i local = command.get("local", Vector3i());
     const int32_t expected_material =
         static_cast<int32_t>(static_cast<int64_t>(command.get("expected_material", -1)));
 
     Dictionary cell = world_data_->get_terrain_cell(
-        String(layer), chunk.x, chunk.y, local.x, local.y);
+        String(dimension), chunk.x, chunk.y, chunk.z, local.x, local.y, local.z);
     if (cell.is_empty()) {
         return reject(command_mine_block(), "target cell is missing");
     }
@@ -189,7 +197,8 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     }
 
     if (!world_data_->set_terrain_cell(
-            String(layer), chunk.x, chunk.y, local.x, local.y, air_material)) {
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, air_material)) {
         return reject(command_mine_block(), "failed to write terrain cell");
     }
 
@@ -205,7 +214,7 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
         }
     }
 
-    emit_signal("terrain_cell_synced", layer, chunk, local, material, air_material);
+    emit_signal("terrain_cell_synced", dimension, chunk, local, material, air_material);
 
     Dictionary result;
     result["type"] = command_mine_block();
@@ -266,18 +275,19 @@ Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
         return reject(command_craft_recipe(), "crafting station changed");
     }
     if (required_station == "workbench") {
-        const StringName layer = command.get("layer", StringName());
-        const Vector2i cell = command.get("cell", Vector2i());
+        const StringName dimension = command.get("dimension", StringName());
+        const Vector3i cell = command.get("cell", Vector3i());
         if (workbench_manager_ == nullptr) {
             return reject(command_craft_recipe(), "workbench manager is not available");
         }
         bool near_workbench = false;
-        const Vector2i offsets[] = {
-            Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 0),
-            Vector2i(0, 1), Vector2i(0, -1),
+        const Vector3i offsets[] = {
+            Vector3i(0, 0, 0), Vector3i(1, 0, 0), Vector3i(-1, 0, 0),
+            Vector3i(0, 1, 0), Vector3i(0, -1, 0),
+            Vector3i(0, 0, 1), Vector3i(0, 0, -1),
         };
-        for (const Vector2i& offset : offsets) {
-            if (node_bool_call(workbench_manager_, "has_workbench", layer, cell + offset)) {
+        for (const Vector3i& offset : offsets) {
+            if (node_bool_call(workbench_manager_, "has_workbench", dimension, cell + offset)) {
                 near_workbench = true;
                 break;
             }
@@ -337,8 +347,8 @@ Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
 
 Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     const StringName object_type = command.get("object_type", StringName());
-    const StringName layer = command.get("layer", StringName());
-    const Vector2i cell = command.get("cell", Vector2i());
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
     const int64_t item_id = command.get("item_id", 0);
 
     if (item_id <= 0) {
@@ -347,7 +357,7 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     if (!inventory_has_item(item_id, 1)) {
         return reject(command_place_object(), "placement item is missing");
     }
-    if (is_world_object_occupied(object_type, layer, cell)) {
+    if (is_world_object_occupied(object_type, dimension, cell)) {
         return reject(command_place_object(), "target cell is already occupied");
     }
 
@@ -361,19 +371,19 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
             return reject(command_place_object(), "workbench manager is not available");
         }
-        placed = node_bool_call(workbench_manager_, "place_workbench", layer, cell);
+        placed = node_bool_call(workbench_manager_, "place_workbench", dimension, cell);
     } else if (object_type == object_furnace()) {
-        if (furnace_manager_ == nullptr) {
+        if (furnace_manager_cpp_ == nullptr) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
-            return reject(command_place_object(), "furnace manager is not available");
+            return reject(command_place_object(), "C++ furnace manager is not available");
         }
-        placed = node_bool_call(furnace_manager_, "place_furnace", layer, cell);
+        placed = furnace_manager_cpp_->place_furnace(dimension, cell);
     } else if (object_type == object_ladder()) {
         if (ladder_manager_ == nullptr) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
             return reject(command_place_object(), "ladder manager is not available");
         }
-        placed = node_bool_call(ladder_manager_, "place_ladder", layer, cell);
+        placed = node_bool_call(ladder_manager_, "place_ladder", dimension, cell);
     } else {
         add_inventory_item(item_id, 1, kSecondaryNone, false);
         return reject(command_place_object(), "unknown object type");
@@ -385,7 +395,10 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     }
 
     emit_signal("inventory_synced");
-    emit_signal("world_object_synced", object_type, StringName("placed"), layer, cell);
+    emit_signal("world_object_synced", object_type, StringName("placed"), dimension, cell);
+    if (object_type == object_furnace()) {
+        sync_furnace(dimension, cell, "place_object");
+    }
 
     Dictionary result;
     result["type"] = command_place_object();
@@ -394,16 +407,20 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
 }
 
 Dictionary GDGameCommandServer::cmd_furnace_take_output(const Dictionary& command) {
-    Object* furnace_data = command.get("furnace_data", Variant());
-    const StringName layer = command.get("layer", StringName());
-    const Vector2i cell = command.get("cell", Vector2i());
-    if (furnace_data == nullptr) {
-        return reject(command_furnace_take_output(), "furnace data is missing");
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+    if (furnace_manager_cpp_ == nullptr) {
+        return reject(command_furnace_take_output(), "C++ furnace manager is not available");
     }
 
-    const int64_t output_id = furnace_data->get("output_item_id");
+    Ref<GDFurnaceData> furnace_data = furnace_manager_cpp_->get_furnace(dimension, cell);
+    if (furnace_data.is_null()) {
+        return reject(command_furnace_take_output(), "furnace is missing");
+    }
+
+    const int64_t output_id = furnace_data->get_output_item_id();
     const int32_t output_count =
-        static_cast<int32_t>(static_cast<int64_t>(furnace_data->get("output_count")));
+        furnace_data->get_output_count();
     if (output_id <= 0 || output_count <= 0) {
         return reject(command_furnace_take_output(), "furnace output is empty");
     }
@@ -415,42 +432,41 @@ Dictionary GDGameCommandServer::cmd_furnace_take_output(const Dictionary& comman
         return reject(command_furnace_take_output(), "inventory has no space");
     }
 
-    const int32_t remaining = output_count - accepted;
-    furnace_data->set("output_count", remaining);
-    if (remaining <= 0) {
-        furnace_data->set("output_item_id", 0);
-        furnace_data->set("output_count", 0);
+    if (!furnace_manager_cpp_->take_output(dimension, cell, accepted)) {
+        return reject(command_furnace_take_output(), "failed to update furnace output");
     }
 
     emit_signal("inventory_synced");
-    emit_signal("furnace_synced", layer, cell);
+    Dictionary snapshot = sync_furnace(dimension, cell, "take_output");
 
     Dictionary result;
     result["type"] = command_furnace_take_output();
     result["taken"] = accepted;
     result["overflow"] = overflow;
+    result["furnace"] = snapshot;
     return accept(result);
 }
 
 Dictionary GDGameCommandServer::cmd_furnace_insert_input(const Dictionary& command) {
-    Object* furnace_data = command.get("furnace_data", Variant());
-    const StringName layer = command.get("layer", StringName());
-    const Vector2i cell = command.get("cell", Vector2i());
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
     const int64_t item_id = command.get("item_id", 0);
 
-    if (furnace_data == nullptr) {
-        return reject(command_furnace_insert_input(), "furnace data is missing");
+    if (furnace_manager_cpp_ == nullptr) {
+        return reject(command_furnace_insert_input(), "C++ furnace manager is not available");
+    }
+    Ref<GDFurnaceData> furnace_data = furnace_manager_cpp_->get_furnace(dimension, cell);
+    if (furnace_data.is_null()) {
+        return reject(command_furnace_insert_input(), "furnace is missing");
     }
     if (item_id <= 0) {
         return reject(command_furnace_insert_input(), "input item is invalid");
     }
-    if (furnace_manager_ == nullptr ||
-            !furnace_manager_->has_method("get_recipe_for") ||
-            Dictionary(furnace_manager_->call("get_recipe_for", item_id)).is_empty()) {
+    if (furnace_manager_cpp_->get_recipe_for(item_id).is_empty()) {
         return reject(command_furnace_insert_input(), "input item has no furnace recipe");
     }
 
-    const int64_t current_input = furnace_data->get("input_item_id");
+    const int64_t current_input = furnace_data->get_input_item_id();
     if (current_input != 0 && current_input != item_id) {
         return reject(command_furnace_insert_input(),
                       "furnace input slot contains another item");
@@ -460,26 +476,30 @@ Dictionary GDGameCommandServer::cmd_furnace_insert_input(const Dictionary& comma
                       "input item is missing from inventory");
     }
 
-    const int32_t input_count =
-        static_cast<int32_t>(static_cast<int64_t>(furnace_data->get("input_count")));
-    furnace_data->set("input_item_id", item_id);
-    furnace_data->set("input_count", input_count + 1);
+    if (!furnace_manager_cpp_->insert_input(dimension, cell, item_id, 1)) {
+        add_inventory_item(item_id, 1, kSecondaryNone, false);
+        return reject(command_furnace_insert_input(), "failed to update furnace input");
+    }
     emit_signal("inventory_synced");
-    emit_signal("furnace_synced", layer, cell);
+    Dictionary snapshot = sync_furnace(dimension, cell, "insert_input");
 
     Dictionary result;
     result["type"] = command_furnace_insert_input();
+    result["furnace"] = snapshot;
     return accept(result);
 }
 
 Dictionary GDGameCommandServer::cmd_furnace_insert_fuel(const Dictionary& command) {
-    Object* furnace_data = command.get("furnace_data", Variant());
-    const StringName layer = command.get("layer", StringName());
-    const Vector2i cell = command.get("cell", Vector2i());
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
     const int64_t item_id = command.get("item_id", 0);
 
-    if (furnace_data == nullptr) {
-        return reject(command_furnace_insert_fuel(), "furnace data is missing");
+    if (furnace_manager_cpp_ == nullptr) {
+        return reject(command_furnace_insert_fuel(), "C++ furnace manager is not available");
+    }
+    Ref<GDFurnaceData> furnace_data = furnace_manager_cpp_->get_furnace(dimension, cell);
+    if (furnace_data.is_null()) {
+        return reject(command_furnace_insert_fuel(), "furnace is missing");
     }
     if (item_id <= 0) {
         return reject(command_furnace_insert_fuel(), "fuel item is invalid");
@@ -488,7 +508,7 @@ Dictionary GDGameCommandServer::cmd_furnace_insert_fuel(const Dictionary& comman
         return reject(command_furnace_insert_fuel(), "item is not fuel");
     }
 
-    const int64_t current_fuel = furnace_data->get("fuel_item_id");
+    const int64_t current_fuel = furnace_data->get_fuel_item_id();
     if (current_fuel != 0 && current_fuel != item_id) {
         return reject(command_furnace_insert_fuel(),
                       "furnace fuel slot contains another item");
@@ -498,12 +518,16 @@ Dictionary GDGameCommandServer::cmd_furnace_insert_fuel(const Dictionary& comman
                       "fuel item is missing from inventory");
     }
 
-    furnace_data->set("fuel_item_id", item_id);
+    if (!furnace_manager_cpp_->insert_fuel(dimension, cell, item_id)) {
+        add_inventory_item(item_id, 1, kSecondaryNone, false);
+        return reject(command_furnace_insert_fuel(), "failed to update furnace fuel");
+    }
     emit_signal("inventory_synced");
-    emit_signal("furnace_synced", layer, cell);
+    Dictionary snapshot = sync_furnace(dimension, cell, "insert_fuel");
 
     Dictionary result;
     result["type"] = command_furnace_insert_fuel();
+    result["furnace"] = snapshot;
     return accept(result);
 }
 
@@ -544,26 +568,39 @@ bool GDGameCommandServer::inventory_has_item(int64_t item_id, int32_t count) con
     return inventory_ != nullptr && inventory_->has_enough(item_id, count);
 }
 
+Dictionary GDGameCommandServer::sync_furnace(
+        const StringName& dimension, const Vector3i& cell, const char* reason) {
+    (void)reason;
+    Dictionary snapshot;
+    if (furnace_manager_cpp_ != nullptr) {
+        snapshot = furnace_manager_cpp_->get_furnace_snapshot(dimension, cell);
+    }
+
+    emit_signal("furnace_synced", dimension, cell);
+    return snapshot;
+}
+
 bool GDGameCommandServer::is_world_object_occupied(
-        const StringName& object_type, const StringName& layer,
-        const Vector2i& cell) const {
+        const StringName& object_type, const StringName& dimension,
+        const Vector3i& cell) const {
     if (object_type == object_workbench()) {
-        return node_bool_call(workbench_manager_, "has_workbench", layer, cell);
+        return node_bool_call(workbench_manager_, "has_workbench", dimension, cell);
     }
     if (object_type == object_furnace()) {
-        return node_bool_call(furnace_manager_, "has_furnace", layer, cell);
+        return furnace_manager_cpp_ != nullptr &&
+            furnace_manager_cpp_->has_furnace(dimension, cell);
     }
     if (object_type == object_ladder()) {
-        return node_bool_call(ladder_manager_, "has_ladder", layer, cell);
+        return node_bool_call(ladder_manager_, "has_ladder", dimension, cell);
     }
     return false;
 }
 
 bool GDGameCommandServer::node_bool_call(
-        Node* node, const StringName& method, const StringName& layer,
-        const Vector2i& cell) const {
+        Node* node, const StringName& method, const StringName& dimension,
+        const Vector3i& cell) const {
     if (node == nullptr || !node->has_method(method)) return false;
-    return static_cast<bool>(node->call(method, layer, cell));
+    return static_cast<bool>(node->call(method, dimension, cell));
 }
 
 bool GDGameCommandServer::has_required_tool(int32_t terrain_material) const {
@@ -724,8 +761,6 @@ Dictionary GDGameCommandServer::accept(const Dictionary& data) const {
 
 Dictionary GDGameCommandServer::reject(const StringName& command_type,
                                        const String& reason) {
-    UtilityFunctions::push_warning(
-        "GDGameCommandServer rejected ", String(command_type), ": ", reason);
     emit_signal("command_rejected", command_type, reason);
 
     Dictionary result;
@@ -756,9 +791,9 @@ void GDGameCommandServer::_bind_methods() {
                  "set_world_data", "get_world_data");
 
     ADD_SIGNAL(MethodInfo("terrain_cell_synced",
-        PropertyInfo(Variant::STRING_NAME, "layer"),
-        PropertyInfo(Variant::VECTOR2I, "chunk"),
-        PropertyInfo(Variant::VECTOR2I, "local"),
+        PropertyInfo(Variant::STRING_NAME, "dimension"),
+        PropertyInfo(Variant::VECTOR3I, "chunk"),
+        PropertyInfo(Variant::VECTOR3I, "local"),
         PropertyInfo(Variant::INT, "old_material"),
         PropertyInfo(Variant::INT, "new_material")));
     ADD_SIGNAL(MethodInfo("inventory_synced"));
@@ -769,11 +804,11 @@ void GDGameCommandServer::_bind_methods() {
     ADD_SIGNAL(MethodInfo("world_object_synced",
         PropertyInfo(Variant::STRING_NAME, "kind"),
         PropertyInfo(Variant::STRING_NAME, "action"),
-        PropertyInfo(Variant::STRING_NAME, "layer"),
-        PropertyInfo(Variant::VECTOR2I, "cell")));
+        PropertyInfo(Variant::STRING_NAME, "dimension"),
+        PropertyInfo(Variant::VECTOR3I, "cell")));
     ADD_SIGNAL(MethodInfo("furnace_synced",
-        PropertyInfo(Variant::STRING_NAME, "layer"),
-        PropertyInfo(Variant::VECTOR2I, "cell")));
+        PropertyInfo(Variant::STRING_NAME, "dimension"),
+        PropertyInfo(Variant::VECTOR3I, "cell")));
     ADD_SIGNAL(MethodInfo("command_rejected",
         PropertyInfo(Variant::STRING_NAME, "command_type"),
         PropertyInfo(Variant::STRING, "reason")));

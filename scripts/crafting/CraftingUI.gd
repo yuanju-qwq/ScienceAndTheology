@@ -1,6 +1,6 @@
 class_name CraftingUI extends Control
 
-var player: Node
+var player: PlayerController
 var _station: String = ""
 var _recipes: Array = []
 var _current_category: String = ""
@@ -85,7 +85,7 @@ func toggle() -> void:
 		_refresh()
 
 
-func set_player(p: Node) -> void:
+func set_player(p: PlayerController) -> void:
 	player = p
 
 
@@ -264,7 +264,7 @@ func _player_has_tool(tool_name: String) -> bool:
 
 
 func _on_craft_pressed(recipe: Dictionary) -> void:
-	if player == null or not player.has_method(&"get_command_server"):
+	if player == null:
 		return
 
 	var out_id := int(recipe.get("output_item_id", 0))
@@ -277,8 +277,8 @@ func _on_craft_pressed(recipe: Dictionary) -> void:
 		"type": GameCommandServer.COMMAND_CRAFT_RECIPE,
 		"recipe": recipe,
 		"station": _station,
-		"layer": player.get_current_layer() if player.has_method(&"get_current_layer") else &"",
-		"cell": player.get_current_cell() if player.has_method(&"get_current_cell") else Vector2i.ZERO,
+		"dimension": player.get_current_dimension(),
+		"cell": player.get_current_cell(),
 	})
 	if not bool(result.get("ok", false)):
 		return

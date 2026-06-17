@@ -1,12 +1,10 @@
 class_name HotbarUI extends Control
 
-signal slot_selected(index: int)
-
 const SLOT_COUNT := 9
 const SLOT_SIZE := 36
 const PADDING := 2
 
-var player: Node
+var player: PlayerController
 var slots: Array[SlotUI] = []
 var selected_index: int = 0
 var _slots_initialized := false
@@ -16,7 +14,7 @@ func _ready() -> void:
 	_initialize_slots()
 
 
-func set_player(p: Node) -> void:
+func set_player(p: PlayerController) -> void:
 	player = p
 	if player and player.has_signal("inventory_changed"):
 		if not player.inventory_changed.is_connected(refresh):

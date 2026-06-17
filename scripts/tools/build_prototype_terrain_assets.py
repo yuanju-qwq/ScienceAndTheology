@@ -467,7 +467,7 @@ def build_terrain_atlas(project_root: Path) -> None:
             draw_ground_tile(atlas, i, 7, "#20272a", "#111719", "#3d5152", 800 + i, 0.16, 9.0, 0.70)
             scatter_pebbles(atlas, i, 7, 800 + i, ("#334b4c", "#182325", "#657b78"), 12, 1)
 
-    output = terrain_dir / "dual_layer_tileset_32_clean.png"
+    output = terrain_dir / "voxel_material_atlas_32.png"
     write_png(output, ATLAS_WIDTH, ATLAS_HEIGHT, atlas)
     print(f"[assets] Wrote terrain atlas '{output.resolve()}'.")
 
@@ -520,7 +520,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--terrain-only",
         action="store_true",
-        help="Only rebuild resource/terrain/dual_layer_tileset_32_clean.png.",
+        help="Only rebuild resource/terrain/voxel_material_atlas_32.png.",
     )
     parser.add_argument(
         "--items-only",

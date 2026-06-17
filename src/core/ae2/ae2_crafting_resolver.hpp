@@ -17,7 +17,7 @@ namespace science_and_theology::gt {
 class CraftingContext;
 
 // ============================================================
-// CraftingRequest ¡ª a request for a specific item+amount
+// CraftingRequest - a request for a specific item+amount
 // ============================================================
 //
 // Mirrors AE2-Unofficial v2's CraftingRequest.
@@ -80,7 +80,7 @@ private:
 };
 
 // ============================================================
-// CraftingTask ¡ª one resolution step
+// CraftingTask - one resolution step
 // ============================================================
 //
 // Mirrors AE2-Unofficial v2's CraftingTask.
@@ -108,7 +108,7 @@ public:
     virtual std::vector<CraftingRequest> calculate_one_step(
             CraftingContext& context) = 0;
 
-    // Partial refund: return mount items back.
+    // Partial refund: return amount items back.
     virtual int64_t partial_refund(int64_t amount) = 0;
 
     // Full refund: return all items.
@@ -134,7 +134,7 @@ inline constexpr int kPrioritySimulateCraft = -2000000000 + 200;
 inline constexpr int kPrioritySimulate = -2000000000 + 100;
 
 // ============================================================
-// CraftingContext ¡ª shared state for crafting resolution
+// CraftingContext - shared state for crafting resolution
 // ============================================================
 //
 // Mirrors AE2-Unofficial v2's CraftingContext.
@@ -150,10 +150,10 @@ public:
     CraftingSimulationState& sim_state() { return sim_state_; }
     const CraftingSimulationState& sim_state() const { return sim_state_; }
 
-    // Add a request ¡ª creates resolvers and starts processing.
+    // Add a request - creates resolvers and starts processing.
     void add_request(CraftingRequest& request);
 
-    // Main work loop ¡ª processes one task step.
+    // Main work loop - processes one task step.
     CraftingTask::State do_work();
 
     // Get patterns that can produce a given item.
@@ -175,7 +175,7 @@ public:
 private:
     CraftingSimulationState sim_state_;
 
-    // Pattern index: item_id ¡ú list of patterns that produce it.
+    // Pattern index: item_id éˆ«?list of patterns that produce it.
     std::unordered_map<ItemId, std::vector<const AEPattern*>> pattern_index_;
 
     // Items that can be emitted.
@@ -194,7 +194,7 @@ private:
 };
 
 // ============================================================
-// CraftingRequestResolver ¡ª resolver provider interface
+// CraftingRequestResolver - resolver provider interface
 // ============================================================
 //
 // Mirrors AE2-Unofficial v2's CraftingRequestResolver.
@@ -209,7 +209,7 @@ public:
 };
 
 // ============================================================
-// CraftingCalculations ¡ª resolver registry
+// CraftingCalculations - resolver registry
 // ============================================================
 
 class CraftingCalculations {
@@ -233,28 +233,28 @@ private:
 // Concrete resolvers
 // ============================================================
 
-// ExtractItemResolver ¡ª extract from network inventory (highest priority).
+// ExtractItemResolver - extract from network inventory (highest priority).
 class ExtractItemResolver : public CraftingRequestResolver {
 public:
     std::vector<std::unique_ptr<CraftingTask>> provide_resolvers(
             CraftingRequest& request, CraftingContext& context) override;
 };
 
-// EmitableItemResolver ¡ª mark items for emission.
+// EmitableItemResolver - mark items for emission.
 class EmitableItemResolver : public CraftingRequestResolver {
 public:
     std::vector<std::unique_ptr<CraftingTask>> provide_resolvers(
             CraftingRequest& request, CraftingContext& context) override;
 };
 
-// CraftableItemResolver ¡ª craft using patterns (recursive).
+// CraftableItemResolver - craft using patterns (recursive).
 class CraftableItemResolver : public CraftingRequestResolver {
 public:
     std::vector<std::unique_ptr<CraftingTask>> provide_resolvers(
             CraftingRequest& request, CraftingContext& context) override;
 };
 
-// SimulateMissingItemResolver ¡ª simulate missing items (fallback).
+// SimulateMissingItemResolver - simulate missing items (fallback).
 class SimulateMissingItemResolver : public CraftingRequestResolver {
 public:
     std::vector<std::unique_ptr<CraftingTask>> provide_resolvers(

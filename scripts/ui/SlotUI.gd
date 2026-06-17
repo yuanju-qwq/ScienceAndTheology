@@ -2,8 +2,6 @@ class_name SlotUI extends Control
 
 signal clicked(index: int, button: int)
 signal right_clicked(index: int)
-signal drag_started(index: int)
-
 @export var slot_index: int = 0
 @export var bg_color: Color = Color(0.15, 0.15, 0.18, 1.0)
 @export var highlight_color: Color = Color(0.35, 0.55, 0.75, 1.0)

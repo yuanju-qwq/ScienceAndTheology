@@ -1,8 +1,10 @@
+# PlayerController — 3D first-person player with server-authoritative interaction.
+# All connector and mechanism lookups use dimension + Vector3i (3D cell coordinates).
 class_name PlayerController
 extends CharacterBody3D
 
-signal connector_used(connector_id: int, from_layer: StringName, to_layer: StringName)
-signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
+signal connector_used(connector_id: int, from_dimension: StringName, to_dimension: StringName)
+signal mechanism_activated(mechanism_id: StringName, dimension: StringName)
 signal hotbar_changed(index: int)
 signal inventory_changed
 
@@ -10,7 +12,7 @@ const REACH := 6.0
 const MOUSE_SENSITIVITY := 0.0025
 const GRAVITY := 22.0
 const JUMP_VELOCITY := 7.0
-const SURFACE: StringName = &"surface"
+const OVERWORLD: StringName = &"overworld"
 
 @export var move_speed := 5.2
 @export var sprint_multiplier := 1.45
@@ -45,16 +47,16 @@ var selected_hotbar := 0
 
 @onready var world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
 @onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
-@onready var connector_manager = get_node_or_null(connector_manager_path)
-@onready var mechanism_manager = get_node_or_null(mechanism_manager_path)
-@onready var workbench_manager = get_node_or_null(workbench_manager_path)
-@onready var furnace_manager = get_node_or_null(furnace_manager_path)
-@onready var ladder_manager = get_node_or_null(ladder_manager_path)
-@onready var hotbar_ui = get_node_or_null(hotbar_ui_path)
-@onready var inventory_ui = get_node_or_null(inventory_ui_path)
-@onready var crafting_ui = get_node_or_null(crafting_ui_path)
-@onready var furnace_ui = get_node_or_null(furnace_ui_path)
-@onready var wiki_ui = get_node_or_null(wiki_ui_path)
+@onready var connector_manager: ConnectorManager = get_node_or_null(connector_manager_path) as ConnectorManager
+@onready var mechanism_manager: MechanismManager = get_node_or_null(mechanism_manager_path) as MechanismManager
+@onready var workbench_manager: WorkbenchManager = get_node_or_null(workbench_manager_path) as WorkbenchManager
+@onready var furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
+@onready var ladder_manager: LadderManager = get_node_or_null(ladder_manager_path) as LadderManager
+@onready var hotbar_ui: HotbarUI = get_node_or_null(hotbar_ui_path) as HotbarUI
+@onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
+@onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
+@onready var furnace_ui: FurnaceUI = get_node_or_null(furnace_ui_path) as FurnaceUI
+@onready var wiki_ui: WikiUI = get_node_or_null(wiki_ui_path) as WikiUI
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
 @onready var target_label: Label = get_node_or_null(target_label_path) as Label
@@ -66,7 +68,7 @@ var _input_locked := false
 var _mouse_captured := true
 var _pitch := deg_to_rad(-18.0)
 var _cooldown_remaining := 0.0
-var _last_cell := Vector2i.ZERO
+var _last_cell := Vector3i.ZERO
 var _last_debug_time := -100.0
 var _target := {}
 
@@ -205,13 +207,13 @@ func _setup_inventory() -> void:
 
 
 func _connect_ui() -> void:
-	if hotbar_ui and hotbar_ui.has_method(&"set_player"):
+	if hotbar_ui:
 		hotbar_ui.set_player(self)
-	if inventory_ui and inventory_ui.has_method(&"set_player"):
+	if inventory_ui:
 		inventory_ui.set_player(self)
-	if crafting_ui and crafting_ui.has_method(&"set_player"):
+	if crafting_ui:
 		crafting_ui.set_player(self)
-	if furnace_ui and furnace_ui.has_method(&"set_player"):
+	if furnace_ui:
 		furnace_ui.set_player(self)
 		if not furnace_ui.closed.is_connected(_on_furnace_ui_closed):
 			furnace_ui.closed.connect(_on_furnace_ui_closed)
@@ -262,7 +264,7 @@ func _update_target() -> void:
 	_target["position"] = hit_position
 	_set_selection_visible(true)
 	if selection_box:
-		selection_box.global_position = world.cell_to_world_position(cell, -0.5)
+		selection_box.global_position = world.cell_to_world_position(cell)
 	if target_label:
 		var def: Dictionary = world.get_world_data().get_terrain_material_def(material) if world.get_world_data() else {}
 		target_label.text = str(def.get("display_name", "Block"))
@@ -284,19 +286,19 @@ func _try_mine_target() -> bool:
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_MINE_BLOCK,
-		"layer": _target.get("layer", SURFACE),
-		"chunk": _target.get("chunk", Vector2i.ZERO),
-		"local": _target.get("local", Vector2i.ZERO),
-		"cell": _target.get("cell", Vector2i.ZERO),
+		"dimension": _target.get("dimension", OVERWORLD),
+		"chunk": _target.get("chunk", Vector3i.ZERO),
+		"local": _target.get("local", Vector3i.ZERO),
+		"cell": _target.get("cell", Vector3i.ZERO),
 		"expected_material": material,
 	})
 	if not bool(result.get("ok", false)):
 		_debug_interaction("mine rejected: %s" % str(result.get("reason", "unknown")))
 		return false
 
-	var chunk: Vector2i = _target.get("chunk", Vector2i.ZERO)
-	var local: Vector2i = _target.get("local", Vector2i.ZERO)
-	world.refresh_cell(_target.get("layer", SURFACE), chunk, local)
+	var chunk: Vector3i = _target.get("chunk", Vector3i.ZERO)
+	var local: Vector3i = _target.get("local", Vector3i.ZERO)
+	world.refresh_cell(_target.get("dimension", OVERWORLD), chunk, local)
 	inventory_changed.emit()
 	return true
 
@@ -329,14 +331,14 @@ func _try_place_world_object() -> bool:
 		_:
 			return false
 
-	var place_cell: Vector2i = _target.get("place_cell", get_current_cell())
-	if global_position.distance_to(world.cell_to_world_position(place_cell, 0.0)) > REACH:
+	var place_cell: Vector3i = _target.get("place_cell", get_current_cell())
+	if global_position.distance_to(world.cell_to_world_position(place_cell)) > REACH:
 		return false
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
 		"object_type": object_type,
-		"layer": get_current_layer(),
+		"dimension": get_current_dimension(),
 		"cell": place_cell,
 		"item_id": held_id,
 	})
@@ -363,9 +365,9 @@ func _try_use_connector(auto_only: bool) -> bool:
 	if _input_locked or _cooldown_remaining > 0.0 or connector_manager == null:
 		return false
 
-	var layer := get_current_layer()
+	var dimension := get_current_dimension()
 	var cell := get_current_cell()
-	var connector = connector_manager.get_connector_at(layer, cell)
+	var connector = connector_manager.get_connector_at(dimension, cell)
 	if connector == null:
 		return false
 	if auto_only and not connector.activates_on_enter():
@@ -373,15 +375,15 @@ func _try_use_connector(auto_only: bool) -> bool:
 	if not auto_only and not connector.requires_interaction():
 		return false
 
-	var target_layer: StringName = connector.get_target_layer_for(layer, cell)
-	var target_cell: Vector2i = connector.get_target_cell_for(layer, cell)
-	if target_layer == &"":
+	var target_dimension: StringName = connector.get_target_dimension_for(dimension, cell)
+	var target_cell: Vector3i = connector.get_target_cell_for(dimension, cell)
+	if target_dimension == &"":
 		return false
 
 	_cooldown_remaining = connector_cooldown
 	if ladder_manager and connector.connector_type == &"ladder":
-		global_position = world.cell_to_world_position(target_cell, 2.2)
-	connector_used.emit(connector.connector_id, layer, target_layer)
+		global_position = world.cell_to_world_position(target_cell)
+	connector_used.emit(connector.connector_id, dimension, target_dimension)
 	return true
 
 
@@ -389,9 +391,9 @@ func _try_activate_mechanism(auto_only: bool) -> bool:
 	if _input_locked or mechanism_manager == null:
 		return false
 
-	var layer := get_current_layer()
+	var dimension := get_current_dimension()
 	var cell := get_current_cell()
-	var mechanism = mechanism_manager.get_mechanism_at(layer, cell)
+	var mechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 	if mechanism == null:
 		return false
 	if auto_only and not mechanism.activates_on_enter():
@@ -402,7 +404,7 @@ func _try_activate_mechanism(auto_only: bool) -> bool:
 		return false
 
 	_cooldown_remaining = connector_cooldown
-	mechanism_activated.emit(mechanism.mechanism_id, layer)
+	mechanism_activated.emit(mechanism.mechanism_id, dimension)
 	return true
 
 
@@ -410,18 +412,25 @@ func _try_open_furnace(auto_only: bool) -> bool:
 	if auto_only or furnace_manager == null or furnace_ui == null:
 		return false
 	var cell := get_current_cell()
-	var layer := get_current_layer()
+	var dimension := get_current_dimension()
 	var candidates := [cell]
 	if not _target.is_empty():
 		candidates.append(_target.get("cell", cell))
 		candidates.append(_target.get("place_cell", cell))
-	candidates.append_array([cell + Vector2i.RIGHT, cell + Vector2i.LEFT, cell + Vector2i.UP, cell + Vector2i.DOWN])
+	candidates.append_array([
+		cell + Vector3i.RIGHT,
+		cell + Vector3i.LEFT,
+		cell + Vector3i.UP,
+		cell + Vector3i.DOWN,
+		cell + Vector3i.FORWARD,
+		cell + Vector3i.BACK,
+	])
 
 	for candidate in candidates:
-		if not furnace_manager.has_furnace(layer, candidate):
+		if not furnace_manager.has_furnace(dimension, candidate):
 			continue
-		var data = furnace_manager.get_furnace(layer, candidate)
-		furnace_ui.open(data, layer, candidate, furnace_manager)
+		var data = furnace_manager.get_furnace(dimension, candidate)
+		furnace_ui.open(data, dimension, candidate, furnace_manager)
 		_set_input_locked(true)
 		_cooldown_remaining = connector_cooldown
 		return true
@@ -431,7 +440,7 @@ func _try_open_furnace(auto_only: bool) -> bool:
 func _toggle_inventory() -> void:
 	if crafting_ui and crafting_ui.visible:
 		_toggle_crafting()
-	if inventory_ui and inventory_ui.has_method(&"toggle"):
+	if inventory_ui:
 		inventory_ui.toggle()
 
 
@@ -440,29 +449,36 @@ func _toggle_wiki() -> void:
 		_toggle_crafting()
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui.toggle()
-	if wiki_ui and wiki_ui.has_method(&"toggle"):
+	if wiki_ui:
 		wiki_ui.toggle()
 		_set_input_locked(wiki_ui.visible)
 
 
 func _toggle_crafting() -> void:
-	if crafting_ui == null or not crafting_ui.has_method(&"toggle"):
+	if crafting_ui == null:
 		return
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui.toggle()
-	if crafting_ui.has_method(&"set_station"):
-		crafting_ui.set_station(_get_nearby_station())
+	crafting_ui.set_station(_get_nearby_station())
 	crafting_ui.toggle()
 	_set_input_locked(crafting_ui.visible)
 
 
 func _get_nearby_station() -> String:
-	if workbench_manager == null or not workbench_manager.has_method(&"has_workbench"):
+	if workbench_manager == null:
 		return ""
 	var cell := get_current_cell()
-	var layer := get_current_layer()
-	for offset in [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
-		if workbench_manager.has_workbench(layer, cell + offset):
+	var dimension := get_current_dimension()
+	for offset in [
+		Vector3i.ZERO,
+		Vector3i.RIGHT,
+		Vector3i.LEFT,
+		Vector3i.UP,
+		Vector3i.DOWN,
+		Vector3i.FORWARD,
+		Vector3i.BACK,
+	]:
+		if workbench_manager.has_workbench(dimension, cell + offset):
 			return "workbench"
 	return ""
 
@@ -494,7 +510,7 @@ func _select_hotbar(index: int) -> void:
 
 
 func _update_hotbar_display() -> void:
-	if hotbar_ui and hotbar_ui.has_method(&"refresh"):
+	if hotbar_ui:
 		hotbar_ui.refresh()
 
 
@@ -502,16 +518,16 @@ func _update_connector_prompt() -> void:
 	if connector_prompt == null or connector_prompt_label == null:
 		return
 
-	var layer := get_current_layer()
+	var dimension := get_current_dimension()
 	var cell := get_current_cell()
 	var text := ""
 	if connector_manager != null:
-		var connector = connector_manager.get_connector_at(layer, cell)
+		var connector = connector_manager.get_connector_at(dimension, cell)
 		if connector != null and connector.requires_interaction():
 			text = "E  %s" % String(connector.connector_type).replace("_", " ").capitalize()
 
 	if text == "" and mechanism_manager != null:
-		var mechanism = mechanism_manager.get_mechanism_at(layer, cell)
+		var mechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 		if mechanism != null and mechanism.requires_interaction():
 			text = "E  %s" % (mechanism.action_label if mechanism.action_label != "" else mechanism.display_name)
 
@@ -519,13 +535,13 @@ func _update_connector_prompt() -> void:
 	connector_prompt_label.text = text
 
 
-func get_current_layer() -> StringName:
-	return SURFACE
+func get_current_dimension() -> StringName:
+	return OVERWORLD
 
 
-func get_current_cell() -> Vector2i:
+func get_current_cell() -> Vector3i:
 	if world == null:
-		return Vector2i.ZERO
+		return Vector3i.ZERO
 	return world.world_position_to_cell(global_position)
 
 

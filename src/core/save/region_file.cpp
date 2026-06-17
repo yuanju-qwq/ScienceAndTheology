@@ -53,10 +53,10 @@ static bool read_string(std::ifstream& file, std::string& out) {
 }
 
 bool RegionFile::write(const std::string& file_path,
-                       int region_x, int region_y,
-                       const std::string& layer_id,
+                       int region_x, int region_y, int region_z,
+                       const std::string& dimension_id,
                        const std::vector<RegionChunkEntry>& chunks) {
-    if (chunks.size() > static_cast<size_t>(kRegionSize * kRegionSize))
+    if (chunks.size() > static_cast<size_t>(kRegionSize * kRegionSize * kRegionSize))
         return false;
 
     std::ofstream file(file_path, std::ios::binary);
@@ -65,13 +65,15 @@ bool RegionFile::write(const std::string& file_path,
     write_uint8(file, kVersion);
     write_int32(file, region_x);
     write_int32(file, region_y);
-    write_string(file, layer_id);
+    write_int32(file, region_z);
+    write_string(file, dimension_id);
 
     write_uint32(file, static_cast<uint32_t>(chunks.size()));
 
     for (const auto& chunk : chunks) {
         write_uint8(file, chunk.local_x);
         write_uint8(file, chunk.local_y);
+        write_uint8(file, chunk.local_z);
         write_uint32(file, static_cast<uint32_t>(chunk.data.size()));
     }
 
@@ -85,8 +87,8 @@ bool RegionFile::write(const std::string& file_path,
 }
 
 bool RegionFile::read(const std::string& file_path,
-                      std::string& out_layer_id,
-                      int& out_region_x, int& out_region_y,
+                      std::string& out_dimension_id,
+                      int& out_region_x, int& out_region_y, int& out_region_z,
                       std::vector<RegionChunkEntry>& out_chunks) {
     std::ifstream file(file_path, std::ios::binary);
     if (!file.is_open()) return false;
@@ -98,18 +100,22 @@ bool RegionFile::read(const std::string& file_path,
     int32_t rx, ry;
     if (!read_int32(file, rx)) return false;
     if (!read_int32(file, ry)) return false;
+    int32_t rz;
+    if (!read_int32(file, rz)) return false;
     out_region_x = rx;
     out_region_y = ry;
+    out_region_z = rz;
 
-    if (!read_string(file, out_layer_id)) return false;
+    if (!read_string(file, out_dimension_id)) return false;
 
     uint32_t count;
     if (!read_uint32(file, count)) return false;
-    if (count > static_cast<uint32_t>(kRegionSize * kRegionSize)) return false;
+    if (count > static_cast<uint32_t>(kRegionSize * kRegionSize * kRegionSize)) return false;
 
     struct IndexEntry {
         uint8_t local_x;
         uint8_t local_y;
+        uint8_t local_z;
         uint32_t data_size;
     };
     std::vector<IndexEntry> index;
@@ -119,9 +125,13 @@ bool RegionFile::read(const std::string& file_path,
         IndexEntry entry;
         if (!read_uint8(file, entry.local_x)) return false;
         if (!read_uint8(file, entry.local_y)) return false;
+        if (!read_uint8(file, entry.local_z)) return false;
         if (!read_uint32(file, entry.data_size)) return false;
-        if (entry.local_x >= kRegionSize || entry.local_y >= kRegionSize)
+        if (entry.local_x >= kRegionSize ||
+            entry.local_y >= kRegionSize ||
+            entry.local_z >= kRegionSize) {
             return false;
+        }
         index.push_back(entry);
     }
 
@@ -132,6 +142,7 @@ bool RegionFile::read(const std::string& file_path,
         RegionChunkEntry chunk_entry;
         chunk_entry.local_x = entry.local_x;
         chunk_entry.local_y = entry.local_y;
+        chunk_entry.local_z = entry.local_z;
         chunk_entry.data.resize(entry.data_size);
         file.read(reinterpret_cast<char*>(chunk_entry.data.data()),
                   entry.data_size);
@@ -142,10 +153,11 @@ bool RegionFile::read(const std::string& file_path,
     return true;
 }
 
-std::string RegionFile::region_file_name(const std::string& layer_id,
-                                         int region_x, int region_y) {
+std::string RegionFile::region_file_name(const std::string& dimension_id,
+                                         int region_x, int region_y, int region_z) {
     std::ostringstream oss;
-    oss << layer_id << "~" << region_x << "~" << region_y << ".region";
+    oss << dimension_id << "~" << region_x << "~" << region_y
+        << "~" << region_z << ".region";
     return oss.str();
 }
 

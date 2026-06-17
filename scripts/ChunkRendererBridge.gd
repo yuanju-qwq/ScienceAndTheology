@@ -7,7 +7,7 @@ const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerr
 const CHUNK_SIZE := 32
 const BLOCK_SIZE := 1.0
 const AIR_MATERIAL := 0
-const SURFACE: StringName = &"surface"
+const OVERWORLD: StringName = &"overworld"
 
 @export var world_data: GDWorldData = null
 @export var worldgen_config: Resource = null
@@ -22,7 +22,7 @@ const SURFACE: StringName = &"surface"
 @export var max_async_results_per_frame := 4:
 	set(value):
 		max_async_results_per_frame = max(0, value)
-		if world_data and world_data.has_method(&"set_max_async_results_per_frame"):
+		if world_data:
 			world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 @export var max_chunk_load_requests_per_frame := 10
 @export var max_chunk_views_per_frame := 2
@@ -35,7 +35,7 @@ const SURFACE: StringName = &"surface"
 
 var is_initialized := false
 var _visible_chunks: Dictionary = {}
-var _pending_view_queue: Array[Vector2i] = []
+var _pending_view_queue: Array[Vector3i] = []
 var _tracked_chunks: Dictionary = {}
 var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
@@ -70,7 +70,7 @@ func initialize() -> void:
 	if world_data == null:
 		world_data = GDWorldData.new()
 		world_data.seed = seed if seed != 0 else randi()
-	if world_data.has_method(&"set_max_async_results_per_frame"):
+	if world_data:
 		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 
 	if worldgen_config == null:
@@ -92,34 +92,47 @@ func get_world_data() -> GDWorldData:
 	return world_data
 
 
-func world_position_to_cell(world_position: Vector3) -> Vector2i:
-	return Vector2i(floori(world_position.x / BLOCK_SIZE), floori(world_position.z / BLOCK_SIZE))
+func world_position_to_cell(world_position: Vector3) -> Vector3i:
+	return Vector3i(
+		floori(world_position.x / BLOCK_SIZE),
+		floori(world_position.y / BLOCK_SIZE),
+		floori(world_position.z / BLOCK_SIZE))
 
 
-func cell_to_world_position(cell: Vector2i, y: float = 0.0) -> Vector3:
-	return Vector3((float(cell.x) + 0.5) * BLOCK_SIZE, y, (float(cell.y) + 0.5) * BLOCK_SIZE)
+func cell_to_world_position(cell: Vector3i) -> Vector3:
+	return Vector3(
+		(float(cell.x) + 0.5) * BLOCK_SIZE,
+		(float(cell.y) + 0.5) * BLOCK_SIZE,
+		(float(cell.z) + 0.5) * BLOCK_SIZE)
 
 
-func world_position_to_chunk(world_position: Vector3) -> Vector2i:
+func world_position_to_chunk(world_position: Vector3) -> Vector3i:
 	var cell := world_position_to_cell(world_position)
 	return cell_to_chunk(cell)
 
 
-func cell_to_chunk(cell: Vector2i) -> Vector2i:
-	return Vector2i(floori(float(cell.x) / float(CHUNK_SIZE)), floori(float(cell.y) / float(CHUNK_SIZE)))
+func cell_to_chunk(cell: Vector3i) -> Vector3i:
+	return Vector3i(
+		floori(float(cell.x) / float(CHUNK_SIZE)),
+		floori(float(cell.y) / float(CHUNK_SIZE)),
+		floori(float(cell.z) / float(CHUNK_SIZE)))
 
 
-func cell_to_local(cell: Vector2i) -> Vector2i:
+func cell_to_local(cell: Vector3i) -> Vector3i:
 	var chunk := cell_to_chunk(cell)
-	return Vector2i(cell.x - chunk.x * CHUNK_SIZE, cell.y - chunk.y * CHUNK_SIZE)
+	return Vector3i(
+		cell.x - chunk.x * CHUNK_SIZE,
+		cell.y - chunk.y * CHUNK_SIZE,
+		cell.z - chunk.z * CHUNK_SIZE)
 
 
-func get_cell_info(cell: Vector2i, layer: StringName = SURFACE) -> Dictionary:
+func get_cell_info(cell: Vector3i, dimension: StringName = OVERWORLD) -> Dictionary:
 	var chunk := cell_to_chunk(cell)
-	var local := Vector2i(cell.x - chunk.x * CHUNK_SIZE, cell.y - chunk.y * CHUNK_SIZE)
-	var data := world_data.get_terrain_cell(layer, chunk.x, chunk.y, local.x, local.y) if world_data else {}
+	var local := cell_to_local(cell)
+	var data := world_data.get_terrain_cell(
+		dimension, chunk.x, chunk.y, chunk.z, local.x, local.y, local.z) if world_data else {}
 	return {
-		"layer": layer,
+		"dimension": dimension,
 		"cell": cell,
 		"chunk": chunk,
 		"local": local,
@@ -127,8 +140,8 @@ func get_cell_info(cell: Vector2i, layer: StringName = SURFACE) -> Dictionary:
 	}
 
 
-func refresh_cell(layer: StringName, chunk: Vector2i, _local: Vector2i) -> void:
-	if layer != SURFACE:
+func refresh_cell(dimension: StringName, chunk: Vector3i, _local: Vector3i) -> void:
+	if dimension != OVERWORLD:
 		return
 	if not _visible_chunks.has(chunk):
 		return
@@ -136,52 +149,54 @@ func refresh_cell(layer: StringName, chunk: Vector2i, _local: Vector2i) -> void:
 	_enqueue_chunk_view(chunk)
 
 
-func on_terrain_cell_synced(layer: StringName, chunk: Vector2i, local: Vector2i,
+func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vector3i,
 		_old_material: int, _new_material: int) -> void:
-	refresh_cell(layer, chunk, local)
+	refresh_cell(dimension, chunk, local)
 
 
 func _generate_initial_chunks() -> void:
-	for cy in range(-start_chunk_radius, start_chunk_radius + 1):
+	for cz in range(-start_chunk_radius, start_chunk_radius + 1):
 		for cx in range(-start_chunk_radius, start_chunk_radius + 1):
-			var pos := Vector2i(cx, cy)
+			var pos := Vector3i(cx, 0, cz)
 			_ensure_chunk_loaded(pos)
 			_enqueue_chunk_view(pos)
 
 
-func _refresh_chunks(player_chunk: Vector2i) -> void:
+func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
 
 	var wanted_loaded: Dictionary = {}
 	var wanted_visible: Dictionary = {}
-	var visible_order: Array[Vector2i] = []
+	var visible_order: Array[Vector3i] = []
 
-	for cy in range(player_chunk.y - loaded_radius, player_chunk.y + loaded_radius + 1):
+	for cz in range(player_chunk.z - loaded_radius, player_chunk.z + loaded_radius + 1):
 		for cx in range(player_chunk.x - loaded_radius, player_chunk.x + loaded_radius + 1):
-			var offset := Vector2i(cx, cy) - player_chunk
-			if offset.length_squared() > loaded_radius * loaded_radius:
+			var dx := cx - player_chunk.x
+			var dz := cz - player_chunk.z
+			if dx * dx + dz * dz > loaded_radius * loaded_radius:
 				continue
-			var pos := Vector2i(cx, cy)
+			var pos := Vector3i(cx, player_chunk.y, cz)
 			wanted_loaded[pos] = true
 			_ensure_chunk_loaded(pos)
 
-	for cy in range(player_chunk.y - view_radius, player_chunk.y + view_radius + 1):
+	for cz in range(player_chunk.z - view_radius, player_chunk.z + view_radius + 1):
 		for cx in range(player_chunk.x - view_radius, player_chunk.x + view_radius + 1):
-			var offset := Vector2i(cx, cy) - player_chunk
-			if offset.length_squared() > view_radius * view_radius:
+			var dx := cx - player_chunk.x
+			var dz := cz - player_chunk.z
+			if dx * dx + dz * dz > view_radius * view_radius:
 				continue
-			var pos := Vector2i(cx, cy)
+			var pos := Vector3i(cx, player_chunk.y, cz)
 			wanted_visible[pos] = true
 			visible_order.append(pos)
 
-	visible_order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		var da := (a - player_chunk).length_squared()
-		var db := (b - player_chunk).length_squared()
+	visible_order.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		var da := (a.x - player_chunk.x) * (a.x - player_chunk.x) + (a.z - player_chunk.z) * (a.z - player_chunk.z)
+		var db := (b.x - player_chunk.x) * (b.x - player_chunk.x) + (b.z - player_chunk.z) * (b.z - player_chunk.z)
 		if da != db:
 			return da < db
 		if a.x != b.x:
 			return a.x < b.x
-		return a.y < b.y
+		return a.z < b.z
 	)
 
 	for key in _visible_chunks.keys():
@@ -197,38 +212,38 @@ func _refresh_chunks(player_chunk: Vector2i) -> void:
 	_process_visible_queue()
 
 
-func _ensure_chunk_loaded(chunk: Vector2i) -> void:
+func _ensure_chunk_loaded(chunk: Vector3i) -> void:
 	if world_data == null:
 		return
 	if _tracked_chunks.has(chunk):
 		return
 
-	if world_data.has_chunk(SURFACE, chunk.x, chunk.y):
+	if world_data.has_chunk(OVERWORLD, chunk.x, chunk.y, chunk.z):
 		_tracked_chunks[chunk] = true
 		return
 
-	if world_data.is_chunk_async_pending(SURFACE, chunk.x, chunk.y):
+	if world_data.is_chunk_async_pending(OVERWORLD, chunk.x, chunk.y, chunk.z):
 		return
 
 	if max_chunk_load_requests_per_frame > 0 \
 			and _chunk_request_count_this_frame >= max_chunk_load_requests_per_frame:
 		return
 
-	world_data.request_chunk_async(SURFACE, chunk.x, chunk.y)
+	world_data.request_chunk_async(OVERWORLD, chunk.x, chunk.y, chunk.z)
 	_chunk_request_count_this_frame += 1
 
 
-func _on_chunk_ready(layer: String, chunk_x: int, chunk_y: int) -> void:
-	if StringName(layer) != SURFACE:
+func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int) -> void:
+	if StringName(dimension) != OVERWORLD:
 		return
-	var chunk := Vector2i(chunk_x, chunk_y)
+	var chunk := Vector3i(chunk_x, chunk_y, chunk_z)
 	_tracked_chunks[chunk] = true
 	if _pending_view_queue.has(chunk):
 		return
 	_enqueue_chunk_view(chunk)
 
 
-func _enqueue_chunk_view(chunk: Vector2i) -> void:
+func _enqueue_chunk_view(chunk: Vector3i) -> void:
 	if _pending_view_queue.has(chunk):
 		return
 	_pending_view_queue.append(chunk)
@@ -241,12 +256,12 @@ func _process_visible_queue() -> void:
 		if max_chunk_views_per_frame > 0 and built >= max_chunk_views_per_frame:
 			break
 
-		var chunk: Vector2i = _pending_view_queue[index]
+		var chunk: Vector3i = _pending_view_queue[index]
 		if _visible_chunks.has(chunk):
 			_pending_view_queue.remove_at(index)
 			continue
 
-		if world_data == null or not world_data.has_chunk(SURFACE, chunk.x, chunk.y):
+		if world_data == null or not world_data.has_chunk(OVERWORLD, chunk.x, chunk.y, chunk.z):
 			index += 1
 			continue
 
@@ -255,8 +270,8 @@ func _process_visible_queue() -> void:
 		built += 1
 
 
-func _create_chunk_view(chunk: Vector2i) -> void:
-	var terrain := world_data.get_chunk_terrain(SURFACE, chunk.x, chunk.y)
+func _create_chunk_view(chunk: Vector3i) -> void:
+	var terrain := world_data.get_chunk_terrain(OVERWORLD, chunk.x, chunk.y, chunk.z)
 	if terrain.is_empty():
 		return
 
@@ -265,28 +280,33 @@ func _create_chunk_view(chunk: Vector2i) -> void:
 		return
 
 	var root := Node3D.new()
-	root.name = "Chunk_%d_%d" % [chunk.x, chunk.y]
+	root.name = "Chunk_%d_%d_%d" % [chunk.x, chunk.y, chunk.z]
 	add_child(root)
 	_visible_chunks[chunk] = root
 
+	var size_x := int(terrain.get("size_x", CHUNK_SIZE))
+	var size_y := int(terrain.get("size_y", CHUNK_SIZE))
+	var size_z := int(terrain.get("size_z", CHUNK_SIZE))
 	var by_material: Dictionary = {}
-	for local_y in range(CHUNK_SIZE):
-		for local_x in range(CHUNK_SIZE):
-			var index := local_y * CHUNK_SIZE + local_x
-			if index >= materials.size():
-				continue
-			var material_id := int(materials[index])
-			if material_id == AIR_MATERIAL:
-				continue
-			if not by_material.has(material_id):
-				by_material[material_id] = []
-			by_material[material_id].append(Vector2i(local_x, local_y))
+	for local_y in range(size_y):
+		for local_z in range(size_z):
+			for local_x in range(size_x):
+				var index := _terrain_index(local_x, local_y, local_z, size_x, size_z)
+				if index >= materials.size():
+					continue
+				var material_id := int(materials[index])
+				if material_id == AIR_MATERIAL:
+					continue
+				if not by_material.has(material_id):
+					by_material[material_id] = []
+				by_material[material_id].append(Vector3i(local_x, local_y, local_z))
 
 	for material_id in by_material.keys():
-		_create_material_multimesh(root, chunk, int(material_id), by_material[material_id])
+		_create_material_multimesh(root, chunk, int(material_id), by_material[material_id], materials, size_x, size_y, size_z)
 
 
-func _create_material_multimesh(root: Node3D, chunk: Vector2i, material_id: int, cells: Array) -> void:
+func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int, cells: Array,
+		materials: PackedByteArray, size_x: int, size_y: int, size_z: int) -> void:
 	if cells.is_empty():
 		return
 
@@ -299,9 +319,12 @@ func _create_material_multimesh(root: Node3D, chunk: Vector2i, material_id: int,
 	multimesh.instance_count = cells.size()
 
 	for i in range(cells.size()):
-		var local: Vector2i = cells[i]
-		var cell := Vector2i(chunk.x * CHUNK_SIZE + local.x, chunk.y * CHUNK_SIZE + local.y)
-		var pos := cell_to_world_position(cell, -BLOCK_SIZE * 0.5)
+		var local: Vector3i = cells[i]
+		var cell := Vector3i(
+			chunk.x * CHUNK_SIZE + local.x,
+			chunk.y * CHUNK_SIZE + local.y,
+			chunk.z * CHUNK_SIZE + local.z)
+		var pos := cell_to_world_position(cell)
 		multimesh.set_instance_transform(i, Transform3D(Basis(), pos))
 
 	var instance := MultiMeshInstance3D.new()
@@ -315,21 +338,46 @@ func _create_material_multimesh(root: Node3D, chunk: Vector2i, material_id: int,
 	root.add_child(static_body)
 
 	for local in cells:
-		var cell := Vector2i(chunk.x * CHUNK_SIZE + local.x, chunk.y * CHUNK_SIZE + local.y)
+		if not _is_surface_voxel(local, materials, size_x, size_y, size_z):
+			continue
+		var cell := Vector3i(
+			chunk.x * CHUNK_SIZE + local.x,
+			chunk.y * CHUNK_SIZE + local.y,
+			chunk.z * CHUNK_SIZE + local.z)
 		var shape := CollisionShape3D.new()
 		var box := BoxShape3D.new()
 		box.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
 		shape.shape = box
-		shape.position = cell_to_world_position(cell, -BLOCK_SIZE * 0.5)
+		shape.position = cell_to_world_position(cell)
 		static_body.add_child(shape)
 
 
-func _remove_chunk_view(chunk: Vector2i) -> void:
+func _remove_chunk_view(chunk: Vector3i) -> void:
 	var node := _visible_chunks.get(chunk) as Node
 	if node == null:
 		return
 	_visible_chunks.erase(chunk)
 	node.queue_free()
+
+
+func _terrain_index(local_x: int, local_y: int, local_z: int, size_x: int, size_z: int) -> int:
+	return (local_y * size_z + local_z) * size_x + local_x
+
+
+func _is_surface_voxel(local: Vector3i, materials: PackedByteArray, size_x: int, size_y: int, size_z: int) -> bool:
+	var offsets: Array[Vector3i] = [
+		Vector3i.RIGHT, Vector3i.LEFT,
+		Vector3i.UP, Vector3i.DOWN,
+		Vector3i.FORWARD, Vector3i.BACK
+	]
+	for offset: Vector3i in offsets:
+		var n := local + offset
+		if n.x < 0 or n.x >= size_x or n.y < 0 or n.y >= size_y or n.z < 0 or n.z >= size_z:
+			return true
+		var index := _terrain_index(n.x, n.y, n.z, size_x, size_z)
+		if index >= materials.size() or int(materials[index]) == AIR_MATERIAL:
+			return true
+	return false
 
 
 func _build_materials() -> void:

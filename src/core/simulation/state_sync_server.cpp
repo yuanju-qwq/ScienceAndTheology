@@ -8,8 +8,8 @@ void StateSyncServer::mark_dirty(const ChunkKey& key, SyncFlags flags) {
 }
 
 void StateSyncServer::mark_dirty(
-    const std::string& layer, int cx, int cy, SyncFlags flags) {
-    ChunkKey key{layer, cx, cy};
+    const std::string& dimension, int cx, int cy, int cz, SyncFlags flags) {
+    ChunkKey key{dimension, cx, cy, cz};
     mark_dirty(key, flags);
 }
 
@@ -30,7 +30,10 @@ StateDelta StateSyncServer::compute_delta(
         // Read entity changes from the chunk if world_data_ is available.
         if (world_data_) {
             auto* chunk = world_data_->get_chunk(
-                chunk_key.layer_id, chunk_key.chunk_x, chunk_key.chunk_y);
+                chunk_key.dimension_id,
+                chunk_key.chunk_x,
+                chunk_key.chunk_y,
+                chunk_key.chunk_z);
             if (chunk) {
                 if ((it->second & SyncFlags::ENTITY) != SyncFlags::NONE) {
                     for (auto eid : chunk->entities) {
@@ -66,7 +69,7 @@ StateDelta StateSyncServer::create_snapshot(const ChunkKey& key) const {
 
     if (world_data_) {
         auto* chunk = world_data_->get_chunk(
-            key.layer_id, key.chunk_x, key.chunk_y);
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
         if (chunk) {
             for (auto eid : chunk->entities) {
                 delta.entities_created.push_back(eid);

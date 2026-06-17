@@ -57,7 +57,7 @@ script = ExtResource("2_mechanism_manager")
 [node name="WorkbenchManager" type="Node" parent="."]
 script = ExtResource("3_workbench")
 
-[node name="FurnaceManager" type="Node" parent="."]
+[node name="FurnaceManager" type="GDFurnaceManager" parent="."]
 script = ExtResource("4_furnace_manager")
 
 [node name="LadderManager" type="Node" parent="."]

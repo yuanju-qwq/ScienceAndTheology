@@ -28,42 +28,44 @@ int SaveManager::save_world(const std::string& save_dir,
         return -1;
     }
 
-    // Group chunks by {layer_id, region_x, region_y}.
+    // Group chunks by {dimension_id, region_x, region_y, region_z}.
     std::map<std::string, std::vector<RegionChunkEntry>> region_chunks;
-    std::map<std::string, std::tuple<int, int, std::string>> region_meta;
+    std::map<std::string, std::tuple<int, int, int, std::string>> region_meta;
 
     for (const auto& key : world.all_chunk_keys()) {
         const ChunkData* chunk = world.get_chunk(
-            key.layer_id, key.chunk_x, key.chunk_y);
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
         if (chunk == nullptr) {
             continue;
         }
 
         int rx = RegionFile::to_region(key.chunk_x);
         int ry = RegionFile::to_region(key.chunk_y);
+        int rz = RegionFile::to_region(key.chunk_z);
 
         std::string file_name = RegionFile::region_file_name(
-            key.layer_id, rx, ry);
+            key.dimension_id, rx, ry, rz);
 
         std::vector<uint8_t> data = ChunkSerializer::serialize(
-            key.layer_id, *chunk);
+            key.dimension_id, *chunk);
 
         RegionChunkEntry entry;
         entry.local_x = static_cast<uint8_t>(RegionFile::to_local(key.chunk_x));
         entry.local_y = static_cast<uint8_t>(RegionFile::to_local(key.chunk_y));
+        entry.local_z = static_cast<uint8_t>(RegionFile::to_local(key.chunk_z));
         entry.data = std::move(data);
 
         region_chunks[file_name].push_back(std::move(entry));
-        region_meta[file_name] = std::make_tuple(rx, ry, key.layer_id);
+        region_meta[file_name] = std::make_tuple(rx, ry, rz, key.dimension_id);
     }
 
     // Write each region file.
     int saved_count = 0;
     for (auto& [file_name, chunks] : region_chunks) {
-        auto& [rx, ry, layer_id] = region_meta[file_name];
+        auto& [rx, ry, rz, dimension_id] = region_meta[file_name];
         std::string file_path = regions_dir + "/" + file_name;
 
-        if (!RegionFile::write(file_path, rx, ry, layer_id, chunks)) {
+        if (!RegionFile::write(file_path, rx, ry, rz, dimension_id, chunks)) {
             return -1;
         }
 
@@ -96,12 +98,12 @@ std::pair<bool, int64_t> SaveManager::load_world(
 
         std::string file_path = entry.path().string();
 
-        std::string layer_id;
-        int region_x, region_y;
+        std::string dimension_id;
+        int region_x, region_y, region_z;
         std::vector<RegionChunkEntry> entries;
 
-        if (!RegionFile::read(file_path, layer_id,
-                              region_x, region_y, entries)) {
+        if (!RegionFile::read(file_path, dimension_id,
+                              region_x, region_y, region_z, entries)) {
             continue;
         }
 
@@ -110,15 +112,17 @@ std::pair<bool, int64_t> SaveManager::load_world(
                         + static_cast<int>(chunk_entry.local_x);
             int chunk_y = region_y * RegionFile::kRegionSize
                         + static_cast<int>(chunk_entry.local_y);
+            int chunk_z = region_z * RegionFile::kRegionSize
+                        + static_cast<int>(chunk_entry.local_z);
 
-            std::string unused_layer_id;
+            std::string unused_dimension_id;
             ChunkData chunk;
             if (!ChunkSerializer::deserialize(chunk_entry.data,
-                                              unused_layer_id, chunk)) {
+                                              unused_dimension_id, chunk)) {
                 continue;
             }
 
-            world.set_chunk(layer_id, chunk_x, chunk_y, std::move(chunk));
+            world.set_chunk(dimension_id, chunk_x, chunk_y, chunk_z, std::move(chunk));
         }
     }
 

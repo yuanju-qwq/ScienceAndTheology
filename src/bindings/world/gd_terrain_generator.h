@@ -21,8 +21,8 @@ namespace science_and_theology {
 // Usage in GDScript:
 //   var gen = GDTerrainGenerator.new()
 //   gen.seed = 12345
-//   var data = gen.generate_chunk("surface", 0, 0)
-//   # data is a Dictionary with "size_x", "size_y", "materials", "flags"
+//   var data = gen.generate_chunk("overworld", 0, 0, 0)
+//   # data is a Dictionary with "size_x", "size_y", "size_z", "materials", "flags"
 class GDTerrainGenerator : public godot::Resource {
     GDCLASS(GDTerrainGenerator, godot::Resource)
 
@@ -39,10 +39,10 @@ public:
     int64_t get_worldgen_content_hash() const;
 
     // Generates a chunk and returns its terrain data as a Dictionary.
-    // Returns: { "size_x": int, "size_y": int,
+    // Returns: { "size_x": int, "size_y": int, "size_z": int,
     //            "materials": PackedByteArray, "flags": PackedInt32Array }
     godot::Dictionary generate_chunk(
-        const godot::String& layer_id, int chunk_x, int chunk_y);
+        const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z);
 
 protected:
     static void _bind_methods();

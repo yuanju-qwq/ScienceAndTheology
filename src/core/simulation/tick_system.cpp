@@ -44,7 +44,7 @@ void TickSystem::tick(float delta) {
     if (tick_counter_ % kSleepTickInterval == 0) {
         for (auto& sys : subsystems_) {
             for (const auto& key : sleeping_chunks_) {
-                if (should_tick_sleeping(key.chunk_x, key.chunk_y)) {
+                if (should_tick_sleeping(key.chunk_x, key.chunk_y, key.chunk_z)) {
                     sys->tick_sleeping(key, delta * kSleepTickInterval);
                 }
             }
@@ -58,13 +58,18 @@ void TickSystem::tick(float delta) {
     state_sync_->set_tick_counter(tick_counter_);
 }
 
-void TickSystem::set_player_chunk(const std::string& layer, int cx, int cy) {
-    if (player_layer_ == layer && player_cx_ == cx && player_cy_ == cy) {
+void TickSystem::set_player_chunk(
+    const std::string& dimension, int cx, int cy, int cz) {
+    if (player_dimension_ == dimension &&
+        player_cx_ == cx &&
+        player_cy_ == cy &&
+        player_cz_ == cz) {
         return;
     }
-    player_layer_ = layer;
+    player_dimension_ = dimension;
     player_cx_ = cx;
     player_cy_ = cy;
+    player_cz_ = cz;
     rebuild_chunk_sets();
 }
 
@@ -78,20 +83,27 @@ void TickSystem::rebuild_chunk_sets() {
     for (const auto& key : all_keys) {
         int dx = std::abs(key.chunk_x - player_cx_);
         int dy = std::abs(key.chunk_y - player_cy_);
-        if (dx <= active_radius_ && dy <= active_radius_ &&
-            key.layer_id == player_layer_) {
+        int dz = std::abs(key.chunk_z - player_cz_);
+        if (dx <= active_radius_ &&
+            dy <= active_radius_ &&
+            dz <= active_radius_ &&
+            key.dimension_id == player_dimension_) {
             active_chunks_.push_back(key);
-        } else if (dx <= active_radius_ * 2 && dy <= active_radius_ * 2) {
+        } else if (key.dimension_id == player_dimension_ &&
+                   dx <= active_radius_ * 2 &&
+                   dy <= active_radius_ * 2 &&
+                   dz <= active_radius_ * 2) {
             sleeping_chunks_.push_back(key);
         }
     }
 }
 
-bool TickSystem::should_tick_sleeping(int cx, int cy) const {
+bool TickSystem::should_tick_sleeping(int cx, int cy, int cz) const {
     // Distribute sleeping ticks across different chunks each pass.
     // Use a simple spatial hash to ensure every sleep chunk ticks eventually.
     int64_t hash = static_cast<int64_t>(cx) * 73856093 +
-                   static_cast<int64_t>(cy) * 19349663;
+                   static_cast<int64_t>(cy) * 19349663 +
+                   static_cast<int64_t>(cz) * 83492791;
     return (hash % kSleepTickInterval) ==
            (tick_counter_ / kSleepTickInterval) % kSleepTickInterval;
 }

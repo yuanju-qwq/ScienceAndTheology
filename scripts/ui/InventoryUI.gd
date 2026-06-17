@@ -5,7 +5,7 @@ const PADDING := 2
 const COLS := 9
 const ROWS := 4
 
-var player: Node
+var player: PlayerController
 var _is_open := false
 var inventory_slots: Array[SlotUI] = []
 var equip_slots: Array[SlotUI] = []
@@ -79,7 +79,7 @@ func _initialize_ui() -> void:
 		equip_container.add_child(label)
 
 
-func set_player(p: Node) -> void:
+func set_player(p: PlayerController) -> void:
 	player = p
 	if player and player.has_signal("inventory_changed"):
 		if not player.inventory_changed.is_connected(_on_player_inventory_changed):
@@ -90,7 +90,7 @@ func set_player(p: Node) -> void:
 func toggle() -> void:
 	_is_open = not _is_open
 	visible = _is_open
-	if player and player.has_method("_set_input_locked"):
+	if player:
 		player._set_input_locked(_is_open)
 	if _is_open:
 		_update_all_slots()

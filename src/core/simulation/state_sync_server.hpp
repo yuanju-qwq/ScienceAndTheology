@@ -22,8 +22,10 @@ public:
     // Mark a chunk as dirty in the specified categories.
     void mark_dirty(const ChunkKey& key, SyncFlags flags);
 
-    // Mark a chunk as dirty by coordinate + layer (convenience).
-    void mark_dirty(const std::string& layer, int cx, int cy, SyncFlags flags);
+    // Mark a chunk as dirty by coordinate + dimension (convenience).
+    void mark_dirty(const std::string& dimension,
+                    int cx, int cy, int cz,
+                    SyncFlags flags);
 
     // Compute a delta since the last sync for the observed set of chunks.
     // After calling this, dirty flags for the returned categories are

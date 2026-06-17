@@ -13,7 +13,7 @@ void MachineSystem::tick_active(const ChunkKey& chunk, float delta) {
     if (!world_ || !event_bus_) return;
 
     auto* chunk_data = world_->get_chunk(
-        chunk.layer_id, chunk.chunk_x, chunk.chunk_y);
+        chunk.dimension_id, chunk.chunk_x, chunk.chunk_y, chunk.chunk_z);
     if (!chunk_data) return;
 
     // Iterate over all machines in this chunk and tick them.
@@ -38,7 +38,7 @@ void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
     if (!world_ || !event_bus_) return;
 
     auto* chunk_data = world_->get_chunk(
-        chunk.layer_id, chunk.chunk_x, chunk.chunk_y);
+        chunk.dimension_id, chunk.chunk_x, chunk.chunk_y, chunk.chunk_z);
     if (!chunk_data) return;
 
     // Sleeping machines process at reduced rate.

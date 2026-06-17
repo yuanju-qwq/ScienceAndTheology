@@ -64,11 +64,13 @@ enum class GameEventType : uint32_t {
 struct GameEvent {
     GameEventType type = GameEventType::NONE;
     uint64_t source_id = 0;
-    std::string source_layer;
+    std::string source_dimension;
     int32_t cell_x = 0;
     int32_t cell_y = 0;
+    int32_t cell_z = 0;
     int32_t chunk_x = 0;
     int32_t chunk_y = 0;
+    int32_t chunk_z = 0;
     int64_t timestamp = 0;
 
     std::unordered_map<std::string, std::string> string_data;
@@ -88,29 +90,32 @@ struct GameEvent {
         uint64_t node_id, int64_t demand, int64_t capacity);
 
     static GameEvent chunk_state_changed(
-        int cx, int cy, const std::string& layer,
+        const std::string& dimension, int cx, int cy, int cz,
         int old_state, int new_state);
 
     static GameEvent entity_created(
         uint64_t entity_id, const std::string& type_name,
-        int cx, int cy);
+        const std::string& dimension, int cx, int cy, int cz);
 
     static GameEvent entity_destroyed(
-        uint64_t entity_id, const std::string& layer);
+        uint64_t entity_id, const std::string& dimension);
 
     static GameEvent entity_damaged(
-        uint64_t entity_id, float damage, const std::string& source_layer);
+        uint64_t entity_id, float damage, const std::string& source_dimension);
 
     static GameEvent terrain_changed(
-        const std::string& layer, int cx, int cy, int local_x, int local_y,
+        const std::string& dimension,
+        int cx, int cy, int cz,
+        int local_x, int local_y, int local_z,
         int old_material, int new_material);
 
     static GameEvent item_dropped(
-        uint64_t item_id, int32_t count, const std::string& layer,
-        int cx, int cy, int local_x, int local_y);
+        uint64_t item_id, int32_t count, const std::string& dimension,
+        int cx, int cy, int cz,
+        int local_x, int local_y, int local_z);
 
     static GameEvent item_picked_up(
-        uint64_t item_id, int32_t count, const std::string& layer);
+        uint64_t item_id, int32_t count, const std::string& dimension);
 
     static GameEvent player_inventory_changed();
 

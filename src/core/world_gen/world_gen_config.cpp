@@ -63,10 +63,10 @@ bool WorldGenConfigSnapshot::is_walkable_ground(TerrainMaterialId id) const {
 }
 
 const BaseTerrainRule* WorldGenConfigSnapshot::find_base_rule(
-    const std::string& layer_id) const {
+    const std::string& dimension_id) const {
     auto it = std::find_if(base_terrain_rules.begin(), base_terrain_rules.end(),
-        [&layer_id](const BaseTerrainRule& rule) {
-            return rule.layer_id == layer_id;
+        [&dimension_id](const BaseTerrainRule& rule) {
+            return rule.dimension_id == dimension_id;
         });
     return it != base_terrain_rules.end() ? &(*it) : nullptr;
 }
@@ -102,7 +102,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     for (const auto& mapping : config.tile_mappings) {
         hash_combine(hash, mapping.material_id);
         hash_combine(hash, string_hash(mapping.material_key));
-        hash_combine(hash, string_hash(mapping.layer_id));
+        hash_combine(hash, string_hash(mapping.dimension_id));
         hash_combine(hash, static_cast<uint64_t>(mapping.source_id));
         hash_combine(hash, static_cast<uint64_t>(mapping.atlas_x));
         hash_combine(hash, static_cast<uint64_t>(mapping.atlas_y));
@@ -121,7 +121,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     hash_combine(hash, config.roles.wood);
     hash_combine(hash, config.roles.leaves);
     for (const auto& rule : config.base_terrain_rules) {
-        hash_combine(hash, string_hash(rule.layer_id));
+        hash_combine(hash, string_hash(rule.dimension_id));
         hash_combine(hash, string_hash(rule.mode));
         hash_combine(hash, rule.default_material);
         hash_combine(hash, rule.low_elevation_material);
@@ -141,7 +141,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     }
     for (const auto& rule : config.biome_rules) {
         hash_combine(hash, string_hash(rule.key));
-        hash_combine(hash, string_hash(rule.layer_id));
+        hash_combine(hash, string_hash(rule.dimension_id));
         hash_combine(hash, rule.source_material);
         hash_combine(hash, rule.result_material);
         hash_combine(hash, string_hash(rule.condition));
@@ -160,7 +160,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     }
     for (const auto& rule : config.ore_vein_rules) {
         hash_combine(hash, string_hash(rule.key));
-        hash_combine(hash, string_hash(rule.layer_id));
+        hash_combine(hash, string_hash(rule.dimension_id));
         hash_combine(hash, rule.host_material);
         hash_combine(hash, rule.ore_material);
         hash_combine(hash, static_cast<uint64_t>((rule.combined_min + 2.0f) * 100000.0f));

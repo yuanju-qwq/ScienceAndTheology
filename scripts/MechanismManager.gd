@@ -1,16 +1,18 @@
+# MechanismManager — manages MapMechanism resources using 3D cell coordinates.
+# All lookups use dimension + Vector3i instead of the old layer_id + Vector2i.
 class_name MechanismManager
 extends Node
 
 const MapMechanismResource := preload("res://scripts/MapMechanism.gd")
 
-signal mechanism_activated(mechanism_id: StringName, layer_id: StringName, cell_position: Vector2i)
+signal mechanism_activated(mechanism_id: StringName, dimension: StringName, cell_position: Vector3i)
 signal mechanisms_changed
 signal world_flags_changed
 
 @export var mechanisms: Array[MapMechanismResource] = []
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 
-@onready var connector_manager = get_node_or_null(connector_manager_path)
+@onready var connector_manager: ConnectorManager = get_node_or_null(connector_manager_path) as ConnectorManager
 
 var _world_flags := {}
 
@@ -48,33 +50,33 @@ func add_generated_mechanisms(mechanism_data: Array) -> int:
 	return added
 
 
-func get_mechanism_at(layer_id: StringName, cell_position: Vector2i) -> MapMechanismResource:
+func get_mechanism_at(dimension: StringName, cell_position: Vector3i) -> MapMechanismResource:
 	for mechanism in mechanisms:
 		if mechanism == null:
 			continue
 
-		if mechanism.is_at(layer_id, cell_position) and mechanism.is_available(_world_flags):
+		if mechanism.is_at(dimension, cell_position) and mechanism.is_available(_world_flags):
 			return mechanism
 
 	return null
 
 
-func has_mechanism_at(layer_id: StringName, cell_position: Vector2i) -> bool:
-	return get_mechanism_at(layer_id, cell_position) != null
+func has_mechanism_at(dimension: StringName, cell_position: Vector3i) -> bool:
+	return get_mechanism_at(dimension, cell_position) != null
 
 
-func get_mechanisms_for_layer(layer_id: StringName) -> Array[MapMechanismResource]:
-	var layer_mechanisms: Array[MapMechanismResource] = []
+func get_mechanisms_for_dimension(dimension: StringName) -> Array[MapMechanismResource]:
+	var dim_mechanisms: Array[MapMechanismResource] = []
 
 	for mechanism in mechanisms:
-		if mechanism != null and mechanism.layer_id == layer_id:
-			layer_mechanisms.append(mechanism)
+		if mechanism != null and mechanism.dimension == dimension:
+			dim_mechanisms.append(mechanism)
 
-	return layer_mechanisms
+	return dim_mechanisms
 
 
-func activate_mechanism_at(layer_id: StringName, cell_position: Vector2i) -> bool:
-	var mechanism := get_mechanism_at(layer_id, cell_position)
+func activate_mechanism_at(dimension: StringName, cell_position: Vector3i) -> bool:
+	var mechanism := get_mechanism_at(dimension, cell_position)
 	if mechanism == null:
 		return false
 
@@ -92,7 +94,7 @@ func activate_mechanism(mechanism_id: StringName) -> bool:
 		_apply_effects_for_mechanism(mechanism, true)
 		world_flags_changed.emit()
 
-	mechanism_activated.emit(mechanism.mechanism_id, mechanism.layer_id, mechanism.cell_position)
+	mechanism_activated.emit(mechanism.mechanism_id, mechanism.dimension, mechanism.cell_position)
 	mechanisms_changed.emit()
 	return true
 
@@ -199,9 +201,7 @@ func _set_node_visible(node_path: NodePath, is_visible: bool) -> void:
 func _set_connector_locked(connector_id: int, is_locked: bool) -> void:
 	if connector_id == 0 or connector_manager == null:
 		return
-
-	if connector_manager.has_method("set_connector_locked"):
-		connector_manager.set_connector_locked(connector_id, is_locked)
+	connector_manager.set_connector_locked(connector_id, is_locked)
 
 
 func _set_bool_property_if_present(object: Object, property_name: StringName, value: bool) -> void:
@@ -234,10 +234,11 @@ func _has_mechanism_id(mechanism_id: StringName) -> bool:
 func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
 	var mechanism := MapMechanismResource.new()
 	mechanism.mechanism_id = StringName(str(data.get("mechanism_id", "")))
-	mechanism.layer_id = StringName(str(data.get("layer_id", "")))
-	mechanism.cell_position = Vector2i(
+	mechanism.dimension = StringName(str(data.get("dimension", "")))
+	mechanism.cell_position = Vector3i(
 			int(data.get("cell_x", 0)),
-			int(data.get("cell_y", 0)))
+			int(data.get("cell_y", 0)),
+			int(data.get("cell_z", 0)))
 	mechanism.display_name = str(data.get("display_name", "Mechanism"))
 	mechanism.action_label = str(data.get("action_label", "Use Mechanism"))
 	mechanism.flag_name = StringName(str(data.get("flag_name", "")))
@@ -252,7 +253,7 @@ func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
 			typed_effects.append(effect)
 	mechanism.effects = typed_effects
 
-	if mechanism.mechanism_id == &"" or mechanism.layer_id == &"":
+	if mechanism.mechanism_id == &"" or mechanism.dimension == &"":
 		return null
 
 	return mechanism

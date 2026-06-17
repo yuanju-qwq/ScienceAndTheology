@@ -1,7 +1,9 @@
+# MapConnector — a link between two 3D cell positions within or across dimensions.
+# Replaces the old 2D layer + Vector2i model with dimension + Vector3i.
 class_name MapConnector
 extends Resource
 
-const SURFACE: StringName = &"surface"
+const OVERWORLD: StringName = &"overworld"
 
 enum ActivationMode {
 	INTERACT,
@@ -9,51 +11,51 @@ enum ActivationMode {
 }
 
 @export var connector_id: int = 0
-@export var from_layer: StringName = SURFACE
-@export var from_cell: Vector2i = Vector2i.ZERO
-@export var to_layer: StringName = SURFACE
-@export var to_cell: Vector2i = Vector2i.ZERO
+@export var from_dimension: StringName = OVERWORLD
+@export var from_cell: Vector3i = Vector3i.ZERO
+@export var to_dimension: StringName = OVERWORLD
+@export var to_cell: Vector3i = Vector3i.ZERO
 @export var one_way := false
 @export var locked := false
 @export var connector_type: StringName = &"cave_entrance"
 @export var activation_mode := ActivationMode.INTERACT
 
 
-func is_enterable_from(layer_id: StringName, cell_position: Vector2i) -> bool:
+func is_enterable_from(dimension: StringName, cell_position: Vector3i) -> bool:
 	if locked:
 		return false
 
-	if from_layer == layer_id and from_cell == cell_position:
+	if from_dimension == dimension and from_cell == cell_position:
 		return true
 
-	return not one_way and to_layer == layer_id and to_cell == cell_position
+	return not one_way and to_dimension == dimension and to_cell == cell_position
 
 
-func get_target_layer_for(layer_id: StringName, cell_position: Vector2i) -> StringName:
-	if from_layer == layer_id and from_cell == cell_position:
-		return to_layer
+func get_target_dimension_for(dimension: StringName, cell_position: Vector3i) -> StringName:
+	if from_dimension == dimension and from_cell == cell_position:
+		return to_dimension
 
-	if not one_way and to_layer == layer_id and to_cell == cell_position:
-		return from_layer
+	if not one_way and to_dimension == dimension and to_cell == cell_position:
+		return from_dimension
 
 	return &""
 
 
-func get_target_cell_for(layer_id: StringName, cell_position: Vector2i) -> Vector2i:
-	if from_layer == layer_id and from_cell == cell_position:
+func get_target_cell_for(dimension: StringName, cell_position: Vector3i) -> Vector3i:
+	if from_dimension == dimension and from_cell == cell_position:
 		return to_cell
 
-	if not one_way and to_layer == layer_id and to_cell == cell_position:
+	if not one_way and to_dimension == dimension and to_cell == cell_position:
 		return from_cell
 
 	return cell_position
 
 
 func has_valid_route() -> bool:
-	if from_layer == &"" or to_layer == &"":
+	if from_dimension == &"" or to_dimension == &"":
 		return false
 
-	return from_layer != to_layer or from_cell != to_cell
+	return from_dimension != to_dimension or from_cell != to_cell
 
 
 func requires_interaction() -> bool:

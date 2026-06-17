@@ -1,7 +1,9 @@
+# MapMechanism — a world mechanism at a 3D cell position within a dimension.
+# Replaces the old 2D layer_id + Vector2i model with dimension + Vector3i.
 class_name MapMechanism
 extends Resource
 
-const SURFACE: StringName = &"surface"
+const OVERWORLD: StringName = &"overworld"
 
 enum ActivationMode {
 	INTERACT,
@@ -9,8 +11,8 @@ enum ActivationMode {
 }
 
 @export var mechanism_id: StringName = &""
-@export var layer_id: StringName = SURFACE
-@export var cell_position: Vector2i = Vector2i.ZERO
+@export var dimension: StringName = OVERWORLD
+@export var cell_position: Vector3i = Vector3i.ZERO
 @export var display_name := "Mechanism"
 @export var action_label := "Use Mechanism"
 @export var flag_name: StringName = &""
@@ -20,8 +22,8 @@ enum ActivationMode {
 @export var effects: Array[Dictionary] = []
 
 
-func is_at(target_layer_id: StringName, target_cell_position: Vector2i) -> bool:
-	return layer_id == target_layer_id and cell_position == target_cell_position
+func is_at(target_dimension: StringName, target_cell_position: Vector3i) -> bool:
+	return dimension == target_dimension and cell_position == target_cell_position
 
 
 func is_available(world_flags: Dictionary) -> bool:

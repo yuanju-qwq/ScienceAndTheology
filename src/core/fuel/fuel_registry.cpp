@@ -14,8 +14,8 @@ namespace science_and_theology::gt {
 // ============================================================
 
 static std::vector<FuelDefinition> g_fuel_registry;
-static std::unordered_map<ItemId, const FuelDefinition*> g_fuel_by_item;
-static std::unordered_map<FluidId, const FuelDefinition*> g_fuel_by_fluid;
+static std::unordered_map<ItemId, size_t> g_fuel_by_item;
+static std::unordered_map<FluidId, size_t> g_fuel_by_fluid;
 
 std::vector<FuelDefinition>& FuelRegistry::registry() {
     return g_fuel_registry;
@@ -42,13 +42,14 @@ void FuelRegistry::register_fuel(const FuelDefinition& def) {
     }
 
     g_fuel_registry.push_back(def);
-    const FuelDefinition* stored = &g_fuel_registry.back();
+    const size_t stored_index = g_fuel_registry.size() - 1;
+    const FuelDefinition& stored = g_fuel_registry[stored_index];
 
-    if (stored->item_id != kInvalidItemId) {
-        g_fuel_by_item[stored->item_id] = stored;
+    if (stored.item_id != kInvalidItemId) {
+        g_fuel_by_item[stored.item_id] = stored_index;
     }
-    if (stored->fluid_id != kInvalidFluidId) {
-        g_fuel_by_fluid[stored->fluid_id] = stored;
+    if (stored.fluid_id != kInvalidFluidId) {
+        g_fuel_by_fluid[stored.fluid_id] = stored_index;
     }
 }
 
@@ -58,12 +59,16 @@ void FuelRegistry::register_fuel(const FuelDefinition& def) {
 
 const FuelDefinition* FuelRegistry::get_by_item(ItemId item_id) {
     auto it = g_fuel_by_item.find(item_id);
-    return (it != g_fuel_by_item.end()) ? it->second : nullptr;
+    return (it != g_fuel_by_item.end() && it->second < g_fuel_registry.size())
+        ? &g_fuel_registry[it->second]
+        : nullptr;
 }
 
 const FuelDefinition* FuelRegistry::get_by_fluid(FluidId fluid_id) {
     auto it = g_fuel_by_fluid.find(fluid_id);
-    return (it != g_fuel_by_fluid.end()) ? it->second : nullptr;
+    return (it != g_fuel_by_fluid.end() && it->second < g_fuel_registry.size())
+        ? &g_fuel_registry[it->second]
+        : nullptr;
 }
 
 bool FuelRegistry::is_item_fuel(ItemId item_id) {

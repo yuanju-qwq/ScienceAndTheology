@@ -1,30 +1,29 @@
 class_name WorkbenchManager extends Node
 
-var _workbenches: Dictionary = {}  # "layer,x,y" -> true
+var _workbenches: Dictionary = {}  # "dimension,x,y,z" -> true
 
-signal workbench_placed(layer: StringName, cell: Vector2i)
-signal workbench_removed(layer: StringName, cell: Vector2i)
-
-
-func has_workbench(layer: StringName, cell: Vector2i) -> bool:
-	var key := "%s,%d,%d" % [layer, cell.x, cell.y]
-	return _workbenches.has(key)
+signal workbench_placed(dimension: StringName, cell: Vector3i)
+signal workbench_removed(dimension: StringName, cell: Vector3i)
 
 
-func place_workbench(layer: StringName, cell: Vector2i) -> bool:
-	var key := "%s,%d,%d" % [layer, cell.x, cell.y]
+func has_workbench(dimension: StringName, cell: Vector3i) -> bool:
+	return _workbenches.has(_make_key(dimension, cell))
+
+
+func place_workbench(dimension: StringName, cell: Vector3i) -> bool:
+	var key := _make_key(dimension, cell)
 	if _workbenches.has(key):
 		return false
 	_workbenches[key] = true
-	workbench_placed.emit(layer, cell)
+	workbench_placed.emit(dimension, cell)
 	return true
 
 
-func remove_workbench(layer: StringName, cell: Vector2i) -> bool:
-	var key := "%s,%d,%d" % [layer, cell.x, cell.y]
+func remove_workbench(dimension: StringName, cell: Vector3i) -> bool:
+	var key := _make_key(dimension, cell)
 	if not _workbenches.erase(key):
 		return false
-	workbench_removed.emit(layer, cell)
+	workbench_removed.emit(dimension, cell)
 	return true
 
 
@@ -32,13 +31,17 @@ func get_all_workbenches() -> Array:
 	var result: Array = []
 	for key in _workbenches.keys():
 		var parts := String(key).split(",")
-		if parts.size() == 3:
+		if parts.size() == 4:
 			result.append({
-				"layer": parts[0],
-				"cell": Vector2i(int(parts[1]), int(parts[2]))
+				"dimension": parts[0],
+				"cell": Vector3i(int(parts[1]), int(parts[2]), int(parts[3]))
 			})
 	return result
 
 
 func clear() -> void:
 	_workbenches.clear()
+
+
+func _make_key(dimension: StringName, cell: Vector3i) -> String:
+	return "%s,%d,%d,%d" % [dimension, cell.x, cell.y, cell.z]

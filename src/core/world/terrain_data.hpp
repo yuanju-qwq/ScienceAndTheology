@@ -26,7 +26,7 @@ inline constexpr bool operator&(uint32_t a, TerrainFlags b) {
     return (a & static_cast<uint32_t>(b)) != 0;
 }
 
-// A single cell in the terrain grid.
+// A single voxel in the terrain volume.
 struct TerrainCell {
     TerrainMaterial material = 0;
     uint32_t flags = 0;
@@ -41,35 +41,43 @@ struct TerrainCell {
 struct TerrainData {
     int size_x = 0;
     int size_y = 0;
+    int size_z = 0;
     std::vector<TerrainCell> cells;
 
-    const TerrainCell& cell_at(int x, int y) const {
-        return cells[static_cast<size_t>(y * size_x + x)];
+    const TerrainCell& cell_at(int x, int y, int z) const {
+        return cells[index_of(x, y, z)];
     }
 
-    TerrainCell& cell_at(int x, int y) {
-        return cells[static_cast<size_t>(y * size_x + x)];
+    TerrainCell& cell_at(int x, int y, int z) {
+        return cells[index_of(x, y, z)];
     }
 
-    void resize(int x, int y) {
+    void resize(int x, int y, int z) {
         size_x = x;
         size_y = y;
-        cells.resize(static_cast<size_t>(x * y));
+        size_z = z;
+        cells.resize(static_cast<size_t>(x * y * z));
     }
 
-    bool is_valid_cell(int x, int y) const {
-        return x >= 0 && x < size_x && y >= 0 && y < size_y;
+    bool is_valid_cell(int x, int y, int z) const {
+        return x >= 0 && x < size_x
+            && y >= 0 && y < size_y
+            && z >= 0 && z < size_z;
     }
 
-    void set_cell(int x, int y, TerrainMaterial material) {
-        set_cell(x, y, material, 0);
+    void set_cell(int x, int y, int z, TerrainMaterial material) {
+        set_cell(x, y, z, material, 0);
     }
 
-    void set_cell(int x, int y, TerrainMaterial material, uint32_t flags) {
-        if (!is_valid_cell(x, y)) return;
-        auto& cell = cells[static_cast<size_t>(y * size_x + x)];
+    void set_cell(int x, int y, int z, TerrainMaterial material, uint32_t flags) {
+        if (!is_valid_cell(x, y, z)) return;
+        auto& cell = cells[index_of(x, y, z)];
         cell.material = material;
         cell.flags = flags;
+    }
+
+    size_t index_of(int x, int y, int z) const {
+        return static_cast<size_t>((y * size_z + z) * size_x + x);
     }
 };
 

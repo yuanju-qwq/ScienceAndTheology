@@ -9,7 +9,7 @@ void StateSyncClient::apply_delta(const StateDelta& delta, WorldData* world) {
 
     for (const auto& key : delta.chunks_modified) {
         auto* chunk = world->get_chunk(
-            key.layer_id, key.chunk_x, key.chunk_y);
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
         if (!chunk) continue;
 
         if ((delta.flags & SyncFlags::TERRAIN) != SyncFlags::NONE) {

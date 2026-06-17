@@ -45,7 +45,7 @@ public:
     void tick(float delta);
 
     // Update the player's current chunk position (drives ACTIVE/SLEEPING set).
-    void set_player_chunk(const std::string& layer, int cx, int cy);
+    void set_player_chunk(const std::string& dimension, int cx, int cy, int cz);
 
     // How many chunks around the player are ACTIVE (radius, Manhattan).
     void set_active_radius(int radius) { active_radius_ = radius; }
@@ -72,7 +72,7 @@ private:
     void rebuild_chunk_sets();
 
     // Returns true if a chunk should tick this frame (sleeping cadence).
-    bool should_tick_sleeping(int cx, int cy) const;
+    bool should_tick_sleeping(int cx, int cy, int cz) const;
 
     WorldData* world_data_;
     std::unique_ptr<EventBus> event_bus_;
@@ -81,9 +81,10 @@ private:
 
     std::vector<std::unique_ptr<SimulationSystem>> subsystems_;
 
-    std::string player_layer_;
+    std::string player_dimension_ = "overworld";
     int player_cx_ = 0;
     int player_cy_ = 0;
+    int player_cz_ = 0;
     int active_radius_ = 4;
 
     std::vector<ChunkKey> active_chunks_;

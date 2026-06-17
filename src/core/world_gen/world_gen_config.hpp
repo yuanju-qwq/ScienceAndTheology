@@ -34,7 +34,7 @@ struct TerrainMaterialDef {
 struct TerrainTileMapping {
     TerrainMaterialId material_id = 0;
     std::string material_key;
-    std::string layer_id;
+    std::string dimension_id = "overworld";
     int source_id = 0;
     int atlas_x = 0;
     int atlas_y = 0;
@@ -57,7 +57,7 @@ struct TerrainMaterialRoles {
 };
 
 struct BaseTerrainRule {
-    std::string layer_id;
+    std::string dimension_id = "overworld";
     std::string mode = "solid";
     TerrainMaterialId default_material = 0;
     TerrainMaterialId low_elevation_material = 0;
@@ -78,7 +78,7 @@ struct BaseTerrainRule {
 
 struct BiomeRule {
     std::string key;
-    std::string layer_id;
+    std::string dimension_id = "overworld";
     TerrainMaterialId source_material = 0;
     TerrainMaterialId result_material = 0;
     std::string condition = "temperature_humidity";
@@ -98,7 +98,7 @@ struct BiomeRule {
 
 struct OreVeinRule {
     std::string key;
-    std::string layer_id = "underground";
+    std::string dimension_id = "overworld";
     TerrainMaterialId host_material = 0;
     TerrainMaterialId ore_material = 0;
     float combined_min = 0.5f;
@@ -106,7 +106,7 @@ struct OreVeinRule {
 };
 
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 2;
+    static constexpr uint32_t kSchemaVersion = 3;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
@@ -127,7 +127,7 @@ struct WorldGenConfigSnapshot {
     bool has_material_key(const std::string& key) const;
     bool is_role(TerrainMaterialId id, TerrainMaterialId role_id) const;
     bool is_walkable_ground(TerrainMaterialId id) const;
-    const BaseTerrainRule* find_base_rule(const std::string& layer_id) const;
+    const BaseTerrainRule* find_base_rule(const std::string& dimension_id) const;
 };
 
 std::shared_ptr<const WorldGenConfigSnapshot> make_empty_world_gen_config();

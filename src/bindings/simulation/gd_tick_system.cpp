@@ -49,9 +49,10 @@ void GDTickSystem::tick(float delta) {
     tick_system_->tick(delta);
 }
 
-void GDTickSystem::set_player_chunk(const godot::String& layer, int cx, int cy) {
+void GDTickSystem::set_player_chunk(
+    const godot::String& dimension, int cx, int cy, int cz) {
     if (tick_system_ && world_set) {
-        tick_system_->set_player_chunk(layer.utf8().get_data(), cx, cy);
+        tick_system_->set_player_chunk(dimension.utf8().get_data(), cx, cy, cz);
     }
 }
 
@@ -129,9 +130,10 @@ godot::Dictionary GDTickSystem::compute_delta(const godot::Array& chunk_keys) {
         if (d.get_type() != godot::Variant::DICTIONARY) continue;
         godot::Dictionary kd = d;
         ChunkKey ck;
-        ck.layer_id = static_cast<godot::String>(kd["layer"]).utf8().get_data();
+        ck.dimension_id = static_cast<godot::String>(kd["dimension"]).utf8().get_data();
         ck.chunk_x = static_cast<int>(kd["cx"]);
         ck.chunk_y = static_cast<int>(kd["cy"]);
+        ck.chunk_z = static_cast<int>(kd["cz"]);
         keys.push_back(ck);
     }
 
@@ -140,14 +142,15 @@ godot::Dictionary GDTickSystem::compute_delta(const godot::Array& chunk_keys) {
 }
 
 godot::Dictionary GDTickSystem::create_snapshot(
-    const godot::String& layer, int cx, int cy) {
+    const godot::String& dimension, int cx, int cy, int cz) {
     godot::Dictionary dict;
     if (!tick_system_ || !tick_system_->state_sync()) return dict;
 
     ChunkKey key;
-    key.layer_id = layer.utf8().get_data();
+    key.dimension_id = dimension.utf8().get_data();
     key.chunk_x = cx;
     key.chunk_y = cy;
+    key.chunk_z = cz;
 
     auto delta = tick_system_->state_sync()->create_snapshot(key);
     return delta_to_dict(delta);
@@ -171,11 +174,13 @@ godot::Dictionary GDTickSystem::event_to_dict(const GameEvent& ev) const {
     godot::Dictionary d;
     d["type"] = static_cast<int64_t>(ev.type);
     d["source_id"] = static_cast<int64_t>(ev.source_id);
-    d["source_layer"] = godot::String(ev.source_layer.c_str());
+    d["source_dimension"] = godot::String(ev.source_dimension.c_str());
     d["cell_x"] = ev.cell_x;
     d["cell_y"] = ev.cell_y;
+    d["cell_z"] = ev.cell_z;
     d["chunk_x"] = ev.chunk_x;
     d["chunk_y"] = ev.chunk_y;
+    d["chunk_z"] = ev.chunk_z;
     d["timestamp"] = ev.timestamp;
 
     godot::Dictionary sd;
@@ -211,9 +216,10 @@ godot::Dictionary GDTickSystem::error_to_dict(const MachineError& err) const {
 
 godot::Dictionary GDTickSystem::chunk_key_to_dict(const ChunkKey& key) const {
     godot::Dictionary d;
-    d["layer"] = godot::String(key.layer_id.c_str());
+    d["dimension"] = godot::String(key.dimension_id.c_str());
     d["cx"] = key.chunk_x;
     d["cy"] = key.chunk_y;
+    d["cz"] = key.chunk_z;
     return d;
 }
 
@@ -259,8 +265,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_machine_system);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
-    godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "layer",
-        "cx", "cy"), &GDTickSystem::set_player_chunk);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",
+        "cx", "cy", "cz"), &GDTickSystem::set_player_chunk);
 
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_radius"),
         &GDTickSystem::get_active_radius);
@@ -285,8 +291,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::get_dirty_chunks);
     godot::ClassDB::bind_method(godot::D_METHOD("compute_delta",
         "chunk_keys"), &GDTickSystem::compute_delta);
-    godot::ClassDB::bind_method(godot::D_METHOD("create_snapshot", "layer",
-        "cx", "cy"), &GDTickSystem::create_snapshot);
+    godot::ClassDB::bind_method(godot::D_METHOD("create_snapshot", "dimension",
+        "cx", "cy", "cz"), &GDTickSystem::create_snapshot);
 
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_inventory",
         "inventory"), &GDTickSystem::set_player_inventory);
@@ -311,51 +317,59 @@ void GDTickSystem::_bind_methods() {
         godot::PropertyInfo(godot::Variant::INT, "demand"),
         godot::PropertyInfo(godot::Variant::INT, "capacity")));
     ADD_SIGNAL(godot::MethodInfo("chunk_generated",
-        godot::PropertyInfo(godot::Variant::STRING, "layer"),
-        godot::PropertyInfo(godot::Variant::INT, "cx"),
-        godot::PropertyInfo(godot::Variant::INT, "cy")));
-    ADD_SIGNAL(godot::MethodInfo("chunk_state_changed",
-        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
         godot::PropertyInfo(godot::Variant::INT, "cx"),
         godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("chunk_state_changed",
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz"),
         godot::PropertyInfo(godot::Variant::INT, "old_state"),
         godot::PropertyInfo(godot::Variant::INT, "new_state")));
     ADD_SIGNAL(godot::MethodInfo("entity_created",
         godot::PropertyInfo(godot::Variant::INT, "entity_id"),
         godot::PropertyInfo(godot::Variant::STRING, "type_name"),
-        godot::PropertyInfo(godot::Variant::INT, "cx"),
-        godot::PropertyInfo(godot::Variant::INT, "cy")));
-    ADD_SIGNAL(godot::MethodInfo("entity_destroyed",
-        godot::PropertyInfo(godot::Variant::INT, "entity_id"),
-        godot::PropertyInfo(godot::Variant::STRING, "layer")));
-
-    ADD_SIGNAL(godot::MethodInfo("terrain_changed",
-        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
         godot::PropertyInfo(godot::Variant::INT, "cx"),
         godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("entity_destroyed",
+        godot::PropertyInfo(godot::Variant::INT, "entity_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+
+    ADD_SIGNAL(godot::MethodInfo("terrain_changed",
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz"),
         godot::PropertyInfo(godot::Variant::INT, "x"),
         godot::PropertyInfo(godot::Variant::INT, "y"),
+        godot::PropertyInfo(godot::Variant::INT, "z"),
         godot::PropertyInfo(godot::Variant::INT, "old_material"),
         godot::PropertyInfo(godot::Variant::INT, "new_material")));
 
     ADD_SIGNAL(godot::MethodInfo("item_dropped",
         godot::PropertyInfo(godot::Variant::INT, "item_id"),
         godot::PropertyInfo(godot::Variant::INT, "count"),
-        godot::PropertyInfo(godot::Variant::STRING, "layer"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
         godot::PropertyInfo(godot::Variant::INT, "cx"),
         godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz"),
         godot::PropertyInfo(godot::Variant::INT, "x"),
-        godot::PropertyInfo(godot::Variant::INT, "y")));
+        godot::PropertyInfo(godot::Variant::INT, "y"),
+        godot::PropertyInfo(godot::Variant::INT, "z")));
 
     ADD_SIGNAL(godot::MethodInfo("item_picked_up",
         godot::PropertyInfo(godot::Variant::INT, "item_id"),
         godot::PropertyInfo(godot::Variant::INT, "count"),
-        godot::PropertyInfo(godot::Variant::STRING, "layer")));
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
 
     ADD_SIGNAL(godot::MethodInfo("entity_damaged",
         godot::PropertyInfo(godot::Variant::INT, "entity_id"),
         godot::PropertyInfo(godot::Variant::FLOAT, "damage"),
-        godot::PropertyInfo(godot::Variant::STRING, "source_layer")));
+        godot::PropertyInfo(godot::Variant::STRING, "source_dimension")));
 
     ADD_SIGNAL(godot::MethodInfo("player_inventory_changed"));
 
@@ -409,16 +423,16 @@ void GDTickSystem::subscribe_to_event_bus() {
         GameEventType::CHUNK_GENERATED,
         [this](const GameEvent& e) {
             emit_signal("chunk_generated",
-                godot::String(e.source_layer.c_str()),
-                e.chunk_x, e.chunk_y);
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
         }));
 
     event_subscriptions_.push_back(bus->subscribe(
         GameEventType::CHUNK_STATE_CHANGED,
         [this](const GameEvent& e) {
             emit_signal("chunk_state_changed",
-                godot::String(e.source_layer.c_str()),
-                e.chunk_x, e.chunk_y,
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z,
                 e.int_data.at("old_state"),
                 e.int_data.at("new_state"));
         }));
@@ -429,7 +443,8 @@ void GDTickSystem::subscribe_to_event_bus() {
             emit_signal("entity_created",
                 static_cast<int64_t>(e.source_id),
                 godot::String(e.string_data.at("type_name").c_str()),
-                e.chunk_x, e.chunk_y);
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
         }));
 
     event_subscriptions_.push_back(bus->subscribe(
@@ -437,15 +452,16 @@ void GDTickSystem::subscribe_to_event_bus() {
         [this](const GameEvent& e) {
             emit_signal("entity_destroyed",
                 static_cast<int64_t>(e.source_id),
-                godot::String(e.source_layer.c_str()));
+                godot::String(e.source_dimension.c_str()));
         }));
 
     event_subscriptions_.push_back(bus->subscribe(
         GameEventType::TERRAIN_CHANGED,
         [this](const GameEvent& e) {
             emit_signal("terrain_changed",
-                godot::String(e.source_layer.c_str()),
-                e.chunk_x, e.chunk_y, e.cell_x, e.cell_y,
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z,
+                e.cell_x, e.cell_y, e.cell_z,
                 e.int_data.at("old_material"),
                 e.int_data.at("new_material"));
         }));
@@ -456,8 +472,9 @@ void GDTickSystem::subscribe_to_event_bus() {
             emit_signal("item_dropped",
                 static_cast<int64_t>(e.source_id),
                 e.int_data.at("count"),
-                godot::String(e.source_layer.c_str()),
-                e.chunk_x, e.chunk_y, e.cell_x, e.cell_y);
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z,
+                e.cell_x, e.cell_y, e.cell_z);
         }));
 
     event_subscriptions_.push_back(bus->subscribe(
@@ -466,7 +483,7 @@ void GDTickSystem::subscribe_to_event_bus() {
             emit_signal("item_picked_up",
                 static_cast<int64_t>(e.source_id),
                 e.int_data.at("count"),
-                godot::String(e.source_layer.c_str()));
+                godot::String(e.source_dimension.c_str()));
         }));
 
     event_subscriptions_.push_back(bus->subscribe(
@@ -475,7 +492,7 @@ void GDTickSystem::subscribe_to_event_bus() {
             emit_signal("entity_damaged",
                 static_cast<int64_t>(e.source_id),
                 e.float_data.at("damage"),
-                godot::String(e.source_layer.c_str()));
+                godot::String(e.source_dimension.c_str()));
         }));
 
     event_subscriptions_.push_back(bus->subscribe(

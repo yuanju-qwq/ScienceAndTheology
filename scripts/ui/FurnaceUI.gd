@@ -2,12 +2,12 @@ class_name FurnaceUI extends Control
 
 signal closed
 
-var player: Node
-var _furnace_manager = null
-var _furnace_data = null
+var player: PlayerController
+var _furnace_manager: FurnaceManager = null
+var _furnace_data: FurnaceData = null
 var _furnace_key: String = ""
-var _furnace_layer: StringName = &""
-var _furnace_cell: Vector2i = Vector2i.ZERO
+var _furnace_dimension: StringName = &""
+var _furnace_cell: Vector3i = Vector3i.ZERO
 var _is_open := false
 
 @onready var _panel := $Panel
@@ -37,10 +37,10 @@ func _process(_delta: float) -> void:
 	_refresh_display()
 
 
-func open(furnace_data, layer: StringName, cell: Vector2i, furnace_manager = null) -> void:
+func open(furnace_data, dimension: StringName, cell: Vector3i, furnace_manager = null) -> void:
 	_furnace_data = furnace_data
-	_furnace_key = "%s,%d,%d" % [layer, cell.x, cell.y]
-	_furnace_layer = layer
+	_furnace_key = "%s,%d,%d,%d" % [dimension, cell.x, cell.y, cell.z]
+	_furnace_dimension = dimension
 	_furnace_cell = cell
 	_furnace_manager = furnace_manager
 	_is_open = true
@@ -53,8 +53,8 @@ func close() -> void:
 	visible = false
 	_furnace_data = null
 	_furnace_key = ""
-	_furnace_layer = &""
-	_furnace_cell = Vector2i.ZERO
+	_furnace_dimension = &""
+	_furnace_cell = Vector3i.ZERO
 	closed.emit()
 
 
@@ -62,15 +62,13 @@ func _on_close() -> void:
 	close()
 
 
-func set_player(p: Node) -> void:
+func set_player(p: PlayerController) -> void:
 	player = p
 
 
 func _refresh_display() -> void:
 	if _furnace_data == null:
 		return
-
-	var db := ItemDatabase
 
 	# Input slot
 	if _furnace_data.input_item_id > 0 and _furnace_data.input_count > 0:
@@ -113,7 +111,7 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _handle_click() -> void:
-	if player == null or _furnace_data == null or not player.has_method(&"get_command_server"):
+	if player == null or _furnace_data == null:
 		return
 
 	var command_server: GameCommandServer = player.get_command_server()
@@ -124,8 +122,7 @@ func _handle_click() -> void:
 	if _output_slot.get_global_rect().has_point(get_global_mouse_position()):
 		command_server.submit_command({
 			"type": GameCommandServer.COMMAND_FURNACE_TAKE_OUTPUT,
-			"furnace_data": _furnace_data,
-			"layer": _furnace_layer,
+			"dimension": _furnace_dimension,
 			"cell": _furnace_cell,
 		})
 		return
@@ -136,8 +133,7 @@ func _handle_click() -> void:
 		if held_id > 0 and _is_valid_input(held_id):
 			command_server.submit_command({
 				"type": GameCommandServer.COMMAND_FURNACE_INSERT_INPUT,
-				"furnace_data": _furnace_data,
-				"layer": _furnace_layer,
+				"dimension": _furnace_dimension,
 				"cell": _furnace_cell,
 				"item_id": held_id,
 			})
@@ -149,8 +145,7 @@ func _handle_click() -> void:
 		if held_id > 0 and _is_fuel(held_id):
 			command_server.submit_command({
 				"type": GameCommandServer.COMMAND_FURNACE_INSERT_FUEL,
-				"furnace_data": _furnace_data,
-				"layer": _furnace_layer,
+				"dimension": _furnace_dimension,
 				"cell": _furnace_cell,
 				"item_id": held_id,
 			})
@@ -158,7 +153,7 @@ func _handle_click() -> void:
 
 
 func _get_held_item_id() -> int:
-	if player and player.has_method("get_equipped_item_id"):
+	if player:
 		return player.get_equipped_item_id()
 	return 0
 

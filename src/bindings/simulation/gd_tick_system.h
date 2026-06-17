@@ -19,7 +19,7 @@ namespace science_and_theology {
 //   var tick_sys = GDTickSystem.new()
 //   tick_sys.set_world_data(gd_world_data)
 //   tick_sys.register_machine_system()
-//   tick_sys.set_player_chunk("surface", 0, 0)
+//   tick_sys.set_player_chunk("overworld", 0, 0, 0)
 //
 //   func _process(delta):
 //       tick_sys.tick(delta)
@@ -43,7 +43,7 @@ public:
     void tick(float delta);
 
     // Set the player's current chunk position to determine ACTIVE set.
-    void set_player_chunk(const godot::String& layer, int cx, int cy);
+    void set_player_chunk(const godot::String& dimension, int cx, int cy, int cz);
 
     // Active chunk radius.
     int64_t get_active_radius() const;
@@ -85,7 +85,7 @@ public:
 
     // Create a full snapshot for a chunk.
     godot::Dictionary create_snapshot(
-        const godot::String& layer, int cx, int cy);
+        const godot::String& dimension, int cx, int cy, int cz);
 
     // Set the GDPlayerInventory reference for event bridging.
     void set_player_inventory(godot::Resource* inventory);

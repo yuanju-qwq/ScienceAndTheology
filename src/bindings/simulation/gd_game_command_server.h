@@ -6,7 +6,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/string_name.hpp>
-#include <godot_cpp/variant/vector2i.hpp>
+#include <godot_cpp/variant/vector3i.hpp>
 
 #include <cstdint>
 
@@ -16,6 +16,7 @@ namespace science_and_theology {
 
 class GDPlayerEquipment;
 class GDPlayerInventory;
+class GDFurnaceManager;
 class GDWorldData;
 
 class GDGameCommandServer : public godot::Node {
@@ -49,6 +50,9 @@ private:
     godot::Dictionary cmd_furnace_take_output(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_insert_input(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_insert_fuel(const godot::Dictionary& command);
+    godot::Dictionary sync_furnace(
+        const godot::StringName& dimension, const godot::Vector3i& cell,
+        const char* reason);
 
     int32_t add_inventory_item(int64_t item_id, int32_t count,
                                int32_t secondary_id = kSecondaryNone,
@@ -57,11 +61,11 @@ private:
     bool inventory_has_item(int64_t item_id, int32_t count) const;
 
     bool is_world_object_occupied(const godot::StringName& object_type,
-                                  const godot::StringName& layer,
-                                  const godot::Vector2i& cell) const;
+                                  const godot::StringName& dimension,
+                                  const godot::Vector3i& cell) const;
     bool node_bool_call(godot::Node* node, const godot::StringName& method,
-                        const godot::StringName& layer,
-                        const godot::Vector2i& cell) const;
+                        const godot::StringName& dimension,
+                        const godot::Vector3i& cell) const;
 
     bool has_required_tool(int32_t terrain_material) const;
     bool player_has_tool_named(const godot::String& tool_name) const;
@@ -83,6 +87,7 @@ private:
     GDPlayerEquipment* equipment_ = nullptr;
     godot::Node* workbench_manager_ = nullptr;
     godot::Node* furnace_manager_ = nullptr;
+    GDFurnaceManager* furnace_manager_cpp_ = nullptr;
     godot::Node* ladder_manager_ = nullptr;
 };
 

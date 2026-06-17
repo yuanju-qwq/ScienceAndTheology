@@ -16,17 +16,8 @@ func load_content() -> void:
 	GDCraftingManager.clear_load_report()
 	GDRecipeDatabase.clear_load_report()
 
-	var crafting_added := GDCraftingManager.register_recipes(_crafting_recipes())
-	var machine_added := GDRecipeDatabase.register_recipes(_machine_recipes())
-
-	print("ContentDatabase: registered %d crafting recipes, %d machine recipes." %
-			[crafting_added, machine_added])
-	_print_report("crafting", GDCraftingManager.get_load_report())
-	_print_report("machine", GDRecipeDatabase.get_load_report())
-
-func _print_report(label: String, report: Array) -> void:
-	for entry in report:
-		push_warning("ContentDatabase %s: %s" % [label, entry])
+	GDCraftingManager.register_recipes(_crafting_recipes())
+	GDRecipeDatabase.register_recipes(_machine_recipes())
 
 func _item(item_id: int, count: int = 1) -> Dictionary:
 	return {

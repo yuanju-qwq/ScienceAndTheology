@@ -6,7 +6,7 @@ add_library(snt_core STATIC)
 target_include_directories(snt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(MSVC)
-    target_compile_options(snt_core PRIVATE /FS)
+    target_compile_options(snt_core PRIVATE /FS /utf-8)
 endif()
 
 # Fluid system (universal)

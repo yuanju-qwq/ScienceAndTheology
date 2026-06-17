@@ -386,7 +386,7 @@ func _register_fluids() -> void:
 
 # ── Item registration ────────────────────────────────────────────────────
 func _register_items() -> void:
-	var item_db = get_node_or_null("/root/ItemDatabase")
+	var item_db: ItemDatabase = get_node_or_null("/root/ItemDatabase") as ItemDatabase
 	if not item_db:
 		push_warning("WikiDatabase: ItemDatabase autoload not found.")
 		return
@@ -474,7 +474,7 @@ func _register_items() -> void:
 	]
 	for t in gt_tools:
 		var item_id: int = t[0]
-		var item_def = item_db.get_item(item_id)
+		var item_def: ItemDef = item_db.get_item(item_id)
 		if item_def:
 			var eid := "item.tool_" + str(item_id)
 			var icon: Texture2D = item_def.icon if item_def.icon else make_placeholder_icon(Color.hex(t[2]))
@@ -492,9 +492,9 @@ func _register_items() -> void:
 			_category_order["items"] = arr + PackedStringArray([eid])
 
 
-func _register_item_from_db(item_db: Node, item_id: int, cat: String,
+func _register_item_from_db(item_db: ItemDatabase, item_id: int, cat: String,
 		subtitle: String, desc: String, prop1: Dictionary, prop2: Dictionary = {}) -> void:
-	var item_def = item_db.get_item(item_id)
+	var item_def: ItemDef = item_db.get_item(item_id)
 	if not item_def:
 		return
 
@@ -514,7 +514,7 @@ func _register_item_from_db(item_db: Node, item_id: int, cat: String,
 		props.append(prop2)
 
 	# Add tool stats if available.
-	var tool_stats = item_db.get_tool_stats(item_id)
+	var tool_stats: ToolDef = item_db.get_tool_stats(item_id)
 	if tool_stats:
 		var tier_names := {0: "Wood", 1: "Stone", 2: "Iron", 3: "Diamond"}
 		var type_names := {0: "N/A", 1: "Pickaxe", 2: "Axe", 3: "Shovel", 4: "Sword"}

@@ -66,7 +66,7 @@ void GDTerrainGenerator::rebuild_generator() {
 }
 
 godot::Dictionary GDTerrainGenerator::generate_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     Dictionary result;
 
     if (!generator_) {
@@ -75,12 +75,13 @@ godot::Dictionary GDTerrainGenerator::generate_chunk(
         return result;
     }
 
-    std::string layer_str = layer_id.utf8().get_data();
+    std::string dimension_str = dimension_id.utf8().get_data();
 
-    ChunkData chunk = generator_->generate_chunk(layer_str, chunk_x, chunk_y);
+    ChunkData chunk = generator_->generate_chunk(
+        dimension_str, chunk_x, chunk_y, chunk_z);
     const TerrainData& terrain = chunk.terrain;
 
-    int cell_count = terrain.size_x * terrain.size_y;
+    int cell_count = terrain.size_x * terrain.size_y * terrain.size_z;
     PackedByteArray materials;
     PackedInt32Array flags;
     materials.resize(cell_count);
@@ -93,6 +94,7 @@ godot::Dictionary GDTerrainGenerator::generate_chunk(
 
     result["size_x"] = terrain.size_x;
     result["size_y"] = terrain.size_y;
+    result["size_z"] = terrain.size_z;
     result["materials"] = materials;
     result["flags"] = flags;
 
@@ -117,7 +119,7 @@ void GDTerrainGenerator::_bind_methods() {
                  PROPERTY_HINT_RESOURCE_TYPE, "GDWorldGenConfig"),
                  "set_worldgen_config", "get_worldgen_config");
 
-    ClassDB::bind_method(D_METHOD("generate_chunk", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("generate_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDTerrainGenerator::generate_chunk);
 }
 

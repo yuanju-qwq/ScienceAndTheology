@@ -29,9 +29,9 @@ namespace science_and_theology {
 // Usage in GDScript:
 //   var world = GDWorldData.new()
 //   world.seed = 12345
-//   var data = world.get_or_generate_chunk("surface", 0, 0)
-//   if world.has_chunk("surface", 0, 0):
-//       var terrain = world.get_chunk_terrain("surface", 0, 0)
+//   var data = world.get_or_generate_chunk("overworld", 0, 0, 0)
+//   if world.has_chunk("overworld", 0, 0, 0):
+//       var terrain = world.get_chunk_terrain("overworld", 0, 0, 0)
 class GDWorldData : public godot::Resource {
     GDCLASS(GDWorldData, godot::Resource)
 
@@ -61,76 +61,80 @@ public:
 
     // Generates a chunk if it doesn't exist, then returns its terrain data.
     // Emits chunk_ready signal when a new chunk is generated.
-    // Returns: { "size_x": int, "size_y": int,
+    // Returns: { "size_x": int, "size_y": int, "size_z": int,
     //            "materials": PackedByteArray, "flags": PackedInt32Array }
     godot::Dictionary get_or_generate_chunk(
-        const godot::String& layer_id, int chunk_x, int chunk_y);
+        const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z);
 
     // Returns the current state of a chunk as an int (see ChunkStateConst).
     // Returns -1 if the chunk has never been touched.
-    int64_t get_chunk_state(const godot::String& layer_id,
-                            int chunk_x, int chunk_y) const;
+    int64_t get_chunk_state(const godot::String& dimension_id,
+                            int chunk_x, int chunk_y, int chunk_z) const;
 
     // Sets a chunk's state. Used by Godot ChunkManager to mark ACTIVE/SLEEPING.
-    void set_chunk_state(const godot::String& layer_id,
-                         int chunk_x, int chunk_y, int state);
+    void set_chunk_state(const godot::String& dimension_id,
+                         int chunk_x, int chunk_y, int chunk_z, int state);
 
     // Checks if a chunk exists in any state.
-    bool has_chunk(const godot::String& layer_id, int chunk_x, int chunk_y);
+    bool has_chunk(const godot::String& dimension_id,
+                   int chunk_x, int chunk_y, int chunk_z);
 
     // Stores terrain data from a Dictionary.
-    void set_chunk_from_dict(const godot::String& layer_id,
-                             int chunk_x, int chunk_y,
+    void set_chunk_from_dict(const godot::String& dimension_id,
+                             int chunk_x, int chunk_y, int chunk_z,
                              const godot::Dictionary& data);
 
     // Retrieves terrain data for a chunk as a Dictionary.
     // Includes connectors array if present.
-    godot::Dictionary get_chunk_terrain(const godot::String& layer_id,
-                                        int chunk_x, int chunk_y);
+    godot::Dictionary get_chunk_terrain(const godot::String& dimension_id,
+                                        int chunk_x, int chunk_y, int chunk_z);
 
     // Retrieves only connector placements for a chunk.
-    godot::Array get_chunk_connectors(const godot::String& layer_id,
-                                      int chunk_x, int chunk_y);
+    godot::Array get_chunk_connectors(const godot::String& dimension_id,
+                                      int chunk_x, int chunk_y, int chunk_z);
 
     // Retrieves only mechanism placements for a chunk.
-    godot::Array get_chunk_mechanisms(const godot::String& layer_id,
-                                      int chunk_x, int chunk_y);
+    godot::Array get_chunk_mechanisms(const godot::String& dimension_id,
+                                      int chunk_x, int chunk_y, int chunk_z);
 
     // Returns entity IDs owned by this chunk as an Array of uint64.
-    godot::Array get_chunk_entities(const godot::String& layer_id,
-                                    int chunk_x, int chunk_y);
+    godot::Array get_chunk_entities(const godot::String& dimension_id,
+                                    int chunk_x, int chunk_y, int chunk_z);
 
     // Returns machine IDs owned by this chunk as an Array of uint64.
-    godot::Array get_chunk_machines(const godot::String& layer_id,
-                                    int chunk_x, int chunk_y);
+    godot::Array get_chunk_machines(const godot::String& dimension_id,
+                                    int chunk_x, int chunk_y, int chunk_z);
 
     // Returns connector runtime IDs owned by this chunk as an Array of uint64.
-    godot::Array get_chunk_connector_ids(const godot::String& layer_id,
-                                         int chunk_x, int chunk_y);
+    godot::Array get_chunk_connector_ids(const godot::String& dimension_id,
+                                         int chunk_x, int chunk_y, int chunk_z);
 
     // Registers an entity ID in this chunk. Returns true on success.
-    bool add_entity_to_chunk(const godot::String& layer_id,
-                             int chunk_x, int chunk_y, int64_t entity_id);
+    bool add_entity_to_chunk(const godot::String& dimension_id,
+                             int chunk_x, int chunk_y, int chunk_z,
+                             int64_t entity_id);
 
     // Registers a machine ID in this chunk. Returns true on success.
-    bool add_machine_to_chunk(const godot::String& layer_id,
-                              int chunk_x, int chunk_y, int64_t machine_id);
+    bool add_machine_to_chunk(const godot::String& dimension_id,
+                              int chunk_x, int chunk_y, int chunk_z,
+                              int64_t machine_id);
 
     // Registers a connector runtime ID in this chunk. Returns true on success.
-    bool add_connector_id_to_chunk(const godot::String& layer_id,
-                                   int chunk_x, int chunk_y, int64_t connector_id);
+    bool add_connector_id_to_chunk(const godot::String& dimension_id,
+                                   int chunk_x, int chunk_y, int chunk_z,
+                                   int64_t connector_id);
 
     // Terrain cell access (single cell get/set).
-    godot::Dictionary get_terrain_cell(const godot::String& layer_id,
-                                       int chunk_x, int chunk_y,
-                                       int local_x, int local_y);
-    bool set_terrain_cell(const godot::String& layer_id,
-                          int chunk_x, int chunk_y,
-                          int local_x, int local_y, int material);
+    godot::Dictionary get_terrain_cell(const godot::String& dimension_id,
+                                       int chunk_x, int chunk_y, int chunk_z,
+                                       int local_x, int local_y, int local_z);
+    bool set_terrain_cell(const godot::String& dimension_id,
+                          int chunk_x, int chunk_y, int chunk_z,
+                          int local_x, int local_y, int local_z, int material);
 
     // Removes a chunk entirely.
-    void remove_chunk(const godot::String& layer_id,
-                      int chunk_x, int chunk_y);
+    void remove_chunk(const godot::String& dimension_id,
+                      int chunk_x, int chunk_y, int chunk_z);
 
     // Returns all loaded chunk keys as an Array of Dictionaries.
     godot::Array get_all_chunk_keys() const;
@@ -143,8 +147,8 @@ public:
     // Non-blocking: enqueues chunk generation on the worker pool.
     // Chunk is automatically stored when ready and chunk_ready signal is
     // emitted during the next call to process_async_results().
-    void request_chunk_async(const godot::String& layer_id,
-                             int chunk_x, int chunk_y);
+    void request_chunk_async(const godot::String& dimension_id,
+                             int chunk_x, int chunk_y, int chunk_z);
 
     // Must be called every frame (e.g., from _process).
     // Collects completed async generations, stores them in the world,
@@ -167,8 +171,8 @@ public:
 
     // Returns true if a chunk is currently queued, generating, or waiting for
     // process_async_results().
-    bool is_chunk_async_pending(const godot::String& layer_id,
-                                int chunk_x, int chunk_y) const;
+    bool is_chunk_async_pending(const godot::String& dimension_id,
+                                int chunk_x, int chunk_y, int chunk_z) const;
 
     // Maximum async queue size. When full, request_chunk_async silently
     // drops new requests to prevent unbounded memory growth.
@@ -224,37 +228,42 @@ private:
 
     // Async generation internals.
     struct AsyncChunkResult {
-        std::string layer_id;
+        std::string dimension_id;
         int chunk_x = 0;
         int chunk_y = 0;
+        int chunk_z = 0;
         ChunkData chunk;
     };
 
     struct AsyncChunkTaskData {
         GDWorldData* world_data;
         TerrainGenerator* gen;
-        std::string layer_id;
+        std::string dimension_id;
         int chunk_x;
         int chunk_y;
+        int chunk_z;
     };
 
     struct AsyncChunkKey {
-        std::string layer_id;
+        std::string dimension_id;
         int chunk_x = 0;
         int chunk_y = 0;
+        int chunk_z = 0;
 
         bool operator==(const AsyncChunkKey& other) const {
-            return layer_id == other.layer_id &&
+            return dimension_id == other.dimension_id &&
                    chunk_x == other.chunk_x &&
-                   chunk_y == other.chunk_y;
+                   chunk_y == other.chunk_y &&
+                   chunk_z == other.chunk_z;
         }
     };
 
     struct AsyncChunkKeyHash {
         size_t operator()(const AsyncChunkKey& key) const {
-            size_t h = std::hash<std::string>()(key.layer_id);
+            size_t h = std::hash<std::string>()(key.dimension_id);
             h ^= std::hash<int>()(key.chunk_x) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<int>()(key.chunk_y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<int>()(key.chunk_z) + 0x9e3779b9 + (h << 6) + (h >> 2);
             return h;
         }
     };

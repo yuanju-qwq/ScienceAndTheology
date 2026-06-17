@@ -1,7 +1,7 @@
 class_name WorldObjectRenderer
 extends Node3D
 
-const SURFACE: StringName = &"surface"
+const OVERWORLD: StringName = &"overworld"
 
 @export var world_path: NodePath = ^"../ChunkRendererBridge"
 @export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
@@ -9,9 +9,9 @@ const SURFACE: StringName = &"surface"
 @export var ladder_manager_path: NodePath = ^"../LadderManager"
 
 @onready var _world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
-@onready var _workbench_manager = get_node_or_null(workbench_manager_path)
-@onready var _furnace_manager = get_node_or_null(furnace_manager_path)
-@onready var _ladder_manager = get_node_or_null(ladder_manager_path)
+@onready var _workbench_manager: WorkbenchManager = get_node_or_null(workbench_manager_path) as WorkbenchManager
+@onready var _furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
+@onready var _ladder_manager: LadderManager = get_node_or_null(ladder_manager_path) as LadderManager
 
 var _objects: Dictionary = {}
 var _materials: Dictionary = {}
@@ -38,49 +38,49 @@ func _connect_manager_signals() -> void:
 func _sync_existing_objects() -> void:
 	if _workbench_manager != null:
 		for entry in _workbench_manager.get_all_workbenches():
-			_on_workbench_placed(StringName(entry.get("layer", "")), entry.get("cell", Vector2i.ZERO))
+			_on_workbench_placed(StringName(entry.get("dimension", "")), entry.get("cell", Vector3i.ZERO))
 	if _furnace_manager != null:
 		for entry in _furnace_manager.get_all_furnaces():
-			_on_furnace_placed(StringName(entry.get("layer", "")), entry.get("cell", Vector2i.ZERO))
-	if _ladder_manager != null and _ladder_manager.has_method(&"get_all_ladders"):
+			_on_furnace_placed(StringName(entry.get("dimension", "")), entry.get("cell", Vector3i.ZERO))
+	if _ladder_manager != null:
 		for entry in _ladder_manager.get_all_ladders():
-			_on_ladder_placed(StringName(entry.get("layer", "")), entry.get("cell", Vector2i.ZERO))
+			_on_ladder_placed(StringName(entry.get("dimension", "")), entry.get("cell", Vector3i.ZERO))
 
 
-func _on_workbench_placed(layer: StringName, cell: Vector2i) -> void:
-	_create_object(&"workbench", layer, cell)
+func _on_workbench_placed(dimension: StringName, cell: Vector3i) -> void:
+	_create_object(&"workbench", dimension, cell)
 
 
-func _on_workbench_removed(layer: StringName, cell: Vector2i) -> void:
-	_remove_object(&"workbench", layer, cell)
+func _on_workbench_removed(dimension: StringName, cell: Vector3i) -> void:
+	_remove_object(&"workbench", dimension, cell)
 
 
-func _on_furnace_placed(layer: StringName, cell: Vector2i) -> void:
-	_create_object(&"furnace", layer, cell)
+func _on_furnace_placed(dimension: StringName, cell: Vector3i) -> void:
+	_create_object(&"furnace", dimension, cell)
 
 
-func _on_furnace_removed(layer: StringName, cell: Vector2i) -> void:
-	_remove_object(&"furnace", layer, cell)
+func _on_furnace_removed(dimension: StringName, cell: Vector3i) -> void:
+	_remove_object(&"furnace", dimension, cell)
 
 
-func _on_ladder_placed(layer: StringName, cell: Vector2i) -> void:
-	_create_object(&"ladder", layer, cell)
+func _on_ladder_placed(dimension: StringName, cell: Vector3i) -> void:
+	_create_object(&"ladder", dimension, cell)
 
 
-func _on_ladder_removed(layer: StringName, cell: Vector2i) -> void:
-	_remove_object(&"ladder", layer, cell)
+func _on_ladder_removed(dimension: StringName, cell: Vector3i) -> void:
+	_remove_object(&"ladder", dimension, cell)
 
 
-func _create_object(object_type: StringName, layer: StringName, cell: Vector2i) -> void:
-	if layer != SURFACE:
+func _create_object(object_type: StringName, dimension: StringName, cell: Vector3i) -> void:
+	if dimension != OVERWORLD:
 		return
-	var key := _make_key(object_type, layer, cell)
+	var key := _make_key(object_type, dimension, cell)
 	if _objects.has(key) or _world == null:
 		return
 
 	var root := Node3D.new()
-	root.name = "%s_%d_%d" % [object_type, cell.x, cell.y]
-	root.global_position = _world.cell_to_world_position(cell, 0.12)
+	root.name = "%s_%d_%d_%d" % [object_type, cell.x, cell.y, cell.z]
+	root.global_position = _world.cell_to_world_position(cell)
 	add_child(root)
 	_objects[key] = root
 
@@ -93,8 +93,8 @@ func _create_object(object_type: StringName, layer: StringName, cell: Vector2i) 
 			_build_ladder(root)
 
 
-func _remove_object(object_type: StringName, layer: StringName, cell: Vector2i) -> void:
-	var key := _make_key(object_type, layer, cell)
+func _remove_object(object_type: StringName, dimension: StringName, cell: Vector3i) -> void:
+	var key := _make_key(object_type, dimension, cell)
 	var node := _objects.get(key) as Node
 	if node == null:
 		return
@@ -153,5 +153,5 @@ func _make_material(color: Color) -> StandardMaterial3D:
 	return material
 
 
-func _make_key(object_type: StringName, layer: StringName, cell: Vector2i) -> String:
-	return "%s,%s,%d,%d" % [object_type, layer, cell.x, cell.y]
+func _make_key(object_type: StringName, dimension: StringName, cell: Vector3i) -> String:
+	return "%s,%s,%d,%d,%d" % [object_type, dimension, cell.x, cell.y, cell.z]

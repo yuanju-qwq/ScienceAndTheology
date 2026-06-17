@@ -14,8 +14,7 @@ set(SOURCES
     world/gd_world_gen_config.cpp
     world/gd_terrain_content_registry.cpp
     world/gd_terrain_generator.cpp
-    world/gd_chunk_view.cpp
-    world/gd_chunk_manager.cpp
+    world/gd_furnace_manager.cpp
     simulation/gd_game_command_server.cpp
     simulation/gd_tick_system.cpp
     player/gd_player_inventory.cpp
@@ -35,6 +34,10 @@ target_include_directories(science_and_theology PRIVATE
     ${CMAKE_SOURCE_DIR}
 )
 target_link_libraries(science_and_theology PRIVATE godot-cpp snt_core snt_adapters snt_godot_adapters)
+
+if(MSVC)
+    target_compile_options(science_and_theology PRIVATE /FS /utf-8)
+endif()
 
 # Platform-specific output settings
 set_target_properties(science_and_theology PROPERTIES

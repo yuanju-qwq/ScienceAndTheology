@@ -134,19 +134,19 @@ void GDWorldData::rebuild_generator() {
 }
 
 godot::Dictionary GDWorldData::get_or_generate_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     if (!generator_) {
         UtilityFunctions::push_warning(
             "GDWorldData: generator not initialized");
         return Dictionary();
     }
 
-    std::string layer_str = layer_id.utf8().get_data();
+    std::string dimension_str = dimension_id.utf8().get_data();
 
     // Return existing chunk if already generated.
-    if (world_.has_chunk(layer_str, chunk_x, chunk_y)) {
+    if (world_.has_chunk(dimension_str, chunk_x, chunk_y, chunk_z)) {
         const ChunkData* existing = world_.get_chunk(
-            layer_str, chunk_x, chunk_y);
+            dimension_str, chunk_x, chunk_y, chunk_z);
         if (existing != nullptr) {
             Dictionary result = terrain_to_dict(existing->terrain);
             result["connectors"] = connectors_to_array(existing->connectors);
@@ -159,7 +159,8 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
     }
 
     // Generate new chunk.
-    ChunkData chunk = generator_->generate_chunk(layer_str, chunk_x, chunk_y);
+    ChunkData chunk = generator_->generate_chunk(
+        dimension_str, chunk_x, chunk_y, chunk_z);
 
     // Snapshot terrain and connectors before moving chunk into world.
     Dictionary result = terrain_to_dict(chunk.terrain);
@@ -171,21 +172,22 @@ godot::Dictionary GDWorldData::get_or_generate_chunk(
 
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
-        pending_async_chunks_.erase(AsyncChunkKey{layer_str, chunk_x, chunk_y});
+        pending_async_chunks_.erase(
+            AsyncChunkKey{dimension_str, chunk_x, chunk_y, chunk_z});
     }
 
-    world_.set_chunk(layer_str, chunk_x, chunk_y, std::move(chunk));
+    world_.set_chunk(dimension_str, chunk_x, chunk_y, chunk_z, std::move(chunk));
 
     // Notify Godot that a new chunk is ready for rendering.
-    emit_signal("chunk_ready", layer_id, chunk_x, chunk_y);
+    emit_signal("chunk_ready", dimension_id, chunk_x, chunk_y, chunk_z);
 
     return result;
 }
 
 int64_t GDWorldData::get_chunk_state(
-    const godot::String& layer_id, int chunk_x, int chunk_y) const {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) const {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return -1;
     }
@@ -193,45 +195,49 @@ int64_t GDWorldData::get_chunk_state(
 }
 
 void GDWorldData::set_chunk_state(
-    const godot::String& layer_id, int chunk_x, int chunk_y, int state) {
+    const godot::String& dimension_id,
+    int chunk_x, int chunk_y, int chunk_z, int state) {
     ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         UtilityFunctions::push_warning(
             "GDWorldData: cannot set state, chunk not found: ",
-            layer_id, " ", chunk_x, " ", chunk_y);
+            dimension_id, " ", chunk_x, " ", chunk_y, " ", chunk_z);
         return;
     }
     chunk->state = static_cast<ChunkState>(state);
 }
 
 bool GDWorldData::has_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
-    return world_.has_chunk(layer_id.utf8().get_data(), chunk_x, chunk_y);
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
+    return world_.has_chunk(
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
 }
 
 void GDWorldData::set_chunk_from_dict(
-    const godot::String& layer_id, int chunk_x, int chunk_y,
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     const godot::Dictionary& data) {
     ChunkData chunk;
     chunk.chunk_x = chunk_x;
     chunk.chunk_y = chunk_y;
+    chunk.chunk_z = chunk_z;
     chunk.state = ChunkState::GENERATED;
 
     int size_x = static_cast<int>(data.get("size_x", 0));
     int size_y = static_cast<int>(data.get("size_y", 0));
-    if (size_x <= 0 || size_y <= 0) {
+    int size_z = static_cast<int>(data.get("size_z", 0));
+    if (size_x <= 0 || size_y <= 0 || size_z <= 0) {
         UtilityFunctions::push_warning(
             "GDWorldData: invalid chunk size in data dictionary");
         return;
     }
 
-    chunk.terrain.resize(size_x, size_y);
+    chunk.terrain.resize(size_x, size_y, size_z);
 
     PackedByteArray materials = data.get("materials", PackedByteArray());
     PackedInt32Array flags = data.get("flags", PackedInt32Array());
 
-    int cell_count = size_x * size_y;
+    int cell_count = size_x * size_y * size_z;
     if (materials.size() < cell_count || flags.size() < cell_count) {
         UtilityFunctions::push_warning(
             "GDWorldData: materials/flags arrays too small for chunk dimensions");
@@ -252,14 +258,16 @@ void GDWorldData::set_chunk_from_dict(
         ConnectorPlacement conn;
         conn.connector_id = static_cast<int64_t>(
             conn_dict.get("connector_id", 0));
-        conn.from_layer = static_cast<std::string>(
-            String(conn_dict.get("from_layer", "")).utf8().get_data());
+        conn.from_dimension = static_cast<std::string>(
+            String(conn_dict.get("from_dimension", "")).utf8().get_data());
         conn.from_cell_x = static_cast<int>(conn_dict.get("from_cell_x", 0));
         conn.from_cell_y = static_cast<int>(conn_dict.get("from_cell_y", 0));
-        conn.to_layer = static_cast<std::string>(
-            String(conn_dict.get("to_layer", "")).utf8().get_data());
+        conn.from_cell_z = static_cast<int>(conn_dict.get("from_cell_z", 0));
+        conn.to_dimension = static_cast<std::string>(
+            String(conn_dict.get("to_dimension", "")).utf8().get_data());
         conn.to_cell_x = static_cast<int>(conn_dict.get("to_cell_x", 0));
         conn.to_cell_y = static_cast<int>(conn_dict.get("to_cell_y", 0));
+        conn.to_cell_z = static_cast<int>(conn_dict.get("to_cell_z", 0));
         conn.one_way = static_cast<bool>(conn_dict.get("one_way", false));
         conn.locked = static_cast<bool>(conn_dict.get("locked", false));
         conn.connector_type = static_cast<std::string>(
@@ -276,10 +284,11 @@ void GDWorldData::set_chunk_from_dict(
         MechanismPlacement mechanism;
         mechanism.mechanism_id = static_cast<std::string>(
             String(mechanism_dict.get("mechanism_id", "")).utf8().get_data());
-        mechanism.layer_id = static_cast<std::string>(
-            String(mechanism_dict.get("layer_id", "")).utf8().get_data());
+        mechanism.dimension_id = static_cast<std::string>(
+            String(mechanism_dict.get("dimension_id", "")).utf8().get_data());
         mechanism.cell_x = static_cast<int>(mechanism_dict.get("cell_x", 0));
         mechanism.cell_y = static_cast<int>(mechanism_dict.get("cell_y", 0));
+        mechanism.cell_z = static_cast<int>(mechanism_dict.get("cell_z", 0));
         mechanism.display_name = static_cast<std::string>(
             String(mechanism_dict.get("display_name", "")).utf8().get_data());
         mechanism.action_label = static_cast<std::string>(
@@ -324,20 +333,20 @@ void GDWorldData::set_chunk_from_dict(
     Array conn_id_array = data.get("connector_ids", Array());
     chunk.connector_ids = array_to_entity_ids(conn_id_array);
 
-    world_.set_chunk(layer_id.utf8().get_data(), chunk_x, chunk_y,
-                     std::move(chunk));
+    world_.set_chunk(
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z, std::move(chunk));
 
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
         pending_async_chunks_.erase(AsyncChunkKey{
-            layer_id.utf8().get_data(), chunk_x, chunk_y});
+            dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z});
     }
 }
 
 godot::Dictionary GDWorldData::get_chunk_terrain(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return Dictionary();
     }
@@ -351,9 +360,9 @@ godot::Dictionary GDWorldData::get_chunk_terrain(
 }
 
 godot::Array GDWorldData::get_chunk_connectors(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return Array();
     }
@@ -361,9 +370,9 @@ godot::Array GDWorldData::get_chunk_connectors(
 }
 
 godot::Array GDWorldData::get_chunk_mechanisms(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return Array();
     }
@@ -371,22 +380,24 @@ godot::Array GDWorldData::get_chunk_mechanisms(
 }
 
 void GDWorldData::remove_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
         pending_async_chunks_.erase(AsyncChunkKey{
-            layer_id.utf8().get_data(), chunk_x, chunk_y});
+            dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z});
     }
-    world_.remove_chunk(layer_id.utf8().get_data(), chunk_x, chunk_y);
+    world_.remove_chunk(
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
 }
 
 godot::Array GDWorldData::get_all_chunk_keys() const {
     Array result;
     for (const auto& key : world_.all_chunk_keys()) {
         Dictionary key_dict;
-        key_dict["layer"] = String(key.layer_id.c_str());
+        key_dict["dimension"] = String(key.dimension_id.c_str());
         key_dict["chunk_x"] = key.chunk_x;
         key_dict["chunk_y"] = key.chunk_y;
+        key_dict["chunk_z"] = key.chunk_z;
         result.append(key_dict);
     }
     return result;
@@ -409,7 +420,7 @@ int64_t GDWorldData::get_chunk_count() const {
 godot::Dictionary GDWorldData::terrain_to_dict(
     const TerrainData& terrain) const {
     Dictionary result;
-    int cell_count = terrain.size_x * terrain.size_y;
+    int cell_count = terrain.size_x * terrain.size_y * terrain.size_z;
 
     PackedByteArray materials;
     PackedInt32Array flags;
@@ -423,6 +434,7 @@ godot::Dictionary GDWorldData::terrain_to_dict(
 
     result["size_x"] = terrain.size_x;
     result["size_y"] = terrain.size_y;
+    result["size_z"] = terrain.size_z;
     result["materials"] = materials;
     result["flags"] = flags;
 
@@ -435,12 +447,14 @@ godot::Array GDWorldData::connectors_to_array(
     for (const auto& conn : connectors) {
         Dictionary d;
         d["connector_id"] = conn.connector_id;
-        d["from_layer"] = String(conn.from_layer.c_str());
+        d["from_dimension"] = String(conn.from_dimension.c_str());
         d["from_cell_x"] = conn.from_cell_x;
         d["from_cell_y"] = conn.from_cell_y;
-        d["to_layer"] = String(conn.to_layer.c_str());
+        d["from_cell_z"] = conn.from_cell_z;
+        d["to_dimension"] = String(conn.to_dimension.c_str());
         d["to_cell_x"] = conn.to_cell_x;
         d["to_cell_y"] = conn.to_cell_y;
+        d["to_cell_z"] = conn.to_cell_z;
         d["one_way"] = conn.one_way;
         d["locked"] = conn.locked;
         d["connector_type"] = String(conn.connector_type.c_str());
@@ -456,9 +470,10 @@ godot::Array GDWorldData::mechanisms_to_array(
     for (const auto& mechanism : mechanisms) {
         Dictionary d;
         d["mechanism_id"] = String(mechanism.mechanism_id.c_str());
-        d["layer_id"] = String(mechanism.layer_id.c_str());
+        d["dimension_id"] = String(mechanism.dimension_id.c_str());
         d["cell_x"] = mechanism.cell_x;
         d["cell_y"] = mechanism.cell_y;
+        d["cell_z"] = mechanism.cell_z;
         d["display_name"] = String(mechanism.display_name.c_str());
         d["action_label"] = String(mechanism.action_label.c_str());
         d["flag_name"] = String(mechanism.flag_name.c_str());
@@ -505,9 +520,9 @@ std::vector<EntityId> GDWorldData::array_to_entity_ids(
 }
 
 godot::Array GDWorldData::get_chunk_entities(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return Array();
     }
@@ -515,9 +530,9 @@ godot::Array GDWorldData::get_chunk_entities(
 }
 
 godot::Array GDWorldData::get_chunk_machines(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return Array();
     }
@@ -525,9 +540,9 @@ godot::Array GDWorldData::get_chunk_machines(
 }
 
 godot::Array GDWorldData::get_chunk_connector_ids(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return Array();
     }
@@ -535,10 +550,10 @@ godot::Array GDWorldData::get_chunk_connector_ids(
 }
 
 bool GDWorldData::add_entity_to_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y,
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     int64_t entity_id) {
     ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return false;
     }
@@ -551,10 +566,10 @@ bool GDWorldData::add_entity_to_chunk(
 }
 
 bool GDWorldData::add_machine_to_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y,
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     int64_t machine_id) {
     ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return false;
     }
@@ -567,10 +582,10 @@ bool GDWorldData::add_machine_to_chunk(
 }
 
 bool GDWorldData::add_connector_id_to_chunk(
-    const godot::String& layer_id, int chunk_x, int chunk_y,
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     int64_t connector_id) {
     ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
         return false;
     }
@@ -583,16 +598,17 @@ bool GDWorldData::add_connector_id_to_chunk(
 }
 
 godot::Dictionary GDWorldData::get_terrain_cell(
-    const godot::String& layer_id, int chunk_x, int chunk_y,
-    int local_x, int local_y) {
+    const godot::String& dimension_id,
+    int chunk_x, int chunk_y, int chunk_z,
+    int local_x, int local_y, int local_z) {
     godot::Dictionary d;
     const ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) return d;
 
-    if (!chunk->terrain.is_valid_cell(local_x, local_y)) return d;
+    if (!chunk->terrain.is_valid_cell(local_x, local_y, local_z)) return d;
 
-    const auto& cell = chunk->terrain.cell_at(local_x, local_y);
+    const auto& cell = chunk->terrain.cell_at(local_x, local_y, local_z);
     d["material"] = static_cast<int>(cell.material);
     d["flags"] = static_cast<int>(cell.flags);
     d["is_solid"] = cell.is_solid();
@@ -603,39 +619,40 @@ godot::Dictionary GDWorldData::get_terrain_cell(
 }
 
 bool GDWorldData::set_terrain_cell(
-    const godot::String& layer_id, int chunk_x, int chunk_y,
-    int local_x, int local_y, int material) {
+    const godot::String& dimension_id,
+    int chunk_x, int chunk_y, int chunk_z,
+    int local_x, int local_y, int local_z, int material) {
     ChunkData* chunk = world_.get_chunk(
-        layer_id.utf8().get_data(), chunk_x, chunk_y);
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) return false;
 
-    if (!chunk->terrain.is_valid_cell(local_x, local_y)) return false;
+    if (!chunk->terrain.is_valid_cell(local_x, local_y, local_z)) return false;
 
     uint32_t flags = worldgen_config_
         ? worldgen_config_->flags_for_material(static_cast<TerrainMaterialId>(material))
         : 0;
     chunk->terrain.set_cell(
-        local_x, local_y, static_cast<TerrainMaterial>(material), flags);
+        local_x, local_y, local_z, static_cast<TerrainMaterial>(material), flags);
     return true;
 }
 
 void GDWorldData::request_chunk_async(
-    const godot::String& layer_id, int chunk_x, int chunk_y) {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
     if (!generator_) {
         UtilityFunctions::push_warning(
             "GDWorldData: request_chunk_async called without generator");
         return;
     }
 
-    std::string layer_str = layer_id.utf8().get_data();
+    std::string dimension_str = dimension_id.utf8().get_data();
 
     // Skip if chunk already exists.
-    if (world_.has_chunk(layer_str, chunk_x, chunk_y)) {
-        emit_signal("chunk_ready", layer_id, chunk_x, chunk_y);
+    if (world_.has_chunk(dimension_str, chunk_x, chunk_y, chunk_z)) {
+        emit_signal("chunk_ready", dimension_id, chunk_x, chunk_y, chunk_z);
         return;
     }
 
-    AsyncChunkKey key{layer_str, chunk_x, chunk_y};
+    AsyncChunkKey key{dimension_str, chunk_x, chunk_y, chunk_z};
     {
         std::lock_guard<std::mutex> lock(async_results_mutex_);
         if (pending_async_chunks_.find(key) != pending_async_chunks_.end()) {
@@ -657,7 +674,7 @@ void GDWorldData::request_chunk_async(
     // - Each NoiseGenerator creates independent perm_ array from its sub-seed.
     // Safe to share across worker threads without locks.
     auto* td = new AsyncChunkTaskData{this, generator_.get(),
-        std::move(layer_str), chunk_x, chunk_y};
+        std::move(dimension_str), chunk_x, chunk_y, chunk_z};
     WorkerThreadPool::TaskID task_id =
         WorkerThreadPool::get_singleton()->add_native_task(
             &GDWorldData::_async_chunk_callback, td, true, "ChunkGen");
@@ -690,29 +707,30 @@ int64_t GDWorldData::process_async_results() {
 
     completed = 0;
     for (auto& result : batch) {
-        godot::String gd_layer(result.layer_id.c_str());
+        godot::String gd_dimension(result.dimension_id.c_str());
         int cx = result.chunk_x;
         int cy = result.chunk_y;
+        int cz = result.chunk_z;
 
         {
             std::lock_guard<std::mutex> lock(async_results_mutex_);
             auto pending_it = pending_async_chunks_.find(
-                AsyncChunkKey{result.layer_id, cx, cy});
+                AsyncChunkKey{result.dimension_id, cx, cy, cz});
             if (pending_it == pending_async_chunks_.end()) {
                 continue;
             }
             pending_async_chunks_.erase(pending_it);
         }
 
-        if (world_.has_chunk(result.layer_id, cx, cy)) {
+        if (world_.has_chunk(result.dimension_id, cx, cy, cz)) {
             continue;
         }
 
         // Store the generated chunk in the world.
-        world_.set_chunk(result.layer_id, cx, cy, std::move(result.chunk));
+        world_.set_chunk(result.dimension_id, cx, cy, cz, std::move(result.chunk));
 
         // Emit signal from the main thread (signal-safe).
-        emit_signal("chunk_ready", gd_layer, cx, cy);
+        emit_signal("chunk_ready", gd_dimension, cx, cy, cz);
         ++completed;
     }
 
@@ -744,10 +762,10 @@ int64_t GDWorldData::get_async_result_queue_size() const {
 }
 
 bool GDWorldData::is_chunk_async_pending(
-    const godot::String& layer_id, int chunk_x, int chunk_y) const {
+    const godot::String& dimension_id, int chunk_x, int chunk_y, int chunk_z) const {
     std::lock_guard<std::mutex> lock(async_results_mutex_);
     return pending_async_chunks_.find(AsyncChunkKey{
-        layer_id.utf8().get_data(), chunk_x, chunk_y}) != pending_async_chunks_.end();
+        dimension_id.utf8().get_data(), chunk_x, chunk_y, chunk_z}) != pending_async_chunks_.end();
 }
 
 int64_t GDWorldData::get_worker_thread_count() const {
@@ -778,18 +796,20 @@ void GDWorldData::_async_chunk_callback(void* userdata) {
     auto* td = static_cast<AsyncChunkTaskData*>(userdata);
     GDWorldData* self = td->world_data;
 
-    ChunkData chunk = td->gen->generate_chunk(td->layer_id, td->chunk_x, td->chunk_y);
+    ChunkData chunk = td->gen->generate_chunk(
+        td->dimension_id, td->chunk_x, td->chunk_y, td->chunk_z);
 
     AsyncChunkResult result;
-    result.layer_id = std::move(td->layer_id);
+    result.dimension_id = std::move(td->dimension_id);
     result.chunk_x = td->chunk_x;
     result.chunk_y = td->chunk_y;
+    result.chunk_z = td->chunk_z;
     result.chunk = std::move(chunk);
 
     {
         std::lock_guard<std::mutex> lock(self->async_results_mutex_);
         if (self->pending_async_chunks_.find(AsyncChunkKey{
-                result.layer_id, result.chunk_x, result.chunk_y}) !=
+                result.dimension_id, result.chunk_x, result.chunk_y, result.chunk_z}) !=
             self->pending_async_chunks_.end()) {
             self->async_results_.push(std::move(result));
         }
@@ -873,39 +893,39 @@ void GDWorldData::_bind_methods() {
                  "set_worldgen_config", "get_worldgen_config");
 
     // Chunk generation and query.
-    ClassDB::bind_method(D_METHOD("get_or_generate_chunk", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_or_generate_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_or_generate_chunk);
-    ClassDB::bind_method(D_METHOD("get_chunk_state", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_state", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_state);
-    ClassDB::bind_method(D_METHOD("set_chunk_state", "layer_id", "chunk_x", "chunk_y", "state"),
+    ClassDB::bind_method(D_METHOD("set_chunk_state", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "state"),
                          &GDWorldData::set_chunk_state);
-    ClassDB::bind_method(D_METHOD("has_chunk", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("has_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::has_chunk);
-    ClassDB::bind_method(D_METHOD("set_chunk_from_dict", "layer_id", "chunk_x", "chunk_y", "data"),
+    ClassDB::bind_method(D_METHOD("set_chunk_from_dict", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "data"),
                          &GDWorldData::set_chunk_from_dict);
-    ClassDB::bind_method(D_METHOD("get_chunk_terrain", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_terrain", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_terrain);
-    ClassDB::bind_method(D_METHOD("get_chunk_connectors", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_connectors", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_connectors);
-    ClassDB::bind_method(D_METHOD("get_chunk_mechanisms", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_mechanisms", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_mechanisms);
-    ClassDB::bind_method(D_METHOD("get_chunk_entities", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_entities", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_entities);
-    ClassDB::bind_method(D_METHOD("get_chunk_machines", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_machines", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_machines);
-    ClassDB::bind_method(D_METHOD("get_chunk_connector_ids", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("get_chunk_connector_ids", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::get_chunk_connector_ids);
-    ClassDB::bind_method(D_METHOD("add_entity_to_chunk", "layer_id", "chunk_x", "chunk_y", "entity_id"),
+    ClassDB::bind_method(D_METHOD("add_entity_to_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "entity_id"),
                          &GDWorldData::add_entity_to_chunk);
-    ClassDB::bind_method(D_METHOD("add_machine_to_chunk", "layer_id", "chunk_x", "chunk_y", "machine_id"),
+    ClassDB::bind_method(D_METHOD("add_machine_to_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "machine_id"),
                          &GDWorldData::add_machine_to_chunk);
-    ClassDB::bind_method(D_METHOD("add_connector_id_to_chunk", "layer_id", "chunk_x", "chunk_y", "connector_id"),
+    ClassDB::bind_method(D_METHOD("add_connector_id_to_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "connector_id"),
                          &GDWorldData::add_connector_id_to_chunk);
-    ClassDB::bind_method(D_METHOD("get_terrain_cell", "layer_id", "chunk_x", "chunk_y", "local_x", "local_y"),
+    ClassDB::bind_method(D_METHOD("get_terrain_cell", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "local_x", "local_y", "local_z"),
                          &GDWorldData::get_terrain_cell);
-    ClassDB::bind_method(D_METHOD("set_terrain_cell", "layer_id", "chunk_x", "chunk_y", "local_x", "local_y", "material"),
+    ClassDB::bind_method(D_METHOD("set_terrain_cell", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "local_x", "local_y", "local_z", "material"),
                          &GDWorldData::set_terrain_cell);
-    ClassDB::bind_method(D_METHOD("remove_chunk", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("remove_chunk", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::remove_chunk);
     ClassDB::bind_method(D_METHOD("get_all_chunk_keys"),
                          &GDWorldData::get_all_chunk_keys);
@@ -915,7 +935,7 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::get_chunk_count);
 
     // Async chunk generation.
-    ClassDB::bind_method(D_METHOD("request_chunk_async", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("request_chunk_async", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::request_chunk_async);
     ClassDB::bind_method(D_METHOD("process_async_results"),
                          &GDWorldData::process_async_results);
@@ -923,7 +943,7 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::get_async_pending_count);
     ClassDB::bind_method(D_METHOD("get_async_result_queue_size"),
                          &GDWorldData::get_async_result_queue_size);
-    ClassDB::bind_method(D_METHOD("is_chunk_async_pending", "layer_id", "chunk_x", "chunk_y"),
+    ClassDB::bind_method(D_METHOD("is_chunk_async_pending", "dimension_id", "chunk_x", "chunk_y", "chunk_z"),
                          &GDWorldData::is_chunk_async_pending);
     ClassDB::bind_method(D_METHOD("get_worker_thread_count"),
                          &GDWorldData::get_worker_thread_count);
@@ -954,9 +974,10 @@ void GDWorldData::_bind_methods() {
 
     // Signal: emitted when a new chunk has been generated and stored.
     ADD_SIGNAL(MethodInfo("chunk_ready",
-        PropertyInfo(Variant::STRING, "layer_id"),
+        PropertyInfo(Variant::STRING, "dimension_id"),
         PropertyInfo(Variant::INT, "chunk_x"),
-        PropertyInfo(Variant::INT, "chunk_y")));
+        PropertyInfo(Variant::INT, "chunk_y"),
+        PropertyInfo(Variant::INT, "chunk_z")));
 
     // Chunk state constants.
     BIND_ENUM_CONSTANT(STATE_UNLOADED);

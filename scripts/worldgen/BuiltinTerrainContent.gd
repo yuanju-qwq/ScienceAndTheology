@@ -136,17 +136,17 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 
 static func _register_builtin_tile_mappings(registry: Object) -> void:
 	var mappings := [
-		{ "material_key": "snt:air", "layer": "surface", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 1, "enabled": false },
-		{ "material_key": "snt:stone", "layer": "surface", "source_id": 0, "atlas": Vector2i(4, 0), "variant_count": 1 },
-		{ "material_key": "snt:dirt", "layer": "surface", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 4 },
-		{ "material_key": "snt:sand", "layer": "surface", "source_id": 0, "atlas": Vector2i(0, 1), "variant_count": 4 },
-		{ "material_key": "snt:water", "layer": "surface", "source_id": 0, "atlas": Vector2i(8, 0), "variant_count": 1 },
-		{ "material_key": "snt:lava", "layer": "surface", "source_id": 0, "atlas": Vector2i(9, 0), "variant_count": 1 },
-		{ "material_key": "snt:ore_iron", "layer": "surface", "source_id": 0, "atlas": Vector2i(5, 0), "variant_count": 1 },
-		{ "material_key": "snt:ore_copper", "layer": "surface", "source_id": 0, "atlas": Vector2i(6, 0), "variant_count": 1 },
-		{ "material_key": "snt:ore_coal", "layer": "surface", "source_id": 0, "atlas": Vector2i(7, 0), "variant_count": 1 },
-		{ "material_key": "snt:wood", "layer": "surface", "source_id": 0, "atlas": Vector2i(10, 0), "variant_count": 1 },
-		{ "material_key": "snt:leaves", "layer": "surface", "source_id": 0, "atlas": Vector2i(11, 0), "variant_count": 1 },
+		{ "material_key": "snt:air", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 1, "enabled": false },
+		{ "material_key": "snt:stone", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(4, 0), "variant_count": 1 },
+		{ "material_key": "snt:dirt", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 4 },
+		{ "material_key": "snt:sand", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(0, 1), "variant_count": 4 },
+		{ "material_key": "snt:water", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(8, 0), "variant_count": 1 },
+		{ "material_key": "snt:lava", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(9, 0), "variant_count": 1 },
+		{ "material_key": "snt:ore_iron", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(5, 0), "variant_count": 1 },
+		{ "material_key": "snt:ore_copper", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(6, 0), "variant_count": 1 },
+		{ "material_key": "snt:ore_coal", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(7, 0), "variant_count": 1 },
+		{ "material_key": "snt:wood", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(10, 0), "variant_count": 1 },
+		{ "material_key": "snt:leaves", "dimension": "overworld", "source_id": 0, "atlas": Vector2i(11, 0), "variant_count": 1 },
 	]
 	for mapping in mappings:
 		registry.register_tile_mapping(mapping)
@@ -168,7 +168,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 
 	registry.register_base_terrain_rule({
-		"layer": "surface",
+		"dimension": "overworld",
 		"mode": "surface_elevation",
 		"default_material_key": "snt:dirt",
 		"low_elevation_material_key": "snt:water",
@@ -183,7 +183,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 	registry.register_biome_rule({
 		"key": "snt:desert_sand",
-		"layer": "surface",
+		"dimension": "overworld",
 		"source_material_key": "snt:dirt",
 		"result_material_key": "snt:sand",
 		"temperature_min": 0.3,
@@ -191,7 +191,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 	registry.register_biome_rule({
 		"key": "snt:beach_sand",
-		"layer": "surface",
+		"dimension": "overworld",
 		"source_material_key": "snt:dirt",
 		"result_material_key": "snt:sand",
 		"requires_near_material": true,
@@ -200,7 +200,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 	registry.register_biome_rule({
 		"key": "snt:rocky_highlands",
-		"layer": "surface",
+		"dimension": "overworld",
 		"source_material_key": "snt:dirt",
 		"result_material_key": "snt:stone",
 		"temperature_max": -0.4,
@@ -208,7 +208,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 	registry.register_ore_vein_rule({
 		"key": "snt:ore_iron",
-		"layer": "surface",
+		"dimension": "overworld",
 		"host_material_key": "snt:stone",
 		"ore_material_key": "snt:ore_iron",
 		"combined_min": 0.5,
@@ -216,7 +216,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 	registry.register_ore_vein_rule({
 		"key": "snt:ore_copper",
-		"layer": "surface",
+		"dimension": "overworld",
 		"host_material_key": "snt:stone",
 		"ore_material_key": "snt:ore_copper",
 		"combined_min": 0.25,
@@ -224,7 +224,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	})
 	registry.register_ore_vein_rule({
 		"key": "snt:ore_coal",
-		"layer": "surface",
+		"dimension": "overworld",
 		"host_material_key": "snt:stone",
 		"ore_material_key": "snt:ore_coal",
 		"combined_min": 0.05,

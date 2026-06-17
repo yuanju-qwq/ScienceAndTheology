@@ -19,7 +19,7 @@ namespace science_and_theology {
 //   3. Ore           - resource vein placement
 //   4. Structure     - large structural features
 //   5. Object        - small interactable objects
-//   6. Gameplay      - connectors, spawn points, etc.
+//   6. Gameplay      - spawn points and future single-world structures.
 //
 // Thread safety: generate_chunk() is fully reentrant and safe for
 // concurrent invocation. world_seed_ is read-only after construction;
@@ -28,17 +28,17 @@ namespace science_and_theology {
 //
 // Usage:
 //   TerrainGenerator gen(WorldSeed(12345));
-//   ChunkData chunk = gen.generate_chunk("surface", 0, 0);
+//   ChunkData chunk = gen.generate_chunk("overworld", 0, 0, 0);
 class TerrainGenerator {
 public:
     explicit TerrainGenerator(
         WorldSeed seed,
         std::shared_ptr<const WorldGenConfigSnapshot> config = nullptr);
 
-    // Generates a complete chunk for the given layer and chunk coordinates.
+    // Generates a complete chunk for the given dimension and chunk coordinates.
     // Returns a fully populated ChunkData ready to be inserted into WorldData.
-    ChunkData generate_chunk(const std::string& layer_id,
-                             int chunk_x, int chunk_y);
+    ChunkData generate_chunk(const std::string& dimension_id,
+                             int chunk_x, int chunk_y, int chunk_z);
 
 private:
     struct MaterialIds {
@@ -56,45 +56,34 @@ private:
     };
 
     // Pass 1: Fill the chunk with base terrain materials.
-    void pass_base_terrain(const std::string& layer_id,
-                           int chunk_x, int chunk_y,
+    void pass_base_terrain(const std::string& dimension_id,
+                           int chunk_x, int chunk_y, int chunk_z,
                            TerrainData& terrain);
 
     // Pass 2: Apply biome overrides (temperature, humidity, etc.).
-    void pass_biome(const std::string& layer_id,
-                    int chunk_x, int chunk_y,
+    void pass_biome(const std::string& dimension_id,
+                    int chunk_x, int chunk_y, int chunk_z,
                     TerrainData& terrain);
 
     // Pass 3: Place ore veins in mineable cells.
-    void pass_ore(const std::string& layer_id,
-                  int chunk_x, int chunk_y,
+    void pass_ore(const std::string& dimension_id,
+                  int chunk_x, int chunk_y, int chunk_z,
                   TerrainData& terrain);
 
-    // Pass 4: Place large structures (ruins, caves, etc.).
-    void pass_structure(const std::string& layer_id,
-                        int chunk_x, int chunk_y,
-                        TerrainData& terrain);
-
-    // Pass 5: Place small interactive objects (altars, chests, etc.).
-    void pass_object(const std::string& layer_id,
-                     int chunk_x, int chunk_y,
-                     TerrainData& terrain);
-
-    // Pass 5b: Place trees (surface layer only).
-    void pass_tree(const std::string& layer_id,
-                   int chunk_x, int chunk_y,
+    // Pass 4: Place trees and small surface voxel features.
+    void pass_surface_objects(const std::string& dimension_id,
+                   int chunk_x, int chunk_y, int chunk_z,
                    TerrainData& terrain);
 
-    // Pass 6: Place gameplay elements (connectors, spawn points, etc.).
-    // Receives the full chunk to populate its connectors vector.
-    void pass_gameplay(const std::string& layer_id,
-                       int chunk_x, int chunk_y,
+    // Pass 5: Place gameplay elements.
+    void pass_gameplay(const std::string& dimension_id,
+                       int chunk_x, int chunk_y, int chunk_z,
                        ChunkData& chunk);
 
     // Sets a cell's material and derives its flags automatically.
-    void set_cell(TerrainData& terrain, int x, int y,
+    void set_cell(TerrainData& terrain, int x, int y, int z,
                   TerrainMaterial material);
-    void set_cell_id(TerrainData& terrain, int x, int y,
+    void set_cell_id(TerrainData& terrain, int x, int y, int z,
                      TerrainMaterialId material);
 
     uint32_t flags_for_material(TerrainMaterial material) const;
@@ -105,15 +94,18 @@ private:
     bool is_stone_cell(const TerrainCell& cell) const;
     bool is_material(const TerrainCell& cell, TerrainMaterialId material) const;
     bool is_walkable_ground_cell(const TerrainCell& cell) const;
-    bool has_near_material(const TerrainData& terrain, int x, int y,
+    bool has_near_material(const TerrainData& terrain, int x, int y, int z,
                            TerrainMaterialId material, int radius) const;
-    bool has_floor_support(const TerrainData& terrain, int x, int y,
+    bool has_floor_support(const TerrainData& terrain, int x, int y, int z,
                            TerrainMaterialId support_material) const;
     MaterialIds materials() const;
 
-    // Generates a noise value mapping a cell position to [0, 1].
-    float cell_noise(const NoiseGenerator& noise, int local_x, int local_y,
-                     int chunk_x, int chunk_y, float scale) const;
+    int surface_height_at(const NoiseGenerator& elevation_noise,
+                          int global_x, int global_z,
+                          const BaseTerrainRule& rule) const;
+    float cave_noise_at(const NoiseGenerator& cave_noise,
+                        int global_x, int global_y, int global_z,
+                        const BaseTerrainRule& rule) const;
 
     WorldSeed world_seed_;
     std::shared_ptr<const WorldGenConfigSnapshot> config_;

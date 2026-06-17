@@ -7,15 +7,16 @@
 namespace science_and_theology {
 
 // Single source of truth for all world data.
-// Manages chunks across all layers. Godot nodes act only as rendering proxies.
+// Manages chunks across all dimensions. Godot nodes act only as rendering proxies.
 //
 // Usage:
 //   WorldData world;
 //   ChunkData chunk;
 //   chunk.chunk_x = 0;
 //   chunk.chunk_y = 0;
-//   world.set_chunk("surface", chunk);
-//   if (auto* c = world.get_chunk("surface", 0, 0)) { ... }
+//   chunk.chunk_z = 0;
+//   world.set_chunk("overworld", 0, 0, 0, chunk);
+//   if (auto* c = world.get_chunk("overworld", 0, 0, 0)) { ... }
 class WorldData {
 public:
     WorldData() = default;
@@ -29,18 +30,22 @@ public:
 
     // --- Chunk access ---
 
-    bool has_chunk(const std::string& layer_id, int chunk_x, int chunk_y) const;
+    bool has_chunk(const std::string& dimension_id,
+                   int chunk_x, int chunk_y, int chunk_z) const;
 
-    ChunkData* get_chunk(const std::string& layer_id, int chunk_x, int chunk_y);
+    ChunkData* get_chunk(const std::string& dimension_id,
+                         int chunk_x, int chunk_y, int chunk_z);
     const ChunkData* get_chunk(
-        const std::string& layer_id, int chunk_x, int chunk_y) const;
+        const std::string& dimension_id,
+        int chunk_x, int chunk_y, int chunk_z) const;
 
     // Sets or replaces a chunk. Takes ownership.
-    void set_chunk(const std::string& layer_id, int chunk_x, int chunk_y,
-                   ChunkData chunk);
+    void set_chunk(const std::string& dimension_id,
+                   int chunk_x, int chunk_y, int chunk_z, ChunkData chunk);
 
     // Removes a chunk. Does nothing if the chunk does not exist.
-    void remove_chunk(const std::string& layer_id, int chunk_x, int chunk_y);
+    void remove_chunk(const std::string& dimension_id,
+                      int chunk_x, int chunk_y, int chunk_z);
 
     // Returns all chunk keys for iterating over the world.
     std::vector<ChunkKey> all_chunk_keys() const;
@@ -52,7 +57,8 @@ public:
     size_t chunk_count() const { return chunks_.size(); }
 
 private:
-    ChunkKey make_key(const std::string& layer_id, int chunk_x, int chunk_y) const;
+    ChunkKey make_key(const std::string& dimension_id,
+                      int chunk_x, int chunk_y, int chunk_z) const;
 
     std::unordered_map<ChunkKey, ChunkData> chunks_;
 };
@@ -60,18 +66,18 @@ private:
 // --- Inline implementations ---
 
 inline ChunkKey WorldData::make_key(
-    const std::string& layer_id, int chunk_x, int chunk_y) const {
-    return ChunkKey{layer_id, chunk_x, chunk_y};
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z) const {
+    return ChunkKey{dimension_id, chunk_x, chunk_y, chunk_z};
 }
 
 inline bool WorldData::has_chunk(
-    const std::string& layer_id, int chunk_x, int chunk_y) const {
-    return chunks_.find(make_key(layer_id, chunk_x, chunk_y)) != chunks_.end();
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z) const {
+    return chunks_.find(make_key(dimension_id, chunk_x, chunk_y, chunk_z)) != chunks_.end();
 }
 
 inline ChunkData* WorldData::get_chunk(
-    const std::string& layer_id, int chunk_x, int chunk_y) {
-    auto it = chunks_.find(make_key(layer_id, chunk_x, chunk_y));
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
+    auto it = chunks_.find(make_key(dimension_id, chunk_x, chunk_y, chunk_z));
     if (it == chunks_.end()) {
         return nullptr;
     }
@@ -79,8 +85,8 @@ inline ChunkData* WorldData::get_chunk(
 }
 
 inline const ChunkData* WorldData::get_chunk(
-    const std::string& layer_id, int chunk_x, int chunk_y) const {
-    auto it = chunks_.find(make_key(layer_id, chunk_x, chunk_y));
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z) const {
+    auto it = chunks_.find(make_key(dimension_id, chunk_x, chunk_y, chunk_z));
     if (it == chunks_.end()) {
         return nullptr;
     }
@@ -88,15 +94,17 @@ inline const ChunkData* WorldData::get_chunk(
 }
 
 inline void WorldData::set_chunk(
-    const std::string& layer_id, int chunk_x, int chunk_y, ChunkData chunk) {
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
+    ChunkData chunk) {
     chunk.chunk_x = chunk_x;
     chunk.chunk_y = chunk_y;
-    chunks_[make_key(layer_id, chunk_x, chunk_y)] = std::move(chunk);
+    chunk.chunk_z = chunk_z;
+    chunks_[make_key(dimension_id, chunk_x, chunk_y, chunk_z)] = std::move(chunk);
 }
 
 inline void WorldData::remove_chunk(
-    const std::string& layer_id, int chunk_x, int chunk_y) {
-    chunks_.erase(make_key(layer_id, chunk_x, chunk_y));
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z) {
+    chunks_.erase(make_key(dimension_id, chunk_x, chunk_y, chunk_z));
 }
 
 inline std::vector<ChunkKey> WorldData::all_chunk_keys() const {
