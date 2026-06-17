@@ -1,6 +1,7 @@
 # ChunkRendererBridge — 3D chunk rendering bridge for the voxel world.
 # Delegates pure-computation helpers to GDChunkHelper (C++) and keeps
-# Godot scene-tree operations (MultiMesh, collision, Planet LOD) in GDScript.
+# Godot scene-tree operations (MultiMesh, collision) in GDScript.
+# Planet LOD is managed by PlanetLodManager (sibling node).
 class_name ChunkRendererBridge
 extends Node3D
 
@@ -45,11 +46,14 @@ var workbench_material_id: int = AIR_MATERIAL
 @export var start_chunk_radius := 1
 @export var debug_chunk_streaming := false
 @export var debug_chunk_streaming_interval := 2.0
-@export var show_planet_lod := true
-@export var planet_lod_radius := 512.0
-@export var planet_lod_center := Vector3(0.0, -512.0, 0.0)
+@export var planet_lod_manager_path: NodePath = ^"../PlanetLodManager"
 
 var is_initialized := false
+
+# Each entry: { "root": Node3D, "full": Node3D, "simplified": Node3D }
+# "root" is the parent node added to the scene tree.
+# "full" is the LOD 0 child (all voxels + collision).
+# "simplified" is the LOD 1 child (surface voxels only, no collision).
 var _visible_chunks: Dictionary = {}
 var _pending_view_queue: Array[Vector3i] = []
 var _tracked_chunks: Dictionary = {}
@@ -57,7 +61,8 @@ var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
 var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
-var _planet_lod_mesh_instance: MeshInstance3D = null
+var _planet_lod_manager: PlanetLodManager = null
+var _current_chunk_lod := 0
 
 
 func _ready() -> void:
@@ -77,7 +82,7 @@ func _process(delta: float) -> void:
 
 	var player_chunk := world_position_to_chunk(player.global_position)
 	_refresh_chunks(player_chunk)
-	_update_planet_lod_visibility(player)
+	_update_chunk_visibility_for_lod()
 	_maybe_log_chunk_streaming(delta)
 
 
@@ -103,7 +108,7 @@ func initialize() -> void:
 		world_data.chunk_ready.connect(_on_chunk_ready)
 
 	_build_materials()
-	_create_planet_lod()
+	_connect_planet_lod_manager()
 	if auto_generate_start_chunks:
 		_generate_initial_chunks()
 
@@ -295,34 +300,67 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	if materials.is_empty():
 		return
 
-	var root := Node3D.new()
-	root.name = "Chunk_%d_%d_%d" % [chunk.x, chunk.y, chunk.z]
-	add_child(root)
-	_visible_chunks[chunk] = root
-
 	var size_x := int(terrain.get("size_x", CHUNK_SIZE))
 	var size_y := int(terrain.get("size_y", CHUNK_SIZE))
 	var size_z := int(terrain.get("size_z", CHUNK_SIZE))
+
+	# Compute surface mask for LOD 1 simplified rendering.
+	var surface_mask: PackedByteArray = GDChunkHelper.compute_surface_mask(
+		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id)
+
+	# Classify voxels by material and surface status.
 	var by_material: Dictionary = {}
+	var by_material_surface_only: Dictionary = {}
 	for local_y in range(size_y):
 		for local_z in range(size_z):
 			for local_x in range(size_x):
-				var index := GDChunkHelper.terrain_index(local_x, local_y, local_z, size_x, size_z)
-				if index >= materials.size():
+				var idx := GDChunkHelper.terrain_index(local_x, local_y, local_z, size_x, size_z)
+				if idx >= materials.size():
 					continue
-				var material_id := int(materials[index])
+				var material_id := int(materials[idx])
 				if material_id == AIR_MATERIAL:
 					continue
+				var local := Vector3i(local_x, local_y, local_z)
 				if not by_material.has(material_id):
 					by_material[material_id] = []
-				by_material[material_id].append(Vector3i(local_x, local_y, local_z))
+				by_material[material_id].append(local)
+				if idx < surface_mask.size() and surface_mask[idx] != 0:
+					if not by_material_surface_only.has(material_id):
+						by_material_surface_only[material_id] = []
+					by_material_surface_only[material_id].append(local)
 
+	# Root node holds both LOD 0 and LOD 1 children.
+	var root := Node3D.new()
+	root.name = "Chunk_%d_%d_%d" % [chunk.x, chunk.y, chunk.z]
+	add_child(root)
+
+	# LOD 0: full chunk (all voxels + collision).
+	var full_node := Node3D.new()
+	full_node.name = "LOD0_Full"
+	root.add_child(full_node)
 	for material_id in by_material.keys():
-		_create_material_multimesh(root, chunk, int(material_id), by_material[material_id], materials, size_x, size_y, size_z)
+		_create_material_multimesh(full_node, chunk, int(material_id),
+			by_material[material_id], materials, size_x, size_y, size_z, true)
+
+	# LOD 1: simplified chunk (surface voxels only, no collision).
+	var simplified_node := Node3D.new()
+	simplified_node.name = "LOD1_Simplified"
+	simplified_node.visible = false
+	root.add_child(simplified_node)
+	for material_id in by_material_surface_only.keys():
+		_create_material_multimesh(simplified_node, chunk, int(material_id),
+			by_material_surface_only[material_id], materials, size_x, size_y, size_z, false)
+
+	_visible_chunks[chunk] = {
+		"root": root,
+		"full": full_node,
+		"simplified": simplified_node,
+	}
 
 
 func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int, cells: Array,
-		materials: PackedByteArray, size_x: int, size_y: int, size_z: int) -> void:
+		materials: PackedByteArray, size_x: int, size_y: int, size_z: int,
+		create_collision: bool) -> void:
 	if cells.is_empty():
 		return
 
@@ -358,9 +396,10 @@ func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int,
 	instance.material_override = _get_material(material_id)
 	root.add_child(instance)
 
-	if is_ladder:
+	if not create_collision or is_ladder:
 		return
 
+	# Collision only for LOD 0 full view.
 	var static_body := StaticBody3D.new()
 	static_body.name = "Collision_%d" % material_id
 	root.add_child(static_body)
@@ -381,7 +420,8 @@ func _create_material_multimesh(root: Node3D, chunk: Vector3i, material_id: int,
 
 
 func _remove_chunk_view(chunk: Vector3i) -> void:
-	var node := _visible_chunks.get(chunk) as Node
+	var entry: Dictionary = _visible_chunks.get(chunk, {})
+	var node: Node = entry.get("root") as Node
 	if node == null:
 		return
 	_visible_chunks.erase(chunk)
@@ -423,40 +463,42 @@ func _get_material(material_id: int) -> StandardMaterial3D:
 	return material
 
 
-# --- Planet LOD ---
+# --- Planet LOD integration ---
 
-func _create_planet_lod() -> void:
-	if not show_planet_lod:
+func _connect_planet_lod_manager() -> void:
+	_planet_lod_manager = get_node_or_null(planet_lod_manager_path) as PlanetLodManager
+	if _planet_lod_manager == null:
+		push_warning("ChunkRendererBridge: PlanetLodManager not found at %s" % planet_lod_manager_path)
+
+
+# Switch between LOD 0 (full) and LOD 1 (simplified) chunk views,
+# or hide chunks entirely when the proxy sphere is active (LOD 2+).
+func _update_chunk_visibility_for_lod() -> void:
+	if _planet_lod_manager == null:
 		return
 
-	var sphere := SphereMesh.new()
-	sphere.radius = planet_lod_radius
-	sphere.height = planet_lod_radius * 2.0
-	sphere.radial_segments = 64
-	sphere.rings = 32
+	var lod_level := _planet_lod_manager.get_current_lod_level()
 
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.35, 0.55, 0.30)
-	material.roughness = 0.95
-	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	sphere.surface_set_material(0, material)
-
-	_planet_lod_mesh_instance = MeshInstance3D.new()
-	_planet_lod_mesh_instance.name = "PlanetLOD"
-	_planet_lod_mesh_instance.mesh = sphere
-	_planet_lod_mesh_instance.global_position = planet_lod_center
-	add_child(_planet_lod_mesh_instance)
-
-
-func _update_planet_lod_visibility(player: Node3D) -> void:
-	if _planet_lod_mesh_instance == null:
+	# Skip per-chunk updates if LOD level hasn't changed.
+	if lod_level == _current_chunk_lod:
 		return
+	_current_chunk_lod = lod_level
 
-	var dist_to_center := player.global_position.distance_to(planet_lod_center)
-	var surface_dist := dist_to_center - planet_lod_radius
+	var show_full := lod_level == PlanetLodManager.LOD_REAL_CHUNKS
+	var show_simplified := lod_level == PlanetLodManager.LOD_SIMPLIFIED_MESH
+	var show_root := show_full or show_simplified
 
-	var lod_show_distance := float(loaded_radius * CHUNK_SIZE) * 1.5
-	_planet_lod_mesh_instance.visible = surface_dist > lod_show_distance
+	for chunk in _visible_chunks.keys():
+		var entry: Dictionary = _visible_chunks[chunk]
+		var root: Node3D = entry.get("root")
+		var full: Node3D = entry.get("full")
+		var simplified: Node3D = entry.get("simplified")
+		if root:
+			root.visible = show_root
+		if full:
+			full.visible = show_full
+		if simplified:
+			simplified.visible = show_simplified
 
 
 func _maybe_log_chunk_streaming(delta: float) -> void:
@@ -466,9 +508,10 @@ func _maybe_log_chunk_streaming(delta: float) -> void:
 	if _debug_elapsed < debug_chunk_streaming_interval:
 		return
 	_debug_elapsed = 0.0
-	print("ChunkRendererBridge3D: visible=%d queued=%d loaded=%d async=%d" % [
+	print("ChunkRendererBridge3D: visible=%d queued=%d loaded=%d async=%d lod=%d" % [
 		_visible_chunks.size(),
 		_pending_view_queue.size(),
 		_tracked_chunks.size(),
 		world_data.get_async_pending_count() if world_data else 0,
+		_current_chunk_lod,
 	])

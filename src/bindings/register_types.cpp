@@ -18,6 +18,7 @@
 #include "world/gd_terrain_generator.h"
 #include "world/gd_furnace_manager.h"
 #include "world/gd_chunk_helper.h"
+#include "world/gd_planet_lod.hpp"
 #include "simulation/gd_game_command_server.h"
 #include "simulation/gd_tick_system.h"
 #include "player/gd_player_inventory.h"
@@ -74,6 +75,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDFurnaceData>();
     ClassDB::register_class<GDFurnaceManager>();
     ClassDB::register_class<GDChunkHelper>();
+    ClassDB::register_class<GDPlanetLod>();
     ClassDB::register_class<GDGameCommandServer>();
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();

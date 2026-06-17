@@ -191,6 +191,58 @@ godot::Dictionary GDChunkHelper::compute_visible_chunks(
     return result;
 }
 
+// --- Surface mask ---
+
+godot::PackedByteArray GDChunkHelper::compute_surface_mask(
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t air_material, int32_t ladder_material) {
+    const int64_t total = static_cast<int64_t>(size_x) * size_y * size_z;
+    godot::PackedByteArray mask;
+    mask.resize(total);
+    memset(mask.ptrw(), 0, total);
+
+    for (int32_t y = 0; y < size_y; ++y) {
+        for (int32_t z = 0; z < size_z; ++z) {
+            for (int32_t x = 0; x < size_x; ++x) {
+                const int64_t idx = terrain_index(x, y, z, size_x, size_z);
+                if (idx < 0 || idx >= total) continue;
+                const int32_t mat = static_cast<int32_t>(materials[idx]);
+                if (mat == air_material) continue;
+
+                // Check 6 neighbors: if any is air/ladder, this is a surface voxel.
+                bool is_surface = false;
+                const godot::Vector3i offsets[] = {
+                    godot::Vector3i(1, 0, 0), godot::Vector3i(-1, 0, 0),
+                    godot::Vector3i(0, 1, 0), godot::Vector3i(0, -1, 0),
+                    godot::Vector3i(0, 0, 1), godot::Vector3i(0, 0, -1),
+                };
+                for (const auto& offset : offsets) {
+                    const int32_t nx = x + offset.x;
+                    const int32_t ny = y + offset.y;
+                    const int32_t nz = z + offset.z;
+                    if (nx < 0 || nx >= size_x || ny < 0 || ny >= size_y || nz < 0 || nz >= size_z) {
+                        is_surface = true;
+                        break;
+                    }
+                    const int64_t n_idx = terrain_index(nx, ny, nz, size_x, size_z);
+                    if (n_idx < 0 || n_idx >= total) {
+                        is_surface = true;
+                        break;
+                    }
+                    const int32_t n_mat = static_cast<int32_t>(materials[n_idx]);
+                    if (n_mat == air_material || n_mat == ladder_material) {
+                        is_surface = true;
+                        break;
+                    }
+                }
+                mask.ptrw()[idx] = is_surface ? 1 : 0;
+            }
+        }
+    }
+    return mask;
+}
+
 // --- Bindings ---
 
 void GDChunkHelper::_bind_methods() {
@@ -212,6 +264,8 @@ void GDChunkHelper::_bind_methods() {
                                 &B::is_surface_voxel);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("ladder_facing", "local", "materials", "size_x", "size_y", "size_z", "air_material"),
                                 &B::ladder_facing);
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_surface_mask", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
+                                &B::compute_surface_mask);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_visible_chunks", "player_chunk", "loaded_radius", "view_radius", "use_spherical_loading"),
                                 &B::compute_visible_chunks);
 }

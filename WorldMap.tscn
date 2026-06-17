@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=14 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -12,6 +12,7 @@
 [ext_resource type="Script" uid="uid://dxa8g0s0ncr5d" path="res://scripts/crafting/CraftingUI.gd" id="12_crafting_ui"]
 [ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="13_furnace_ui"]
 [ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="14_wiki_ui"]
+[ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -61,6 +62,12 @@ script = ExtResource("6_command_server")
 [node name="ChunkRendererBridge" type="Node3D" parent="."]
 script = ExtResource("7_chunk_bridge")
 debug_chunk_streaming = false
+
+[node name="PlanetLodManager" type="Node3D" parent="."]
+script = ExtResource("15_planet_lod_manager")
+planet_center = Vector3(0, -512, 0)
+planet_radius = 512.0
+world_environment_path = NodePath("../WorldEnvironment")
 
 [node name="WorldObjectRenderer" type="Node3D" parent="."]
 script = ExtResource("8_object_renderer")

@@ -42,6 +42,16 @@ public:
                                int32_t size_x, int32_t size_y, int32_t size_z,
                                int32_t air_material);
 
+    // Compute a surface mask for the chunk: one byte per voxel.
+    // 1 = surface voxel (at least one neighbor is air/ladder),
+    // 0 = fully interior voxel (all 6 neighbors are solid).
+    // This is used for LOD 1 simplified rendering where only
+    // surface voxels are drawn, skipping interior geometry.
+    static godot::PackedByteArray compute_surface_mask(
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t air_material, int32_t ladder_material);
+
     // --- Chunk visibility ---
 
     // Returns a Dictionary with keys "wanted_visible" (Dictionary of Vector3i->bool)
