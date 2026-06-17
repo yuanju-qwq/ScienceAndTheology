@@ -1,15 +1,17 @@
 class_name MapConnector
 extends Resource
 
+const SURFACE: StringName = &"surface"
+
 enum ActivationMode {
 	INTERACT,
 	AUTO_ON_ENTER,
 }
 
 @export var connector_id: int = 0
-@export var from_layer: StringName = WorldLayers.SURFACE
+@export var from_layer: StringName = SURFACE
 @export var from_cell: Vector2i = Vector2i.ZERO
-@export var to_layer: StringName = WorldLayers.UNDERGROUND
+@export var to_layer: StringName = SURFACE
 @export var to_cell: Vector2i = Vector2i.ZERO
 @export var one_way := false
 @export var locked := false

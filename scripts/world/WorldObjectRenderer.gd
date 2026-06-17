@@ -1,26 +1,24 @@
 class_name WorldObjectRenderer
-extends Node
+extends Node3D
 
-const WORKBENCH_TEXTURE := preload("res://resource/world/objects/workbench_world_64.png")
-const FURNACE_TEXTURE := preload("res://resource/world/objects/stone_furnace_world_64.png")
-const LADDER_TEXTURE := preload("res://resource/world/objects/ladder_entrance_world_64.png")
+const SURFACE: StringName = &"surface"
 
+@export var world_path: NodePath = ^"../ChunkRendererBridge"
 @export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var ladder_manager_path: NodePath = ^"../LadderManager"
-@export var surface_layer_path: NodePath = ^"../Layers/SurfaceLayer"
-@export var underground_layer_path: NodePath = ^"../Layers/UndergroundLayer"
 
+@onready var _world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
 @onready var _workbench_manager = get_node_or_null(workbench_manager_path)
 @onready var _furnace_manager = get_node_or_null(furnace_manager_path)
 @onready var _ladder_manager = get_node_or_null(ladder_manager_path)
-@onready var _surface_layer := get_node_or_null(surface_layer_path) as TileMapLayer
-@onready var _underground_layer := get_node_or_null(underground_layer_path) as TileMapLayer
 
-var _sprites: Dictionary = {}
+var _objects: Dictionary = {}
+var _materials: Dictionary = {}
 
 
 func _ready() -> void:
+	_build_materials()
 	_connect_manager_signals()
 	_sync_existing_objects()
 
@@ -40,75 +38,119 @@ func _connect_manager_signals() -> void:
 func _sync_existing_objects() -> void:
 	if _workbench_manager != null:
 		for entry in _workbench_manager.get_all_workbenches():
-			_on_workbench_placed(entry.get("layer", &""), entry.get("cell", Vector2i.ZERO))
+			_on_workbench_placed(StringName(entry.get("layer", "")), entry.get("cell", Vector2i.ZERO))
 	if _furnace_manager != null:
 		for entry in _furnace_manager.get_all_furnaces():
-			_on_furnace_placed(entry.get("layer", &""), entry.get("cell", Vector2i.ZERO))
+			_on_furnace_placed(StringName(entry.get("layer", "")), entry.get("cell", Vector2i.ZERO))
 	if _ladder_manager != null and _ladder_manager.has_method(&"get_all_ladders"):
 		for entry in _ladder_manager.get_all_ladders():
-			_on_ladder_placed(entry.get("layer", &""), entry.get("cell", Vector2i.ZERO))
+			_on_ladder_placed(StringName(entry.get("layer", "")), entry.get("cell", Vector2i.ZERO))
 
 
 func _on_workbench_placed(layer: StringName, cell: Vector2i) -> void:
-	_create_sprite(&"workbench", layer, cell, WORKBENCH_TEXTURE)
+	_create_object(&"workbench", layer, cell)
 
 
 func _on_workbench_removed(layer: StringName, cell: Vector2i) -> void:
-	_remove_sprite(&"workbench", layer, cell)
+	_remove_object(&"workbench", layer, cell)
 
 
 func _on_furnace_placed(layer: StringName, cell: Vector2i) -> void:
-	_create_sprite(&"furnace", layer, cell, FURNACE_TEXTURE)
+	_create_object(&"furnace", layer, cell)
 
 
 func _on_furnace_removed(layer: StringName, cell: Vector2i) -> void:
-	_remove_sprite(&"furnace", layer, cell)
+	_remove_object(&"furnace", layer, cell)
 
 
 func _on_ladder_placed(layer: StringName, cell: Vector2i) -> void:
-	_create_sprite(&"ladder", layer, cell, LADDER_TEXTURE)
+	_create_object(&"ladder", layer, cell)
 
 
 func _on_ladder_removed(layer: StringName, cell: Vector2i) -> void:
-	_remove_sprite(&"ladder", layer, cell)
+	_remove_object(&"ladder", layer, cell)
 
 
-func _create_sprite(object_type: StringName, layer: StringName, cell: Vector2i,
-		texture: Texture2D) -> void:
+func _create_object(object_type: StringName, layer: StringName, cell: Vector2i) -> void:
+	if layer != SURFACE:
+		return
 	var key := _make_key(object_type, layer, cell)
-	if _sprites.has(key):
+	if _objects.has(key) or _world == null:
 		return
 
-	var tile_layer := _get_tile_layer(layer)
-	if tile_layer == null:
-		push_warning("WorldObjectRenderer: unknown layer '%s'" % layer)
-		return
+	var root := Node3D.new()
+	root.name = "%s_%d_%d" % [object_type, cell.x, cell.y]
+	root.global_position = _world.cell_to_world_position(cell, 0.12)
+	add_child(root)
+	_objects[key] = root
 
-	var sprite := Sprite2D.new()
-	sprite.name = "%s_%d_%d" % [object_type, cell.x, cell.y]
-	sprite.texture = texture
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	sprite.position = tile_layer.map_to_local(cell)
-	sprite.z_index = 5
-	tile_layer.add_child(sprite)
-	_sprites[key] = sprite
+	match object_type:
+		&"workbench":
+			_build_workbench(root)
+		&"furnace":
+			_build_furnace(root)
+		&"ladder":
+			_build_ladder(root)
 
 
-func _remove_sprite(object_type: StringName, layer: StringName, cell: Vector2i) -> void:
+func _remove_object(object_type: StringName, layer: StringName, cell: Vector2i) -> void:
 	var key := _make_key(object_type, layer, cell)
-	var sprite := _sprites.get(key) as Sprite2D
-	if sprite == null:
+	var node := _objects.get(key) as Node
+	if node == null:
 		return
-	_sprites.erase(key)
-	sprite.queue_free()
+	_objects.erase(key)
+	node.queue_free()
 
 
-func _get_tile_layer(layer: StringName) -> TileMapLayer:
-	if layer == WorldLayers.SURFACE:
-		return _surface_layer
-	if layer == WorldLayers.UNDERGROUND:
-		return _underground_layer
-	return null
+func _build_workbench(root: Node3D) -> void:
+	_add_box(root, Vector3(0.0, 0.25, 0.0), Vector3(0.92, 0.50, 0.92), _materials.wood)
+	_add_box(root, Vector3(0.0, 0.55, 0.0), Vector3(1.0, 0.10, 1.0), _materials.table_top)
+	for x in [-0.32, 0.32]:
+		for z in [-0.32, 0.32]:
+			_add_box(root, Vector3(x, -0.02, z), Vector3(0.16, 0.42, 0.16), _materials.dark_wood)
+
+
+func _build_furnace(root: Node3D) -> void:
+	_add_box(root, Vector3(0.0, 0.32, 0.0), Vector3(0.96, 0.72, 0.96), _materials.stone)
+	_add_box(root, Vector3(0.0, 0.32, -0.49), Vector3(0.46, 0.32, 0.04), _materials.furnace_mouth)
+	_add_box(root, Vector3(0.0, 0.58, -0.515), Vector3(0.30, 0.08, 0.03), _materials.hot)
+
+
+func _build_ladder(root: Node3D) -> void:
+	for x in [-0.26, 0.26]:
+		_add_box(root, Vector3(x, 0.42, -0.40), Vector3(0.08, 0.92, 0.08), _materials.dark_wood)
+	for y in [0.06, 0.28, 0.50, 0.72]:
+		_add_box(root, Vector3(0.0, y, -0.40), Vector3(0.62, 0.06, 0.08), _materials.table_top)
+
+
+func _add_box(root: Node3D, position: Vector3, size: Vector3, material: Material) -> MeshInstance3D:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	var instance := MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.material_override = material
+	instance.position = position
+	root.add_child(instance)
+	return instance
+
+
+func _build_materials() -> void:
+	_materials = {
+		"wood": _make_material(Color(0.50, 0.32, 0.16)),
+		"dark_wood": _make_material(Color(0.28, 0.17, 0.08)),
+		"table_top": _make_material(Color(0.66, 0.45, 0.22)),
+		"stone": _make_material(Color(0.42, 0.40, 0.36)),
+		"furnace_mouth": _make_material(Color(0.08, 0.075, 0.07)),
+		"hot": _make_material(Color(1.0, 0.35, 0.08)),
+	}
+
+
+func _make_material(color: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = 0.9
+	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	return material
 
 
 func _make_key(object_type: StringName, layer: StringName, cell: Vector2i) -> String:

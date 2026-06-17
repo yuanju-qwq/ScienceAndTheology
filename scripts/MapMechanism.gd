@@ -1,13 +1,15 @@
 class_name MapMechanism
 extends Resource
 
+const SURFACE: StringName = &"surface"
+
 enum ActivationMode {
 	INTERACT,
 	AUTO_ON_ENTER,
 }
 
 @export var mechanism_id: StringName = &""
-@export var layer_id: StringName = WorldLayers.SURFACE
+@export var layer_id: StringName = SURFACE
 @export var cell_position: Vector2i = Vector2i.ZERO
 @export var display_name := "Mechanism"
 @export var action_label := "Use Mechanism"

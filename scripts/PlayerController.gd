@@ -1,137 +1,159 @@
 class_name PlayerController
-extends CharacterBody2D
-
-const PLAYER_IDLE_DOWN := preload("res://resource/characters/player/player_idle_down_32x48.png")
-const PLAYER_IDLE_SIDE := preload("res://resource/characters/player/player_idle_side_32x48.png")
-const PLAYER_IDLE_UP := preload("res://resource/characters/player/player_idle_up_32x48.png")
-const PLAYER_WALK_DOWN := preload("res://resource/characters/player/player_walk_down_32x48_strip.png")
-const PLAYER_WALK_SIDE := preload("res://resource/characters/player/player_walk_side_32x48_strip.png")
-const PLAYER_WALK_UP := preload("res://resource/characters/player/player_walk_up_32x48_strip.png")
-const WALK_ANIMATION_FPS := 8.0
+extends CharacterBody3D
 
 signal connector_used(connector_id: int, from_layer: StringName, to_layer: StringName)
 signal mechanism_activated(mechanism_id: StringName, layer_id: StringName)
 signal hotbar_changed(index: int)
 signal inventory_changed
 
-@export var move_speed := 96.0
-@export var connector_cooldown := 0.25
+const REACH := 6.0
+const MOUSE_SENSITIVITY := 0.0025
+const GRAVITY := 22.0
+const JUMP_VELOCITY := 7.0
+const SURFACE: StringName = &"surface"
+
+@export var move_speed := 5.2
+@export var sprint_multiplier := 1.45
 @export var inventory_width := 9
 @export var inventory_height := 4
-@export var layer_controller_path: NodePath = ^".."
+@export var connector_cooldown := 0.25
+@export var world_path: NodePath = ^"../ChunkRendererBridge"
+@export var command_server_path: NodePath = ^"../GameCommandServer"
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
-@export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
-@export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
-@export var transition_overlay_path: NodePath = ^"../UI/TransitionOverlay"
-@export var transition_label_path: NodePath = ^"../UI/TransitionOverlay/Label"
-@export var exploration_tracker_path: NodePath = ^"../ExplorationTracker"
-@export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
-@export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
-@export var crosshair_path: NodePath = ^"../UI/Crosshair"
-@export var mining_path: NodePath = ^"../PlayerMining"
-@export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
 @export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var ladder_manager_path: NodePath = ^"../LadderManager"
+@export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
+@export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
+@export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
 @export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
-@export var command_server_path: NodePath = ^"../GameCommandServer"
-@export var player_sprite_path: NodePath = ^"Visual"
-
-@export var transition_fade_in_duration := 0.18
-@export var transition_hold_duration := 0.08
-@export var transition_fade_out_duration := 0.22
+@export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
+@export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
+@export var target_label_path: NodePath = ^"../UI/TargetLabel"
+@export var head_path: NodePath = ^"Head"
+@export var camera_path: NodePath = ^"Head/Camera3D"
+@export var selection_path: NodePath = ^"../SelectionBox"
+@export var debug_interactions := true
+@export var debug_interval := 0.7
+@export var give_debug_starting_items := true
 
 var inventory: GDPlayerInventory
 var equipment: GDPlayerEquipment
-var selected_hotbar: int = 0
+var selected_hotbar := 0
 
-@onready var layer_controller = get_node_or_null(layer_controller_path)
+@onready var world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
+@onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
 @onready var connector_manager = get_node_or_null(connector_manager_path)
 @onready var mechanism_manager = get_node_or_null(mechanism_manager_path)
-@onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
-@onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
-@onready var transition_overlay: CanvasItem = get_node_or_null(transition_overlay_path) as CanvasItem
-@onready var transition_label: Label = get_node_or_null(transition_label_path) as Label
-@onready var exploration_tracker = get_node_or_null(exploration_tracker_path)
-@onready var hotbar_ui = get_node_or_null(hotbar_ui_path)
-@onready var inventory_ui = get_node_or_null(inventory_ui_path)
-@onready var mining = get_node_or_null(mining_path)
-@onready var crosshair = get_node_or_null(crosshair_path)
-@onready var crafting_ui = get_node_or_null(crafting_ui_path)
 @onready var workbench_manager = get_node_or_null(workbench_manager_path)
 @onready var furnace_manager = get_node_or_null(furnace_manager_path)
 @onready var ladder_manager = get_node_or_null(ladder_manager_path)
+@onready var hotbar_ui = get_node_or_null(hotbar_ui_path)
+@onready var inventory_ui = get_node_or_null(inventory_ui_path)
+@onready var crafting_ui = get_node_or_null(crafting_ui_path)
 @onready var furnace_ui = get_node_or_null(furnace_ui_path)
 @onready var wiki_ui = get_node_or_null(wiki_ui_path)
-@onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
-@onready var player_sprite: Sprite2D = get_node_or_null(player_sprite_path) as Sprite2D
+@onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
+@onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
+@onready var target_label: Label = get_node_or_null(target_label_path) as Label
+@onready var head: Node3D = get_node_or_null(head_path) as Node3D
+@onready var camera: Camera3D = get_node_or_null(camera_path) as Camera3D
+@onready var selection_box: Node3D = get_node_or_null(selection_path) as Node3D
 
-var _cooldown_remaining := 0.0
-var _last_layer: StringName = &""
-var _last_cell := Vector2i.ZERO
 var _input_locked := false
-var _facing: StringName = &"down"
-var _walk_animation_time := 0.0
+var _mouse_captured := true
+var _pitch := deg_to_rad(-18.0)
+var _cooldown_remaining := 0.0
+var _last_cell := Vector2i.ZERO
+var _last_debug_time := -100.0
+var _target := {}
 
 
 func _ready() -> void:
-	inventory = GDPlayerInventory.new()
-	inventory.init(inventory_width, inventory_height)
-	equipment = GDPlayerEquipment.new()
-	if command_server != null:
-		command_server.configure_player(inventory, equipment)
-		if not command_server.inventory_synced.is_connected(_on_server_inventory_synced):
-			command_server.inventory_synced.connect(_on_server_inventory_synced)
-
-	_prepare_transition_overlay()
-	_update_player_visual(Vector2.ZERO, 0.0)
-	_last_layer = _get_current_layer()
-	_last_cell = _get_current_cell()
-	_mark_current_cell_visited()
-	_update_connector_prompt()
-
-	if hotbar_ui and hotbar_ui.has_method(&"set_player"):
-		hotbar_ui.set_player(self)
-	if inventory_ui and inventory_ui.has_method(&"set_player"):
-		inventory_ui.set_player(self)
-	if mining and mining.has_method(&"set_player"):
-		mining.set_player(self)
-		if mining.block_mined.is_connected(_on_block_mined):
-			mining.block_mined.disconnect(_on_block_mined)
-		mining.block_mined.connect(_on_block_mined)
-	if crafting_ui and crafting_ui.has_method(&"set_player"):
-		crafting_ui.set_player(self)
-	if furnace_ui and furnace_ui.has_method(&"set_player"):
-		furnace_ui.set_player(self)
-		if furnace_ui.closed.is_connected(_on_furnace_ui_closed):
-			furnace_ui.closed.disconnect(_on_furnace_ui_closed)
-		furnace_ui.closed.connect(_on_furnace_ui_closed)
-
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_setup_inventory()
+	_connect_ui()
+	_update_camera_rotation()
 	_update_hotbar_display()
+	_last_cell = get_current_cell()
 
 
 func _physics_process(delta: float) -> void:
 	if _cooldown_remaining > 0.0:
 		_cooldown_remaining = maxf(_cooldown_remaining - delta, 0.0)
 
-	if _input_locked:
-		velocity = Vector2.ZERO
-		move_and_slide()
-		_update_player_visual(Vector2.ZERO, delta)
-		_update_connector_prompt()
+	_update_target()
+	_handle_movement(delta)
+	_try_auto_cell_events()
+	_update_connector_prompt()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion and _mouse_captured and not _input_locked:
+		rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
+		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
+		_update_camera_rotation()
 		return
 
-	_handle_movement(delta)
-	_try_auto_connector()
-	_update_connector_prompt()
-	_update_hotbar_selection()
+	if event is InputEventKey and event.pressed and not event.echo:
+		_handle_key(event)
+		return
+
+	if event is InputEventMouseButton and event.pressed and not _input_locked:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			_try_mine_target()
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			_try_place_or_interact()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_select_hotbar((selected_hotbar - 1 + 9) % 9)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_select_hotbar((selected_hotbar + 1) % 9)
+
+
+func _handle_key(event: InputEventKey) -> void:
+	var key := event.keycode
+	if key >= KEY_1 and key <= KEY_9:
+		_select_hotbar(key - KEY_1)
+		return
+
+	if key == KEY_TAB:
+		_mouse_captured = not _mouse_captured
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _mouse_captured else Input.MOUSE_MODE_VISIBLE
+		return
+
+	if key == KEY_C:
+		_toggle_crafting()
+	elif key == KEY_B:
+		if _close_furnace_if_open():
+			return
+		_toggle_wiki()
+	elif key == KEY_I or key == KEY_ESCAPE:
+		if key == KEY_ESCAPE and _mouse_captured:
+			_mouse_captured = false
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			return
+		if _close_furnace_if_open():
+			return
+		if wiki_ui and wiki_ui.visible:
+			wiki_ui.toggle()
+			_set_input_locked(false)
+			return
+		_toggle_inventory()
+	elif key == KEY_E or key == KEY_SPACE:
+		_try_place_or_interact()
 
 
 func _handle_movement(delta: float) -> void:
-	var input_vector := Vector2.ZERO
+	if _input_locked:
+		velocity.x = move_toward(velocity.x, 0.0, move_speed)
+		velocity.z = move_toward(velocity.z, 0.0, move_speed)
+		velocity.y -= GRAVITY * delta
+		move_and_slide()
+		return
 
+	var input_vector := Vector2.ZERO
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
 		input_vector.x -= 1.0
 	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
@@ -141,99 +163,309 @@ func _handle_movement(delta: float) -> void:
 	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
 		input_vector.y += 1.0
 
-	velocity = input_vector.normalized() * move_speed
+	var basis := global_transform.basis
+	var forward := -basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var right := basis.x
+	right.y = 0.0
+	right = right.normalized()
+
+	var direction := (right * input_vector.x + forward * -input_vector.y).normalized()
+	var speed := move_speed * (sprint_multiplier if Input.is_key_pressed(KEY_SHIFT) else 1.0)
+	velocity.x = direction.x * speed
+	velocity.z = direction.z * speed
+
+	if is_on_floor():
+		if Input.is_key_pressed(KEY_SPACE):
+			velocity.y = JUMP_VELOCITY
+	else:
+		velocity.y -= GRAVITY * delta
+
 	move_and_slide()
-	_update_player_visual(input_vector, delta)
 
 
-func _update_player_visual(input_vector: Vector2, delta: float) -> void:
-	if player_sprite == null:
+func _setup_inventory() -> void:
+	inventory = GDPlayerInventory.new()
+	inventory.init(inventory_width, inventory_height)
+	equipment = GDPlayerEquipment.new()
+
+	if give_debug_starting_items:
+		inventory.set_slot(0, ItemDatabase.ITEM_IRON_PICKAXE, 1)
+		inventory.set_slot(1, ItemDatabase.ITEM_IRON_SHOVEL, 1)
+		inventory.set_slot(2, ItemDatabase.ITEM_WORKBENCH, 8)
+		inventory.set_slot(3, ItemDatabase.ITEM_FURNACE, 8)
+		inventory.set_slot(4, ItemDatabase.ITEM_LADDER, 8)
+		equipment.equip(GDPlayerEquipment.SLOT_MAIN_HAND, ItemDatabase.ITEM_IRON_PICKAXE)
+
+	if command_server != null:
+		command_server.configure_player(inventory, equipment)
+		if not command_server.inventory_synced.is_connected(_on_server_inventory_synced):
+			command_server.inventory_synced.connect(_on_server_inventory_synced)
+
+
+func _connect_ui() -> void:
+	if hotbar_ui and hotbar_ui.has_method(&"set_player"):
+		hotbar_ui.set_player(self)
+	if inventory_ui and inventory_ui.has_method(&"set_player"):
+		inventory_ui.set_player(self)
+	if crafting_ui and crafting_ui.has_method(&"set_player"):
+		crafting_ui.set_player(self)
+	if furnace_ui and furnace_ui.has_method(&"set_player"):
+		furnace_ui.set_player(self)
+		if not furnace_ui.closed.is_connected(_on_furnace_ui_closed):
+			furnace_ui.closed.connect(_on_furnace_ui_closed)
+
+
+func _update_camera_rotation() -> void:
+	if head:
+		head.rotation.x = _pitch
+
+
+func _update_target() -> void:
+	_target.clear()
+	if camera == null or world == null:
+		_set_selection_visible(false)
 		return
 
-	var is_moving := not input_vector.is_zero_approx()
-	if is_moving:
-		if absf(input_vector.x) > absf(input_vector.y):
-			_facing = &"side"
-			player_sprite.flip_h = input_vector.x < 0.0
-		elif input_vector.y < 0.0:
-			_facing = &"up"
-			player_sprite.flip_h = false
-		else:
-			_facing = &"down"
-			player_sprite.flip_h = false
-
-		_walk_animation_time += delta
-		player_sprite.hframes = 4
-		player_sprite.frame = int(_walk_animation_time * WALK_ANIMATION_FPS) % 4
-		match _facing:
-			&"up":
-				player_sprite.texture = PLAYER_WALK_UP
-			&"side":
-				player_sprite.texture = PLAYER_WALK_SIDE
-			_:
-				player_sprite.texture = PLAYER_WALK_DOWN
+	var from := camera.global_position
+	var to := from + (-camera.global_transform.basis.z * REACH)
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.collide_with_areas = false
+	query.collide_with_bodies = true
+	query.exclude = [self.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		_set_selection_visible(false)
+		if target_label:
+			target_label.text = ""
 		return
 
-	_walk_animation_time = 0.0
-	player_sprite.hframes = 1
-	player_sprite.frame = 0
-	match _facing:
-		&"up":
-			player_sprite.texture = PLAYER_IDLE_UP
-			player_sprite.flip_h = false
-		&"side":
-			player_sprite.texture = PLAYER_IDLE_SIDE
+	var normal: Vector3 = hit.get("normal", Vector3.UP)
+	var hit_position: Vector3 = hit.get("position", Vector3.ZERO)
+	var block_point := hit_position - normal * 0.01
+	var cell := world.world_position_to_cell(block_point)
+	var info := world.get_cell_info(cell)
+	var data: Dictionary = info.get("data", {})
+	if data.is_empty():
+		_set_selection_visible(false)
+		return
+
+	var material := int(data.get("material", 0))
+	if material == 0:
+		_set_selection_visible(false)
+		return
+
+	_target = info
+	_target["normal"] = normal
+	_target["place_cell"] = world.world_position_to_cell(hit_position + normal * 0.55)
+	_target["position"] = hit_position
+	_set_selection_visible(true)
+	if selection_box:
+		selection_box.global_position = world.cell_to_world_position(cell, -0.5)
+	if target_label:
+		var def: Dictionary = world.get_world_data().get_terrain_material_def(material) if world.get_world_data() else {}
+		target_label.text = str(def.get("display_name", "Block"))
+
+
+func _set_selection_visible(visible: bool) -> void:
+	if selection_box:
+		selection_box.visible = visible
+
+
+func _try_mine_target() -> bool:
+	if command_server == null or _target.is_empty():
+		return false
+
+	var data: Dictionary = _target.get("data", {})
+	var material := int(data.get("material", 0))
+	if material == 0:
+		return false
+
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_MINE_BLOCK,
+		"layer": _target.get("layer", SURFACE),
+		"chunk": _target.get("chunk", Vector2i.ZERO),
+		"local": _target.get("local", Vector2i.ZERO),
+		"cell": _target.get("cell", Vector2i.ZERO),
+		"expected_material": material,
+	})
+	if not bool(result.get("ok", false)):
+		_debug_interaction("mine rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+
+	var chunk: Vector2i = _target.get("chunk", Vector2i.ZERO)
+	var local: Vector2i = _target.get("local", Vector2i.ZERO)
+	world.refresh_cell(_target.get("layer", SURFACE), chunk, local)
+	inventory_changed.emit()
+	return true
+
+
+func _try_place_or_interact() -> bool:
+	if _try_open_furnace(false):
+		return true
+	if _try_use_connector(false):
+		return true
+	if _try_activate_mechanism(false):
+		return true
+	if _try_place_world_object():
+		return true
+	return false
+
+
+func _try_place_world_object() -> bool:
+	if _target.is_empty() or command_server == null or equipment == null:
+		return false
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var object_type := &""
+	match held_id:
+		ItemDatabase.ITEM_WORKBENCH:
+			object_type = GameCommandServer.OBJECT_WORKBENCH
+		ItemDatabase.ITEM_FURNACE:
+			object_type = GameCommandServer.OBJECT_FURNACE
+		ItemDatabase.ITEM_LADDER:
+			object_type = GameCommandServer.OBJECT_LADDER
 		_:
-			player_sprite.texture = PLAYER_IDLE_DOWN
-			player_sprite.flip_h = false
+			return false
+
+	var place_cell: Vector2i = _target.get("place_cell", get_current_cell())
+	if global_position.distance_to(world.cell_to_world_position(place_cell, 0.0)) > REACH:
+		return false
+
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
+		"object_type": object_type,
+		"layer": get_current_layer(),
+		"cell": place_cell,
+		"item_id": held_id,
+	})
+	if not bool(result.get("ok", false)):
+		_debug_interaction("place rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+
+	inventory_changed.emit()
+	return true
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if _input_locked:
+func _try_auto_cell_events() -> void:
+	var cell := get_current_cell()
+	if cell == _last_cell:
 		return
-
-	if _is_interact_event(event):
-		if _try_use_connector(false) or _try_activate_mechanism(false) or _try_open_furnace(false):
-			get_viewport().set_input_as_handled()
-
-	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
-			selected_hotbar = (selected_hotbar - 1 + 9) % 9
-			hotbar_changed.emit(selected_hotbar)
-			_update_hotbar_display()
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
-			selected_hotbar = (selected_hotbar + 1) % 9
-			hotbar_changed.emit(selected_hotbar)
-			_update_hotbar_display()
-		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			if _try_place_workbench():
-				get_viewport().set_input_as_handled()
-			elif _try_place_furnace():
-				get_viewport().set_input_as_handled()
-			elif _try_place_ladder():
-				get_viewport().set_input_as_handled()
+	_last_cell = cell
+	if _cooldown_remaining <= 0.0:
+		if _try_use_connector(true):
+			return
+		_try_activate_mechanism(true)
 
 
-func _input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		var key: int = event.keycode
-		if key >= KEY_1 and key <= KEY_9:
-			selected_hotbar = key - KEY_1
-			hotbar_changed.emit(selected_hotbar)
-			_update_hotbar_display()
-		elif key == KEY_C:
-			_toggle_crafting()
-		elif key == KEY_B:
-			if _close_furnace_if_open():
-				return
-			_toggle_wiki()
-		elif key == KEY_I or key == KEY_ESCAPE:
-			if _close_furnace_if_open():
-				return
-			if wiki_ui and wiki_ui.visible:
-				wiki_ui.toggle()
-				return
-			_toggle_inventory()
+func _try_use_connector(auto_only: bool) -> bool:
+	if _input_locked or _cooldown_remaining > 0.0 or connector_manager == null:
+		return false
+
+	var layer := get_current_layer()
+	var cell := get_current_cell()
+	var connector = connector_manager.get_connector_at(layer, cell)
+	if connector == null:
+		return false
+	if auto_only and not connector.activates_on_enter():
+		return false
+	if not auto_only and not connector.requires_interaction():
+		return false
+
+	var target_layer: StringName = connector.get_target_layer_for(layer, cell)
+	var target_cell: Vector2i = connector.get_target_cell_for(layer, cell)
+	if target_layer == &"":
+		return false
+
+	_cooldown_remaining = connector_cooldown
+	if ladder_manager and connector.connector_type == &"ladder":
+		global_position = world.cell_to_world_position(target_cell, 2.2)
+	connector_used.emit(connector.connector_id, layer, target_layer)
+	return true
+
+
+func _try_activate_mechanism(auto_only: bool) -> bool:
+	if _input_locked or mechanism_manager == null:
+		return false
+
+	var layer := get_current_layer()
+	var cell := get_current_cell()
+	var mechanism = mechanism_manager.get_mechanism_at(layer, cell)
+	if mechanism == null:
+		return false
+	if auto_only and not mechanism.activates_on_enter():
+		return false
+	if not auto_only and not mechanism.requires_interaction():
+		return false
+	if not mechanism_manager.activate_mechanism(mechanism.mechanism_id):
+		return false
+
+	_cooldown_remaining = connector_cooldown
+	mechanism_activated.emit(mechanism.mechanism_id, layer)
+	return true
+
+
+func _try_open_furnace(auto_only: bool) -> bool:
+	if auto_only or furnace_manager == null or furnace_ui == null:
+		return false
+	var cell := get_current_cell()
+	var layer := get_current_layer()
+	var candidates := [cell]
+	if not _target.is_empty():
+		candidates.append(_target.get("cell", cell))
+		candidates.append(_target.get("place_cell", cell))
+	candidates.append_array([cell + Vector2i.RIGHT, cell + Vector2i.LEFT, cell + Vector2i.UP, cell + Vector2i.DOWN])
+
+	for candidate in candidates:
+		if not furnace_manager.has_furnace(layer, candidate):
+			continue
+		var data = furnace_manager.get_furnace(layer, candidate)
+		furnace_ui.open(data, layer, candidate, furnace_manager)
+		_set_input_locked(true)
+		_cooldown_remaining = connector_cooldown
+		return true
+	return false
+
+
+func _toggle_inventory() -> void:
+	if crafting_ui and crafting_ui.visible:
+		_toggle_crafting()
+	if inventory_ui and inventory_ui.has_method(&"toggle"):
+		inventory_ui.toggle()
+
+
+func _toggle_wiki() -> void:
+	if crafting_ui and crafting_ui.visible:
+		_toggle_crafting()
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui.toggle()
+	if wiki_ui and wiki_ui.has_method(&"toggle"):
+		wiki_ui.toggle()
+		_set_input_locked(wiki_ui.visible)
+
+
+func _toggle_crafting() -> void:
+	if crafting_ui == null or not crafting_ui.has_method(&"toggle"):
+		return
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui.toggle()
+	if crafting_ui.has_method(&"set_station"):
+		crafting_ui.set_station(_get_nearby_station())
+	crafting_ui.toggle()
+	_set_input_locked(crafting_ui.visible)
+
+
+func _get_nearby_station() -> String:
+	if workbench_manager == null or not workbench_manager.has_method(&"has_workbench"):
+		return ""
+	var cell := get_current_cell()
+	var layer := get_current_layer()
+	for offset in [Vector2i.ZERO, Vector2i.RIGHT, Vector2i.LEFT, Vector2i.UP, Vector2i.DOWN]:
+		if workbench_manager.has_workbench(layer, cell + offset):
+			return "workbench"
+	return ""
+
 
 func _close_furnace_if_open() -> bool:
 	if furnace_ui and furnace_ui.visible:
@@ -247,241 +479,54 @@ func _on_furnace_ui_closed() -> void:
 	_set_input_locked(false)
 
 
-func _toggle_inventory() -> void:
-	if crafting_ui and crafting_ui.visible:
-		_toggle_crafting()
-	if inventory_ui and inventory_ui.has_method(&"toggle"):
-		inventory_ui.toggle()
-
-func _toggle_wiki() -> void:
-	if crafting_ui and crafting_ui.visible:
-		_toggle_crafting()
-	if inventory_ui and inventory_ui.visible:
-		inventory_ui.toggle()
-	if wiki_ui and wiki_ui.has_method(&"toggle"):
-		wiki_ui.toggle()
-
-
-func _try_auto_connector() -> void:
-	var layer_id := _get_current_layer()
-	var cell_position := _get_current_cell()
-	var entered_new_cell := layer_id != _last_layer or cell_position != _last_cell
-
-	if not entered_new_cell:
-		return
-
-	_last_layer = layer_id
-	_last_cell = cell_position
-	_mark_current_cell_visited()
-
-	if _cooldown_remaining <= 0.0:
-		if _try_use_connector(true):
-			return
-		_try_activate_mechanism(true)
-
-
-func _try_use_connector(auto_only: bool) -> bool:
-	if _input_locked or _cooldown_remaining > 0.0 or connector_manager == null:
-		return false
-
-	var layer_id := _get_current_layer()
-	var cell_position := _get_current_cell()
-	var connector = connector_manager.get_connector_at(layer_id, cell_position)
-	if connector == null:
-		return false
-
-	if auto_only and not connector.activates_on_enter():
-		return false
-	if not auto_only and not connector.requires_interaction():
-		return false
-
-	_start_connector_transition(connector, layer_id, cell_position)
-	return true
-
-
-func _try_activate_mechanism(auto_only: bool) -> bool:
-	if _input_locked or mechanism_manager == null:
-		return false
-
-	var layer_id := _get_current_layer()
-	var cell_position := _get_current_cell()
-	var mechanism = mechanism_manager.get_mechanism_at(layer_id, cell_position)
-	if mechanism == null:
-		return false
-
-	if auto_only and not mechanism.activates_on_enter():
-		return false
-	if not auto_only and not mechanism.requires_interaction():
-		return false
-
-	if not mechanism_manager.activate_mechanism(mechanism.mechanism_id):
-		return false
-
-	_cooldown_remaining = connector_cooldown
-	mechanism_activated.emit(mechanism.mechanism_id, layer_id)
-	_update_connector_prompt()
-	return true
-
-
-func _start_connector_transition(connector, layer_id: StringName, cell_position: Vector2i) -> void:
-	_set_input_locked(true)
-	_run_connector_transition(connector, layer_id, cell_position)
-
-
-func _run_connector_transition(connector, layer_id: StringName, cell_position: Vector2i) -> void:
-	var target_layer: StringName = connector.get_target_layer_for(layer_id, cell_position)
-	if target_layer == &"":
-		_set_input_locked(false)
-		return
-
-	var target_cell: Vector2i = connector.get_target_cell_for(layer_id, cell_position)
-	await _play_transition_fade_in(connector)
-
-	if layer_controller != null:
-		layer_controller.change_layer(target_layer)
-
-	var target_tile_layer := _get_current_tile_layer()
-	if target_tile_layer != null:
-		global_position = target_tile_layer.to_global(target_tile_layer.map_to_local(target_cell))
-
-	_last_layer = target_layer
-	_last_cell = target_cell
-	_mark_current_cell_visited()
-	_cooldown_remaining = connector_cooldown
-	connector_used.emit(connector.connector_id, layer_id, target_layer)
-
-	if transition_hold_duration > 0.0:
-		await get_tree().create_timer(transition_hold_duration).timeout
-
-	await _play_transition_fade_out()
-	_set_input_locked(false)
-
-
-func _on_block_mined(_cell: Vector2i, _layer: StringName, _drops: Array) -> void:
-	pass
-
-
 func _on_server_inventory_synced() -> void:
 	inventory_changed.emit()
 
 
-func _try_place_workbench() -> bool:
-	if inventory == null or equipment == null or crosshair == null or command_server == null:
-		return false
-	if not crosshair.has_target:
-		return false
-
-	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-	if held_id != ItemDatabase.ITEM_WORKBENCH:
-		return false
-
-	var tile_layer := _get_current_tile_layer()
-	if tile_layer == null:
-		return false
-	var cell: Vector2i = crosshair.target_cell
-	var layer: StringName = crosshair.target_layer
-	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
-	if global_position.distance_to(world_pos) > 4.0:
-		return false
-
-	var result: Dictionary = command_server.submit_command({
-		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
-		"object_type": GameCommandServer.OBJECT_WORKBENCH,
-		"layer": layer,
-		"cell": cell,
-		"item_id": ItemDatabase.ITEM_WORKBENCH,
-	})
-	return bool(result.get("ok", false))
+func _select_hotbar(index: int) -> void:
+	selected_hotbar = clampi(index, 0, 8)
+	var slot: Dictionary = inventory.get_slot(selected_hotbar) if inventory else {}
+	var item_id := int(slot.get("item_id", 0))
+	equipment.equip(GDPlayerEquipment.SLOT_MAIN_HAND, item_id)
+	hotbar_changed.emit(selected_hotbar)
+	inventory_changed.emit()
+	_update_hotbar_display()
 
 
-func _try_place_furnace() -> bool:
-	if inventory == null or equipment == null or crosshair == null or command_server == null:
-		return false
-	if not crosshair.has_target:
-		return false
-
-	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-	if held_id != ItemDatabase.ITEM_FURNACE:
-		return false
-
-	var tile_layer := _get_current_tile_layer()
-	if tile_layer == null:
-		return false
-	var cell: Vector2i = crosshair.target_cell
-	var layer: StringName = crosshair.target_layer
-	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
-	if global_position.distance_to(world_pos) > 4.0:
-		return false
-
-	var result: Dictionary = command_server.submit_command({
-		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
-		"object_type": GameCommandServer.OBJECT_FURNACE,
-		"layer": layer,
-		"cell": cell,
-		"item_id": ItemDatabase.ITEM_FURNACE,
-	})
-	return bool(result.get("ok", false))
+func _update_hotbar_display() -> void:
+	if hotbar_ui and hotbar_ui.has_method(&"refresh"):
+		hotbar_ui.refresh()
 
 
-func _try_place_ladder() -> bool:
-	if inventory == null or equipment == null or crosshair == null or command_server == null:
-		return false
-	if not crosshair.has_target:
-		return false
+func _update_connector_prompt() -> void:
+	if connector_prompt == null or connector_prompt_label == null:
+		return
 
-	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-	if held_id != ItemDatabase.ITEM_LADDER:
-		return false
+	var layer := get_current_layer()
+	var cell := get_current_cell()
+	var text := ""
+	if connector_manager != null:
+		var connector = connector_manager.get_connector_at(layer, cell)
+		if connector != null and connector.requires_interaction():
+			text = "E  %s" % String(connector.connector_type).replace("_", " ").capitalize()
 
-	var tile_layer := _get_current_tile_layer()
-	if tile_layer == null:
-		return false
-	var cell: Vector2i = crosshair.target_cell
-	var layer: StringName = crosshair.target_layer
-	var world_pos := tile_layer.to_global(tile_layer.map_to_local(cell))
-	if global_position.distance_to(world_pos) > 4.0:
-		return false
+	if text == "" and mechanism_manager != null:
+		var mechanism = mechanism_manager.get_mechanism_at(layer, cell)
+		if mechanism != null and mechanism.requires_interaction():
+			text = "E  %s" % (mechanism.action_label if mechanism.action_label != "" else mechanism.display_name)
 
-	var result: Dictionary = command_server.submit_command({
-		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
-		"object_type": GameCommandServer.OBJECT_LADDER,
-		"layer": layer,
-		"cell": cell,
-		"item_id": ItemDatabase.ITEM_LADDER,
-	})
-	return bool(result.get("ok", false))
-
-
-func _try_open_furnace(auto_only: bool) -> bool:
-	if _cooldown_remaining > 0.0 or furnace_manager == null or furnace_ui == null:
-		return false
-
-	if auto_only:
-		return false
-
-	var layer_id := _get_current_layer()
-	var cell_position := _get_current_cell()
-	var neighbors := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
-
-	for offset in neighbors:
-		var check_cell: Vector2i = cell_position + offset
-		if not furnace_manager.has_furnace(layer_id, check_cell):
-			continue
-		var data = furnace_manager.get_furnace(layer_id, check_cell)
-		furnace_ui.open(data, layer_id, check_cell, furnace_manager)
-		_set_input_locked(true)
-		_cooldown_remaining = connector_cooldown
-		return true
-
-	return false
+	connector_prompt.visible = text != "" and not _input_locked
+	connector_prompt_label.text = text
 
 
 func get_current_layer() -> StringName:
-	return _get_current_layer()
+	return SURFACE
 
 
 func get_current_cell() -> Vector2i:
-	return _get_current_cell()
+	if world == null:
+		return Vector2i.ZERO
+	return world.world_position_to_cell(global_position)
 
 
 func get_equipped_item_id() -> int:
@@ -493,179 +538,26 @@ func get_equipped_item_id() -> int:
 func get_command_server() -> GameCommandServer:
 	return command_server
 
+
 func get_selected_hotbar() -> int:
 	return selected_hotbar
-
-func _toggle_crafting() -> void:
-	if crafting_ui == null:
-		return
-	if not crafting_ui.has_method(&"toggle"):
-		return
-
-	if inventory_ui and inventory_ui.visible:
-		inventory_ui.toggle()
-
-	if crafting_ui.has_method(&"set_station"):
-		var station := _get_nearby_station()
-		crafting_ui.set_station(station)
-	crafting_ui.toggle()
-	_set_input_locked(crafting_ui.visible)
-
-
-func _get_nearby_station() -> String:
-	if workbench_manager == null:
-		return ""
-	if not workbench_manager.has_method(&"has_workbench"):
-		return ""
-	var cell := _get_current_cell()
-	var layer := _get_current_layer()
-	var neighbors := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
-	for offset in neighbors:
-		if workbench_manager.has_workbench(layer, cell + offset):
-			return "workbench"
-	return ""
-
-
-func _get_current_layer() -> StringName:
-	if layer_controller == null:
-		return WorldLayers.SURFACE
-	return layer_controller.current_layer
-
-
-func _get_current_cell() -> Vector2i:
-	var tile_layer := _get_current_tile_layer()
-	if tile_layer == null:
-		return Vector2i.ZERO
-	return tile_layer.local_to_map(tile_layer.to_local(global_position))
-
-
-func _get_current_tile_layer() -> TileMapLayer:
-	if layer_controller == null or not layer_controller.has_method("get_current_tile_layer"):
-		return null
-	return layer_controller.get_current_tile_layer()
-
-
-func _update_connector_prompt() -> void:
-	if connector_prompt == null or connector_prompt_label == null:
-		return
-
-	var connector = null
-	if connector_manager != null:
-		connector = connector_manager.get_connector_at(_get_current_layer(), _get_current_cell())
-
-	var can_interact: bool = connector != null \
-			and connector.requires_interaction() \
-			and _cooldown_remaining <= 0.0 \
-			and not _input_locked
-
-	if can_interact:
-		connector_prompt.visible = true
-		connector_prompt_label.text = "E  %s" % _format_connector_type(connector.connector_type)
-		return
-
-	var mechanism = null
-	if mechanism_manager != null:
-		mechanism = mechanism_manager.get_mechanism_at(_get_current_layer(), _get_current_cell())
-
-	var can_activate_mechanism: bool = mechanism != null \
-			and mechanism.requires_interaction() \
-			and not _input_locked
-	connector_prompt.visible = can_activate_mechanism
-
-	if can_activate_mechanism:
-		connector_prompt_label.text = "E  %s" % _format_mechanism_action(mechanism)
-
-
-func _format_connector_type(connector_type: StringName) -> String:
-	match connector_type:
-		&"cave_entrance":
-			return "Cave Entrance"
-		&"rift":
-			return "Rift"
-		&"ruin_gate":
-			return "Ruin Gate"
-		&"ladder":
-			return "Ladder"
-		_:
-			return String(connector_type).replace("_", " ").capitalize()
-
-
-func _format_mechanism_action(mechanism) -> String:
-	if mechanism.action_label != "":
-		return mechanism.action_label
-	return mechanism.display_name
-
-
-func _prepare_transition_overlay() -> void:
-	if transition_overlay == null:
-		return
-	transition_overlay.visible = false
-	transition_overlay.modulate.a = 0.0
-
-
-func _play_transition_fade_in(connector) -> void:
-	if transition_overlay == null:
-		return
-	transition_overlay.visible = true
-	transition_overlay.modulate.a = 0.0
-	if transition_label != null:
-		transition_label.text = _get_transition_text(connector)
-	var tween := create_tween()
-	tween.tween_property(transition_overlay, "modulate:a", 1.0, transition_fade_in_duration)
-	await tween.finished
-
-
-func _play_transition_fade_out() -> void:
-	if transition_overlay == null:
-		return
-	var tween := create_tween()
-	tween.tween_property(transition_overlay, "modulate:a", 0.0, transition_fade_out_duration)
-	await tween.finished
-	transition_overlay.visible = false
-
-
-func _get_transition_text(connector) -> String:
-	match connector.connector_type:
-		&"cave_entrance":
-			return "Entering"
-		&"rift":
-			return "Falling"
-		&"ruin_gate":
-			return "Passing"
-		&"ladder":
-			return "Climbing"
-		_:
-			return "Moving"
-
-
-func _mark_current_cell_visited() -> void:
-	if exploration_tracker == null or not exploration_tracker.has_method("mark_visited"):
-		return
-	exploration_tracker.mark_visited(_get_current_layer(), _get_current_cell())
 
 
 func _set_input_locked(is_locked: bool) -> void:
 	_input_locked = is_locked
-	if layer_controller != null and layer_controller.has_method("set_input_locked"):
-		layer_controller.set_input_locked(is_locked)
-	if _input_locked:
-		velocity = Vector2.ZERO
-	_update_connector_prompt()
+	if is_locked:
+		velocity = Vector3.ZERO
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_mouse_captured = false
+	elif not _mouse_captured:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _is_interact_event(event: InputEvent) -> bool:
-	return (
-		event is InputEventKey
-		and event.pressed
-		and not event.echo
-		and (event.physical_keycode == KEY_E or event.physical_keycode == KEY_SPACE)
-	)
-
-
-func _update_hotbar_selection() -> void:
-	pass
-
-
-func _update_hotbar_display() -> void:
-	if hotbar_ui and hotbar_ui.has_method(&"refresh"):
-		hotbar_ui.refresh()
+func _debug_interaction(message: String) -> void:
+	if not debug_interactions:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_debug_time < debug_interval:
+		return
+	_last_debug_time = now
+	print("PlayerController3D: ", message)

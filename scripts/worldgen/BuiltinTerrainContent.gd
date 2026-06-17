@@ -13,16 +13,24 @@ const MAT_ORE_COAL := 8
 const MAT_WOOD := 9
 const MAT_LEAVES := 10
 
+const FLAG_WALKABLE := 1
+const FLAG_SOLID := 2
+const FLAG_LIQUID := 4
+const FLAG_MINEABLE := 8
 
-static func create_default_config() -> GDWorldGenConfig:
-	var registry := GDTerrainContentRegistry.new()
+
+static func create_default_config() -> Resource:
+	var registry: Object = ClassDB.instantiate("GDTerrainContentRegistry")
+	if registry == null:
+		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
+		return null
 	_register_builtin_material_interactions(registry)
 	_register_builtin_tile_mappings(registry)
 	_register_builtin_generation_rules(registry)
 	return registry.freeze()
 
 
-static func _register_builtin_material_interactions(registry: GDTerrainContentRegistry) -> void:
+static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_AIR,
 		"key": "snt:air",
@@ -34,7 +42,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_STONE,
 		"key": "snt:stone",
 		"display_name": "Stone",
-		"flags": GDTerrainContentRegistry.FLAG_SOLID | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.5,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 1,
@@ -44,7 +52,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_DIRT,
 		"key": "snt:dirt",
 		"display_name": "Dirt",
-		"flags": GDTerrainContentRegistry.FLAG_WALKABLE | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.5,
 		"required_tool_tag": "shovel",
 		"required_mining_level": 0,
@@ -54,7 +62,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_SAND,
 		"key": "snt:sand",
 		"display_name": "Sand",
-		"flags": GDTerrainContentRegistry.FLAG_WALKABLE | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.45,
 		"required_tool_tag": "shovel",
 		"required_mining_level": 0,
@@ -64,21 +72,21 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_WATER,
 		"key": "snt:water",
 		"display_name": "Water",
-		"flags": GDTerrainContentRegistry.FLAG_LIQUID,
+		"flags": FLAG_LIQUID,
 		"hardness": 100.0,
 	})
 	registry.register_material({
 		"id": MAT_LAVA,
 		"key": "snt:lava",
 		"display_name": "Lava",
-		"flags": GDTerrainContentRegistry.FLAG_LIQUID,
+		"flags": FLAG_LIQUID,
 		"hardness": 100.0,
 	})
 	registry.register_material({
 		"id": MAT_ORE_IRON,
 		"key": "snt:ore_iron",
 		"display_name": "Iron Ore",
-		"flags": GDTerrainContentRegistry.FLAG_SOLID | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 2,
@@ -88,7 +96,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_ORE_COPPER,
 		"key": "snt:ore_copper",
 		"display_name": "Copper Ore",
-		"flags": GDTerrainContentRegistry.FLAG_SOLID | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 1,
@@ -98,7 +106,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_ORE_COAL,
 		"key": "snt:ore_coal",
 		"display_name": "Coal Ore",
-		"flags": GDTerrainContentRegistry.FLAG_SOLID | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.8,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 0,
@@ -108,7 +116,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_WOOD,
 		"key": "snt:wood",
 		"display_name": "Wood",
-		"flags": GDTerrainContentRegistry.FLAG_SOLID | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.0,
 		"required_tool_tag": "axe",
 		"required_mining_level": 0,
@@ -118,7 +126,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"id": MAT_LEAVES,
 		"key": "snt:leaves",
 		"display_name": "Leaves",
-		"flags": GDTerrainContentRegistry.FLAG_WALKABLE | GDTerrainContentRegistry.FLAG_MINEABLE,
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
 		"required_mining_level": 0,
@@ -126,36 +134,25 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 	})
 
 
-static func _register_builtin_tile_mappings(registry: GDTerrainContentRegistry) -> void:
+static func _register_builtin_tile_mappings(registry: Object) -> void:
 	var mappings := [
 		{ "material_key": "snt:air", "layer": "surface", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 1, "enabled": false },
-		{ "material_key": "snt:air", "layer": "underground", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 1, "enabled": false },
 		{ "material_key": "snt:stone", "layer": "surface", "source_id": 0, "atlas": Vector2i(4, 0), "variant_count": 1 },
-		{ "material_key": "snt:stone", "layer": "underground", "source_id": 0, "atlas": Vector2i(0, 5), "variant_count": 12 },
 		{ "material_key": "snt:dirt", "layer": "surface", "source_id": 0, "atlas": Vector2i(0, 0), "variant_count": 4 },
-		{ "material_key": "snt:dirt", "layer": "underground", "source_id": 0, "atlas": Vector2i(0, 3), "variant_count": 3 },
 		{ "material_key": "snt:sand", "layer": "surface", "source_id": 0, "atlas": Vector2i(0, 1), "variant_count": 4 },
-		{ "material_key": "snt:sand", "layer": "underground", "source_id": 0, "atlas": Vector2i(6, 4), "variant_count": 4 },
 		{ "material_key": "snt:water", "layer": "surface", "source_id": 0, "atlas": Vector2i(8, 0), "variant_count": 1 },
-		{ "material_key": "snt:water", "layer": "underground", "source_id": 0, "atlas": Vector2i(8, 6), "variant_count": 1 },
 		{ "material_key": "snt:lava", "layer": "surface", "source_id": 0, "atlas": Vector2i(9, 0), "variant_count": 1 },
-		{ "material_key": "snt:lava", "layer": "underground", "source_id": 0, "atlas": Vector2i(7, 6), "variant_count": 1 },
 		{ "material_key": "snt:ore_iron", "layer": "surface", "source_id": 0, "atlas": Vector2i(5, 0), "variant_count": 1 },
-		{ "material_key": "snt:ore_iron", "layer": "underground", "source_id": 0, "atlas": Vector2i(4, 3), "variant_count": 1 },
 		{ "material_key": "snt:ore_copper", "layer": "surface", "source_id": 0, "atlas": Vector2i(6, 0), "variant_count": 1 },
-		{ "material_key": "snt:ore_copper", "layer": "underground", "source_id": 0, "atlas": Vector2i(5, 3), "variant_count": 1 },
 		{ "material_key": "snt:ore_coal", "layer": "surface", "source_id": 0, "atlas": Vector2i(7, 0), "variant_count": 1 },
-		{ "material_key": "snt:ore_coal", "layer": "underground", "source_id": 0, "atlas": Vector2i(6, 3), "variant_count": 1 },
 		{ "material_key": "snt:wood", "layer": "surface", "source_id": 0, "atlas": Vector2i(10, 0), "variant_count": 1 },
-		{ "material_key": "snt:wood", "layer": "underground", "source_id": 0, "atlas": Vector2i(10, 0), "variant_count": 1 },
 		{ "material_key": "snt:leaves", "layer": "surface", "source_id": 0, "atlas": Vector2i(11, 0), "variant_count": 1 },
-		{ "material_key": "snt:leaves", "layer": "underground", "source_id": 0, "atlas": Vector2i(11, 0), "variant_count": 1 },
 	]
 	for mapping in mappings:
 		registry.register_tile_mapping(mapping)
 
 
-static func _register_builtin_generation_rules(registry: GDTerrainContentRegistry) -> void:
+static func _register_builtin_generation_rules(registry: Object) -> void:
 	registry.set_material_roles({
 		"air_key": "snt:air",
 		"stone_key": "snt:stone",
@@ -184,17 +181,6 @@ static func _register_builtin_generation_rules(registry: GDTerrainContentRegistr
 		"water_detail_max": 0.3,
 		"stone_elevation_abs_min": 0.55,
 	})
-	registry.register_base_terrain_rule({
-		"layer": "underground",
-		"mode": "caves",
-		"default_material_key": "snt:stone",
-		"cave_air_material_key": "snt:air",
-		"cave_scale": 0.04,
-		"cave_octaves": 4,
-		"cave_threshold": 0.35,
-		"cave_edge_threshold_add": 0.25,
-	})
-
 	registry.register_biome_rule({
 		"key": "snt:desert_sand",
 		"layer": "surface",
@@ -220,36 +206,9 @@ static func _register_builtin_generation_rules(registry: GDTerrainContentRegistr
 		"temperature_max": -0.4,
 		"humidity_max": -0.1,
 	})
-	registry.register_biome_rule({
-		"key": "snt:cave_dirt_floor",
-		"layer": "underground",
-		"source_material_key": "snt:air",
-		"result_material_key": "snt:dirt",
-		"temperature_min": 0.1,
-		"humidity_min": 0.0,
-		"requires_floor_support": true,
-		"support_material_key": "snt:stone",
-		"detail_scale": 0.1,
-		"detail_octaves": 2,
-		"detail_threshold": 0.2,
-	})
-	registry.register_biome_rule({
-		"key": "snt:dry_cave_sand",
-		"layer": "underground",
-		"source_material_key": "snt:air",
-		"result_material_key": "snt:sand",
-		"temperature_max": -0.2,
-		"humidity_max": -0.1,
-		"requires_floor_support": true,
-		"support_material_key": "snt:stone",
-		"detail_scale": 0.08,
-		"detail_octaves": 2,
-		"detail_threshold": 0.3,
-	})
-
 	registry.register_ore_vein_rule({
 		"key": "snt:ore_iron",
-		"layer": "underground",
+		"layer": "surface",
 		"host_material_key": "snt:stone",
 		"ore_material_key": "snt:ore_iron",
 		"combined_min": 0.5,
@@ -257,7 +216,7 @@ static func _register_builtin_generation_rules(registry: GDTerrainContentRegistr
 	})
 	registry.register_ore_vein_rule({
 		"key": "snt:ore_copper",
-		"layer": "underground",
+		"layer": "surface",
 		"host_material_key": "snt:stone",
 		"ore_material_key": "snt:ore_copper",
 		"combined_min": 0.25,
@@ -265,7 +224,7 @@ static func _register_builtin_generation_rules(registry: GDTerrainContentRegistr
 	})
 	registry.register_ore_vein_rule({
 		"key": "snt:ore_coal",
-		"layer": "underground",
+		"layer": "surface",
 		"host_material_key": "snt:stone",
 		"ore_material_key": "snt:ore_coal",
 		"combined_min": 0.05,

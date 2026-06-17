@@ -1,184 +1,174 @@
-[gd_scene format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=15 format=3 uid="uid://ddtupowwrw65p"]
 
-[ext_resource type="Script" uid="uid://dihduvv0omjx8" path="res://scripts/MapLayerController.gd" id="1_layer_controller"]
-[ext_resource type="TileSet" uid="uid://3sj2ajsamew3" path="res://tilesets/world_tileset.tres" id="1_world_tileset"]
-[ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="3_connector_manager"]
-[ext_resource type="Script" uid="uid://dk4f2qoffbe2e" path="res://scripts/PlayerController.gd" id="4_player_controller"]
-[ext_resource type="Script" uid="uid://e3oxofnyd3u6" path="res://scripts/LayerCameraBounds.gd" id="5_layer_camera_bounds"]
-[ext_resource type="Script" uid="uid://mo3f8pioxxos" path="res://scripts/MapExplorationTracker.gd" id="6_exploration_tracker"]
-[ext_resource type="Script" uid="uid://bw5stwft110ke" path="res://scripts/MiniMap.gd" id="7_mini_map"]
-[ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="8_mechanism_manager"]
-[ext_resource type="Script" uid="uid://cfy4lfmql8ndd" path="res://scripts/LayerViewController.gd" id="9_layer_view_controller"]
-[ext_resource type="Script" uid="uid://bg4dhk18xtpmi" path="res://scripts/ChunkRendererBridge.gd" id="13_chunk_bridge"]
-[ext_resource type="Script" uid="uid://cyfyygalo12ip" path="res://scripts/ui/HotbarUI.gd" id="14_hotbar_ui"]
-[ext_resource type="Script" uid="uid://ban7lg82c6wpe" path="res://scripts/ui/InventoryUI.gd" id="15_inventory_ui"]
-[ext_resource type="Script" uid="uid://0ke7iwvff8kh" path="res://scripts/interaction/PlayerCrosshair.gd" id="16_crosshair"]
-[ext_resource type="Script" uid="uid://dcc2bluuesw3t" path="res://scripts/interaction/PlayerMining.gd" id="17_mining"]
-[ext_resource type="Script" uid="uid://cppkiiltbwaxc" path="res://scripts/world/WorkbenchManager.gd" id="18_workbench"]
-[ext_resource type="Script" uid="uid://dxa8g0s0ncr5d" path="res://scripts/crafting/CraftingUI.gd" id="19_crafting_ui"]
-[ext_resource type="Script" uid="uid://lvfn41gsf24d" path="res://scripts/world/FurnaceManager.gd" id="20_furnace_manager"]
-[ext_resource type="Script" uid="uid://vgv8pl5pfima" path="res://scripts/world/LadderManager.gd" id="21_ladder_manager"]
-[ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="22_furnace_ui"]
-[ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="23_wiki_ui"]
-[ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="24_command_server"]
-[ext_resource type="Script" path="res://scripts/world/WorldObjectRenderer.gd" id="25_world_object_renderer"]
-[ext_resource type="Texture2D" path="res://resource/characters/player/player_idle_down_32x48.png" id="26_player_idle"]
+[ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
+[ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
+[ext_resource type="Script" uid="uid://cppkiiltbwaxc" path="res://scripts/world/WorkbenchManager.gd" id="3_workbench"]
+[ext_resource type="Script" uid="uid://lvfn41gsf24d" path="res://scripts/world/FurnaceManager.gd" id="4_furnace_manager"]
+[ext_resource type="Script" uid="uid://vgv8pl5pfima" path="res://scripts/world/LadderManager.gd" id="5_ladder_manager"]
+[ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="6_command_server"]
+[ext_resource type="Script" uid="uid://bg4dhk18xtpmi" path="res://scripts/ChunkRendererBridge.gd" id="7_chunk_bridge"]
+[ext_resource type="Script" path="res://scripts/world/WorldObjectRenderer.gd" id="8_object_renderer"]
+[ext_resource type="Script" uid="uid://dk4f2qoffbe2e" path="res://scripts/PlayerController.gd" id="9_player_controller"]
+[ext_resource type="Script" uid="uid://cyfyygalo12ip" path="res://scripts/ui/HotbarUI.gd" id="10_hotbar_ui"]
+[ext_resource type="Script" uid="uid://ban7lg82c6wpe" path="res://scripts/ui/InventoryUI.gd" id="11_inventory_ui"]
+[ext_resource type="Script" uid="uid://dxa8g0s0ncr5d" path="res://scripts/crafting/CraftingUI.gd" id="12_crafting_ui"]
+[ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="13_furnace_ui"]
+[ext_resource type="Script" uid="uid://dinem17hao2qb" path="res://scripts/wiki/WikiUI.gd" id="14_wiki_ui"]
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_player"]
-radius = 6.0
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.34
+height = 1.8
 
-[node name="WorldMap" type="Node2D" unique_id=303526172]
-script = ExtResource("1_layer_controller")
+[sub_resource type="BoxMesh" id="BoxMesh_selection"]
+size = Vector3(1.03, 1.03, 1.03)
 
-[node name="Layers" type="Node2D" parent="." unique_id=645685608]
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_selection"]
+albedo_color = Color(1, 1, 1, 0.15)
+transparency = 1
+shading_mode = 0
+disable_fog = true
+cull_mode = 2
 
-[node name="SurfaceLayer" type="TileMapLayer" parent="Layers" unique_id=1249057088]
-tile_set = ExtResource("1_world_tileset")
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky_custom_fov = 70.0
+ambient_light_source = 2
+ambient_light_color = Color(0.58, 0.64, 0.72, 1)
+ambient_light_energy = 0.62
+tonemap_mode = 2
+glow_enabled = true
 
-[node name="UndergroundLayer" type="TileMapLayer" parent="Layers" unique_id=211451969]
+[node name="WorldMap" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.707107, -0.353553, 0.612372, 0, 8, 0)
+light_energy = 2.2
+shadow_enabled = true
+
+[node name="ConnectorManager" type="Node" parent="."]
+script = ExtResource("1_connector_manager")
+
+[node name="MechanismManager" type="Node" parent="."]
+script = ExtResource("2_mechanism_manager")
+
+[node name="WorkbenchManager" type="Node" parent="."]
+script = ExtResource("3_workbench")
+
+[node name="FurnaceManager" type="Node" parent="."]
+script = ExtResource("4_furnace_manager")
+
+[node name="LadderManager" type="Node" parent="."]
+script = ExtResource("5_ladder_manager")
+
+[node name="GameCommandServer" type="GDGameCommandServer" parent="."]
+script = ExtResource("6_command_server")
+
+[node name="ChunkRendererBridge" type="Node3D" parent="."]
+script = ExtResource("7_chunk_bridge")
+debug_chunk_streaming = false
+
+[node name="WorldObjectRenderer" type="Node3D" parent="."]
+script = ExtResource("8_object_renderer")
+
+[node name="SelectionBox" type="MeshInstance3D" parent="."]
 visible = false
-tile_set = ExtResource("1_world_tileset")
+mesh = SubResource("BoxMesh_selection")
+material_override = SubResource("StandardMaterial3D_selection")
 
-[node name="ConnectorManager" type="Node" parent="." unique_id=981920890]
-script = ExtResource("3_connector_manager")
+[node name="Player" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.5, 2.4, 0.5)
+script = ExtResource("9_player_controller")
 
-[node name="MechanismManager" type="Node" parent="." unique_id=1380428095]
-script = ExtResource("8_mechanism_manager")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+shape = SubResource("CapsuleShape3D_player")
 
-[node name="WorkbenchManager" type="Node" parent="." unique_id=2380428100]
-script = ExtResource("18_workbench")
+[node name="Head" type="Node3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.72, 0)
 
-[node name="FurnaceManager" type="Node" parent="." unique_id=2380428101]
-script = ExtResource("20_furnace_manager")
+[node name="Camera3D" type="Camera3D" parent="Player/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.32, 0)
+current = true
+fov = 78.0
 
-[node name="LadderManager" type="Node" parent="." unique_id=2380428102]
-script = ExtResource("21_ladder_manager")
+[node name="UI" type="CanvasLayer" parent="."]
 
-[node name="GameCommandServer" type="GDGameCommandServer" parent="." unique_id=2380428103]
-script = ExtResource("24_command_server")
-
-[node name="WorldObjectRenderer" type="Node" parent="."]
-script = ExtResource("25_world_object_renderer")
-
-[node name="ChunkRendererBridge" type="Node" parent="." unique_id=1428570001]
-script = ExtResource("13_chunk_bridge")
-surface_container_path = NodePath("Layers/SurfaceLayer")
-underground_container_path = NodePath("Layers/UndergroundLayer")
-
-[node name="PlayerMining" type="Node" parent="." unique_id=2428570001]
-script = ExtResource("17_mining")
-
-[node name="ExplorationTracker" type="Node" parent="." unique_id=1727587706]
-script = ExtResource("6_exploration_tracker")
-reveal_radius = 1
-
-[node name="Player" type="CharacterBody2D" parent="." unique_id=1471742520]
-script = ExtResource("4_player_controller")
-
-[node name="Visual" type="Sprite2D" parent="Player" unique_id=909532561]
-texture_filter = 1
-position = Vector2(0, -16)
-z_index = 10
-texture = ExtResource("26_player_idle")
-
-[node name="CollisionShape2D" type="CollisionShape2D" parent="Player" unique_id=76059635]
-shape = SubResource("CircleShape2D_player")
-
-[node name="Camera2D" type="Camera2D" parent="Player" unique_id=515042385]
-script = ExtResource("5_layer_camera_bounds")
-
-[node name="LayerViewController" type="Node" parent="." unique_id=1665837323]
-script = ExtResource("9_layer_view_controller")
-
-[node name="UI" type="CanvasLayer" parent="." unique_id=1512695424]
-
-[node name="StatusBackground" type="ColorRect" parent="UI" unique_id=768725323]
-offset_left = 12.0
-offset_top = 12.0
-offset_right = 164.0
-offset_bottom = 42.0
-color = Color(0.035, 0.04, 0.045, 0.72)
-
-[node name="LayerStatusLabel" type="Label" parent="UI" unique_id=920724934]
-offset_left = 20.0
-offset_top = 16.0
-offset_right = 156.0
-offset_bottom = 38.0
-text = "Layer: Surface"
-
-[node name="MiniMap" type="Control" parent="UI" unique_id=127867716]
+[node name="Crosshair" type="Control" parent="UI"]
 layout_mode = 3
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -180.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = 180.0
-grow_horizontal = 0
-script = ExtResource("7_mini_map")
-max_draw_distance = 13
-
-[node name="TitleLabel" type="Label" parent="UI/MiniMap" unique_id=252034652]
-layout_mode = 0
-offset_left = 8.0
-offset_top = 6.0
-offset_right = 160.0
-offset_bottom = 28.0
-text = "Surface  0"
-horizontal_alignment = 1
-
-[node name="ConnectorPrompt" type="Control" parent="UI" unique_id=1633845769]
-visible = false
-layout_mode = 3
-anchors_preset = 0
-offset_left = 12.0
-offset_top = 48.0
-offset_right = 196.0
-offset_bottom = 78.0
-
-[node name="Background" type="ColorRect" parent="UI/ConnectorPrompt" unique_id=700423837]
-layout_mode = 0
-offset_right = 184.0
-offset_bottom = 30.0
-color = Color(0.035, 0.04, 0.045, 0.72)
-
-[node name="Label" type="Label" parent="UI/ConnectorPrompt" unique_id=697511737]
-layout_mode = 0
-offset_left = 8.0
-offset_top = 4.0
-offset_right = 176.0
-offset_bottom = 26.0
-text = "E  Cave Entrance"
-
-[node name="TransitionOverlay" type="ColorRect" parent="UI" unique_id=1042690000]
-visible = false
-z_index = 100
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-color = Color(0.02, 0.018, 0.025, 1)
-
-[node name="Label" type="Label" parent="UI/TransitionOverlay" unique_id=606609945]
-layout_mode = 0
+anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -48.0
-offset_top = -12.0
-offset_right = 48.0
-offset_bottom = 12.0
-grow_horizontal = 2
-grow_vertical = 2
-text = "Moving"
-horizontal_alignment = 1
-vertical_alignment = 1
+offset_left = -6.0
+offset_top = -6.0
+offset_right = 6.0
+offset_bottom = 6.0
+mouse_filter = 2
 
-[node name="HotbarUI" type="Control" parent="UI" unique_id=809609946]
+[node name="Horizontal" type="ColorRect" parent="UI/Crosshair"]
+layout_mode = 0
+offset_left = -6.0
+offset_top = 5.0
+offset_right = 18.0
+offset_bottom = 7.0
+color = Color(1, 1, 1, 0.85)
+
+[node name="Vertical" type="ColorRect" parent="UI/Crosshair"]
+layout_mode = 0
+offset_left = 5.0
+offset_top = -6.0
+offset_right = 7.0
+offset_bottom = 18.0
+color = Color(1, 1, 1, 0.85)
+
+[node name="StatusBackground" type="ColorRect" parent="UI"]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 232.0
+offset_bottom = 64.0
+color = Color(0.035, 0.04, 0.045, 0.72)
+
+[node name="LayerStatusLabel" type="Label" parent="UI"]
+offset_left = 20.0
+offset_top = 16.0
+offset_right = 224.0
+offset_bottom = 38.0
+text = "3D Surface"
+
+[node name="TargetLabel" type="Label" parent="UI"]
+offset_left = 20.0
+offset_top = 38.0
+offset_right = 224.0
+offset_bottom = 60.0
+text = ""
+
+[node name="ConnectorPrompt" type="Control" parent="UI"]
+visible = false
+layout_mode = 3
+anchors_preset = 0
+offset_left = 12.0
+offset_top = 72.0
+offset_right = 232.0
+offset_bottom = 102.0
+
+[node name="Background" type="ColorRect" parent="UI/ConnectorPrompt"]
+layout_mode = 0
+offset_right = 220.0
+offset_bottom = 30.0
+color = Color(0.035, 0.04, 0.045, 0.72)
+
+[node name="Label" type="Label" parent="UI/ConnectorPrompt"]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 212.0
+offset_bottom = 26.0
+text = "E  Interact"
+
+[node name="HotbarUI" type="Control" parent="UI"]
 anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
@@ -188,22 +178,17 @@ offset_top = -44.0
 offset_right = 162.0
 offset_bottom = -8.0
 mouse_filter = 2
-script = ExtResource("14_hotbar_ui")
+script = ExtResource("10_hotbar_ui")
 
-[node name="InventoryUI" type="Control" parent="UI" unique_id=809609947]
-script = ExtResource("15_inventory_ui")
+[node name="InventoryUI" type="Control" parent="UI"]
+script = ExtResource("11_inventory_ui")
 
-[node name="Crosshair" type="Control" parent="UI" unique_id=809609948]
-mouse_filter = 2
-mouse_default_cursor_shape = 0
-script = ExtResource("16_crosshair")
+[node name="CraftingUI" type="Control" parent="UI"]
+script = ExtResource("12_crafting_ui")
 
-[node name="CraftingUI" type="Control" parent="UI" unique_id=809609949]
-script = ExtResource("19_crafting_ui")
+[node name="WikiUI" type="Control" parent="UI"]
+script = ExtResource("14_wiki_ui")
 
-[node name="WikiUI" type="Control" parent="UI" unique_id=809609950]
-script = ExtResource("23_wiki_ui")
-
-[node name="FurnaceUI" parent="UI" unique_id=809609951 instance=ExtResource("22_furnace_ui")]
+[node name="FurnaceUI" parent="UI" instance=ExtResource("13_furnace_ui")]
 
 [connection signal="terrain_cell_synced" from="GameCommandServer" to="ChunkRendererBridge" method="on_terrain_cell_synced"]

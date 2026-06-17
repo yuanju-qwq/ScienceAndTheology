@@ -1,96 +1,50 @@
 class_name ChunkRendererBridge
-extends Node
-
-## Main integration bridge between C++ chunk data and the Godot rendering system.
-##
-## Three-tier chunk management for factory games:
-##   - loaded_radius:  chunks kept in memory for machine/network simulation
-##   - view_radius:    chunks with visual GDChunkView (TileMapLayer)
-##   - force_loaded:   specific chunks always kept loaded (factory installations)
-##
-## Usage:
-##   Add as a child of the WorldMap root. Configure properties in the inspector.
-##
-##   _process(delta):
-##       chunk_bridge.process_frame(get_player_chunk_layer(), get_player_chunk_pos())
-##
-##   # Force-load a factory chunk (keeps machines running when player is far):
-##   chunk_bridge.force_load_factory_chunk(WorldLayers.SURFACE, 5, 3)
+extends Node3D
 
 signal chunk_bridge_ready
 
 const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
+const CHUNK_SIZE := 32
+const BLOCK_SIZE := 1.0
+const AIR_MATERIAL := 0
+const SURFACE: StringName = &"surface"
 
 @export var world_data: GDWorldData = null
-@export var chunk_manager: GDChunkManager = null
-@export var worldgen_config: GDWorldGenConfig = null
-
-@export var surface_container_path: NodePath = ^"Layers/SurfaceLayer"
-@export var underground_container_path: NodePath = ^"Layers/UndergroundLayer"
-
+@export var worldgen_config: Resource = null
 @export var seed: int = 0:
 	set(value):
 		seed = value
 		if world_data:
 			world_data.seed = value
 
-@export var loaded_radius: int = 10:
-	set(value):
-		loaded_radius = value
-		if chunk_manager:
-			chunk_manager.loaded_radius = value
-
-@export var view_radius: int = 6:
-	set(value):
-		view_radius = value
-		if chunk_manager:
-			chunk_manager.view_radius = value
-
-@export var max_async_results_per_frame: int = 4:
+@export var loaded_radius := 5
+@export var view_radius := 4
+@export var max_async_results_per_frame := 4:
 	set(value):
 		max_async_results_per_frame = max(0, value)
-		if world_data:
-			world_data.max_async_results_per_frame = max_async_results_per_frame
-
-@export var max_chunk_load_requests_per_frame: int = 12:
-	set(value):
-		max_chunk_load_requests_per_frame = max(0, value)
-		if chunk_manager:
-			chunk_manager.max_chunk_load_requests_per_frame = max_chunk_load_requests_per_frame
-
-@export var max_chunk_views_per_frame: int = 2:
-	set(value):
-		max_chunk_views_per_frame = max(0, value)
-		if chunk_manager:
-			chunk_manager.max_chunk_views_per_frame = max_chunk_views_per_frame
-
-@export var tile_size: int = 32:
-	set(value):
-		tile_size = value
-		if chunk_manager:
-			chunk_manager.tile_size = value
-
-@export var auto_generate_start_chunks := true
-@export var start_chunk_radius := 2
+		if world_data and world_data.has_method(&"set_max_async_results_per_frame"):
+			world_data.set_max_async_results_per_frame(max_async_results_per_frame)
+@export var max_chunk_load_requests_per_frame := 10
+@export var max_chunk_views_per_frame := 2
 @export var player_node_path: NodePath = ^"../Player"
 @export var auto_update := true
-@export var connector_manager_path: NodePath = ^"../ConnectorManager"
-@export var mechanism_manager_path: NodePath = ^"../MechanismManager"
+@export var auto_generate_start_chunks := true
+@export var start_chunk_radius := 1
 @export var debug_chunk_streaming := false
 @export var debug_chunk_streaming_interval := 2.0
 
 var is_initialized := false
-var _connector_manager: Node = null
-var _mechanism_manager: Node = null
-var _debug_chunk_streaming_elapsed := 0.0
-var _debug_generated_connector_count := 0
-var _debug_generated_connector_chunk_count := 0
-var _debug_generated_mechanism_count := 0
-var _debug_generated_mechanism_chunk_count := 0
+var _visible_chunks: Dictionary = {}
+var _pending_view_queue: Array[Vector2i] = []
+var _tracked_chunks: Dictionary = {}
+var _chunk_request_count_this_frame := 0
+var _debug_elapsed := 0.0
+var _materials: Dictionary = {}
+var _material_cache: Dictionary = {}
 
 
 func _ready() -> void:
-	_initialize_if_needed()
+	initialize()
 
 
 func _process(delta: float) -> void:
@@ -100,23 +54,12 @@ func _process(delta: float) -> void:
 	if world_data:
 		world_data.process_async_results()
 
-	var map_layer: Node = _get_map_layer_controller()
-	if map_layer == null:
-		return
-	var layer: StringName = map_layer.current_layer
-
-	var player := get_node_or_null(player_node_path) as Node2D
+	var player := get_node_or_null(player_node_path) as Node3D
 	if player == null:
 		return
 
-	var chunk_pixel_size := 32.0 * tile_size
-	var cx := floori(player.global_position.x / chunk_pixel_size)
-	var cy := floori(player.global_position.y / chunk_pixel_size)
-
-	if chunk_manager:
-		chunk_manager.set_player_chunk(layer, cx, cy)
-		chunk_manager.refresh_chunks()
-
+	var player_chunk := world_position_to_chunk(player.global_position)
+	_refresh_chunks(player_chunk)
 	_maybe_log_chunk_streaming(delta)
 
 
@@ -124,39 +67,20 @@ func initialize() -> void:
 	if is_initialized:
 		return
 
-	_connector_manager = get_node_or_null(connector_manager_path)
-	_mechanism_manager = get_node_or_null(mechanism_manager_path)
-
-	# Create GDWorldData if not assigned.
 	if world_data == null:
 		world_data = GDWorldData.new()
 		world_data.seed = seed if seed != 0 else randi()
-	world_data.max_async_results_per_frame = max_async_results_per_frame
+	if world_data.has_method(&"set_max_async_results_per_frame"):
+		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 
 	if worldgen_config == null:
 		worldgen_config = BuiltinTerrainContentScript.create_default_config()
 	world_data.worldgen_config = worldgen_config
 
-	# Create GDChunkManager if not assigned.
-	if chunk_manager == null:
-		chunk_manager = GDChunkManager.new()
-		chunk_manager.world_data = world_data
-		chunk_manager.loaded_radius = loaded_radius
-		chunk_manager.view_radius = view_radius
-		chunk_manager.tile_size = tile_size
-		chunk_manager.surface_container_path = surface_container_path
-		chunk_manager.underground_container_path = underground_container_path
-		add_child(chunk_manager)
-	chunk_manager.max_chunk_load_requests_per_frame = max_chunk_load_requests_per_frame
-	chunk_manager.max_chunk_views_per_frame = max_chunk_views_per_frame
-
-	# Connect signal: chunk_ready from world_data -> chunk_manager.
-	if not world_data.chunk_ready.is_connected(chunk_manager.on_chunk_ready):
-		world_data.chunk_ready.connect(chunk_manager.on_chunk_ready)
 	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
 		world_data.chunk_ready.connect(_on_chunk_ready)
 
-	# Generate initial chunks around origin.
+	_build_materials()
 	if auto_generate_start_chunks:
 		_generate_initial_chunks()
 
@@ -164,162 +88,291 @@ func initialize() -> void:
 	chunk_bridge_ready.emit()
 
 
-func process_frame(player_layer: StringName, player_chunk_pos: Vector2i) -> void:
-	if not is_initialized:
-		return
-
-	# Process async generation results (emits chunk_ready signals).
-	if world_data:
-		world_data.process_async_results()
-
-	# Update player chunk position and refresh all three tiers.
-	if chunk_manager:
-		chunk_manager.set_player_chunk(player_layer, player_chunk_pos.x, player_chunk_pos.y)
-		chunk_manager.refresh_chunks()
-
-	_maybe_log_chunk_streaming(0.0)
-
-
-func force_load_factory_chunk(layer: StringName, cx: int, cy: int) -> void:
-	## Force-loads a chunk for factory simulation.
-	## The chunk stays in memory and is simulated even when player is far away.
-	## Call this when a machine/network is placed in a chunk.
-	if chunk_manager:
-		chunk_manager.force_load_chunk(layer, cx, cy)
-
-
-func release_factory_chunk(layer: StringName, cx: int, cy: int) -> void:
-	## Releases a force-loaded chunk.
-	## The chunk may still be kept if within loaded_radius.
-	if chunk_manager:
-		chunk_manager.force_unload_chunk(layer, cx, cy)
-
-
 func get_world_data() -> GDWorldData:
 	return world_data
 
 
-func get_chunk_manager() -> GDChunkManager:
-	return chunk_manager
+func world_position_to_cell(world_position: Vector3) -> Vector2i:
+	return Vector2i(floori(world_position.x / BLOCK_SIZE), floori(world_position.z / BLOCK_SIZE))
 
 
-func on_terrain_cell_synced(layer: StringName, chunk: Vector2i, _local: Vector2i, _old_material: int, _new_material: int) -> void:
-	if chunk_manager == null:
+func cell_to_world_position(cell: Vector2i, y: float = 0.0) -> Vector3:
+	return Vector3((float(cell.x) + 0.5) * BLOCK_SIZE, y, (float(cell.y) + 0.5) * BLOCK_SIZE)
+
+
+func world_position_to_chunk(world_position: Vector3) -> Vector2i:
+	var cell := world_position_to_cell(world_position)
+	return cell_to_chunk(cell)
+
+
+func cell_to_chunk(cell: Vector2i) -> Vector2i:
+	return Vector2i(floori(float(cell.x) / float(CHUNK_SIZE)), floori(float(cell.y) / float(CHUNK_SIZE)))
+
+
+func cell_to_local(cell: Vector2i) -> Vector2i:
+	var chunk := cell_to_chunk(cell)
+	return Vector2i(cell.x - chunk.x * CHUNK_SIZE, cell.y - chunk.y * CHUNK_SIZE)
+
+
+func get_cell_info(cell: Vector2i, layer: StringName = SURFACE) -> Dictionary:
+	var chunk := cell_to_chunk(cell)
+	var local := Vector2i(cell.x - chunk.x * CHUNK_SIZE, cell.y - chunk.y * CHUNK_SIZE)
+	var data := world_data.get_terrain_cell(layer, chunk.x, chunk.y, local.x, local.y) if world_data else {}
+	return {
+		"layer": layer,
+		"cell": cell,
+		"chunk": chunk,
+		"local": local,
+		"data": data,
+	}
+
+
+func refresh_cell(layer: StringName, chunk: Vector2i, _local: Vector2i) -> void:
+	if layer != SURFACE:
 		return
-	if not _is_chunk_visible(layer, chunk):
+	if not _visible_chunks.has(chunk):
 		return
-	chunk_manager.hide_chunk(layer, chunk.x, chunk.y)
-	chunk_manager.show_chunk(layer, chunk.x, chunk.y)
+	_remove_chunk_view(chunk)
+	_enqueue_chunk_view(chunk)
 
 
-func _on_chunk_ready(layer: String, chunk_x: int, chunk_y: int) -> void:
-	_sync_generated_connectors(StringName(layer), chunk_x, chunk_y)
-	_sync_generated_mechanisms(StringName(layer), chunk_x, chunk_y)
-
-
-func _sync_generated_connectors(layer: StringName, chunk_x: int, chunk_y: int) -> void:
-	if world_data == null or _connector_manager == null:
-		return
-	if not _connector_manager.has_method(&"add_generated_connectors"):
-		return
-
-	var generated_connectors: Array = world_data.get_chunk_connectors(layer, chunk_x, chunk_y)
-	if generated_connectors.is_empty():
-		return
-
-	var added: int = _connector_manager.add_generated_connectors(generated_connectors)
-	if added > 0:
-		_record_generated_connectors(added)
-
-
-func _sync_generated_mechanisms(layer: StringName, chunk_x: int, chunk_y: int) -> void:
-	if world_data == null or _mechanism_manager == null:
-		return
-	if not _mechanism_manager.has_method(&"add_generated_mechanisms"):
-		return
-
-	var generated_mechanisms: Array = world_data.get_chunk_mechanisms(layer, chunk_x, chunk_y)
-	if generated_mechanisms.is_empty():
-		return
-
-	var added: int = _mechanism_manager.add_generated_mechanisms(generated_mechanisms)
-	if added > 0:
-		_record_generated_mechanisms(added)
-
-
-func _is_chunk_visible(layer: StringName, chunk: Vector2i) -> bool:
-	if chunk_manager == null:
-		return false
-	for key in chunk_manager.get_visible_chunks():
-		if StringName(key.get("layer", "")) == layer \
-				and int(key.get("chunk_x", 0)) == chunk.x \
-				and int(key.get("chunk_y", 0)) == chunk.y:
-			return true
-	return false
-
-
-func unload_all() -> void:
-	if chunk_manager:
-		chunk_manager.unload_all_chunks()
-
-
-func _get_map_layer_controller() -> Node:
-	var parent: Node = get_parent()
-	while parent:
-		if parent.has_method(&"is_current_layer") and "current_layer" in parent:
-			return parent
-		parent = parent.get_parent()
-	return null
-
-
-func _initialize_if_needed() -> void:
-	call_deferred("initialize")
+func on_terrain_cell_synced(layer: StringName, chunk: Vector2i, local: Vector2i,
+		_old_material: int, _new_material: int) -> void:
+	refresh_cell(layer, chunk, local)
 
 
 func _generate_initial_chunks() -> void:
-	var radius := start_chunk_radius
-	for cx in range(-radius, radius + 1):
-		for cy in range(-radius, radius + 1):
-			world_data.request_chunk_async(WorldLayers.SURFACE, cx, cy)
-			world_data.request_chunk_async(WorldLayers.UNDERGROUND, cx, cy)
+	for cy in range(-start_chunk_radius, start_chunk_radius + 1):
+		for cx in range(-start_chunk_radius, start_chunk_radius + 1):
+			var pos := Vector2i(cx, cy)
+			_ensure_chunk_loaded(pos)
+			_enqueue_chunk_view(pos)
+
+
+func _refresh_chunks(player_chunk: Vector2i) -> void:
+	_chunk_request_count_this_frame = 0
+
+	var wanted_loaded: Dictionary = {}
+	var wanted_visible: Dictionary = {}
+	var visible_order: Array[Vector2i] = []
+
+	for cy in range(player_chunk.y - loaded_radius, player_chunk.y + loaded_radius + 1):
+		for cx in range(player_chunk.x - loaded_radius, player_chunk.x + loaded_radius + 1):
+			var offset := Vector2i(cx, cy) - player_chunk
+			if offset.length_squared() > loaded_radius * loaded_radius:
+				continue
+			var pos := Vector2i(cx, cy)
+			wanted_loaded[pos] = true
+			_ensure_chunk_loaded(pos)
+
+	for cy in range(player_chunk.y - view_radius, player_chunk.y + view_radius + 1):
+		for cx in range(player_chunk.x - view_radius, player_chunk.x + view_radius + 1):
+			var offset := Vector2i(cx, cy) - player_chunk
+			if offset.length_squared() > view_radius * view_radius:
+				continue
+			var pos := Vector2i(cx, cy)
+			wanted_visible[pos] = true
+			visible_order.append(pos)
+
+	visible_order.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		var da := (a - player_chunk).length_squared()
+		var db := (b - player_chunk).length_squared()
+		if da != db:
+			return da < db
+		if a.x != b.x:
+			return a.x < b.x
+		return a.y < b.y
+	)
+
+	for key in _visible_chunks.keys():
+		if not wanted_visible.has(key):
+			_remove_chunk_view(key)
+
+	for pos in visible_order:
+		if _visible_chunks.has(pos):
+			continue
+		if not _pending_view_queue.has(pos):
+			_enqueue_chunk_view(pos)
+
+	_process_visible_queue()
+
+
+func _ensure_chunk_loaded(chunk: Vector2i) -> void:
+	if world_data == null:
+		return
+	if _tracked_chunks.has(chunk):
+		return
+
+	if world_data.has_chunk(SURFACE, chunk.x, chunk.y):
+		_tracked_chunks[chunk] = true
+		return
+
+	if world_data.is_chunk_async_pending(SURFACE, chunk.x, chunk.y):
+		return
+
+	if max_chunk_load_requests_per_frame > 0 \
+			and _chunk_request_count_this_frame >= max_chunk_load_requests_per_frame:
+		return
+
+	world_data.request_chunk_async(SURFACE, chunk.x, chunk.y)
+	_chunk_request_count_this_frame += 1
+
+
+func _on_chunk_ready(layer: String, chunk_x: int, chunk_y: int) -> void:
+	if StringName(layer) != SURFACE:
+		return
+	var chunk := Vector2i(chunk_x, chunk_y)
+	_tracked_chunks[chunk] = true
+	if _pending_view_queue.has(chunk):
+		return
+	_enqueue_chunk_view(chunk)
+
+
+func _enqueue_chunk_view(chunk: Vector2i) -> void:
+	if _pending_view_queue.has(chunk):
+		return
+	_pending_view_queue.append(chunk)
+
+
+func _process_visible_queue() -> void:
+	var built := 0
+	var index := 0
+	while index < _pending_view_queue.size():
+		if max_chunk_views_per_frame > 0 and built >= max_chunk_views_per_frame:
+			break
+
+		var chunk: Vector2i = _pending_view_queue[index]
+		if _visible_chunks.has(chunk):
+			_pending_view_queue.remove_at(index)
+			continue
+
+		if world_data == null or not world_data.has_chunk(SURFACE, chunk.x, chunk.y):
+			index += 1
+			continue
+
+		_pending_view_queue.remove_at(index)
+		_create_chunk_view(chunk)
+		built += 1
+
+
+func _create_chunk_view(chunk: Vector2i) -> void:
+	var terrain := world_data.get_chunk_terrain(SURFACE, chunk.x, chunk.y)
+	if terrain.is_empty():
+		return
+
+	var materials: PackedByteArray = terrain.get("materials", PackedByteArray())
+	if materials.is_empty():
+		return
+
+	var root := Node3D.new()
+	root.name = "Chunk_%d_%d" % [chunk.x, chunk.y]
+	add_child(root)
+	_visible_chunks[chunk] = root
+
+	var by_material: Dictionary = {}
+	for local_y in range(CHUNK_SIZE):
+		for local_x in range(CHUNK_SIZE):
+			var index := local_y * CHUNK_SIZE + local_x
+			if index >= materials.size():
+				continue
+			var material_id := int(materials[index])
+			if material_id == AIR_MATERIAL:
+				continue
+			if not by_material.has(material_id):
+				by_material[material_id] = []
+			by_material[material_id].append(Vector2i(local_x, local_y))
+
+	for material_id in by_material.keys():
+		_create_material_multimesh(root, chunk, int(material_id), by_material[material_id])
+
+
+func _create_material_multimesh(root: Node3D, chunk: Vector2i, material_id: int, cells: Array) -> void:
+	if cells.is_empty():
+		return
+
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	multimesh.mesh = mesh
+	multimesh.instance_count = cells.size()
+
+	for i in range(cells.size()):
+		var local: Vector2i = cells[i]
+		var cell := Vector2i(chunk.x * CHUNK_SIZE + local.x, chunk.y * CHUNK_SIZE + local.y)
+		var pos := cell_to_world_position(cell, -BLOCK_SIZE * 0.5)
+		multimesh.set_instance_transform(i, Transform3D(Basis(), pos))
+
+	var instance := MultiMeshInstance3D.new()
+	instance.name = "Material_%d" % material_id
+	instance.multimesh = multimesh
+	instance.material_override = _get_material(material_id)
+	root.add_child(instance)
+
+	var static_body := StaticBody3D.new()
+	static_body.name = "Collision_%d" % material_id
+	root.add_child(static_body)
+
+	for local in cells:
+		var cell := Vector2i(chunk.x * CHUNK_SIZE + local.x, chunk.y * CHUNK_SIZE + local.y)
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = Vector3(BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE)
+		shape.shape = box
+		shape.position = cell_to_world_position(cell, -BLOCK_SIZE * 0.5)
+		static_body.add_child(shape)
+
+
+func _remove_chunk_view(chunk: Vector2i) -> void:
+	var node := _visible_chunks.get(chunk) as Node
+	if node == null:
+		return
+	_visible_chunks.erase(chunk)
+	node.queue_free()
+
+
+func _build_materials() -> void:
+	_materials = {
+		0: Color(0, 0, 0, 0),
+		1: Color(0.46, 0.47, 0.45),
+		2: Color(0.33, 0.25, 0.14),
+		3: Color(0.73, 0.64, 0.40),
+		4: Color(0.18, 0.39, 0.74, 0.78),
+		5: Color(0.95, 0.28, 0.08),
+		6: Color(0.65, 0.58, 0.50),
+		7: Color(0.72, 0.37, 0.18),
+		8: Color(0.13, 0.13, 0.13),
+		9: Color(0.45, 0.27, 0.12),
+		10: Color(0.21, 0.42, 0.20),
+	}
+
+
+func _get_material(material_id: int) -> StandardMaterial3D:
+	if _material_cache.has(material_id):
+		return _material_cache[material_id]
+
+	var material := StandardMaterial3D.new()
+	material.albedo_color = _materials.get(material_id, Color(0.85, 0.20, 0.85))
+	material.roughness = 0.92
+	material.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	if material.albedo_color.a < 1.0:
+		material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_material_cache[material_id] = material
+	return material
 
 
 func _maybe_log_chunk_streaming(delta: float) -> void:
-	if not debug_chunk_streaming or world_data == null or chunk_manager == null:
-		return
-	_debug_chunk_streaming_elapsed += delta
-	if _debug_chunk_streaming_elapsed < debug_chunk_streaming_interval:
-		return
-	_debug_chunk_streaming_elapsed = 0.0
-
-	print(
-		"ChunkRendererBridge: streaming pending=%d ready=%d visible_queue=%d loaded=%d visible=%d connectors=%d/%d_chunks mechanisms=%d/%d_chunks" % [
-			world_data.get_async_pending_count(),
-			world_data.get_async_result_queue_size(),
-			chunk_manager.get_pending_visible_chunk_count(),
-			chunk_manager.get_loaded_chunk_count(),
-			chunk_manager.get_visible_chunk_count(),
-			_debug_generated_connector_count,
-			_debug_generated_connector_chunk_count,
-			_debug_generated_mechanism_count,
-			_debug_generated_mechanism_chunk_count,
-		]
-	)
-	_debug_generated_connector_count = 0
-	_debug_generated_connector_chunk_count = 0
-	_debug_generated_mechanism_count = 0
-	_debug_generated_mechanism_chunk_count = 0
-
-
-func _record_generated_connectors(count: int) -> void:
 	if not debug_chunk_streaming:
 		return
-	_debug_generated_connector_count += count
-	_debug_generated_connector_chunk_count += 1
-
-
-func _record_generated_mechanisms(count: int) -> void:
-	if not debug_chunk_streaming:
+	_debug_elapsed += delta
+	if _debug_elapsed < debug_chunk_streaming_interval:
 		return
-	_debug_generated_mechanism_count += count
-	_debug_generated_mechanism_chunk_count += 1
+	_debug_elapsed = 0.0
+	print("ChunkRendererBridge3D: visible=%d queued=%d loaded=%d async=%d" % [
+		_visible_chunks.size(),
+		_pending_view_queue.size(),
+		_tracked_chunks.size(),
+		world_data.get_async_pending_count() if world_data else 0,
+	])
