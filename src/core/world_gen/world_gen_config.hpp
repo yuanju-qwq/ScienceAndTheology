@@ -54,7 +54,16 @@ struct TerrainMaterialRoles {
     TerrainMaterialId ore_coal = 0;
     TerrainMaterialId wood = 0;
     TerrainMaterialId leaves = 0;
+    TerrainMaterialId deepstone = 0;
+    TerrainMaterialId core_barrier = 0;
+};
+
+// Runtime material IDs for blocks placed by players, NOT by terrain generation.
+// These are resolved from the same material registry but are not consumed
+// by any terrain pass. The command server uses these to write terrain cells.
+struct RuntimeMaterialIds {
     TerrainMaterialId ladder = 0;
+    TerrainMaterialId workbench = 0;
 };
 
 struct BaseTerrainRule {
@@ -150,6 +159,27 @@ struct PlanetConfig {
     // 0.0 = sea at base radius, 1.0 = sea at max terrain height.
     float sea_level_fraction = 0.3f;
 
+    // Core radius as a fraction of planet_radius.
+    // Blocks within this radius are indestructible core_barrier material.
+    // Prevents players from reaching the gravity singularity at the center.
+    float core_radius_ratio = 0.05f;
+
+    // Mantle radius as a fraction of planet_radius.
+    // Between core and mantle: outer core (lava zone).
+    // Between mantle and surface: crust (stone + caves + ores).
+    float mantle_radius_ratio = 0.5f;
+
+    // Noise scale for perturbing the core boundary.
+    // Makes the core shape irregular instead of a perfect sphere.
+    float core_boundary_noise_scale = 0.02f;
+
+    // Number of octaves for core boundary noise.
+    int core_boundary_noise_octaves = 3;
+
+    // Amplitude of core boundary noise as a fraction of core radius.
+    // 0.15 = core boundary can deviate by ±15% of core radius.
+    float core_boundary_noise_amplitude = 0.15f;
+
     bool is_planet() const { return planet_radius > 0.0f; }
 };
 
@@ -161,6 +191,7 @@ struct WorldGenConfigSnapshot {
     std::vector<TerrainMaterialDef> materials;
     std::vector<TerrainTileMapping> tile_mappings;
     TerrainMaterialRoles roles;
+    RuntimeMaterialIds runtime_ids;
     std::vector<BaseTerrainRule> base_terrain_rules;
     std::vector<BiomeRule> biome_rules;
     std::vector<OreVeinRule> ore_vein_rules;

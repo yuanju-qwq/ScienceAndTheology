@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/resource_key.hpp"
@@ -57,10 +60,18 @@ public:
     static size_t get_recipe_count();
 
     // Returns direct reference to the internal registry (for AE2 autocrafting).
-    static const std::vector<CraftingRecipe>& get_registry();
+    static const std::deque<CraftingRecipe>& get_registry();
 
 private:
-    static std::vector<CraftingRecipe>& registry();
+    static std::deque<CraftingRecipe>& registry();
+
+    // Index structures for O(1) / O(k) lookup.
+    static std::unordered_map<std::string, const CraftingRecipe*>& name_index();
+    static std::unordered_map<std::string, std::vector<const CraftingRecipe*>>& category_index();
+    static std::unordered_map<std::string, std::vector<const CraftingRecipe*>>& station_index();
+
+    // Update all indices after adding a recipe.
+    static void update_indices(const CraftingRecipe& recipe);
 };
 
 } // namespace science_and_theology::gt

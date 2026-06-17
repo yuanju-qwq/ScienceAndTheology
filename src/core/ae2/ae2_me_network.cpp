@@ -294,10 +294,10 @@ void MENetwork::rebuild_components() {
         data.component_id = -1;
     }
 
-    adjacency_.clear();
+    std::unordered_map<MENodeId, std::vector<MENodeId>> adj;
     for (const auto& e : edges_) {
-        adjacency_[e.first].push_back(e.second);
-        adjacency_[e.second].push_back(e.first);
+        adj[e.first].push_back(e.second);
+        adj[e.second].push_back(e.first);
     }
 
     int next_comp = 0;
@@ -313,7 +313,7 @@ void MENetwork::rebuild_components() {
 
         while (!q.empty()) {
             MENodeId cur = q.front(); q.pop();
-            for (MENodeId nb : adjacency_[cur]) {
+            for (MENodeId nb : adj[cur]) {
                 if (!visited.count(nb)) {
                     visited.insert(nb);
                     node_data_[nb].component_id = next_comp;
@@ -324,7 +324,7 @@ void MENetwork::rebuild_components() {
         next_comp++;
     }
 
-    allocate_channels();
+    allocate_channels(adj);
 }
 
 std::vector<MENodeId> MENetwork::find_connected_nodes(MENodeId start) const {
@@ -367,7 +367,8 @@ bool MENetwork::is_node_online(MENodeId id) const {
     return nit != nodes_.end() && nit->second.online;
 }
 
-void MENetwork::allocate_channels() {
+void MENetwork::allocate_channels(
+    const std::unordered_map<MENodeId, std::vector<MENodeId>>& adj) {
     component_info_.clear();
 
     // Reset all nodes to online.
@@ -427,7 +428,9 @@ void MENetwork::allocate_channels() {
         while (!q.empty()) {
             MENodeId cur = q.front(); q.pop();
             int d = dist[cur];
-            for (MENodeId nb : adjacency_[cur]) {
+            auto it = adj.find(cur);
+            if (it == adj.end()) continue;
+            for (MENodeId nb : it->second) {
                 if (component_of(nb) != comp) continue;
                 if (!dist.count(nb)) {
                     dist[nb] = d + 1;

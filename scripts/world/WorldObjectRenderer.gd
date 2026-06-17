@@ -1,14 +1,15 @@
 class_name WorldObjectRenderer
 extends Node3D
 
+# Renders world objects (furnaces, etc.) that are NOT terrain blocks.
+# Workbenches and ladders are now terrain blocks rendered by ChunkRendererBridge.
+
 const OVERWORLD: StringName = &"overworld"
 
 @export var world_path: NodePath = ^"../ChunkRendererBridge"
-@export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 
 @onready var _world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
-@onready var _workbench_manager: WorkbenchManager = get_node_or_null(workbench_manager_path) as WorkbenchManager
 @onready var _furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
 
 var _objects: Dictionary = {}
@@ -22,29 +23,15 @@ func _ready() -> void:
 
 
 func _connect_manager_signals() -> void:
-	if _workbench_manager != null:
-		_workbench_manager.workbench_placed.connect(_on_workbench_placed)
-		_workbench_manager.workbench_removed.connect(_on_workbench_removed)
 	if _furnace_manager != null:
 		_furnace_manager.furnace_placed.connect(_on_furnace_placed)
 		_furnace_manager.furnace_removed.connect(_on_furnace_removed)
 
 
 func _sync_existing_objects() -> void:
-	if _workbench_manager != null:
-		for entry in _workbench_manager.get_all_workbenches():
-			_on_workbench_placed(StringName(entry.get("dimension", "")), entry.get("cell", Vector3i.ZERO))
 	if _furnace_manager != null:
 		for entry in _furnace_manager.get_all_furnaces():
 			_on_furnace_placed(StringName(entry.get("dimension", "")), entry.get("cell", Vector3i.ZERO))
-
-
-func _on_workbench_placed(dimension: StringName, cell: Vector3i) -> void:
-	_create_object(&"workbench", dimension, cell)
-
-
-func _on_workbench_removed(dimension: StringName, cell: Vector3i) -> void:
-	_remove_object(&"workbench", dimension, cell)
 
 
 func _on_furnace_placed(dimension: StringName, cell: Vector3i) -> void:
@@ -69,8 +56,6 @@ func _create_object(object_type: StringName, dimension: StringName, cell: Vector
 	_objects[key] = root
 
 	match object_type:
-		&"workbench":
-			_build_workbench(root)
 		&"furnace":
 			_build_furnace(root)
 
@@ -82,14 +67,6 @@ func _remove_object(object_type: StringName, dimension: StringName, cell: Vector
 		return
 	_objects.erase(key)
 	node.queue_free()
-
-
-func _build_workbench(root: Node3D) -> void:
-	_add_box(root, Vector3(0.0, 0.25, 0.0), Vector3(0.92, 0.50, 0.92), _materials.wood)
-	_add_box(root, Vector3(0.0, 0.55, 0.0), Vector3(1.0, 0.10, 1.0), _materials.table_top)
-	for x in [-0.32, 0.32]:
-		for z in [-0.32, 0.32]:
-			_add_box(root, Vector3(x, -0.02, z), Vector3(0.16, 0.42, 0.16), _materials.dark_wood)
 
 
 func _build_furnace(root: Node3D) -> void:
@@ -111,9 +88,6 @@ func _add_box(root: Node3D, position: Vector3, size: Vector3, material: Material
 
 func _build_materials() -> void:
 	_materials = {
-		"wood": _make_material(Color(0.50, 0.32, 0.16)),
-		"dark_wood": _make_material(Color(0.28, 0.17, 0.08)),
-		"table_top": _make_material(Color(0.66, 0.45, 0.22)),
 		"stone": _make_material(Color(0.42, 0.40, 0.36)),
 		"furnace_mouth": _make_material(Color(0.08, 0.075, 0.07)),
 		"hot": _make_material(Color(1.0, 0.35, 0.08)),

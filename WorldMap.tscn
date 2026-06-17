@@ -1,8 +1,7 @@
-[gd_scene load_steps=14 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=13 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
-[ext_resource type="Script" uid="uid://cppkiiltbwaxc" path="res://scripts/world/WorkbenchManager.gd" id="3_workbench"]
 [ext_resource type="Script" uid="uid://lvfn41gsf24d" path="res://scripts/world/FurnaceManager.gd" id="4_furnace_manager"]
 [ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="6_command_server"]
 [ext_resource type="Script" uid="uid://bg4dhk18xtpmi" path="res://scripts/ChunkRendererBridge.gd" id="7_chunk_bridge"]
@@ -52,9 +51,6 @@ script = ExtResource("1_connector_manager")
 
 [node name="MechanismManager" type="Node" parent="."]
 script = ExtResource("2_mechanism_manager")
-
-[node name="WorkbenchManager" type="Node" parent="."]
-script = ExtResource("3_workbench")
 
 [node name="FurnaceManager" type="GDFurnaceManager" parent="."]
 script = ExtResource("4_furnace_manager")

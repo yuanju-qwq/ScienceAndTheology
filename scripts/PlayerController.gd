@@ -26,7 +26,6 @@ const OVERWORLD: StringName = &"overworld"
 @export var command_server_path: NodePath = ^"../GameCommandServer"
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
-@export var workbench_manager_path: NodePath = ^"../WorkbenchManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
 @export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
@@ -51,7 +50,6 @@ var selected_hotbar := 0
 @onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
 @onready var connector_manager: ConnectorManager = get_node_or_null(connector_manager_path) as ConnectorManager
 @onready var mechanism_manager: MechanismManager = get_node_or_null(mechanism_manager_path) as MechanismManager
-@onready var workbench_manager: WorkbenchManager = get_node_or_null(workbench_manager_path) as WorkbenchManager
 @onready var furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
 @onready var hotbar_ui: HotbarUI = get_node_or_null(hotbar_ui_path) as HotbarUI
 @onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
@@ -484,7 +482,7 @@ func _toggle_crafting() -> void:
 
 
 func _get_nearby_station() -> String:
-	if workbench_manager == null:
+	if world == null:
 		return ""
 	var cell := get_current_cell()
 	var dimension := get_current_dimension()
@@ -497,7 +495,10 @@ func _get_nearby_station() -> String:
 		Vector3i.FORWARD,
 		Vector3i.BACK,
 	]:
-		if workbench_manager.has_workbench(dimension, cell + offset):
+		var info := world.get_cell_info(cell + offset, dimension)
+		var data: Dictionary = info.get("data", {})
+		var material := int(data.get("material", 0))
+		if material == ChunkRendererBridge.WORKBENCH_MATERIAL:
 			return "workbench"
 	return ""
 

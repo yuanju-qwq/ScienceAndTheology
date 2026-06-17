@@ -307,6 +307,16 @@ PlanetConfig planet_config_from_dict(const Dictionary& def) {
         def.get("cave_threshold", config.cave_threshold));
     config.sea_level_fraction = static_cast<float>(
         def.get("sea_level_fraction", config.sea_level_fraction));
+    config.core_radius_ratio = static_cast<float>(
+        def.get("core_radius_ratio", config.core_radius_ratio));
+    config.mantle_radius_ratio = static_cast<float>(
+        def.get("mantle_radius_ratio", config.mantle_radius_ratio));
+    config.core_boundary_noise_scale = static_cast<float>(
+        def.get("core_boundary_noise_scale", config.core_boundary_noise_scale));
+    config.core_boundary_noise_octaves = static_cast<int>(
+        def.get("core_boundary_noise_octaves", config.core_boundary_noise_octaves));
+    config.core_boundary_noise_amplitude = static_cast<float>(
+        def.get("core_boundary_noise_amplitude", config.core_boundary_noise_amplitude));
     return config;
 }
 
@@ -475,7 +485,17 @@ bool GDTerrainContentRegistry::set_material_roles(const Dictionary& def) {
     assign_role_from_dict(roles_.ore_coal, def, "ore_coal", material_ids_by_key_);
     assign_role_from_dict(roles_.wood, def, "wood", material_ids_by_key_);
     assign_role_from_dict(roles_.leaves, def, "leaves", material_ids_by_key_);
-    assign_role_from_dict(roles_.ladder, def, "ladder", material_ids_by_key_);
+    assign_role_from_dict(roles_.deepstone, def, "deepstone", material_ids_by_key_);
+    assign_role_from_dict(roles_.core_barrier, def, "core_barrier", material_ids_by_key_);
+    return true;
+}
+
+bool GDTerrainContentRegistry::set_runtime_material_ids(const Dictionary& def) {
+    if (!check_mutable("set runtime material ids")) {
+        return false;
+    }
+    assign_role_from_dict(runtime_ids_.ladder, def, "ladder", material_ids_by_key_);
+    assign_role_from_dict(runtime_ids_.workbench, def, "workbench", material_ids_by_key_);
     return true;
 }
 
@@ -581,6 +601,7 @@ std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot
     snapshot->materials = materials_;
     snapshot->tile_mappings = tile_mappings_;
     snapshot->roles = roles_;
+    snapshot->runtime_ids = runtime_ids_;
     snapshot->base_terrain_rules = base_terrain_rules_;
     snapshot->biome_rules = biome_rules_;
     snapshot->ore_vein_rules = ore_vein_rules_;
@@ -750,6 +771,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::register_tile_mapping);
     ClassDB::bind_method(D_METHOD("set_material_roles", "def"),
                          &GDTerrainContentRegistry::set_material_roles);
+    ClassDB::bind_method(D_METHOD("set_runtime_material_ids", "def"),
+                         &GDTerrainContentRegistry::set_runtime_material_ids);
     ClassDB::bind_method(D_METHOD("register_base_terrain_rule", "def"),
                          &GDTerrainContentRegistry::register_base_terrain_rule);
     ClassDB::bind_method(D_METHOD("register_biome_rule", "def"),
@@ -780,6 +803,7 @@ void GDTerrainContentRegistry::_bind_methods() {
     BIND_ENUM_CONSTANT(FLAG_LIQUID);
     BIND_ENUM_CONSTANT(FLAG_MINEABLE);
     BIND_ENUM_CONSTANT(FLAG_CLIMBABLE);
+    BIND_ENUM_CONSTANT(FLAG_INDESTRUCTIBLE);
 }
 
 } // namespace science_and_theology

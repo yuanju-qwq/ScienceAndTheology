@@ -616,6 +616,7 @@ godot::Dictionary GDWorldData::get_terrain_cell(
     d["is_walkable"] = cell.is_walkable();
     d["is_liquid"] = cell.is_liquid();
     d["is_climbable"] = cell.is_climbable();
+    d["is_indestructible"] = cell.is_indestructible();
     return d;
 }
 

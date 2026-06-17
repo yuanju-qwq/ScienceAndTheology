@@ -133,10 +133,6 @@ void GDGameCommandServer::configure_player(Resource* inventory, Resource* equipm
     }
 }
 
-void GDGameCommandServer::set_workbench_manager(Node* manager) {
-    workbench_manager_ = manager;
-}
-
 void GDGameCommandServer::set_furnace_manager(Node* manager) {
     furnace_manager_ = manager;
     furnace_manager_cpp_ = Object::cast_to<GDFurnaceManager>(manager);
@@ -188,6 +184,9 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     }
     if (!static_cast<bool>(cell.get("is_mineable", false))) {
         return reject(command_mine_block(), "target cell is not mineable");
+    }
+    if (static_cast<bool>(cell.get("is_indestructible", false))) {
+        return reject(command_mine_block(), "target cell is indestructible");
     }
     if (!has_required_tool(material)) {
         return reject(command_mine_block(), "required tool is not equipped");
@@ -274,8 +273,12 @@ Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
     if (required_station == "workbench") {
         const StringName dimension = command.get("dimension", StringName());
         const Vector3i cell = command.get("cell", Vector3i());
-        if (workbench_manager_ == nullptr) {
-            return reject(command_craft_recipe(), "workbench manager is not available");
+        if (world_data_ == nullptr) {
+            return reject(command_craft_recipe(), "world data is not available");
+        }
+        const int32_t workbench_material = get_workbench_material_id();
+        if (workbench_material <= 0) {
+            return reject(command_craft_recipe(), "workbench material is not registered");
         }
         bool near_workbench = false;
         const Vector3i offsets[] = {
@@ -283,8 +286,23 @@ Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
             Vector3i(0, 1, 0), Vector3i(0, -1, 0),
             Vector3i(0, 0, 1), Vector3i(0, 0, -1),
         };
+        const int32_t chunk_size = 32;
         for (const Vector3i& offset : offsets) {
-            if (node_bool_call(workbench_manager_, "has_workbench", dimension, cell + offset)) {
+            const Vector3i neighbor = cell + offset;
+            const Vector3i n_chunk(
+                static_cast<int32_t>(floorf(static_cast<float>(neighbor.x) / chunk_size)),
+                static_cast<int32_t>(floorf(static_cast<float>(neighbor.y) / chunk_size)),
+                static_cast<int32_t>(floorf(static_cast<float>(neighbor.z) / chunk_size)));
+            const Vector3i n_local(
+                neighbor.x - n_chunk.x * chunk_size,
+                neighbor.y - n_chunk.y * chunk_size,
+                neighbor.z - n_chunk.z * chunk_size);
+            const godot::Dictionary neighbor_cell = world_data_->get_terrain_cell(
+                String(dimension), n_chunk.x, n_chunk.y, n_chunk.z,
+                n_local.x, n_local.y, n_local.z);
+            const int32_t neighbor_material = static_cast<int32_t>(
+                static_cast<int64_t>(neighbor_cell.get("material", -1)));
+            if (neighbor_material == workbench_material) {
                 near_workbench = true;
                 break;
             }
@@ -364,11 +382,42 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
 
     bool placed = false;
     if (object_type == object_workbench()) {
-        if (workbench_manager_ == nullptr) {
+        // Workbenches are placed as terrain cells (snt:workbench material).
+        if (world_data_ == nullptr) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
-            return reject(command_place_object(), "workbench manager is not available");
+            return reject(command_place_object(), "world data is not available");
         }
-        placed = node_bool_call(workbench_manager_, "place_workbench", dimension, cell);
+        const int32_t workbench_material = get_workbench_material_id();
+        if (workbench_material <= 0) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "workbench material is not registered");
+        }
+        const int32_t chunk_size = 32;
+        const Vector3i chunk(
+            static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+        const Vector3i local(
+            cell.x - chunk.x * chunk_size,
+            cell.y - chunk.y * chunk_size,
+            cell.z - chunk.z * chunk_size);
+        const godot::Dictionary existing = world_data_->get_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z);
+        const int32_t existing_material = static_cast<int32_t>(
+            static_cast<int64_t>(existing.get("material", -1)));
+        const int32_t air_material = get_air_material_id();
+        if (existing_material != air_material) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "target cell is not air");
+        }
+        placed = world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, workbench_material);
+        if (placed) {
+            emit_signal("terrain_cell_synced", dimension, chunk, local,
+                        air_material, workbench_material);
+        }
     } else if (object_type == object_furnace()) {
         if (furnace_manager_cpp_ == nullptr) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
@@ -644,7 +693,23 @@ bool GDGameCommandServer::is_world_object_occupied(
         const StringName& object_type, const StringName& dimension,
         const Vector3i& cell) const {
     if (object_type == object_workbench()) {
-        return node_bool_call(workbench_manager_, "has_workbench", dimension, cell);
+        // Workbenches occupy terrain cells; check if the cell has workbench material.
+        if (world_data_ == nullptr) return true;
+        const int32_t chunk_size = 32;
+        const Vector3i chunk(
+            static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+        const Vector3i local(
+            cell.x - chunk.x * chunk_size,
+            cell.y - chunk.y * chunk_size,
+            cell.z - chunk.z * chunk_size);
+        const godot::Dictionary existing = world_data_->get_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z);
+        const int32_t existing_material = static_cast<int32_t>(
+            static_cast<int64_t>(existing.get("material", -1)));
+        return existing_material == get_workbench_material_id();
     }
     if (object_type == object_furnace()) {
         return furnace_manager_cpp_ != nullptr &&
@@ -734,7 +799,14 @@ int32_t GDGameCommandServer::get_ladder_material_id() const {
     if (world_data_ == nullptr) {
         return 0;
     }
-    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->roles.ladder);
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->runtime_ids.ladder);
+}
+
+int32_t GDGameCommandServer::get_workbench_material_id() const {
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->runtime_ids.workbench);
 }
 
 Array GDGameCommandServer::get_terrain_drops(int32_t terrain_material) const {
@@ -860,8 +932,6 @@ void GDGameCommandServer::_bind_methods() {
                          &GDGameCommandServer::get_world_data);
     ClassDB::bind_method(D_METHOD("configure_player", "inventory", "equipment"),
                          &GDGameCommandServer::configure_player);
-    ClassDB::bind_method(D_METHOD("set_workbench_manager", "manager"),
-                         &GDGameCommandServer::set_workbench_manager);
     ClassDB::bind_method(D_METHOD("set_furnace_manager", "manager"),
                          &GDGameCommandServer::set_furnace_manager);
     ClassDB::bind_method(D_METHOD("submit_command", "command"),

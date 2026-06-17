@@ -177,8 +177,13 @@ void TerrainGenerator::pass_base_terrain_planet(
     NoiseGenerator cave_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 2,
         chunk_x, chunk_y, chunk_z));
+    NoiseGenerator core_boundary_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 3,
+        chunk_x, chunk_y, chunk_z));
 
-    // Sea level radius: base radius + a fraction of terrain height.
+    // Radial layer boundaries.
+    const float core_r = planet.planet_radius * planet.core_radius_ratio;
+    const float mantle_r = planet.planet_radius * planet.mantle_radius_ratio;
     const float sea_level_radius =
         planet.planet_radius + planet.terrain_height_scale * planet.sea_level_fraction;
 
@@ -206,16 +211,51 @@ void TerrainGenerator::pass_base_terrain_planet(
                     elevation_noise, detail_noise,
                     dir_x, dir_y, dir_z, planet);
 
-                TerrainMaterialId material = mat.air;
-                if (dist <= surface_r) {
-                    // Block is inside the planet surface.
-                    const float depth = surface_r - dist;
+                // Compute perturbed core boundary at this direction.
+                const float core_noise_val = core_boundary_noise.noise_3d_scaled(
+                    dir_x, dir_y, dir_z,
+                    planet.core_boundary_noise_scale,
+                    planet.core_boundary_noise_octaves);
+                const float core_boundary_offset = core_noise_val
+                    * core_r * planet.core_boundary_noise_amplitude;
+                const float actual_core_r = core_r + core_boundary_offset;
 
-                    // Determine material based on depth from surface.
+                TerrainMaterialId material = mat.air;
+                if (dist <= actual_core_r) {
+                    // Inner core: indestructible barrier.
+                    material = mat.core_barrier;
+                } else if (dist <= mantle_r) {
+                    // Between core and mantle: outer core / lava zone.
+                    // Only the outer portion is lava; the inner portion
+                    // near the core barrier is also core_barrier.
+                    const float outer_core_start = actual_core_r;
+                    const float outer_core_end = mantle_r;
+                    const float outer_core_thickness =
+                        outer_core_end - outer_core_start;
+
+                    if (outer_core_thickness > 0.0f) {
+                        const float t = (dist - outer_core_start) / outer_core_thickness;
+                        if (t < 0.3f) {
+                            // Close to core barrier: also indestructible.
+                            material = mat.core_barrier;
+                        } else {
+                            // Outer core: lava.
+                            material = mat.lava;
+                        }
+                    } else {
+                        // Mantle radius too close to core: treat as core barrier.
+                        material = mat.core_barrier;
+                    }
+                } else if (dist <= surface_r) {
+                    // Crust: inside the planet surface.
+                    const float depth = surface_r - dist;
+                    const float crust_thickness = surface_r - mantle_r;
+                    const float depth_ratio = (crust_thickness > 0.0f)
+                        ? (depth / crust_thickness) : 0.0f;
+
                     if (depth < 1.0f) {
                         // Surface layer.
                         if (surface_r < sea_level_radius) {
-                            // Below sea level and at surface: sand or dirt.
                             material = mat.sand;
                         } else {
                             material = mat.dirt;
@@ -223,13 +263,16 @@ void TerrainGenerator::pass_base_terrain_planet(
                     } else if (depth < 4.0f) {
                         // Subsurface: dirt.
                         material = mat.dirt;
+                    } else if (depth_ratio > 0.6f) {
+                        // Deep crust near mantle: deepstone (very hard).
+                        material = mat.deepstone;
                     } else {
-                        // Deep: stone.
+                        // Standard crust: stone.
                         material = mat.stone;
                     }
 
-                    // Cave generation inside the planet.
-                    if (depth > 4.0f) {
+                    // Cave generation in the crust (not in deepstone zone).
+                    if (depth > 4.0f && depth_ratio <= 0.6f) {
                         const float cave = cave_noise.noise_3d_scaled(
                             global_x, global_y, global_z,
                             planet.cave_noise_scale, planet.cave_octaves);
@@ -237,10 +280,7 @@ void TerrainGenerator::pass_base_terrain_planet(
                         // Deeper = slightly more caves.
                         threshold -= std::clamp(depth / 128.0f, 0.0f, 0.15f);
                         if (cave > threshold) {
-                            // Very deep caves become lava.
-                            const float core_dist = dist;
-                            const float core_ratio = core_dist / planet.planet_radius;
-                            material = (core_ratio < 0.3f) ? mat.lava : mat.air;
+                            material = mat.air;
                         }
                     }
                 } else if (dist <= sea_level_radius) {
@@ -580,7 +620,8 @@ TerrainGenerator::MaterialIds TerrainGenerator::materials() const {
     ids.ore_coal = config_->roles.ore_coal;
     ids.wood = config_->roles.wood;
     ids.leaves = config_->roles.leaves;
-    ids.ladder = config_->roles.ladder;
+    ids.deepstone = config_->roles.deepstone;
+    ids.core_barrier = config_->roles.core_barrier;
     return ids;
 }
 

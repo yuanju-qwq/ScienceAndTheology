@@ -15,6 +15,7 @@ set(SOURCES
     world/gd_terrain_content_registry.cpp
     world/gd_terrain_generator.cpp
     world/gd_furnace_manager.cpp
+    world/gd_chunk_helper.cpp
     simulation/gd_game_command_server.cpp
     simulation/gd_tick_system.cpp
     player/gd_player_inventory.cpp

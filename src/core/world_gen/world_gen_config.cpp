@@ -129,6 +129,8 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     hash_combine(hash, config.roles.ore_coal);
     hash_combine(hash, config.roles.wood);
     hash_combine(hash, config.roles.leaves);
+    hash_combine(hash, config.roles.deepstone);
+    hash_combine(hash, config.roles.core_barrier);
     for (const auto& rule : config.base_terrain_rules) {
         hash_combine(hash, string_hash(rule.dimension_id));
         hash_combine(hash, string_hash(rule.mode));
@@ -190,6 +192,11 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, static_cast<uint64_t>(planet.cave_octaves));
         hash_combine(hash, static_cast<uint64_t>(planet.cave_threshold * 100000.0f));
         hash_combine(hash, static_cast<uint64_t>(planet.sea_level_fraction * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.core_radius_ratio * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.mantle_radius_ratio * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_scale * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_octaves));
+        hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_amplitude * 100000.0f));
     }
     return hash;
 }

@@ -28,11 +28,13 @@ public:
         FLAG_LIQUID = TF_LIQUID,
         FLAG_MINEABLE = TF_MINEABLE,
         FLAG_CLIMBABLE = TF_CLIMBABLE,
+        FLAG_INDESTRUCTIBLE = TF_INDESTRUCTIBLE,
     };
 
     bool register_material(const godot::Dictionary& def);
     bool register_tile_mapping(const godot::Dictionary& def);
     bool set_material_roles(const godot::Dictionary& def);
+    bool set_runtime_material_ids(const godot::Dictionary& def);
     bool register_base_terrain_rule(const godot::Dictionary& def);
     bool register_biome_rule(const godot::Dictionary& def);
     bool register_ore_vein_rule(const godot::Dictionary& def);
@@ -59,6 +61,7 @@ private:
     std::vector<TerrainMaterialDef> materials_;
     std::vector<TerrainTileMapping> tile_mappings_;
     TerrainMaterialRoles roles_;
+    RuntimeMaterialIds runtime_ids_;
     std::vector<BaseTerrainRule> base_terrain_rules_;
     std::vector<BiomeRule> biome_rules_;
     std::vector<OreVeinRule> ore_vein_rules_;

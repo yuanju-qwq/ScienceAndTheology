@@ -30,7 +30,6 @@ public:
     godot::Resource* get_world_data() const;
 
     void configure_player(godot::Resource* inventory, godot::Resource* equipment);
-    void set_workbench_manager(godot::Node* manager);
     void set_furnace_manager(godot::Node* manager);
 
     godot::Dictionary submit_command(const godot::Dictionary& command);
@@ -71,6 +70,7 @@ private:
     int64_t get_equipped_item() const;
     int32_t get_air_material_id() const;
     int32_t get_ladder_material_id() const;
+    int32_t get_workbench_material_id() const;
 
     godot::Array get_terrain_drops(int32_t terrain_material) const;
     static bool get_tool_stats_for_item(int64_t item_id, gt::ToolStats& out_stats);
@@ -85,7 +85,6 @@ private:
     GDWorldData* world_data_ = nullptr;
     GDPlayerInventory* inventory_ = nullptr;
     GDPlayerEquipment* equipment_ = nullptr;
-    godot::Node* workbench_manager_ = nullptr;
     godot::Node* furnace_manager_ = nullptr;
     GDFurnaceManager* furnace_manager_cpp_ = nullptr;
 };

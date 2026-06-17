@@ -10,11 +10,12 @@ using TerrainMaterial = TerrainMaterialId;
 
 // Per-cell gameplay flags derived from material properties.
 enum TerrainFlags : uint32_t {
-    TF_WALKABLE   = 1 << 0,
-    TF_SOLID      = 1 << 1,
-    TF_LIQUID     = 1 << 2,
-    TF_MINEABLE   = 1 << 3,
-    TF_CLIMBABLE  = 1 << 4,
+    TF_WALKABLE      = 1 << 0,
+    TF_SOLID         = 1 << 1,
+    TF_LIQUID        = 1 << 2,
+    TF_MINEABLE      = 1 << 3,
+    TF_CLIMBABLE     = 1 << 4,
+    TF_INDESTRUCTIBLE = 1 << 5,
 };
 
 inline constexpr uint32_t operator|(TerrainFlags a, TerrainFlags b) {
@@ -37,6 +38,7 @@ struct TerrainCell {
     bool is_liquid() const { return flags & TF_LIQUID; }
     bool is_mineable() const { return flags & TF_MINEABLE; }
     bool is_climbable() const { return flags & TF_CLIMBABLE; }
+    bool is_indestructible() const { return flags & TF_INDESTRUCTIBLE; }
 };
 
 // Terrain data for one chunk. Pure data, no rendering information.
