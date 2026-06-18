@@ -84,6 +84,13 @@ enum class GameEventType : uint32_t {
     CREATURE_DESPAWNED           = 802,
     CREATURE_DAMAGED             = 803,
     CREATURE_KILLED              = 804,
+    CREATURE_MOVED               = 805,
+
+    // Quest events
+    QUEST_UNLOCKED          = 900,
+    QUEST_COMPLETED         = 901,
+    QUEST_PROGRESS_CHANGED  = 902,
+    REWARD_CLAIMED          = 903,
 
     // Custom / user-defined slot
     CUSTOM = 0x80000000,
@@ -218,6 +225,15 @@ struct GameEvent {
         uint64_t creature_id, uint16_t species_id,
         const std::string& dimension,
         int cx, int cy, int cz);
+
+    // Creature moved to a new position (proxy AI tick).
+    // creature_id: the proxy entity that moved.
+    // species_key: species key string for rendering lookup.
+    // pos_x/y/z: new world position in block coordinates.
+    // Emitted at most once per creature per tick, only when position changed.
+    static GameEvent creature_moved(
+        uint64_t creature_id, const std::string& species_key,
+        float pos_x, float pos_y, float pos_z);
 
     // --- Region event factories ---
 

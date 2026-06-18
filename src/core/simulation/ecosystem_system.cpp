@@ -816,6 +816,16 @@ void EcosystemSystem::tick_proxies(
     const float move_dt = delta * TickSystem::kTicksPerSecond;
     const float global_speed = params_.creature_move_speed;
 
+    // Helper to emit creature_moved event after a successful move.
+    auto emit_moved = [&](EntityId id, const CreatureBlockEntityState& cs) {
+        if (!event_bus_) return;
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(cs.species_id);
+        const char* key = def ? def->species_key.c_str() : "unknown";
+        event_bus_->emit(GameEvent::creature_moved(
+            id.id, key, cs.pos_x, cs.pos_y, cs.pos_z));
+    };
+
     // Helper to resolve effective speed for a creature.
     // Uses species-specific speed if defined, otherwise global default.
     auto resolve_speed = [&](const CreatureBlockEntityState& cs) -> float {
@@ -867,8 +877,10 @@ void EcosystemSystem::tick_proxies(
                 break;
             }
             case CreatureState::WANDERING: {
-                move_creature_toward_target(
-                    *cs, speed, move_dt);
+                if (move_creature_toward_target(
+                        *cs, speed, move_dt)) {
+                    emit_moved(id, *cs);
+                }
 
                 // Check if reached target.
                 float dx = cs->wander_target_x - cs->pos_x;
@@ -909,7 +921,9 @@ void EcosystemSystem::tick_proxies(
                 cs->wander_target_z = cs->pos_z + fz * wander_r;
 
                 float flee_speed = speed * params_.flee_speed_multiplier;
-                move_creature_toward_target(*cs, flee_speed, move_dt);
+                if (move_creature_toward_target(*cs, flee_speed, move_dt)) {
+                    emit_moved(id, *cs);
+                }
                 break;
             }
             default:
@@ -934,8 +948,10 @@ void EcosystemSystem::tick_proxies(
                 break;
             }
             case CreatureState::WANDERING: {
-                move_creature_toward_target(
-                    *cs, speed, move_dt);
+                if (move_creature_toward_target(
+                        *cs, speed, move_dt)) {
+                    emit_moved(id, *cs);
+                }
 
                 float dx = cs->wander_target_x - cs->pos_x;
                 float dy = cs->wander_target_y - cs->pos_y;
@@ -1019,7 +1035,7 @@ bool EcosystemSystem::check_flee_for_herbivore(
     return false;
 }
 
-void EcosystemSystem::move_creature_toward_target(
+bool EcosystemSystem::move_creature_toward_target(
     CreatureBlockEntityState& creature,
     float speed, float dt) const {
     float dx = creature.wander_target_x - creature.pos_x;
@@ -1027,7 +1043,7 @@ void EcosystemSystem::move_creature_toward_target(
     float dz = creature.wander_target_z - creature.pos_z;
     float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-    if (dist < 0.01f) return;
+    if (dist < 0.01f) return false;
 
     // Normalize direction.
     float nx = dx / dist;
@@ -1041,6 +1057,7 @@ void EcosystemSystem::move_creature_toward_target(
     creature.pos_x += nx * step;
     creature.pos_y += ny * step;
     creature.pos_z += nz * step;
+    return true;
 }
 
 // ============================================================

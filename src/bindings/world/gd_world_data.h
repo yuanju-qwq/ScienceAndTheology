@@ -187,7 +187,7 @@ public:
 
     // --- Save / load ---
 
-    // Lists save names with valid world_header.bin in a base directory.
+    // Lists save names with valid universe_header.bin in a base directory.
     static godot::Array list_saves(const godot::String& base_saves_dir);
 
     // --- Per-dimension save / load / unload ---

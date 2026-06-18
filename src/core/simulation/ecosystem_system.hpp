@@ -263,7 +263,8 @@ private:
         const ProxyGroup& group) const;
 
     // Move a creature toward its target by the given speed.
-    void move_creature_toward_target(
+    // Returns true if the creature actually moved (position changed).
+    bool move_creature_toward_target(
         CreatureBlockEntityState& creature,
         float speed, float dt) const;
 

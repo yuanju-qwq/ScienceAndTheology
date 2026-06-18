@@ -863,6 +863,12 @@ void GDTickSystem::_bind_methods() {
         godot::PropertyInfo(godot::Variant::INT, "cx"),
         godot::PropertyInfo(godot::Variant::INT, "cy"),
         godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_moved",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "species_key"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_x"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_y"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_z")));
 }
 
 void GDTickSystem::subscribe_to_event_bus() {
@@ -1098,6 +1104,17 @@ void GDTickSystem::subscribe_to_event_bus() {
                 static_cast<int64_t>(e.int_data.at("species_id")),
                 godot::String(e.source_dimension.c_str()),
                 e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_MOVED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_moved",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("species_key").c_str()),
+                static_cast<float>(e.float_data.at("pos_x")),
+                static_cast<float>(e.float_data.at("pos_y")),
+                static_cast<float>(e.float_data.at("pos_z")));
         }));
 }
 

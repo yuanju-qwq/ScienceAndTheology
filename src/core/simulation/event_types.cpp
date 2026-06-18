@@ -438,4 +438,18 @@ GameEvent GameEvent::creature_killed(
     return ev;
 }
 
+GameEvent GameEvent::creature_moved(
+    uint64_t creature_id, const std::string& species_key,
+    float pos_x, float pos_y, float pos_z) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_MOVED;
+    ev.source_id = creature_id;
+    ev.string_data["species_key"] = species_key;
+    ev.float_data["pos_x"] = static_cast<double>(pos_x);
+    ev.float_data["pos_y"] = static_cast<double>(pos_y);
+    ev.float_data["pos_z"] = static_cast<double>(pos_z);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
 } // namespace science_and_theology

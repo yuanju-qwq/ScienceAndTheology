@@ -171,3 +171,8 @@ target_sources(snt_core PRIVATE
     source_law/organ_skill_system.cpp
     source_law/mutation_system.cpp
 )
+
+# Quest system (progress tracking, condition evaluation, serialization)
+target_sources(snt_core PRIVATE
+    quest/quest_system.cpp
+)
