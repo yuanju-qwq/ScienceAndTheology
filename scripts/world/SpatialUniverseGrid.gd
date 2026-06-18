@@ -151,7 +151,7 @@ func create_placeholder_for_cell(cell: Vector2i) -> StarSystemDescriptor:
 
 # Generate a deterministic string key for a cell.
 func _cell_key(cell: Vector2i) -> String:
-	return String.num_uint64(uint64_t(_universe_seed)) + \
+	return String.num_int64(_universe_seed) + \
 		":grid:" + String.num_int64(cell.x) + ":" + String.num_int64(cell.y)
 
 
@@ -161,7 +161,7 @@ func _cell_hash(cell: Vector2i) -> float:
 	var key := _cell_key(cell)
 	var h := key.hash()
 	# Map to [0.0, 1.0) using the lower bits.
-	return float(uint64_t(h) % 1000000u) / 1000000.0
+	return float(posmod(h, 1000000)) / 1000000.0
 
 
 # Create a deterministic RandomNumberGenerator for a cell.

@@ -572,5 +572,5 @@ static func _recompute_system_radius(system: StarSystemDescriptor) -> void:
 # Deterministic hash combining the universe seed with a system index
 # to produce a unique per-system seed.
 static func _hash_system_seed(universe_seed: int, system_index: int) -> int:
-	var combined := String.num_uint64(uint64_t(universe_seed)) + ":sys:" + String.num_int64(system_index)
+	var combined := String.num_int64(universe_seed) + ":sys:" + String.num_int64(system_index)
 	return combined.hash()

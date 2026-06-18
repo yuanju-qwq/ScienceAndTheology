@@ -118,14 +118,14 @@ func _update_sun(state: Dictionary) -> void:
 	# Elevation: angle above horizon (0 = horizon, pi/2 = zenith).
 	# Azimuth: horizontal angle (0 = north, pi/2 = east).
 	var dir := Vector3(
-		-sinf(azimuth) * cosf(elevation),
-		sinf(elevation),
-		-cosf(azimuth) * cosf(elevation)
+		-sin(azimuth) * cos(elevation),
+		sin(elevation),
+		-cos(azimuth) * cos(elevation)
 	)
 
 	# Godot DirectionalLight3D uses -Z as default direction.
 	# We set rotation to point the light in the computed direction.
-	_sun.look_at(_sun.global_position + dir, Vector3.UP)
+	_sun.look_at(_sun.global_position + dir, _up_for_direction(dir))
 
 	_sun.light_energy = energy
 	_sun.light_color = Color(cr, cg, cb)
@@ -145,15 +145,21 @@ func _update_moon(state: Dictionary) -> void:
 	var cb: float = state.get("moon_color_b", 0.8)
 
 	var dir := Vector3(
-		-sinf(azimuth) * cosf(elevation),
-		sinf(elevation),
-		-cosf(azimuth) * cosf(elevation)
+		-sin(azimuth) * cos(elevation),
+		sin(elevation),
+		-cos(azimuth) * cos(elevation)
 	)
 
-	_moon.look_at(_moon.global_position + dir, Vector3.UP)
+	_moon.look_at(_moon.global_position + dir, _up_for_direction(dir))
 
 	_moon.light_energy = energy
 	_moon.light_color = Color(cr, cg, cb)
+
+
+static func _up_for_direction(direction: Vector3) -> Vector3:
+	if absf(direction.dot(Vector3.UP)) > 0.999:
+		return Vector3.FORWARD
+	return Vector3.UP
 
 
 # --- Ambient light update ---

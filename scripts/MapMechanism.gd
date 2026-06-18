@@ -1,5 +1,5 @@
 # MapMechanism — a world mechanism at a 3D cell position within a dimension.
-# Replaces the old 2D layer_id + Vector2i model with dimension + Vector3i.
+# Uses dimension + Vector3i for its world position.
 class_name MapMechanism
 extends Resource
 

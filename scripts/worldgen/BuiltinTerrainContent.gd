@@ -17,7 +17,7 @@ const MAT_WORKBENCH := 12
 const MAT_DEEPSTONE := 13
 const MAT_CORE_BARRIER := 14
 
-// Tree species materials: wood, leaves, sapling per species.
+# Tree species materials: wood, leaves, sapling per species.
 const MAT_OAK_WOOD := 15
 const MAT_OAK_LEAVES := 16
 const MAT_OAK_SAPLING := 17
@@ -43,8 +43,8 @@ const MAT_OLIVE_WOOD := 36
 const MAT_OLIVE_LEAVES := 37
 const MAT_OLIVE_SAPLING := 38
 
-// Ore materials: metals, non-metals, and gemstones.
-// Based on the periodic table and GT mod vein group design.
+# Ore materials: metals, non-metals, and gemstones.
+# Based on the periodic table and GT mod vein group design.
 const MAT_ORE_TIN := 39
 const MAT_ORE_ZINC := 40
 const MAT_ORE_LEAD := 41
@@ -87,7 +87,7 @@ const MAT_KOMATIITE   := 74
 const MAT_REGOLITH    := 75
 const MAT_ANORTHOSTIE := 76
 
-// Canopy shape enum (must match C++ CanopyShape).
+# Canopy shape enum (must match C++ CanopyShape).
 const CANOPY_SPHERE := 0
 const CANOPY_CONE := 1
 const CANOPY_UMBRELLA := 2
@@ -432,9 +432,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "gem.coal", "count": 1 }],
 	})
 
-	// --- Basic metal ores ---
+	# --- Basic metal ores ---
 
-	// Tin: common shallow ore, used for bronze alloy.
+	# Tin: common shallow ore, used for bronze alloy.
 	registry.register_material({
 		"id": MAT_ORE_TIN,
 		"key": "snt:ore_tin",
@@ -445,7 +445,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.tin", "count": 1 }],
 	})
-	// Zinc: common shallow ore, used for brass alloy.
+	# Zinc: common shallow ore, used for brass alloy.
 	registry.register_material({
 		"id": MAT_ORE_ZINC,
 		"key": "snt:ore_zinc",
@@ -456,7 +456,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.zinc", "count": 1 }],
 	})
-	// Lead: common mid-depth ore, heavy metal.
+	# Lead: common mid-depth ore, heavy metal.
 	registry.register_material({
 		"id": MAT_ORE_LEAD,
 		"key": "snt:ore_lead",
@@ -468,9 +468,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "crushed.lead", "count": 1 }],
 	})
 
-	// --- Precious metal ores ---
+	# --- Precious metal ores ---
 
-	// Silver: mid-depth precious metal.
+	# Silver: mid-depth precious metal.
 	registry.register_material({
 		"id": MAT_ORE_SILVER,
 		"key": "snt:ore_silver",
@@ -481,7 +481,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 2,
 		"drops": [{ "item_key": "crushed.silver", "count": 1 }],
 	})
-	// Gold: mid-deep precious metal.
+	# Gold: mid-deep precious metal.
 	registry.register_material({
 		"id": MAT_ORE_GOLD,
 		"key": "snt:ore_gold",
@@ -493,9 +493,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "crushed.gold", "count": 1 }],
 	})
 
-	// --- Alloy metal ores ---
+	# --- Alloy metal ores ---
 
-	// Nickel: mid-depth ore for stainless steel and invar.
+	# Nickel: mid-depth ore for stainless steel and invar.
 	registry.register_material({
 		"id": MAT_ORE_NICKEL,
 		"key": "snt:ore_nickel",
@@ -506,7 +506,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 2,
 		"drops": [{ "item_key": "crushed.nickel", "count": 1 }],
 	})
-	// Bauxite: shallow ore for aluminum alloys.
+	# Bauxite: shallow ore for aluminum alloys.
 	registry.register_material({
 		"id": MAT_ORE_BAUXITE,
 		"key": "snt:ore_bauxite",
@@ -517,7 +517,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.bauxite", "count": 1 }],
 	})
-	// Manganese: mid-depth ore for steel alloys.
+	# Manganese: mid-depth ore for steel alloys.
 	registry.register_material({
 		"id": MAT_ORE_MANGANESE,
 		"key": "snt:ore_manganese",
@@ -528,7 +528,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 2,
 		"drops": [{ "item_key": "crushed.manganese", "count": 1 }],
 	})
-	// Tungsten: deep ore for hard alloys.
+	# Tungsten: deep ore for hard alloys.
 	registry.register_material({
 		"id": MAT_ORE_TUNGSTEN,
 		"key": "snt:ore_tungsten",
@@ -539,7 +539,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 3,
 		"drops": [{ "item_key": "crushed.tungsten", "count": 1 }],
 	})
-	// Titanium: deep ore for advanced alloys.
+	# Titanium: deep ore for advanced alloys.
 	registry.register_material({
 		"id": MAT_ORE_TITANIUM,
 		"key": "snt:ore_titanium",
@@ -551,9 +551,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "crushed.titanium", "count": 1 }],
 	})
 
-	// --- Rare metal ores ---
+	# --- Rare metal ores ---
 
-	// Platinum: very deep, extremely rare catalyst metal.
+	# Platinum: very deep, extremely rare catalyst metal.
 	registry.register_material({
 		"id": MAT_ORE_PLATINUM,
 		"key": "snt:ore_platinum",
@@ -564,7 +564,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 4,
 		"drops": [{ "item_key": "crushed.platinum", "count": 1 }],
 	})
-	// Cobalt: deep ore for superalloys.
+	# Cobalt: deep ore for superalloys.
 	registry.register_material({
 		"id": MAT_ORE_COBALT,
 		"key": "snt:ore_cobalt",
@@ -576,9 +576,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "crushed.cobalt", "count": 1 }],
 	})
 
-	// --- Energy ores ---
+	# --- Energy ores ---
 
-	// Uranium: very deep, extremely rare nuclear fuel.
+	# Uranium: very deep, extremely rare nuclear fuel.
 	registry.register_material({
 		"id": MAT_ORE_URANIUM,
 		"key": "snt:ore_uranium",
@@ -589,7 +589,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 4,
 		"drops": [{ "item_key": "crushed.uranium", "count": 1 }],
 	})
-	// Sulfur: volcanic zone ore for chemical processing.
+	# Sulfur: volcanic zone ore for chemical processing.
 	registry.register_material({
 		"id": MAT_ORE_SULFUR,
 		"key": "snt:ore_sulfur",
@@ -601,9 +601,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "dust.sulfur", "count": 1 }],
 	})
 
-	// --- Gemstone ores ---
+	# --- Gemstone ores ---
 
-	// Diamond: very deep, extremely rare industrial/cutting gem.
+	# Diamond: very deep, extremely rare industrial/cutting gem.
 	registry.register_material({
 		"id": MAT_ORE_DIAMOND,
 		"key": "snt:ore_diamond",
@@ -614,7 +614,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 4,
 		"drops": [{ "item_key": "gem.diamond", "count": 1 }],
 	})
-	// Ruby: deep chromium-based gemstone.
+	# Ruby: deep chromium-based gemstone.
 	registry.register_material({
 		"id": MAT_ORE_RUBY,
 		"key": "snt:ore_ruby",
@@ -625,7 +625,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 3,
 		"drops": [{ "item_key": "gem.ruby", "count": 1 }],
 	})
-	// Sapphire: deep aluminum-based gemstone.
+	# Sapphire: deep aluminum-based gemstone.
 	registry.register_material({
 		"id": MAT_ORE_SAPPHIRE,
 		"key": "snt:ore_sapphire",
@@ -636,7 +636,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 3,
 		"drops": [{ "item_key": "gem.sapphire", "count": 1 }],
 	})
-	// Emerald: deep beryllium-based gemstone.
+	# Emerald: deep beryllium-based gemstone.
 	registry.register_material({
 		"id": MAT_ORE_EMERALD,
 		"key": "snt:ore_emerald",
@@ -648,9 +648,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "gem.emerald", "count": 1 }],
 	})
 
-	// --- Non-metal / industrial ores ---
+	# --- Non-metal / industrial ores ---
 
-	// Salt: shallow-mid depth, food and chemical industry.
+	# Salt: shallow-mid depth, food and chemical industry.
 	registry.register_material({
 		"id": MAT_ORE_SALT,
 		"key": "snt:ore_salt",
@@ -661,7 +661,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 0,
 		"drops": [{ "item_key": "dust.salt", "count": 1, "min_count": 1, "max_count": 3 }],
 	})
-	// Fluorite: mid-depth smelting flux.
+	# Fluorite: mid-depth smelting flux.
 	registry.register_material({
 		"id": MAT_ORE_FLUORITE,
 		"key": "snt:ore_fluorite",
@@ -672,7 +672,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "dust.fluorite", "count": 1 }],
 	})
-	// Graphite: mid-deep carbon material.
+	# Graphite: mid-deep carbon material.
 	registry.register_material({
 		"id": MAT_ORE_GRAPHITE,
 		"key": "snt:ore_graphite",
@@ -684,9 +684,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "dust.graphite", "count": 1 }],
 	})
 
-	// --- GT-style mineral ores (multi-element minerals) ---
+	# --- GT-style mineral ores (multi-element minerals) ---
 
-	// Pyrite: iron disulfide FeS2, common in many vein groups.
+	# Pyrite: iron disulfide FeS2, common in many vein groups.
 	registry.register_material({
 		"id": MAT_ORE_PYRITE,
 		"key": "snt:ore_pyrite",
@@ -697,7 +697,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.pyrite", "count": 1 }],
 	})
-	// Galena: lead sulfide PbS, lead-silver bearing mineral.
+	# Galena: lead sulfide PbS, lead-silver bearing mineral.
 	registry.register_material({
 		"id": MAT_ORE_GALENA,
 		"key": "snt:ore_galena",
@@ -708,7 +708,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 2,
 		"drops": [{ "item_key": "crushed.galena", "count": 1 }],
 	})
-	// Cinnabar: mercury sulfide HgS, volcanic zones.
+	# Cinnabar: mercury sulfide HgS, volcanic zones.
 	registry.register_material({
 		"id": MAT_ORE_CINNABAR,
 		"key": "snt:ore_cinnabar",
@@ -719,7 +719,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "dust.cinnabar", "count": 1 }],
 	})
-	// Magnetite: iron oxide Fe3O4, primary iron ore in GT veins.
+	# Magnetite: iron oxide Fe3O4, primary iron ore in GT veins.
 	registry.register_material({
 		"id": MAT_ORE_MAGNETITE,
 		"key": "snt:ore_magnetite",
@@ -730,7 +730,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 2,
 		"drops": [{ "item_key": "crushed.magnetite", "count": 1 }],
 	})
-	// Cassiterite: tin oxide SnO2, primary tin ore.
+	# Cassiterite: tin oxide SnO2, primary tin ore.
 	registry.register_material({
 		"id": MAT_ORE_CASSITERITE,
 		"key": "snt:ore_cassiterite",
@@ -741,7 +741,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.cassiterite", "count": 1 }],
 	})
-	// Ilmenite: iron-titanium oxide FeTiO3, titanium source.
+	# Ilmenite: iron-titanium oxide FeTiO3, titanium source.
 	registry.register_material({
 		"id": MAT_ORE_ILMENITE,
 		"key": "snt:ore_ilmenite",
@@ -752,7 +752,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 3,
 		"drops": [{ "item_key": "crushed.ilmenite", "count": 1 }],
 	})
-	// Chalcopyrite: copper iron sulfide CuFeS2, primary copper ore.
+	# Chalcopyrite: copper iron sulfide CuFeS2, primary copper ore.
 	registry.register_material({
 		"id": MAT_ORE_CHALCOPYRITE,
 		"key": "snt:ore_chalcopyrite",
@@ -763,7 +763,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.chalcopyrite", "count": 1 }],
 	})
-	// Sphalerite: zinc sulfide ZnS, primary zinc ore.
+	# Sphalerite: zinc sulfide ZnS, primary zinc ore.
 	registry.register_material({
 		"id": MAT_ORE_SPHALERITE,
 		"key": "snt:ore_sphalerite",
@@ -774,7 +774,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 1,
 		"drops": [{ "item_key": "crushed.sphalerite", "count": 1 }],
 	})
-	// Pentlandite: iron-nickel sulfide (Ni,Fe)9S8, primary nickel ore.
+	# Pentlandite: iron-nickel sulfide (Ni,Fe)9S8, primary nickel ore.
 	registry.register_material({
 		"id": MAT_ORE_PENTLANDITE,
 		"key": "snt:ore_pentlandite",
@@ -955,9 +955,9 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "dust.anorthosite", "count": 1 }],
 	})
 
-	// --- Tree species materials ---
+	# --- Tree species materials ---
 
-	// Oak: temperate deciduous, round canopy.
+	# Oak: temperate deciduous, round canopy.
 	registry.register_material({
 		"id": MAT_OAK_WOOD,
 		"key": "snt:oak_wood",
@@ -989,7 +989,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.oak", "count": 1 }],
 	})
 
-	// Birch: cold-temperate deciduous, column canopy.
+	# Birch: cold-temperate deciduous, column canopy.
 	registry.register_material({
 		"id": MAT_BIRCH_WOOD,
 		"key": "snt:birch_wood",
@@ -1021,7 +1021,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.birch", "count": 1 }],
 	})
 
-	// Spruce: cold evergreen, cone canopy.
+	# Spruce: cold evergreen, cone canopy.
 	registry.register_material({
 		"id": MAT_SPRUCE_WOOD,
 		"key": "snt:spruce_wood",
@@ -1053,7 +1053,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.spruce", "count": 1 }],
 	})
 
-	// Acacia: tropical deciduous, umbrella canopy.
+	# Acacia: tropical deciduous, umbrella canopy.
 	registry.register_material({
 		"id": MAT_ACACIA_WOOD,
 		"key": "snt:acacia_wood",
@@ -1085,7 +1085,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.acacia", "count": 1 }],
 	})
 
-	// Maple: temperate deciduous, sphere canopy, vivid autumn color.
+	# Maple: temperate deciduous, sphere canopy, vivid autumn color.
 	registry.register_material({
 		"id": MAT_MAPLE_WOOD,
 		"key": "snt:maple_wood",
@@ -1117,7 +1117,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.maple", "count": 1 }],
 	})
 
-	// Sequoia: warm-temperate evergreen, cone canopy, very tall.
+	# Sequoia: warm-temperate evergreen, cone canopy, very tall.
 	registry.register_material({
 		"id": MAT_SEQUOIA_WOOD,
 		"key": "snt:sequoia_wood",
@@ -1149,7 +1149,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.sequoia", "count": 1 }],
 	})
 
-	// Cherry: temperate deciduous, sphere canopy, fruit-bearing.
+	# Cherry: temperate deciduous, sphere canopy, fruit-bearing.
 	registry.register_material({
 		"id": MAT_CHERRY_WOOD,
 		"key": "snt:cherry_wood",
@@ -1181,7 +1181,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.cherry", "count": 1 }],
 	})
 
-	// Olive: warm-temperate evergreen, sphere canopy, fruit-bearing.
+	# Olive: warm-temperate evergreen, sphere canopy, fruit-bearing.
 	registry.register_material({
 		"id": MAT_OLIVE_WOOD,
 		"key": "snt:olive_wood",
@@ -1221,10 +1221,7 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:stone", "dimension": "overworld",
 		  "albedo_color": Color(0.46, 0.47, 0.45) },
 		{ "material_key": "snt:dirt", "dimension": "overworld",
-		  "albedo_color": Color(0.33, 0.25, 0.14),
-		  "top_texture": "res://resource/terrain/dirt/dirt_top_32.png",
-		  "bottom_texture": "res://resource/terrain/dirt/dirt_bottom_32.png",
-		  "sides_texture": "res://resource/terrain/dirt/dirt_side_32.png" },
+		  "albedo_color": Color(0.33, 0.25, 0.14) },
 		{ "material_key": "snt:sand", "dimension": "overworld",
 		  "albedo_color": Color(0.73, 0.64, 0.40),
 		  "sides_texture": "res://resource/terrain/sand/sand_tile_01_32.png",
@@ -1236,16 +1233,13 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		  "albedo_color": Color(0.95, 0.28, 0.08),
 		  "emissive_color": Color(0.8, 0.2, 0.05), "roughness": 0.3 },
 		{ "material_key": "snt:ore_iron", "dimension": "overworld",
-		  "albedo_color": Color(0.65, 0.58, 0.50),
-		  "overlays": [{ "texture_path": "res://resource/terrain/ore/ore_iron_overlay_32.png", "blend": 0.6 }] },
+		  "albedo_color": Color(0.65, 0.58, 0.50) },
 		{ "material_key": "snt:ore_copper", "dimension": "overworld",
-		  "albedo_color": Color(0.72, 0.37, 0.18),
-		  "overlays": [{ "texture_path": "res://resource/terrain/ore/ore_copper_overlay_32.png", "blend": 0.6 }] },
+		  "albedo_color": Color(0.72, 0.37, 0.18) },
 		{ "material_key": "snt:ore_coal", "dimension": "overworld",
-		  "albedo_color": Color(0.13, 0.13, 0.13),
-		  "overlays": [{ "texture_path": "res://resource/terrain/ore/ore_coal_overlay_32.png", "blend": 0.6 }] },
+		  "albedo_color": Color(0.13, 0.13, 0.13) },
 
-		// --- Basic metal ore visuals ---
+		# --- Basic metal ore visuals ---
 		{ "material_key": "snt:ore_tin", "dimension": "overworld",
 		  "albedo_color": Color(0.60, 0.60, 0.62) },
 		{ "material_key": "snt:ore_zinc", "dimension": "overworld",
@@ -1253,13 +1247,13 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:ore_lead", "dimension": "overworld",
 		  "albedo_color": Color(0.40, 0.40, 0.42) },
 
-		// --- Precious metal ore visuals ---
+		# --- Precious metal ore visuals ---
 		{ "material_key": "snt:ore_silver", "dimension": "overworld",
 		  "albedo_color": Color(0.80, 0.80, 0.82) },
 		{ "material_key": "snt:ore_gold", "dimension": "overworld",
 		  "albedo_color": Color(0.85, 0.70, 0.15) },
 
-		// --- Alloy metal ore visuals ---
+		# --- Alloy metal ore visuals ---
 		{ "material_key": "snt:ore_nickel", "dimension": "overworld",
 		  "albedo_color": Color(0.58, 0.58, 0.55) },
 		{ "material_key": "snt:ore_bauxite", "dimension": "overworld",
@@ -1271,21 +1265,21 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:ore_titanium", "dimension": "overworld",
 		  "albedo_color": Color(0.60, 0.62, 0.65) },
 
-		// --- Rare metal ore visuals ---
+		# --- Rare metal ore visuals ---
 		{ "material_key": "snt:ore_platinum", "dimension": "overworld",
 		  "albedo_color": Color(0.78, 0.78, 0.80),
 		  "emissive_color": Color(0.05, 0.05, 0.08), "roughness": 0.4 },
 		{ "material_key": "snt:ore_cobalt", "dimension": "overworld",
 		  "albedo_color": Color(0.25, 0.30, 0.65) },
 
-		// --- Energy ore visuals ---
+		# --- Energy ore visuals ---
 		{ "material_key": "snt:ore_uranium", "dimension": "overworld",
 		  "albedo_color": Color(0.30, 0.55, 0.20),
 		  "emissive_color": Color(0.08, 0.18, 0.03), "roughness": 0.5 },
 		{ "material_key": "snt:ore_sulfur", "dimension": "overworld",
 		  "albedo_color": Color(0.90, 0.85, 0.15) },
 
-		// --- Gemstone ore visuals ---
+		# --- Gemstone ore visuals ---
 		{ "material_key": "snt:ore_diamond", "dimension": "overworld",
 		  "albedo_color": Color(0.70, 0.85, 0.90),
 		  "emissive_color": Color(0.10, 0.15, 0.20), "roughness": 0.2 },
@@ -1299,7 +1293,7 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		  "albedo_color": Color(0.10, 0.60, 0.25),
 		  "emissive_color": Color(0.02, 0.10, 0.04), "roughness": 0.3 },
 
-		// --- Non-metal / industrial ore visuals ---
+		# --- Non-metal / industrial ore visuals ---
 		{ "material_key": "snt:ore_salt", "dimension": "overworld",
 		  "albedo_color": Color(0.92, 0.90, 0.88) },
 		{ "material_key": "snt:ore_fluorite", "dimension": "overworld",
@@ -1307,7 +1301,7 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:ore_graphite", "dimension": "overworld",
 		  "albedo_color": Color(0.22, 0.22, 0.24) },
 
-		// --- GT-style mineral ore visuals ---
+		# --- GT-style mineral ore visuals ---
 		{ "material_key": "snt:ore_pyrite", "dimension": "overworld",
 		  "albedo_color": Color(0.72, 0.68, 0.30) },
 		{ "material_key": "snt:ore_galena", "dimension": "overworld",
@@ -1341,7 +1335,7 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		  "albedo_color": Color(0.10, 0.0, 0.15),
 		  "emissive_color": Color(0.15, 0.0, 0.25), "roughness": 0.5 },
 
-		// Tree species visuals.
+		# Tree species visuals.
 		{ "material_key": "snt:oak_wood", "dimension": "overworld",
 		  "albedo_color": Color(0.45, 0.27, 0.12) },
 		{ "material_key": "snt:oak_leaves", "dimension": "overworld",
@@ -1801,9 +1795,9 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"atmosphere_type": 2,
 	})
 
-	// --- Tree species registration ---
+	# --- Tree species registration ---
 
-	// Oak: temperate deciduous, round canopy, most common.
+	# Oak: temperate deciduous, round canopy, most common.
 	registry.register_tree_species({
 		"species_key": "oak",
 		"title_key": "tree.oak",
@@ -1828,7 +1822,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.75, 0.50, 0.12),
 	})
 
-	// Birch: cold-temperate deciduous, tall narrow canopy.
+	# Birch: cold-temperate deciduous, tall narrow canopy.
 	registry.register_tree_species({
 		"species_key": "birch",
 		"title_key": "tree.birch",
@@ -1853,7 +1847,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.85, 0.75, 0.15),
 	})
 
-	// Spruce: cold evergreen, cone canopy.
+	# Spruce: cold evergreen, cone canopy.
 	registry.register_tree_species({
 		"species_key": "spruce",
 		"title_key": "tree.spruce",
@@ -1878,7 +1872,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.10, 0.30, 0.12),
 	})
 
-	// Acacia: tropical deciduous, umbrella canopy.
+	# Acacia: tropical deciduous, umbrella canopy.
 	registry.register_tree_species({
 		"species_key": "acacia",
 		"title_key": "tree.acacia",
@@ -1903,7 +1897,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.70, 0.55, 0.10),
 	})
 
-	// Maple: temperate deciduous, vivid autumn red.
+	# Maple: temperate deciduous, vivid autumn red.
 	registry.register_tree_species({
 		"species_key": "maple",
 		"title_key": "tree.maple",
@@ -1928,7 +1922,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.90, 0.25, 0.10),
 	})
 
-	// Sequoia: warm-temperate evergreen, very tall cone canopy.
+	# Sequoia: warm-temperate evergreen, very tall cone canopy.
 	registry.register_tree_species({
 		"species_key": "sequoia",
 		"title_key": "tree.sequoia",
@@ -1953,7 +1947,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.12, 0.32, 0.10),
 	})
 
-	// Cherry: temperate deciduous, pink blossoms, fruit-bearing.
+	# Cherry: temperate deciduous, pink blossoms, fruit-bearing.
 	registry.register_tree_species({
 		"species_key": "cherry",
 		"title_key": "tree.cherry",
@@ -1980,7 +1974,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"autumn_color": Color(0.80, 0.30, 0.25),
 	})
 
-	// Olive: warm-temperate evergreen, fruit-bearing.
+	# Olive: warm-temperate evergreen, fruit-bearing.
 	registry.register_tree_species({
 		"species_key": "olive",
 		"title_key": "tree.olive",

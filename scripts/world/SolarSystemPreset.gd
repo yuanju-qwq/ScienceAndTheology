@@ -343,7 +343,7 @@ static func _create_neptune(universe_seed: int) -> PlanetDescriptor:
 # Deterministic hash combining the universe seed with a planet name
 # to produce a unique per-planet seed.
 static func _hash_planet_seed(universe_seed: int, planet_name: String) -> int:
-	var combined := String.num_uint64(uint64_t(universe_seed)) + ":" + planet_name
+	var combined := String.num_int64(universe_seed) + ":" + planet_name
 	return combined.hash()
 
 

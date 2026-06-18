@@ -271,8 +271,8 @@ func _refresh() -> void:
 		return
 
 	# Update progress label.
-	var total := _quest_system.quest_count()
-	var done := _quest_system.completed_count()
+	var total: int = _quest_system.quest_count()
+	var done: int = _quest_system.completed_count()
 	_progress_label.text = "%d / %d completed" % [done, total]
 
 	# Rebuild tabs.
@@ -280,14 +280,14 @@ func _refresh() -> void:
 
 	# Rebuild quest grid for current chapter.
 	if _current_chapter.is_empty():
-		var chapters := _quest_system.get_chapters()
+		var chapters: Array = _quest_system.get_chapters()
 		if chapters.size() > 0:
 			_current_chapter = chapters[0]
 	_rebuild_quest_grid()
 
 	# Show first quest if none selected.
 	if _current_quest_id.is_empty():
-		var quests := _quest_system.get_quests_in_chapter(_current_chapter)
+		var quests: Array = _quest_system.get_quests_in_chapter(_current_chapter)
 		if quests.size() > 0:
 			_show_quest(quests[0])
 	else:
@@ -303,7 +303,7 @@ func _rebuild_tabs() -> void:
 	if not _quest_system:
 		return
 
-	var chapters := _quest_system.get_chapters()
+	var chapters: Array = _quest_system.get_chapters()
 	for chapter_id in chapters:
 		var def: Dictionary = _quest_system.get_chapter_def(chapter_id)
 		var title: String = def.get("title", chapter_id)
@@ -325,7 +325,7 @@ func _rebuild_quest_grid() -> void:
 	if not _quest_system:
 		return
 
-	var quests := _quest_system.get_quests_in_chapter(_current_chapter)
+	var quests: Array = _quest_system.get_quests_in_chapter(_current_chapter)
 	for quest_id in quests:
 		if not _quest_system.is_quest_visible(quest_id):
 			continue
@@ -451,7 +451,7 @@ func _on_tab_pressed(chapter_id: String) -> void:
 	_rebuild_quest_grid()
 
 	# Auto-select first visible quest.
-	var quests := _quest_system.get_quests_in_chapter(chapter_id)
+	var quests: Array = _quest_system.get_quests_in_chapter(chapter_id)
 	for qid in quests:
 		if _quest_system.is_quest_visible(qid):
 			_show_quest(qid)

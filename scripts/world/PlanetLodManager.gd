@@ -155,9 +155,9 @@ func _create_lod_meshes() -> void:
 	var lod2 := MeshInstance3D.new()
 	lod2.name = "LOD2_ProxySphere"
 	lod2.mesh = lod2_sphere
+	add_child(lod2)
 	lod2.global_position = planet_center
 	lod2.visible = false
-	add_child(lod2)
 	_lod_meshes[LOD_PROXY_SPHERE] = lod2
 
 	# LOD 3: low-poly sphere — very far / space view with same shader.
@@ -175,9 +175,9 @@ func _create_lod_meshes() -> void:
 	var lod3 := MeshInstance3D.new()
 	lod3.name = "LOD3_LowPolySphere"
 	lod3.mesh = lod3_sphere
+	add_child(lod3)
 	lod3.global_position = planet_center
 	lod3.visible = false
-	add_child(lod3)
 	_lod_meshes[LOD_LOW_POLY] = lod3
 
 	# Atmosphere shell — slightly larger sphere with Fresnel glow.
@@ -197,9 +197,9 @@ func _create_lod_meshes() -> void:
 	_atmosphere_mesh = MeshInstance3D.new()
 	_atmosphere_mesh.name = "Atmosphere"
 	_atmosphere_mesh.mesh = atmo_sphere
+	add_child(_atmosphere_mesh)
 	_atmosphere_mesh.global_position = planet_center
 	_atmosphere_mesh.visible = false
-	add_child(_atmosphere_mesh)
 
 	# Cloud shell — between surface and atmosphere.
 	var cloud_radius := planet_radius * cloud_scale
@@ -221,9 +221,9 @@ func _create_lod_meshes() -> void:
 	_cloud_mesh = MeshInstance3D.new()
 	_cloud_mesh.name = "Clouds"
 	_cloud_mesh.mesh = cloud_sphere
+	add_child(_cloud_mesh)
 	_cloud_mesh.global_position = planet_center
 	_cloud_mesh.visible = false
-	add_child(_cloud_mesh)
 
 
 # --- LOD computation ---

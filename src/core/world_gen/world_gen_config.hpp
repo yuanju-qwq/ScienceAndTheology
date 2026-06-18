@@ -66,7 +66,6 @@ struct TerrainOverlayLayer {
 };
 
 // Visual definition for a single terrain material in 3D rendering.
-// Replaces the old 2D TerrainTileMapping.
 struct TerrainMaterialVisualDef {
     TerrainMaterialId material_id = 0;
     std::string material_key;

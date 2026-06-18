@@ -170,12 +170,18 @@ func _process(delta: float) -> void:
 # --- Game session overrides ---
 
 func _apply_game_session_overrides() -> void:
-	if GameSession.universe_mode != "":
-		universe_mode = GameSession.universe_mode
-	if GameSession.universe_seed != 0:
-		universe_seed = GameSession.universe_seed
-	if GameSession.system_density > 0.0:
-		system_density = GameSession.system_density
+	var game_session := get_node_or_null(^"/root/GameSession")
+	if game_session == null:
+		return
+	var session_mode := str(game_session.get("universe_mode"))
+	var session_seed := int(game_session.get("universe_seed"))
+	var session_density := float(game_session.get("system_density"))
+	if session_mode != "":
+		universe_mode = session_mode
+	if session_seed != 0:
+		universe_seed = session_seed
+	if session_density > 0.0:
+		system_density = session_density
 
 
 # --- Universe generation ---

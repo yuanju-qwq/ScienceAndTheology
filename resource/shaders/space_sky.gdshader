@@ -111,7 +111,7 @@ float fbm(vec3 p) {
 
 void sky() {
 	// Use the ray direction to sample stars on a sphere.
-	vec3 dir = SKY_COORDS;
+	vec3 dir = EYEDIR;
 	// Convert 3D direction to 2D UV for star grid sampling.
 	// Use equirectangular projection.
 	vec2 uv = vec2(atan(dir.z, dir.x), asin(clamp(dir.y, -1.0, 1.0)));

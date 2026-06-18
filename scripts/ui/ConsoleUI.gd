@@ -124,7 +124,7 @@ func _build_ui() -> void:
 	# Input line.
 	_input_box = LineEdit.new()
 	_input_box.name = "InputBox"
-	_input_box.placeholder = "Type /help for commands"
+	_input_box.placeholder_text = "Type /help for commands"
 	_input_box.custom_minimum_size = Vector2(0, 28)
 	vbox.add_child(_input_box)
 

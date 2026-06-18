@@ -1,5 +1,5 @@
 # MapConnector — a link between two 3D cell positions within or across dimensions.
-# Replaces the old 2D layer + Vector2i model with dimension + Vector3i.
+# Uses dimension + Vector3i for both endpoints.
 class_name MapConnector
 extends Resource
 

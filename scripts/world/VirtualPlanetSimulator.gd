@@ -91,11 +91,11 @@ func _advance_all_virtual_time(delta: float) -> void:
 		if _elapsed[dim] < virtual_tick_interval:
 			continue
 
-		var tick_delta := _elapsed[dim]
+		var tick_delta: float = _elapsed[dim]
 		_elapsed[dim] = 0.0
 
 		# Cap virtual time to prevent unbounded accumulation.
-		var total_time := _total_virtual_time.get(dim, 0.0) + tick_delta
+		var total_time: float = _total_virtual_time.get(dim, 0.0) + tick_delta
 		if total_time > max_virtual_time_seconds:
 			tick_delta = maxf(0.0, max_virtual_time_seconds - _total_virtual_time.get(dim, 0.0))
 			if tick_delta <= 0.0:

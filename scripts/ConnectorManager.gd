@@ -1,5 +1,5 @@
 # ConnectorManager — manages MapConnector resources using 3D cell coordinates.
-# All lookups use dimension + Vector3i instead of the old layer + Vector2i.
+# All lookups use dimension + Vector3i.
 class_name ConnectorManager
 extends Node
 

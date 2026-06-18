@@ -24,15 +24,6 @@ enum Type {
 # radius_min/max in voxel blocks, light_energy for Godot Light3D,
 # weight is relative probability (sum does not need to be 100),
 # hz_mult multiplies the base orbital distance for habitable-zone planets.
-struct SpectralData:
-	var color: Color
-	var radius_min: float
-	var radius_max: float
-	var light_energy_min: float
-	var light_energy_max: float
-	var weight: float
-	var hz_mult: float
-
 # Lookup table keyed by Type enum value.
 # Entries are ordered O → M → WD → NS → BH.
 const DATA: Dictionary = {

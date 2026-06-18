@@ -517,7 +517,7 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
 
     // Enqueue a block physics event so BlockPhysicsSystem can check
     // if the newly placed block should fall (e.g., sand placed in mid-air).
-    {
+    if (world_data_ != nullptr && world_data_->get_world_ptr() != nullptr) {
         BlockPhysicsEvent evt;
         evt.dimension_id = String(dimension).utf8().get_data();
         evt.block_x = cell.x;

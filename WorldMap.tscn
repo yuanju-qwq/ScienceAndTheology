@@ -16,7 +16,7 @@
 [ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
 [ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
 [ext_resource type="Script" path="res://scripts/world/UniverseManager.gd" id="17_universe_manager"]
-[ext_resource type="Script" uid="uid://d4i3onhuj2u0o" path="res://scripts/ui/QuestBookUI.gd" id="20_quest_book_ui"]
+[ext_resource type="Script" path="res://scripts/ui/QuestBookUI.gd" id="20_quest_book_ui"]
 [ext_resource type="Script" path="res://scripts/world/DayNightCycle.gd" id="18_day_night_cycle"]
 [ext_resource type="Script" path="res://scripts/ui/ProbePanel.gd" id="19_probe_panel"]
 

@@ -58,7 +58,7 @@ var _status_label: Label
 
 func _ready() -> void:
 	_ensure_save_root()
-	_set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 	_show_main_menu()
 
@@ -604,6 +604,8 @@ func _update_world_list_selection() -> void:
 
 
 func _recenter_panels() -> void:
+	if _main_menu_vbox == null or _world_list_panel == null or _new_world_panel == null:
+		return
 	var vp_size := get_viewport_rect().size
 	var center := vp_size / 2.0
 
