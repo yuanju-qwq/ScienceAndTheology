@@ -112,6 +112,24 @@ const ITEM_OLIVE_PLANK    = K_NON_MAT_BASE + 83
 const ITEM_OLIVE_SAPLING  = K_NON_MAT_BASE + 84
 const ITEM_OLIVE_FRUIT    = K_NON_MAT_BASE + 85
 
+// Source law creature drop items (V0.6 源律升华体系).
+// These items are dropped by killing proxy creatures.
+// Item keys use the "snt:" prefix to match C++ CreatureDropDef.item_key.
+const ITEM_GLOW_DEER_ANTLER        = K_NON_MAT_BASE + 100
+const ITEM_PURIFYING_POLLEN        = K_NON_MAT_BASE + 101
+const ITEM_ROCK_LIZARD_SCALE       = K_NON_MAT_BASE + 102
+const ITEM_CRYSTALLIZED_BONE_POWDER = K_NON_MAT_BASE + 103
+const ITEM_THUNDERBIRD_FEATHER     = K_NON_MAT_BASE + 104
+const ITEM_MAGNETIC_CRYSTAL_SHARD  = K_NON_MAT_BASE + 105
+const ITEM_SEA_SERPENT_SCALE       = K_NON_MAT_BASE + 106
+const ITEM_TIDAL_GLAND             = K_NON_MAT_BASE + 107
+const ITEM_BLAZING_CORE            = K_NON_MAT_BASE + 108
+const ITEM_MOLTEN_BLOOD_SAMPLE     = K_NON_MAT_BASE + 109
+const ITEM_AETHER_FRAGMENT         = K_NON_MAT_BASE + 110
+const ITEM_BLUEPRINT_SHARD         = K_NON_MAT_BASE + 111
+const ITEM_ABERRANT_ORGAN          = K_NON_MAT_BASE + 112
+const ITEM_POLLUTED_SOURCE_ESSENCE = K_NON_MAT_BASE + 113
+
 static func mat_item(mat_id: int, form: int) -> int:
 	return K_MAT_ITEM_BASE + mat_id * K_FORM_COUNT + form
 
@@ -137,6 +155,7 @@ static func _make_placeholder_icon(color: Color, size: int = 16) -> ImageTexture
 
 var _items: Dictionary = {}   # item_id -> ItemDef
 var _tool_stats: Dictionary = {}  # item_id -> ToolDef
+var _key_to_id: Dictionary = {}   # item_key (String) -> item_id (int)
 
 func _ready() -> void:
 	_register_material_items()
@@ -144,6 +163,7 @@ func _ready() -> void:
 	_register_component_items()
 	_register_survival_items()
 	_register_tree_species_items()
+	_register_source_law_drops()
 
 func get_item(item_id: int) -> ItemDef:
 	return _items.get(item_id)
@@ -153,6 +173,11 @@ func get_tool_stats(item_id: int) -> ToolDef:
 
 func is_valid_item(item_id: int) -> bool:
 	return _items.has(item_id)
+
+# Look up an item_id by its item_key string (e.g. "snt:glow_deer_antler").
+# Returns -1 if not found.
+func get_item_id_by_key(item_key: String) -> int:
+	return _key_to_id.get(item_key, -1)
 
 func _load_icon(icon_file: String, fallback_color: Color) -> Texture2D:
 	if icon_file.is_empty():
@@ -391,3 +416,40 @@ func _register_tree_species_items() -> void:
 	_register(ITEM_OLIVE_PLANK, "Olive Plank", Color(0.60, 0.48, 0.28), 64, null, "trees/plank_olive_icon_64.png")
 	_register(ITEM_OLIVE_SAPLING, "Olive Sapling", Color(0.28, 0.42, 0.18), 64, null, "trees/sapling_olive_icon_64.png")
 	_register(ITEM_OLIVE_FRUIT, "Olive", Color(0.55, 0.58, 0.20), 64, null, "trees/fruit_olive_icon_64.png")
+
+
+# --- Source law creature drop items ---
+
+func _register_source_law_drops() -> void:
+	# Helper to register a drop item and map its item_key.
+	var _register_drop := func(item_id: int, item_key: String, name: String, color: Color, max_stack: int = 64) -> void:
+		_register(item_id, name, color, max_stack)
+		_key_to_id[item_key] = item_id
+
+	# Glow Deer drops (Radiance path).
+	_register_drop.call(ITEM_GLOW_DEER_ANTLER, "snt:glow_deer_antler", "Glow Deer Antler", Color(0.90, 0.85, 0.60))
+	_register_drop.call(ITEM_PURIFYING_POLLEN, "snt:purifying_pollen", "Purifying Pollen", Color(0.70, 0.95, 0.70))
+
+	# Rock Lizard drops (Sand Armor path).
+	_register_drop.call(ITEM_ROCK_LIZARD_SCALE, "snt:rock_lizard_scale", "Rock Lizard Scale", Color(0.60, 0.55, 0.45))
+	_register_drop.call(ITEM_CRYSTALLIZED_BONE_POWDER, "snt:crystallized_bone_powder", "Crystallized Bone Powder", Color(0.85, 0.82, 0.78))
+
+	# Thunderbird drops (Storm path).
+	_register_drop.call(ITEM_THUNDERBIRD_FEATHER, "snt:thunderbird_feather", "Thunderbird Feather", Color(0.50, 0.60, 0.90))
+	_register_drop.call(ITEM_MAGNETIC_CRYSTAL_SHARD, "snt:magnetic_crystal_shard", "Magnetic Crystal Shard", Color(0.40, 0.50, 0.80))
+
+	# Sea Serpent drops (Tidal path).
+	_register_drop.call(ITEM_SEA_SERPENT_SCALE, "snt:sea_serpent_scale", "Sea Serpent Scale", Color(0.30, 0.60, 0.70))
+	_register_drop.call(ITEM_TIDAL_GLAND, "snt:tidal_gland", "Tidal Gland", Color(0.25, 0.55, 0.75))
+
+	# Blaze Beast drops (Furnace path).
+	_register_drop.call(ITEM_BLAZING_CORE, "snt:blazing_core", "Blazing Core", Color(0.95, 0.50, 0.15))
+	_register_drop.call(ITEM_MOLTEN_BLOOD_SAMPLE, "snt:molten_blood_sample", "Molten Blood Sample", Color(0.85, 0.30, 0.10))
+
+	# Aether Wraith drops (Ruin guardian).
+	_register_drop.call(ITEM_AETHER_FRAGMENT, "snt:aether_fragment", "Aether Fragment", Color(0.70, 0.60, 0.90))
+	_register_drop.call(ITEM_BLUEPRINT_SHARD, "snt:blueprint_shard", "Blueprint Shard", Color(0.50, 0.70, 0.80))
+
+	# Aberrant Ascended drops (High-risk enemy).
+	_register_drop.call(ITEM_ABERRANT_ORGAN, "snt:aberrant_organ", "Aberrant Organ", Color(0.60, 0.20, 0.50))
+	_register_drop.call(ITEM_POLLUTED_SOURCE_ESSENCE, "snt:polluted_source_essence", "Polluted Source Essence", Color(0.40, 0.15, 0.35))

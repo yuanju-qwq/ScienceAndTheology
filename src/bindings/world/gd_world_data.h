@@ -187,14 +187,6 @@ public:
 
     // --- Save / load ---
 
-    // Saves all loaded chunks to a directory. Uses chunks stored in WorldData.
-    // Returns the number of chunks saved, or -1 on error.
-    int64_t save_world(const godot::String& save_dir);
-
-    // Loads all chunks from a save directory into WorldData.
-    // Existing chunks are cleared. Returns the world seed, or -1 on error.
-    int64_t load_world(const godot::String& save_dir);
-
     // Lists save names with valid world_header.bin in a base directory.
     static godot::Array list_saves(const godot::String& base_saves_dir);
 

@@ -17,7 +17,8 @@ void SatiationSystem::initialize(WorldData* world, EventBus* bus) {
 // Tick (active chunks)
 // ============================================================
 
-void SatiationSystem::tick_active(const ChunkKey& chunk, float delta) {
+void SatiationSystem::tick_active(const ChunkKey& chunk, float delta,
+                                  const TickContext* ctx) {
     if (!satiation_data_) return;
 
     float old_satiation = satiation_data_->satiation_current();
@@ -56,7 +57,8 @@ void SatiationSystem::tick_active(const ChunkKey& chunk, float delta) {
 // Tick (sleeping chunks) — no-op for satiation
 // ============================================================
 
-void SatiationSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void SatiationSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                    const TickContext* ctx) {
     // Satiation is player-level, not chunk-level.
     // Sleeping chunks do not affect satiation decay.
 }

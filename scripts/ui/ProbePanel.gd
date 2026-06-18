@@ -37,8 +37,6 @@ var has_target := false:
 var _mat_def: Dictionary = {}
 # Current equipped tool stats for match checking.
 var _tool_def: ToolDef = null
-# Whether the equipped tool matches the block's requirements.
-var _tool_matches := false
 
 var _needs_rebuild := true
 
@@ -97,12 +95,11 @@ func _build_ui() -> void:
 	add_child(_detail_label)
 
 
-# Update the panel with a new material definition and tool match info.
-func update_target(mat_def: Dictionary, tool_def: ToolDef, tool_matches: bool) -> void:
-	var changed := _mat_def != mat_def or _tool_def != tool_def or _tool_matches != tool_matches
+# Update the panel with a new material definition and tool info.
+func update_target(mat_def: Dictionary, tool_def: ToolDef) -> void:
+	var changed := _mat_def != mat_def or _tool_def != tool_def
 	_mat_def = mat_def
 	_tool_def = tool_def
-	_tool_matches = tool_matches
 	has_target = not mat_def.is_empty()
 	if changed:
 		_needs_rebuild = true
@@ -114,7 +111,6 @@ func clear_target() -> void:
 		has_target = false
 		_mat_def = {}
 		_tool_def = null
-		_tool_matches = false
 		_needs_rebuild = true
 
 
@@ -204,7 +200,8 @@ func _rebuild() -> void:
 
 		# Tool match status.
 		if tool_tag != "" and _tool_def != null:
-			if _tool_matches:
+			var matches := ToolDef.check_tool_match(_tool_def, tool_tag, mining_level)
+			if matches:
 				detail_parts.append("Tool: MATCH")
 			else:
 				detail_parts.append("Tool: MISMATCH")

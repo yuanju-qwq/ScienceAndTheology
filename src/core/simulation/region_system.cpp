@@ -22,7 +22,8 @@ void RegionSystem::initialize(WorldData* world, EventBus* bus) {
     event_bus_ = bus;
 }
 
-void RegionSystem::tick_active(const ChunkKey& chunk, float delta) {
+void RegionSystem::tick_active(const ChunkKey& chunk, float delta,
+                               const TickContext* ctx) {
     // Avoid duplicate processing per tick.
     if (processed_chunks_.count(chunk)) return;
     processed_chunks_.insert(chunk);
@@ -34,7 +35,8 @@ void RegionSystem::tick_active(const ChunkKey& chunk, float delta) {
     simulate_chunk(chunk, delta);
 }
 
-void RegionSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void RegionSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                const TickContext* ctx) {
     // Low-frequency simulation: only run diffusion at reduced rate.
     simulate_chunk(chunk, delta * 0.25f);
 }

@@ -16,14 +16,19 @@ namespace science_and_theology {
 //   - Each tick, iterates tree block entities in active chunks.
 //   - For each tree, checks if enough ticks have elapsed for the next
 //     growth stage transition.
+//   - Growth rate is modulated by soil fertility and water availability
+//     from the EcosystemSystem (via TickContext).
 //   - Growth conditions: sufficient vertical space, valid ground material,
-//     and temperature/humidity within the species' range.
+//     temperature/humidity within the species' range, and adequate
+//     fertility/water from the ecosystem.
 //   - When a tree grows, it replaces terrain blocks (sapling → trunk + canopy)
 //     and updates the block entity's owned_cells and growth_stage.
 //   - Sleeping chunks skip growth (trees only grow in active chunks).
 //
-// Priority: 5 (runs after BlockPhysics at 0, Machine at 1).
-// This ensures block physics has settled before growth modifies terrain.
+// Priority: 8 (runs after Ecosystem at 7).
+// This ensures block physics has settled, season is current, and
+// ecosystem vegetation_density / fertility / water are available for
+// tree growth decisions.
 //
 // Thread safety: main thread only. Not thread-safe.
 
@@ -34,8 +39,10 @@ public:
     SIMULATION_SYSTEM_NAME(TreeGrowthSystem, "TreeGrowthSystem")
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     // Runs after DayNight (0), BlockPhysics (1), Machine (2), Season (6),
@@ -50,10 +57,12 @@ public:
 
 private:
     // Attempt to grow a single tree entity.
+    // ctx: optional TickContext for ecosystem fertility/water lookup.
     // Returns true if a growth transition occurred.
     bool try_grow_tree(EntityId entity_id,
                        const std::string& dimension_id,
-                       int64_t current_tick);
+                       int64_t current_tick,
+                       const TickContext* ctx);
 
     // Check growth conditions for a tree at the given position.
     // Returns true if the tree can grow to the next stage.

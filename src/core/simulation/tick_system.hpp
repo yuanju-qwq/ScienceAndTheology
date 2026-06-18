@@ -137,7 +137,8 @@ private:
         SimulationSystem& sys,
         const std::vector<ChunkKey>& chunks,
         float delta,
-        bool is_active);
+        bool is_active,
+        const TickContext* ctx);
 
     // Run all subsystems at a given priority level.
     // If all subsystems in the group are thread-safe and parallel
@@ -146,7 +147,8 @@ private:
         const std::vector<SimulationSystem*>& group,
         const std::vector<ChunkKey>& chunks,
         float delta,
-        bool is_active);
+        bool is_active,
+        const TickContext* ctx);
 
     // Run all subsystems grouped by priority over a set of chunks.
     // Each priority group runs in order; within a group, subsystems
@@ -154,10 +156,15 @@ private:
     void run_chunks_by_priority_groups(
         const std::vector<ChunkKey>& chunks,
         float delta,
-        bool is_active);
+        bool is_active,
+        const TickContext* ctx);
 
     // Compute effective worker thread count.
     int effective_worker_threads() const;
+
+    // Build a TickContext from currently registered subsystems.
+    // Called once per tick, before any subsystem runs.
+    TickContext build_tick_context() const;
 
     WorldData* world_data_;
     std::unique_ptr<EventBus> event_bus_;

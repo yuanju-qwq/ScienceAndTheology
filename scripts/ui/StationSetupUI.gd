@@ -98,9 +98,9 @@ func _build_ui() -> void:
 	# Station type.
 	_vbox.add_child(_make_label("Station Type:"))
 	_type_option = OptionButton.new()
-	_type_option.add_item("Outpost (1 chunk)", StationDescriptor.StationType.OUTPOST)
-	_type_option.add_item("Habitat (3x3 chunks)", StationDescriptor.StationType.HABITAT)
-	_type_option.add_item("Factory (5x5 chunks)", StationDescriptor.StationType.FACTORY)
+	_type_option.add_item("Outpost (1x1x1 chunks)", StationDescriptor.StationType.OUTPOST)
+	_type_option.add_item("Habitat (3x1x3 chunks)", StationDescriptor.StationType.HABITAT)
+	_type_option.add_item("Factory (5x1x5 chunks)", StationDescriptor.StationType.FACTORY)
 	_vbox.add_child(_type_option)
 
 	# Orbit height.

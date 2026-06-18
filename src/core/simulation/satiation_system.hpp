@@ -32,8 +32,10 @@ public:
     ~SatiationSystem() override = default;
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     const char* name() const override { return "SatiationSystem"; }

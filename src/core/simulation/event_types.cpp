@@ -372,14 +372,14 @@ GameEvent GameEvent::ecosystem_population_changed(
 }
 
 GameEvent GameEvent::creature_spawned(
-    uint64_t creature_id, const std::string& creature_type,
+    uint64_t creature_id, const std::string& species_key,
     const std::string& dimension,
     int cx, int cy, int cz) {
     GameEvent ev;
     ev.type = GameEventType::CREATURE_SPAWNED;
     ev.source_id = creature_id;
     ev.source_dimension = dimension;
-    ev.string_data["creature_type"] = creature_type;
+    ev.string_data["species_key"] = species_key;
     ev.chunk_x = cx;
     ev.chunk_y = cy;
     ev.chunk_z = cz;
@@ -388,14 +388,49 @@ GameEvent GameEvent::creature_spawned(
 }
 
 GameEvent GameEvent::creature_despawned(
-    uint64_t creature_id, const std::string& creature_type,
+    uint64_t creature_id, const std::string& species_key,
     const std::string& dimension,
     int cx, int cy, int cz) {
     GameEvent ev;
     ev.type = GameEventType::CREATURE_DESPAWNED;
     ev.source_id = creature_id;
     ev.source_dimension = dimension;
-    ev.string_data["creature_type"] = creature_type;
+    ev.string_data["species_key"] = species_key;
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.chunk_z = cz;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_damaged(
+    uint64_t creature_id, uint16_t species_id,
+    float damage, float remaining_health,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_DAMAGED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
+    ev.float_data["damage"] = static_cast<double>(damage);
+    ev.float_data["remaining_health"] = static_cast<double>(remaining_health);
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.chunk_z = cz;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_killed(
+    uint64_t creature_id, uint16_t species_id,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_KILLED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
     ev.chunk_x = cx;
     ev.chunk_y = cy;
     ev.chunk_z = cz;

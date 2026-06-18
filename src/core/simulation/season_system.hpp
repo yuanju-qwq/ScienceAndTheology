@@ -27,8 +27,10 @@ public:
     SIMULATION_SYSTEM_NAME(SeasonSystem, "SeasonSystem")
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     // Runs before tree growth (priority 7) so season is current.

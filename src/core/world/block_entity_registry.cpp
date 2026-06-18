@@ -61,7 +61,8 @@ EntityId BlockEntityRegistry::register_tree_entity(
 EntityId BlockEntityRegistry::register_creature_entity(
     const std::string& dimension_id,
     int32_t root_x, int32_t root_y, int32_t root_z,
-    CreatureType creature_type,
+    uint16_t species_id,
+    CreatureRole role,
     int64_t spawn_tick) {
     EntityId id = next_id();
 
@@ -74,7 +75,8 @@ EntityId BlockEntityRegistry::register_creature_entity(
     entry.placement.root_z = root_z;
     entry.placement.owned_cell_count = 0;
 
-    entry.creature_state.creature_type = creature_type;
+    entry.creature_state.species_id = species_id;
+    entry.creature_state.creature_role = role;
     entry.creature_state.health = 1.0f;
     entry.creature_state.spawn_tick = spawn_tick;
 

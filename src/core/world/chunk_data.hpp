@@ -9,6 +9,7 @@
 #include "terrain_data.hpp"
 #include "entity_data.hpp"
 #include "block_entity.hpp"
+#include "simulation/population_cell.hpp"
 
 namespace science_and_theology {
 
@@ -127,6 +128,16 @@ struct ChunkData {
 
     // Connector runtime IDs (set after ConnectorManager instantiation).
     std::vector<ConnectorId> connector_ids;
+
+    // --- Ecosystem population data ---
+
+    // If true, this chunk has persisted ecosystem population data.
+    // When false, EcosystemSystem will initialize defaults on first tick.
+    bool has_population_cell = false;
+
+    // Per-chunk ecosystem population density (vegetation, herbivore, predator, etc.).
+    // Written by EcosystemSystem before save, restored on load.
+    PopulationCell population_cell{};
 };
 
 } // namespace science_and_theology

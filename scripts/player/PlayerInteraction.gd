@@ -1,14 +1,17 @@
 # PlayerInteraction — Handles all player interaction logic: mining, placing,
-# connectors, mechanisms, and furnace access.
+# connectors, mechanisms, furnace access, and creature hunting.
 # Extracted from PlayerController to separate interaction from movement/input.
 class_name PlayerInteraction
 extends Node
 
 const REACH := 6.0
+const ATTACK_REACH := 5.0
+const BASE_ATTACK_DAMAGE := 0.1
 const OVERWORLD: StringName = &"overworld"
 
 var _player: PlayerController = null
 var _cooldown_remaining := 0.0
+var _attack_cooldown_remaining := 0.0
 
 
 func setup(player: PlayerController) -> void:
@@ -18,6 +21,120 @@ func setup(player: PlayerController) -> void:
 func process_cooldown(delta: float) -> void:
 	if _cooldown_remaining > 0.0:
 		_cooldown_remaining = maxf(_cooldown_remaining - delta, 0.0)
+	if _attack_cooldown_remaining > 0.0:
+		_attack_cooldown_remaining = maxf(_attack_cooldown_remaining - delta, 0.0)
+
+
+# --- Creature hunting ---
+
+# Attempt to attack a creature in the player's view cone.
+# Uses server-side distance + view cone detection (no Area3D needed).
+# Damage is driven by the equipped weapon's attack_damage stat.
+# Returns true if an attack was attempted (hit or miss).
+func try_attack_creature() -> bool:
+	if _player._input_locked or _attack_cooldown_remaining > 0.0:
+		return false
+
+	var um: UniverseManager = _player._universe_manager
+	if um == null or um._tick_system == null:
+		return false
+
+	var tick_system: GDTickSystem = um._tick_system
+	var camera: Camera3D = _player.camera
+	if camera == null:
+		return false
+
+	# Compute player position and look direction.
+	var player_pos := _player.global_position
+	var look_dir := -camera.global_transform.basis.z.normalized()
+
+	# Get attack damage from equipment.
+	var damage := BASE_ATTACK_DAMAGE
+	var attack_cooldown := 0.5
+	var reach := ATTACK_REACH
+	if _player.equipment != null:
+		var stats: Dictionary = _player.equipment.get_tool_stats()
+		if stats.get("attack_damage", 0.0) > 0.0:
+			damage = stats["attack_damage"]
+		if stats.get("attack_cooldown", 0.0) > 0.0:
+			attack_cooldown = stats["attack_cooldown"]
+		if stats.get("range", 0.0) > 0.0:
+			reach = stats["range"]
+
+	# Get current dimension.
+	var dimension := _player.get_current_dimension()
+
+	# Submit attack to C++ side.
+	var result: Dictionary = tick_system.attack_creature(
+		dimension, player_pos, look_dir, reach, damage)
+
+	if not bool(result.get("hit", false)):
+		# Miss — still apply a short cooldown to prevent spam.
+		_attack_cooldown_remaining = attack_cooldown * 0.5
+		return false
+
+	# Hit — apply full attack cooldown.
+	_attack_cooldown_remaining = attack_cooldown
+
+	_debug("attack hit creature %d (species %d), damage=%.2f, health=%.2f" % [
+		int(result.get("creature_id", 0)),
+		int(result.get("species_id", 0)),
+		float(result.get("damage_dealt", 0.0)),
+		float(result.get("remaining_health", 0.0)),
+	])
+
+	if bool(result.get("killed", false)):
+		_on_creature_killed(result)
+
+	return true
+
+
+# Called when a creature is killed by the player.
+# Handles loot drops from the species' drop table.
+func _on_creature_killed(result: Dictionary) -> void:
+	var species_id := int(result.get("species_id", 0))
+	_debug("creature killed! species_id=%d" % species_id)
+
+	var um: UniverseManager = _player._universe_manager
+	if um == null or um._tick_system == null:
+		return
+	var tick_system: GDTickSystem = um._tick_system
+
+	# Query the species' drop table from C++ side.
+	var drops: Array = tick_system.get_species_drops(species_id)
+	if drops.is_empty():
+		return
+
+	# Process each drop entry with chance-based roll.
+	for drop: Dictionary in drops:
+		var item_key: String = str(drop.get("item_key", ""))
+		var chance: float = float(drop.get("chance", 0.0))
+		var min_count: int = int(drop.get("min_count", 1))
+		var max_count: int = int(drop.get("max_count", 1))
+
+		if item_key.is_empty():
+			continue
+
+		# Roll for drop chance.
+		if randf() > chance:
+			continue
+
+		# Resolve item_key to item_id via ItemDatabase.
+		var item_id := ItemDatabase.get_item_id_by_key(item_key)
+		if item_id < 0:
+			push_warning("PlayerInteraction: unknown drop item_key '%s'" % item_key)
+			continue
+
+		# Random count between min and max.
+		var count := mini(randi_range(min_count, max_count), 64)
+		if count <= 0:
+			continue
+
+		# Add to player inventory.
+		if _player.inventory != null:
+			_player.inventory.add_item(item_id, count)
+			_player.inventory_changed.emit()
+		_debug("  drop: %s x%d (item_id=%d)" % [item_key, count, item_id])
 
 
 func try_mine_target(target: Dictionary) -> bool:
@@ -237,6 +354,9 @@ func _debug(message: String) -> void:
 # Station setup UI reference (lazily created).
 var _station_setup_ui: StationSetupUI = null
 
+# Cached hotbar slot index when the station blueprint UI was opened.
+var _cached_blueprint_slot: int = -1
+
 
 # Try to use the Station Blueprint item from the player's main hand.
 # Opens the station setup UI. Returns true if the blueprint was used.
@@ -260,6 +380,7 @@ func try_use_station_blueprint() -> bool:
 		return false
 
 	_station_setup_ui.open()
+	_cached_blueprint_slot = _player.selected_hotbar
 	_player._set_input_locked(true)
 	return true
 
@@ -295,8 +416,9 @@ func _on_station_confirmed(params: Dictionary) -> void:
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment != null:
 		var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-		if held_id == ItemDatabase.ITEM_STATION_BLUEPRINT:
-			_player.inventory.remove_slot(_player.selected_hotbar)
+		if held_id == ItemDatabase.ITEM_STATION_BLUEPRINT and _cached_blueprint_slot >= 0:
+			_player.inventory.remove_slot(_cached_blueprint_slot)
+			_cached_blueprint_slot = -1
 			_player.inventory_changed.emit()
 
 	_debug("Station created: %s (%s)" % [station.display_name, String(station.dimension_id)])

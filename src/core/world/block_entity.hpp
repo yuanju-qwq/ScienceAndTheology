@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "entity_data.hpp"
+#include "simulation/creature_species.hpp"
 
 namespace science_and_theology {
 
@@ -117,18 +118,15 @@ constexpr const char* kCreatureStateNames[] = {
     "Idle", "Wandering", "Fleeing",
 };
 
-enum class CreatureType : uint8_t {
-    HERBIVORE = 0,
-    PREDATOR  = 1,
-    COUNT     = 2,
-};
-
-constexpr const char* kCreatureTypeNames[] = {
-    "Herbivore", "Predator",
-};
-
 struct CreatureBlockEntityState {
-    CreatureType creature_type = CreatureType::HERBIVORE;
+    // Species identifier (references CreatureSpeciesRegistry).
+    // 0 = invalid, must be set before first tick.
+    uint16_t species_id = 0;
+
+    // Cached behavioral role. Set at spawn time from species definition.
+    // Avoids per-tick registry lookups in the AI hot path.
+    CreatureRole creature_role = CreatureRole::HERBIVORE;
+
     CreatureState ai_state = CreatureState::IDLE;
     float health = 1.0f;
     int64_t spawn_tick = 0;

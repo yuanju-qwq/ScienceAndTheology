@@ -20,8 +20,6 @@ void GDSatiationData::_bind_methods() {
                          &GDSatiationData::set_satiation_max);
     ClassDB::bind_method(D_METHOD("set_decay_rate", "rate"),
                          &GDSatiationData::set_decay_rate);
-    ClassDB::bind_method(D_METHOD("eat", "food_value"),
-                         &GDSatiationData::eat);
     ClassDB::bind_method(D_METHOD("eat_food", "food_dict"),
                          &GDSatiationData::eat_food);
     ClassDB::bind_method(D_METHOD("set_satiation", "value"),
@@ -132,10 +130,6 @@ void GDSatiationData::set_satiation_max(float max_val) {
 
 void GDSatiationData::set_decay_rate(float rate) {
     data_.set_decay_rate(rate);
-}
-
-float GDSatiationData::eat(float food_value) {
-    return data_.eat(food_value);
 }
 
 float GDSatiationData::eat_food(const Dictionary& food_dict) {

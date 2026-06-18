@@ -10,13 +10,7 @@
 namespace science_and_theology {
 
 // Manages save/load of an entire world to/from disk.
-// Each save is a directory containing a world_header.bin and a regions/ folder.
-//
-// Directory structure (single-planet legacy):
-//   {save_dir}/
-//     world_header.bin
-//     regions/
-//       {layer}~{region_x}~{region_y}~{region_z}.region
+// Each save is a directory containing a universe_header.bin and a planets/ folder.
 //
 // Directory structure (multi-planet, per-dimension):
 //   {save_dir}/
@@ -52,10 +46,6 @@ namespace science_and_theology {
 //
 // Each region file groups 32×32×32 chunks to reduce file system
 // overhead and improve I/O locality during bulk loads.
-//
-// Usage (single-planet):
-//   SaveManager::save_world("saves/my_world", 12345, world);
-//   auto [ok, seed] = SaveManager::load_world("saves/my_world", world);
 //
 // Usage (per-dimension):
 //   SaveManager::save_dimension("saves/my_world/planets/earth", 12345, "earth", world);
@@ -110,30 +100,11 @@ struct PlanetSummaryData {
 
 class SaveManager {
 public:
-    // Current world header format version.
-    static constexpr uint8_t kWorldHeaderVersion = 1;
-
     // Current universe header format version.
     static constexpr uint8_t kUniverseHeaderVersion = 1;
 
     // Current planet data format version (v2 includes summary).
     static constexpr uint8_t kPlanetDataVersion = 2;
-
-    // Legacy planet header version (v1, no summary).
-    static constexpr uint8_t kPlanetHeaderVersion_Legacy = 1;
-
-    // --- Single-planet save / load (legacy) ---
-
-    static int save_world(const std::string& save_dir,
-                          int64_t seed, const WorldData& world);
-
-    static std::pair<bool, int64_t> load_world(
-        const std::string& save_dir, WorldData& world);
-
-    static bool write_world_header(const std::string& save_dir, int64_t seed);
-
-    static std::pair<bool, int64_t> read_world_header(
-        const std::string& save_dir);
 
     // --- Per-dimension save / load ---
 
@@ -161,7 +132,6 @@ public:
                                   const PlanetSummaryData* summary);
 
     // Reads a planet_data.bin file. Returns header info and optional summary.
-    // If the file is v1 (no summary), summary_out will be empty.
     static bool read_planet_data(const std::string& planet_dir,
                                  int64_t& out_seed,
                                  std::string& out_dimension_id,

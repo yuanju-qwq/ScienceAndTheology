@@ -11,7 +11,8 @@ void SeasonSystem::initialize(WorldData* world, EventBus* bus) {
     event_bus_ = bus;
 }
 
-void SeasonSystem::tick_active(const ChunkKey& chunk, float delta) {
+void SeasonSystem::tick_active(const ChunkKey& chunk, float delta,
+                               const TickContext* ctx) {
     (void)chunk;
     (void)delta;
     if (!world_) return;
@@ -32,7 +33,8 @@ void SeasonSystem::tick_active(const ChunkKey& chunk, float delta) {
     current_game_day_ = total_game_day(tick, ticks_per_day);
 }
 
-void SeasonSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void SeasonSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                const TickContext* ctx) {
     (void)chunk;
     (void)delta;
     // Season is global; no per-chunk work needed in sleeping chunks.

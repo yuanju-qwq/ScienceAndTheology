@@ -805,6 +805,7 @@ func _initialize_tick_system() -> void:
 	_tick_system.register_region_system()
 	_tick_system.register_tree_growth_system()
 	_tick_system.register_season_system()
+	_tick_system.register_ecosystem_system()
 
 	_tick_system_initialized = true
 

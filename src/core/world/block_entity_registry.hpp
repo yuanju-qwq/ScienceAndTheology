@@ -61,10 +61,13 @@ public:
         const std::vector<OwnedCell>& owned_cells);
 
     // Register a creature block entity. Returns its assigned EntityId.
+    // species_id: references CreatureSpeciesRegistry definition.
+    // role: cached behavioral role (HERBIVORE/PREDATOR), set from species def.
     EntityId register_creature_entity(
         const std::string& dimension_id,
         int32_t root_x, int32_t root_y, int32_t root_z,
-        CreatureType creature_type,
+        uint16_t species_id,
+        CreatureRole role,
         int64_t spawn_tick);
 
     // Remove a block entity by ID. Also removes its spatial index entries.

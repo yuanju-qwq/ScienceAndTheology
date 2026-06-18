@@ -1,7 +1,10 @@
 #include "tick_system.hpp"
+#include "ecosystem_system.hpp"
+#include "season_system.hpp"
 #include "../world/world_data.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <future>
 #include <thread>
 
@@ -40,16 +43,20 @@ void TickSystem::tick(float delta) {
 
     rebuild_chunk_sets();
 
+    // Build cross-system context once per tick.
+    const TickContext ctx = build_tick_context();
+    const TickContext* ctx_ptr = &ctx;
+
     // --- Phase 1: ACTIVE chunks — full simulation ---
 
     if (parallel_enabled_) {
         // Group subsystems by priority and run each group.
-        run_chunks_by_priority_groups(active_chunks_, delta, true);
+        run_chunks_by_priority_groups(active_chunks_, delta, true, ctx_ptr);
     } else {
         // Sequential: iterate subsystems in priority order.
         for (auto& sys : subsystems_) {
             for (const auto& key : active_chunks_) {
-                sys->tick_active(key, delta);
+                sys->tick_active(key, delta, ctx_ptr);
             }
         }
     }
@@ -60,13 +67,13 @@ void TickSystem::tick(float delta) {
     if (tick_counter_ % sleep_near_interval_ == 0) {
         const float sleep_delta = delta * sleep_near_interval_;
         if (parallel_enabled_) {
-            run_chunks_by_priority_groups(sleep_near_chunks_, sleep_delta, false);
+            run_chunks_by_priority_groups(sleep_near_chunks_, sleep_delta, false, ctx_ptr);
         } else {
             for (auto& sys : subsystems_) {
                 for (const auto& key : sleep_near_chunks_) {
                     if (should_tick_sleeping(key.chunk_x, key.chunk_y,
                                              key.chunk_z, SleepTier::NEAR)) {
-                        sys->tick_sleeping(key, sleep_delta);
+                        sys->tick_sleeping(key, sleep_delta, ctx_ptr);
                     }
                 }
             }
@@ -77,13 +84,13 @@ void TickSystem::tick(float delta) {
     if (tick_counter_ % sleep_mid_interval_ == 0) {
         const float sleep_delta = delta * sleep_mid_interval_;
         if (parallel_enabled_) {
-            run_chunks_by_priority_groups(sleep_mid_chunks_, sleep_delta, false);
+            run_chunks_by_priority_groups(sleep_mid_chunks_, sleep_delta, false, ctx_ptr);
         } else {
             for (auto& sys : subsystems_) {
                 for (const auto& key : sleep_mid_chunks_) {
                     if (should_tick_sleeping(key.chunk_x, key.chunk_y,
                                              key.chunk_z, SleepTier::MID)) {
-                        sys->tick_sleeping(key, sleep_delta);
+                        sys->tick_sleeping(key, sleep_delta, ctx_ptr);
                     }
                 }
             }
@@ -94,13 +101,13 @@ void TickSystem::tick(float delta) {
     if (tick_counter_ % sleep_far_interval_ == 0) {
         const float sleep_delta = delta * sleep_far_interval_;
         if (parallel_enabled_) {
-            run_chunks_by_priority_groups(sleep_far_chunks_, sleep_delta, false);
+            run_chunks_by_priority_groups(sleep_far_chunks_, sleep_delta, false, ctx_ptr);
         } else {
             for (auto& sys : subsystems_) {
                 for (const auto& key : sleep_far_chunks_) {
                     if (should_tick_sleeping(key.chunk_x, key.chunk_y,
                                              key.chunk_z, SleepTier::FAR)) {
-                        sys->tick_sleeping(key, sleep_delta);
+                        sys->tick_sleeping(key, sleep_delta, ctx_ptr);
                     }
                 }
             }
@@ -210,7 +217,8 @@ void TickSystem::run_subsystem_chunks(
     SimulationSystem& sys,
     const std::vector<ChunkKey>& chunks,
     float delta,
-    bool is_active) {
+    bool is_active,
+    const TickContext* ctx) {
 
     if (chunks.empty()) return;
 
@@ -218,9 +226,9 @@ void TickSystem::run_subsystem_chunks(
     if (!sys.is_thread_safe()) {
         for (const auto& key : chunks) {
             if (is_active) {
-                sys.tick_active(key, delta);
+                sys.tick_active(key, delta, ctx);
             } else {
-                sys.tick_sleeping(key, delta);
+                sys.tick_sleeping(key, delta, ctx);
             }
         }
         return;
@@ -232,9 +240,9 @@ void TickSystem::run_subsystem_chunks(
         // Not enough workers or chunks — run sequentially.
         for (const auto& key : chunks) {
             if (is_active) {
-                sys.tick_active(key, delta);
+                sys.tick_active(key, delta, ctx);
             } else {
-                sys.tick_sleeping(key, delta);
+                sys.tick_sleeping(key, delta, ctx);
             }
         }
         return;
@@ -254,12 +262,12 @@ void TickSystem::run_subsystem_chunks(
         // Capture chunks by value to guarantee lifetime safety across
         // async workers — ChunkKey is cheap to copy.
         futures.push_back(std::async(std::launch::async,
-            [&sys, chunks, delta, is_active, start, end]() {
+            [&sys, chunks, delta, is_active, ctx, start, end]() {
                 for (size_t i = start; i < end; ++i) {
                     if (is_active) {
-                        sys.tick_active(chunks[i], delta);
+                        sys.tick_active(chunks[i], delta, ctx);
                     } else {
-                        sys.tick_sleeping(chunks[i], delta);
+                        sys.tick_sleeping(chunks[i], delta, ctx);
                     }
                 }
             }));
@@ -275,7 +283,8 @@ void TickSystem::run_priority_group(
     const std::vector<SimulationSystem*>& group,
     const std::vector<ChunkKey>& chunks,
     float delta,
-    bool is_active) {
+    bool is_active,
+    const TickContext* ctx) {
 
     if (group.empty() || chunks.empty()) return;
 
@@ -291,7 +300,7 @@ void TickSystem::run_priority_group(
     if (!all_safe || group.size() <= 1) {
         // Not all safe or only one subsystem — run sequentially.
         for (auto* sys : group) {
-            run_subsystem_chunks(*sys, chunks, delta, is_active);
+            run_subsystem_chunks(*sys, chunks, delta, is_active, ctx);
         }
         return;
     }
@@ -304,8 +313,8 @@ void TickSystem::run_priority_group(
     // async workers — ChunkKey is cheap to copy.
     for (auto* sys : group) {
         futures.push_back(std::async(std::launch::async,
-            [this, sys, chunks, delta, is_active]() {
-                run_subsystem_chunks(*sys, chunks, delta, is_active);
+            [this, sys, chunks, delta, is_active, ctx]() {
+                run_subsystem_chunks(*sys, chunks, delta, is_active, ctx);
             }));
     }
 
@@ -317,7 +326,8 @@ void TickSystem::run_priority_group(
 void TickSystem::run_chunks_by_priority_groups(
     const std::vector<ChunkKey>& chunks,
     float delta,
-    bool is_active) {
+    bool is_active,
+    const TickContext* ctx) {
 
     // Group subsystems by priority.
     std::vector<std::vector<SimulationSystem*>> groups;
@@ -335,8 +345,21 @@ void TickSystem::run_chunks_by_priority_groups(
     // Run each priority group in order, but subsystems within
     // a group may run in parallel.
     for (auto& group : groups) {
-        run_priority_group(group, chunks, delta, is_active);
+        run_priority_group(group, chunks, delta, is_active, ctx);
     }
+}
+
+TickContext TickSystem::build_tick_context() const {
+    TickContext ctx;
+    for (const auto& sys : subsystems_) {
+        const char* n = sys->name();
+        if (std::strcmp(n, "EcosystemSystem") == 0) {
+            ctx.ecosystem = static_cast<EcosystemSystem*>(sys.get());
+        } else if (std::strcmp(n, "SeasonSystem") == 0) {
+            ctx.season = static_cast<SeasonSystem*>(sys.get());
+        }
+    }
+    return ctx;
 }
 
 } // namespace science_and_theology

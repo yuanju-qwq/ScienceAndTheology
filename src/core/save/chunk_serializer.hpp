@@ -16,7 +16,9 @@ namespace science_and_theology {
 class ChunkSerializer {
 public:
     // Current binary format version.
-    static constexpr uint8_t kCurrentVersion = 5;
+    // v7: adds hunting_pressure_herb/pred to PopulationCell.
+    // v6: adds PopulationCell (ecosystem) after block_entities.
+    static constexpr uint8_t kCurrentVersion = 7;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
     // The chunk's dimension_id is embedded as part of the serialized data.
@@ -40,6 +42,7 @@ private:
     static void write_int32(std::vector<uint8_t>& buf, int32_t value);
     static void write_uint32(std::vector<uint8_t>& buf, uint32_t value);
     static void write_uint64(std::vector<uint8_t>& buf, uint64_t value);
+    static void write_float(std::vector<uint8_t>& buf, float value);
     static void write_string(std::vector<uint8_t>& buf,
                              const std::string& str);
     static void write_bytes(std::vector<uint8_t>& buf,
@@ -55,6 +58,8 @@ private:
                             size_t& offset, uint32_t& out);
     static bool read_uint64(const std::vector<uint8_t>& data,
                             size_t& offset, uint64_t& out);
+    static bool read_float(const std::vector<uint8_t>& data,
+                           size_t& offset, float& out);
     static bool read_string(const std::vector<uint8_t>& data,
                             size_t& offset, std::string& out);
     static bool read_bytes(const std::vector<uint8_t>& data,
@@ -88,6 +93,14 @@ private:
     static bool read_block_entity(const std::vector<uint8_t>& data,
                                   size_t& offset,
                                   BlockEntityPlacement& entity);
+
+    // --- Population cell serialization ---
+
+    static void write_population_cell(std::vector<uint8_t>& buf,
+                                       const PopulationCell& cell);
+    static bool read_population_cell(const std::vector<uint8_t>& data,
+                                     size_t& offset,
+                                     PopulationCell& cell);
 };
 
 } // namespace science_and_theology

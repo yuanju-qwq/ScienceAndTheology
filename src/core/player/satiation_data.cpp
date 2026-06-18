@@ -140,12 +140,6 @@ float SatiationData::eat(const FoodDef& food) {
     return satiation_current_ - before;
 }
 
-float SatiationData::eat(float food_value) {
-    float before = satiation_current_;
-    satiation_current_ = std::min(satiation_current_ + food_value, satiation_max_);
-    return satiation_current_ - before;
-}
-
 void SatiationData::set_satiation(float value) {
     satiation_current_ = std::clamp(value, 0.0f, satiation_max_);
 }

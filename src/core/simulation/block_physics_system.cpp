@@ -16,7 +16,8 @@ void BlockPhysicsSystem::initialize(WorldData* world, EventBus* bus) {
     event_bus_ = bus;
 }
 
-void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta) {
+void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta,
+                                     const TickContext* ctx) {
     (void)chunk;
     (void)delta;
     if (!world_) return;
@@ -41,7 +42,8 @@ void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta) {
     process_pending(tick);
 }
 
-void BlockPhysicsSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void BlockPhysicsSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                       const TickContext* ctx) {
     (void)chunk;
     (void)delta;
     // Sleeping chunks do not process block physics.

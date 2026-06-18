@@ -37,8 +37,10 @@ public:
     SIMULATION_SYSTEM_NAME(RegionSystem, "RegionSystem")
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     // Runs after Machine (priority 2), before Season (priority 6).

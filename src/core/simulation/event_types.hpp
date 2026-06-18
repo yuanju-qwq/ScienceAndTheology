@@ -82,6 +82,8 @@ enum class GameEventType : uint32_t {
     ECOSYSTEM_POPULATION_CHANGED = 800,
     CREATURE_SPAWNED             = 801,
     CREATURE_DESPAWNED           = 802,
+    CREATURE_DAMAGED             = 803,
+    CREATURE_KILLED              = 804,
 
     // Custom / user-defined slot
     CUSTOM = 0x80000000,
@@ -188,12 +190,32 @@ struct GameEvent {
         float old_pred, float new_pred);
 
     static GameEvent creature_spawned(
-        uint64_t creature_id, const std::string& creature_type,
+        uint64_t creature_id, const std::string& species_key,
         const std::string& dimension,
         int cx, int cy, int cz);
 
     static GameEvent creature_despawned(
-        uint64_t creature_id, const std::string& creature_type,
+        uint64_t creature_id, const std::string& species_key,
+        const std::string& dimension,
+        int cx, int cy, int cz);
+
+    // Creature damaged by player attack.
+    // creature_id: the proxy entity that was hit.
+    // species_id: species definition ID for species-specific data.
+    // damage: amount of health reduced [0, 1].
+    // remaining_health: health after damage [0, 1].
+    static GameEvent creature_damaged(
+        uint64_t creature_id, uint16_t species_id,
+        float damage, float remaining_health,
+        const std::string& dimension,
+        int cx, int cy, int cz);
+
+    // Creature killed by player attack.
+    // creature_id: the proxy entity that was killed.
+    // species_id: species definition ID for loot table lookup.
+    // dimension / cx, cy, cz: chunk location for density feedback.
+    static GameEvent creature_killed(
+        uint64_t creature_id, uint16_t species_id,
         const std::string& dimension,
         int cx, int cy, int cz);
 

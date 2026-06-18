@@ -32,8 +32,10 @@ public:
     SIMULATION_SYSTEM_NAME(DayNightSystem, "DayNightSystem")
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     // First subsystem to run so others can read is_daytime().

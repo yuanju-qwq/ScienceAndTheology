@@ -5,12 +5,14 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/vector3.hpp>
 
 #include <vector>
 
 #include "core/simulation/tick_system.hpp"
 #include "core/simulation/day_night_system.hpp"
 #include "core/simulation/region_system.hpp"
+#include "core/simulation/ecosystem_system.hpp"
 
 namespace science_and_theology {
 
@@ -68,6 +70,13 @@ public:
     // Runs at priority 5 (after Machine, before Season).
     void register_region_system();
 
+    // Register the ecosystem simulation subsystem.
+    // Must be called after set_world_data(). Manages population
+    // dynamics (vegetation, herbivores, predators) and proxy
+    // creature entities. Runs at priority 7 (after Season, before
+    // TreeGrowth). Should be registered after register_season_system().
+    void register_ecosystem_system();
+
     // --- Day/Night query ---
 
     // Returns the current day/night state as a Dictionary.
@@ -91,6 +100,43 @@ public:
     // Returns region data as a Dictionary for a given region type and ID.
     // type_index: 0=PowerGrid, 1=Fluid, 2=Connected, 3=Pollution, 4=Temperature.
     godot::Dictionary get_region_data(int64_t type_index, int64_t region_id) const;
+
+    // --- Ecosystem query ---
+
+    // Returns the population data for a chunk as a Dictionary.
+    // Keys: "vegetation", "herbivore", "predator", "fertility", "water", "dead_biomass".
+    godot::Dictionary get_population_data(
+        const godot::String& dimension, int cx, int cy, int cz) const;
+
+    // Returns the total vegetation density across all tracked chunks.
+    float get_total_vegetation() const;
+
+    // Returns the total herbivore density across all tracked chunks.
+    float get_total_herbivore() const;
+
+    // Returns the total predator density across all tracked chunks.
+    float get_total_predator() const;
+
+    // Returns the total number of active proxy creatures.
+    int64_t get_total_proxy_count() const;
+
+    // Returns proxy creature data for a chunk as an Array of Dictionaries.
+    // Each dict: { "id": int, "type": String, "state": String,
+    //              "pos_x": float, "pos_y": float, "pos_z": float }
+    godot::Array get_proxy_data(
+        const godot::String& dimension, int cx, int cy, int cz) const;
+
+    // Sync all ecosystem population data to ChunkData for persistence.
+    // Must be called before save_dimension() to ensure ecosystem state
+    // is included in the save. Low-frequency sync also happens
+    // automatically during tick_active() at diffusion cadence.
+    void sync_ecosystem_to_chunks();
+
+    // Restore ecosystem population data from ChunkData.
+    // Called automatically during initialize(), but can also be
+    // called manually after load_dimension() if the ecosystem system
+    // was already initialized before the load.
+    void restore_ecosystem_from_chunks();
 
     // Advance simulation by one frame.
     void tick(float delta);
@@ -136,20 +182,6 @@ public:
     // Returns active chunk keys as an Array of Dictionaries.
     godot::Array get_active_chunks() const;
 
-    // --- Events ---
-
-    // Deprecated: use signals instead (machine_error, chunk_generated, etc.).
-    // Returns an empty array.
-    godot::Array poll_events();
-
-    // --- Errors ---
-
-    // Returns active machine errors as an Array of Dictionaries.
-    godot::Array get_machine_errors() const;
-
-    // Clear a machine error.
-    void clear_machine_error(int64_t machine_id);
-
     // --- State Sync ---
 
     // Returns dirty chunk keys as an Array of Dictionaries.
@@ -168,6 +200,32 @@ public:
     // Set the GDPlayerInventory reference for event bridging.
     void set_player_inventory(godot::Resource* inventory);
     void set_player_equipment(godot::Resource* equipment);
+
+    // --- Player combat (hunting) ---
+
+    // Attempt to attack a creature near the player's look direction.
+    // dimension: the player's current dimension string.
+    // player_pos: Vector3 of the player's world position.
+    // look_dir: Vector3 of the player's normalized look direction.
+    // reach: maximum attack distance in blocks.
+    // damage: damage amount [0, 1] to apply.
+    // Returns a Dictionary with keys:
+    //   "hit": bool, "killed": bool, "creature_id": int,
+    //   "species_id": int, "damage_dealt": float, "remaining_health": float,
+    //   "chunk": Dictionary (dimension, cx, cy, cz)
+    godot::Dictionary attack_creature(
+        const godot::String& dimension,
+        const godot::Vector3& player_pos,
+        const godot::Vector3& look_dir,
+        float reach, float damage);
+
+    // --- Species drop table query ---
+
+    // Get the drop table for a species as an Array of Dictionaries.
+    // Each dict: { "item_key": String, "chance": float,
+    //              "min_count": int, "max_count": int }
+    // Returns empty array if species_id is invalid.
+    godot::Array get_species_drops(int64_t species_id) const;
 
 protected:
     static void _bind_methods();
@@ -193,6 +251,9 @@ private:
 
     // Raw pointer to the RegionSystem (owned by tick_system_).
     RegionSystem* region_system_ = nullptr;
+
+    // Raw pointer to the EcosystemSystem (owned by tick_system_).
+    EcosystemSystem* ecosystem_system_ = nullptr;
 
     std::vector<EventBus::HandlerId> event_subscriptions_;
 

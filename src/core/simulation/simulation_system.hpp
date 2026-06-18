@@ -7,6 +7,25 @@
 namespace science_and_theology {
 
 class WorldData;
+class EcosystemSystem;
+class SeasonSystem;
+
+// ============================================================
+// TickContext — read-only cross-system references for one tick
+// ============================================================
+//
+// Populated by TickSystem before each tick and passed to subsystems
+// via tick_active() / tick_sleeping().  Subsystems read from it;
+// they never write to it.  Pointers are nullptr if the corresponding
+// subsystem is not registered.
+//
+// Lifetime: valid only during the tick call that receives it.
+// Do NOT store beyond the call.
+
+struct TickContext {
+    EcosystemSystem* ecosystem = nullptr;
+    SeasonSystem* season = nullptr;
+};
 
 // Abstract base class for subsystems managed by TickSystem.
 // Each subsystem handles a specific domain of simulation (machines, power,
@@ -23,11 +42,14 @@ public:
 
     // Called once per tick for a chunk in ACTIVE state.
     // Full simulation: every machine, full power resolution, etc.
-    virtual void tick_active(const ChunkKey& chunk, float delta) = 0;
+    // ctx: optional cross-system references (nullptr if unavailable).
+    virtual void tick_active(const ChunkKey& chunk, float delta,
+                             const TickContext* ctx = nullptr) = 0;
 
     // Called once per N ticks for a chunk in SLEEPING state.
     // Low-frequency or approximate simulation.
-    virtual void tick_sleeping(const ChunkKey& chunk, float delta) = 0;
+    virtual void tick_sleeping(const ChunkKey& chunk, float delta,
+                               const TickContext* ctx = nullptr) = 0;
 
     // Called when the subsystem is being shut down.
     virtual void shutdown() = 0;

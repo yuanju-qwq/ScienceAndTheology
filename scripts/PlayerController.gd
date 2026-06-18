@@ -164,13 +164,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		_update_camera_rotation()
 		return
 
-	if event is InputEventKey and event.pressed and not event.echo:
+	if event is InputEventKey and event.pressed and not event.echo and not _input_locked:
 		_handle_key(event)
 		return
 
 	if event is InputEventMouseButton and event.pressed and not _input_locked:
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			_interaction.try_mine_target(_target)
+			# Try creature attack first; fall back to block mining.
+			if not _interaction.try_attack_creature():
+				_interaction.try_mine_target(_target)
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			_interaction.try_place_or_interact(_target)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -556,9 +558,7 @@ func _update_target() -> void:
 	if probe_panel:
 		var mat_def: Dictionary = world.get_world_data().get_terrain_material_def(material) if world.get_world_data() else {}
 		var tool_def: ToolDef = _get_equipped_tool_def()
-		var tool_tag: String = mat_def.get("required_tool_tag", "")
-		var matches := _check_tool_match(tool_def, tool_tag, mat_def.get("required_mining_level", 0))
-		probe_panel.update_target(mat_def, tool_def, matches)
+		probe_panel.update_target(mat_def, tool_def)
 
 
 func _set_selection_visible(vis: bool) -> void:
@@ -576,18 +576,6 @@ func _get_equipped_tool_def() -> ToolDef:
 	return ItemDatabase.get_tool_stats(held_id)
 
 
-# Check whether the given tool matches the block's tool tag and mining level.
-func _check_tool_match(tool: ToolDef, required_tag: String, required_level: int) -> bool:
-	if required_tag == "":
-		return true
-	if tool == null:
-		return false
-	var tool_type_name: String = ToolDef.ToolType.keys()[tool.tool_type].to_lower()
-	if tool_type_name != required_tag.to_lower():
-		return false
-	if tool.mining_level < required_level:
-		return false
-	return true
 
 
 # --- Hotbar ---

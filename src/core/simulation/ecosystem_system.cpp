@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "../world/world_data.hpp"
+#include "creature_species.hpp"
 
 namespace science_and_theology {
 
@@ -14,9 +15,25 @@ namespace science_and_theology {
 void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
     world_ = world;
     event_bus_ = bus;
+
+    // Register built-in species definitions.
+    if (species_registry_.species_count() == 0) {
+        species_registry_.register_builtin_species();
+    }
+
+    // Register default biome overrides with species lists.
+    if (params_.biome_override_count == 0) {
+        register_default_biome_overrides();
+    }
+
+    // Restore population cells from any already-loaded ChunkData.
+    // This is important after a world load where chunks are already
+    // in WorldData but EcosystemSystem's populations_ map is empty.
+    restore_populations_from_chunks();
 }
 
-void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta) {
+void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
+                                  const TickContext* ctx) {
     if (!world_) return;
 
     // Check if ecosystem is enabled for this dimension.
@@ -68,9 +85,18 @@ void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta) {
         diffuse_populations();
         ++diffusion_count_;
     }
+
+    // Sync population cell to ChunkData at diffusion cadence.
+    // This ensures persisted data is reasonably up-to-date
+    // without writing every tick (would be wasteful).
+    if (params_.diffusion_interval_ticks > 0 &&
+        tick % params_.diffusion_interval_ticks == 0) {
+        sync_population_to_chunk(chunk);
+    }
 }
 
-void EcosystemSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void EcosystemSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                    const TickContext* ctx) {
     if (!world_) return;
 
     // Check if ecosystem is enabled for this dimension.
@@ -116,8 +142,22 @@ PopulationCell& EcosystemSystem::ensure_population_cell(const ChunkKey& key) {
         return it->second;
     }
 
+    // Check if ChunkData has a persisted population cell.
+    if (world_) {
+        const ChunkData* chunk = world_->get_chunk(
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+        if (chunk && chunk->has_population_cell) {
+            auto [insert_it, _] = populations_.emplace(
+                key, chunk->population_cell);
+            return insert_it->second;
+        }
+    }
+
     // Create a new population cell with defaults.
     PopulationCell cell;
+
+    // Infer biome type from terrain material composition.
+    cell.biome_type = infer_biome_type(key);
 
     // Apply biome override if available.
     const EcosystemParams::BiomeOverride* bo =
@@ -175,32 +215,48 @@ void EcosystemSystem::advance_population(PopulationCell& cell, float dt) {
         0.0f, rp.max_vegetation);
 
     // --- Herbivore dynamics ---
-    // dH/dt = reproduction - natural_death - predation
+    // dH/dt = reproduction - natural_death - predation - hunting_death
     // reproduction = herb_repro_rate * V * H * season_mod * day_mod
+    // hunting_death = hunting_pressure_herb * H
     const float herb_repro = rp.herb_repro_rate
         * cell.vegetation_density * cell.herbivore_density
         * season_herb_mod * day_herb_mod;
     const float herb_death = rp.herb_natural_death * cell.herbivore_density;
     const float predation = rp.predation_rate
         * cell.predator_density * cell.herbivore_density * day_pred_mod;
-    cell.herbivore_density += (herb_repro - herb_death - predation) * dt;
+    const float herb_hunting_death = cell.hunting_pressure_herb
+        * cell.herbivore_density;
+    cell.herbivore_density += (herb_repro - herb_death - predation
+        - herb_hunting_death) * dt;
     cell.herbivore_density = std::clamp(cell.herbivore_density,
         0.0f, rp.max_herbivore);
 
     // --- Predator dynamics ---
-    // dP/dt = reproduction - natural_death
+    // dP/dt = reproduction - natural_death - hunting_death
     // reproduction = pred_repro_rate * H * P * season_mod * day_mod
+    // hunting_death = hunting_pressure_pred * P
     const float pred_repro = rp.pred_repro_rate
         * cell.herbivore_density * cell.predator_density
         * season_pred_mod * day_pred_mod;
     const float pred_death = rp.pred_natural_death * cell.predator_density;
-    cell.predator_density += (pred_repro - pred_death) * dt;
+    const float pred_hunting_death = cell.hunting_pressure_pred
+        * cell.predator_density;
+    cell.predator_density += (pred_repro - pred_death - pred_hunting_death) * dt;
     cell.predator_density = std::clamp(cell.predator_density,
         0.0f, rp.max_predator);
 
+    // --- Hunting pressure decay ---
+    // Pressure decays each tick by a multiplicative factor.
+    cell.hunting_pressure_herb *= params_.hunting_pressure_decay;
+    cell.hunting_pressure_pred *= params_.hunting_pressure_decay;
+    // Clamp to zero when negligible to avoid floating-point drift.
+    if (cell.hunting_pressure_herb < 1e-6f) cell.hunting_pressure_herb = 0.0f;
+    if (cell.hunting_pressure_pred < 1e-6f) cell.hunting_pressure_pred = 0.0f;
+
     // --- Nutrient cycling ---
-    // Dead biomass from animal deaths and vegetation decay.
-    const float animal_death_biomass = (herb_death + pred_death)
+    // Dead biomass from animal deaths (natural + hunting) and vegetation decay.
+    const float animal_death_biomass = (herb_death + pred_death
+        + herb_hunting_death + pred_hunting_death)
         * rp.death_to_biomass_fraction;
     const float veg_decay_biomass = veg_decay
         * rp.veg_decay_to_biomass_fraction;
@@ -363,6 +419,52 @@ float EcosystemSystem::total_predator() const {
     return total;
 }
 
+// --- Persistence ---
+
+void EcosystemSystem::sync_population_to_chunk(const ChunkKey& key) {
+    if (!world_) return;
+
+    auto pop_it = populations_.find(key);
+    if (pop_it == populations_.end()) return;
+
+    ChunkData* chunk = world_->get_chunk(
+        key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    if (!chunk) return;
+
+    chunk->has_population_cell = true;
+    chunk->population_cell = pop_it->second;
+}
+
+void EcosystemSystem::sync_all_populations_to_chunks() {
+    if (!world_) return;
+
+    for (const auto& [key, cell] : populations_) {
+        ChunkData* chunk = world_->get_chunk(
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+        if (!chunk) continue;
+
+        chunk->has_population_cell = true;
+        chunk->population_cell = cell;
+    }
+}
+
+void EcosystemSystem::restore_populations_from_chunks() {
+    if (!world_) return;
+
+    for (const auto& key : world_->all_chunk_keys()) {
+        const ChunkData* chunk = world_->get_chunk(
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+        if (!chunk || !chunk->has_population_cell) continue;
+
+        // Only restore if we don't already have a population cell
+        // for this chunk (avoid overwriting runtime state).
+        auto it = populations_.find(key);
+        if (it != populations_.end()) continue;
+
+        populations_.emplace(key, chunk->population_cell);
+    }
+}
+
 // --- Proxy creature management ---
 
 const EcosystemSystem::ProxyGroup* EcosystemSystem::get_proxy_group(
@@ -387,6 +489,32 @@ int EcosystemSystem::density_to_proxy_count(
     const int count = 1 + static_cast<int>(
         t * (params_.max_proxies_per_chunk - 1));
     return std::clamp(count, 0, params_.max_proxies_per_chunk);
+}
+
+uint16_t EcosystemSystem::pick_species_for_biome(
+    CreatureRole role, uint8_t biome_type) const {
+    // Check biome override for species list.
+    const EcosystemParams::BiomeOverride* bo =
+        params_.find_biome_override(biome_type);
+    if (bo) {
+        const auto& species_list = (role == CreatureRole::PREDATOR)
+            ? bo->pred_species_ids : bo->herb_species_ids;
+        if (!species_list.empty()) {
+            // Simple deterministic pick using tick-based hash.
+            const int64_t tick = world_ ? world_->current_tick() : 0;
+            const size_t idx = static_cast<size_t>(tick) % species_list.size();
+            return species_list[idx];
+        }
+    }
+
+    // Fallback: find first registered species of the requested role.
+    for (uint16_t id = 1; id <= creature_species::kMaxBuiltinId; ++id) {
+        const CreatureSpeciesDef* def = species_registry_.get_species(id);
+        if (def && def->role == role) return id;
+    }
+
+    // Ultimate fallback: return 0 (invalid, should not happen).
+    return 0;
 }
 
 void EcosystemSystem::random_spawn_position_in_chunk(
@@ -425,16 +553,29 @@ void EcosystemSystem::spawn_proxies_for_chunk(
     for (int i = 0; i < herb_count; ++i) {
         int32_t sx, sy, sz;
         random_spawn_position_in_chunk(chunk, sx, sy, sz);
-        // Offset each creature by a small amount to avoid stacking.
         sx += i * 3;
+
+        uint16_t species = pick_species_for_biome(
+            CreatureRole::HERBIVORE, cell->biome_type);
         EntityId id = registry.register_creature_entity(
             chunk.dimension_id, sx, sy, sz,
-            CreatureType::HERBIVORE, tick);
+            species, CreatureRole::HERBIVORE, tick);
         group.herbivore_ids.push_back(id);
 
+        CreatureBlockEntityState* cs = registry.get_creature_state_mut(id);
+        if (cs) {
+            cs->pos_x = static_cast<float>(sx);
+            cs->pos_y = static_cast<float>(sy);
+            cs->pos_z = static_cast<float>(sz);
+            cs->next_wander_tick = tick + params_.wander_interval_ticks;
+        }
+
         if (event_bus_) {
+            const CreatureSpeciesDef* def =
+                species_registry_.get_species(species);
+            const char* name = def ? def->species_key.c_str() : "herbivore";
             event_bus_->emit(GameEvent::creature_spawned(
-                id.id, "herbivore",
+                id.id, name,
                 chunk.dimension_id,
                 chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
         }
@@ -448,14 +589,28 @@ void EcosystemSystem::spawn_proxies_for_chunk(
         random_spawn_position_in_chunk(chunk, sx, sy, sz);
         sx += i * 3 + 1;
         sz += i * 2;
+
+        uint16_t species = pick_species_for_biome(
+            CreatureRole::PREDATOR, cell->biome_type);
         EntityId id = registry.register_creature_entity(
             chunk.dimension_id, sx, sy, sz,
-            CreatureType::PREDATOR, tick);
+            species, CreatureRole::PREDATOR, tick);
         group.predator_ids.push_back(id);
 
+        CreatureBlockEntityState* cs = registry.get_creature_state_mut(id);
+        if (cs) {
+            cs->pos_x = static_cast<float>(sx);
+            cs->pos_y = static_cast<float>(sy);
+            cs->pos_z = static_cast<float>(sz);
+            cs->next_wander_tick = tick + params_.wander_interval_ticks;
+        }
+
         if (event_bus_) {
+            const CreatureSpeciesDef* def =
+                species_registry_.get_species(species);
+            const char* name = def ? def->species_key.c_str() : "predator";
             event_bus_->emit(GameEvent::creature_spawned(
-                id.id, "predator",
+                id.id, name,
                 chunk.dimension_id,
                 chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
         }
@@ -473,8 +628,16 @@ void EcosystemSystem::despawn_proxies_for_chunk(const ChunkKey& chunk) {
 
         for (EntityId id : it->second.herbivore_ids) {
             if (event_bus_) {
+                const CreatureBlockEntityState* cs =
+                    registry.get_creature_state(id);
+                const char* name = "herbivore";
+                if (cs) {
+                    const CreatureSpeciesDef* def =
+                        species_registry_.get_species(cs->species_id);
+                    if (def) name = def->species_key.c_str();
+                }
                 event_bus_->emit(GameEvent::creature_despawned(
-                    id.id, "herbivore",
+                    id.id, name,
                     chunk.dimension_id,
                     chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
             }
@@ -483,8 +646,16 @@ void EcosystemSystem::despawn_proxies_for_chunk(const ChunkKey& chunk) {
 
         for (EntityId id : it->second.predator_ids) {
             if (event_bus_) {
+                const CreatureBlockEntityState* cs =
+                    registry.get_creature_state(id);
+                const char* name = "predator";
+                if (cs) {
+                    const CreatureSpeciesDef* def =
+                        species_registry_.get_species(cs->species_id);
+                    if (def) name = def->species_key.c_str();
+                }
                 event_bus_->emit(GameEvent::creature_despawned(
-                    id.id, "predator",
+                    id.id, name,
                     chunk.dimension_id,
                     chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
             }
@@ -504,7 +675,6 @@ void EcosystemSystem::rebalance_proxies(
 
     auto it = active_proxies_.find(chunk);
     if (it == active_proxies_.end()) {
-        // No proxies yet — spawn fresh.
         spawn_proxies_for_chunk(chunk, tick);
         return;
     }
@@ -518,30 +688,50 @@ void EcosystemSystem::rebalance_proxies(
     const int current_herb = static_cast<int>(group.herbivore_ids.size());
 
     if (desired_herb > current_herb) {
-        // Spawn additional herbivores.
         for (int i = 0; i < desired_herb - current_herb; ++i) {
             int32_t sx, sy, sz;
             random_spawn_position_in_chunk(chunk, sx, sy, sz);
             sx += (current_herb + i) * 3;
+
+            uint16_t species = pick_species_for_biome(
+                CreatureRole::HERBIVORE, cell->biome_type);
             EntityId id = registry.register_creature_entity(
                 chunk.dimension_id, sx, sy, sz,
-                CreatureType::HERBIVORE, tick);
+                species, CreatureRole::HERBIVORE, tick);
             group.herbivore_ids.push_back(id);
 
+            CreatureBlockEntityState* cs = registry.get_creature_state_mut(id);
+            if (cs) {
+                cs->pos_x = static_cast<float>(sx);
+                cs->pos_y = static_cast<float>(sy);
+                cs->pos_z = static_cast<float>(sz);
+                cs->next_wander_tick = tick + params_.wander_interval_ticks;
+            }
+
             if (event_bus_) {
+                const CreatureSpeciesDef* def =
+                    species_registry_.get_species(species);
+                const char* name = def ? def->species_key.c_str() : "herbivore";
                 event_bus_->emit(GameEvent::creature_spawned(
-                    id.id, "herbivore",
+                    id.id, name,
                     chunk.dimension_id,
                     chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
             }
         }
     } else if (desired_herb < current_herb) {
-        // Remove excess herbivores (remove from the end).
         for (int i = desired_herb; i < current_herb; ++i) {
             EntityId id = group.herbivore_ids[i];
             if (event_bus_) {
+                const CreatureBlockEntityState* cs =
+                    registry.get_creature_state(id);
+                const char* name = "herbivore";
+                if (cs) {
+                    const CreatureSpeciesDef* def =
+                        species_registry_.get_species(cs->species_id);
+                    if (def) name = def->species_key.c_str();
+                }
                 event_bus_->emit(GameEvent::creature_despawned(
-                    id.id, "herbivore",
+                    id.id, name,
                     chunk.dimension_id,
                     chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
             }
@@ -561,14 +751,28 @@ void EcosystemSystem::rebalance_proxies(
             random_spawn_position_in_chunk(chunk, sx, sy, sz);
             sx += (current_pred + i) * 3 + 1;
             sz += (current_pred + i) * 2;
+
+            uint16_t species = pick_species_for_biome(
+                CreatureRole::PREDATOR, cell->biome_type);
             EntityId id = registry.register_creature_entity(
                 chunk.dimension_id, sx, sy, sz,
-                CreatureType::PREDATOR, tick);
+                species, CreatureRole::PREDATOR, tick);
             group.predator_ids.push_back(id);
 
+            CreatureBlockEntityState* cs = registry.get_creature_state_mut(id);
+            if (cs) {
+                cs->pos_x = static_cast<float>(sx);
+                cs->pos_y = static_cast<float>(sy);
+                cs->pos_z = static_cast<float>(sz);
+                cs->next_wander_tick = tick + params_.wander_interval_ticks;
+            }
+
             if (event_bus_) {
+                const CreatureSpeciesDef* def =
+                    species_registry_.get_species(species);
+                const char* name = def ? def->species_key.c_str() : "predator";
                 event_bus_->emit(GameEvent::creature_spawned(
-                    id.id, "predator",
+                    id.id, name,
                     chunk.dimension_id,
                     chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
             }
@@ -577,14 +781,652 @@ void EcosystemSystem::rebalance_proxies(
         for (int i = desired_pred; i < current_pred; ++i) {
             EntityId id = group.predator_ids[i];
             if (event_bus_) {
+                const CreatureBlockEntityState* cs =
+                    registry.get_creature_state(id);
+                const char* name = "predator";
+                if (cs) {
+                    const CreatureSpeciesDef* def =
+                        species_registry_.get_species(cs->species_id);
+                    if (def) name = def->species_key.c_str();
+                }
                 event_bus_->emit(GameEvent::creature_despawned(
-                    id.id, "predator",
+                    id.id, name,
                     chunk.dimension_id,
                     chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
             }
             registry.remove_entity(id);
         }
         group.predator_ids.resize(desired_pred);
+    }
+}
+
+// --- Proxy creature AI ---
+
+void EcosystemSystem::tick_proxies(
+    const ChunkKey& chunk, int64_t tick, float delta) {
+    if (!world_) return;
+
+    auto pit = active_proxies_.find(chunk);
+    if (pit == active_proxies_.end()) return;
+
+    ProxyGroup& group = pit->second;
+    auto& registry = world_->block_entity_registry();
+
+    // Convert delta to tick-scaled movement time.
+    const float move_dt = delta * TickSystem::kTicksPerSecond;
+    const float global_speed = params_.creature_move_speed;
+
+    // Helper to resolve effective speed for a creature.
+    // Uses species-specific speed if defined, otherwise global default.
+    auto resolve_speed = [&](const CreatureBlockEntityState& cs) -> float {
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(cs.species_id);
+        if (def && def->move_speed > 0.0f) return def->move_speed;
+        return global_speed;
+    };
+
+    // Helper to resolve effective flee detection radius.
+    auto resolve_flee_radius = [&](const CreatureBlockEntityState& cs) -> float {
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(cs.species_id);
+        if (def && def->flee_detection_radius > 0.0f)
+            return def->flee_detection_radius;
+        return params_.flee_detection_radius;
+    };
+
+    // Helper to resolve effective wander radius.
+    auto resolve_wander_radius = [&](const CreatureBlockEntityState& cs) -> float {
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(cs.species_id);
+        if (def && def->wander_radius > 0.0f) return def->wander_radius;
+        return params_.wander_radius;
+    };
+
+    // --- Update herbivores ---
+    for (EntityId id : group.herbivore_ids) {
+        CreatureBlockEntityState* cs = registry.get_creature_state_mut(id);
+        if (!cs) continue;
+
+        const float speed = resolve_speed(*cs);
+
+        // Check for nearby predators (flee behavior).
+        if (check_flee_for_herbivore(*cs, group)) {
+            cs->ai_state = CreatureState::FLEEING;
+            if (cs->flee_end_tick <= tick) {
+                cs->flee_end_tick = tick + params_.flee_duration_ticks;
+            }
+        }
+
+        // State machine.
+        switch (cs->ai_state) {
+            case CreatureState::IDLE: {
+                if (tick >= cs->next_wander_tick) {
+                    pick_wander_target(*cs);
+                    cs->ai_state = CreatureState::WANDERING;
+                }
+                break;
+            }
+            case CreatureState::WANDERING: {
+                move_creature_toward_target(
+                    *cs, speed, move_dt);
+
+                // Check if reached target.
+                float dx = cs->wander_target_x - cs->pos_x;
+                float dy = cs->wander_target_y - cs->pos_y;
+                float dz = cs->wander_target_z - cs->pos_z;
+                float dist_sq = dx * dx + dy * dy + dz * dz;
+                if (dist_sq < 1.0f) {
+                    cs->ai_state = CreatureState::IDLE;
+                    cs->next_wander_tick = tick + params_.wander_interval_ticks;
+                }
+                break;
+            }
+            case CreatureState::FLEEING: {
+                if (tick >= cs->flee_end_tick) {
+                    cs->ai_state = CreatureState::IDLE;
+                    cs->next_wander_tick = tick + params_.wander_interval_ticks / 2;
+                    break;
+                }
+
+                // Flee: move away from flee_from position.
+                float fx = cs->pos_x - cs->flee_from_x;
+                float fy = cs->pos_y - cs->flee_from_y;
+                float fz = cs->pos_z - cs->flee_from_z;
+                float flen = std::sqrt(fx * fx + fy * fy + fz * fz);
+                if (flen > 0.001f) {
+                    fx /= flen;
+                    fy /= flen;
+                    fz /= flen;
+                } else {
+                    fx = 1.0f;
+                    fy = 0.0f;
+                    fz = 0.0f;
+                }
+
+                const float wander_r = resolve_wander_radius(*cs);
+                cs->wander_target_x = cs->pos_x + fx * wander_r;
+                cs->wander_target_y = cs->pos_y + fy * wander_r;
+                cs->wander_target_z = cs->pos_z + fz * wander_r;
+
+                float flee_speed = speed * params_.flee_speed_multiplier;
+                move_creature_toward_target(*cs, flee_speed, move_dt);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    // --- Update predators ---
+    for (EntityId id : group.predator_ids) {
+        CreatureBlockEntityState* cs = registry.get_creature_state_mut(id);
+        if (!cs) continue;
+
+        const float speed = resolve_speed(*cs);
+
+        // Predators don't flee; they just wander.
+        switch (cs->ai_state) {
+            case CreatureState::IDLE: {
+                if (tick >= cs->next_wander_tick) {
+                    pick_wander_target(*cs);
+                    cs->ai_state = CreatureState::WANDERING;
+                }
+                break;
+            }
+            case CreatureState::WANDERING: {
+                move_creature_toward_target(
+                    *cs, speed, move_dt);
+
+                float dx = cs->wander_target_x - cs->pos_x;
+                float dy = cs->wander_target_y - cs->pos_y;
+                float dz = cs->wander_target_z - cs->pos_z;
+                float dist_sq = dx * dx + dy * dy + dz * dz;
+                if (dist_sq < 1.0f) {
+                    cs->ai_state = CreatureState::IDLE;
+                    cs->next_wander_tick = tick + params_.wander_interval_ticks;
+                }
+                break;
+            }
+            case CreatureState::FLEEING: {
+                // Predators don't flee; reset to idle.
+                cs->ai_state = CreatureState::IDLE;
+                cs->next_wander_tick = tick + params_.wander_interval_ticks / 2;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+}
+
+void EcosystemSystem::pick_wander_target(
+    CreatureBlockEntityState& creature) const {
+    // Use a simple hash for pseudo-random direction.
+    const int64_t tick = world_ ? world_->current_tick() : 0;
+    const int64_t seed = static_cast<int64_t>(creature.pos_x * 100.0f) * 73856093 +
+                         static_cast<int64_t>(creature.pos_z * 100.0f) * 83492791 +
+                         tick * 19349663;
+
+    // Resolve species-specific wander radius.
+    float wander_r = params_.wander_radius;
+    const CreatureSpeciesDef* def =
+        species_registry_.get_species(creature.species_id);
+    if (def && def->wander_radius > 0.0f) wander_r = def->wander_radius;
+
+    // Map hash to [-1, 1] range for each axis.
+    float rx = static_cast<float>((seed & 0xFFFF) % 2001 - 1000) / 1000.0f;
+    float ry = static_cast<float>(((seed >> 16) & 0xFF) % 2001 - 1000) / 1000.0f;
+    float rz = static_cast<float>(((seed >> 24) & 0xFF) % 2001 - 1000) / 1000.0f;
+
+    creature.wander_target_x = creature.pos_x + rx * wander_r;
+    creature.wander_target_y = creature.pos_y + ry * 2.0f;
+    creature.wander_target_z = creature.pos_z + rz * wander_r;
+}
+
+bool EcosystemSystem::check_flee_for_herbivore(
+    CreatureBlockEntityState& herbivore,
+    const ProxyGroup& group) const {
+    if (!world_) return false;
+    auto& registry = world_->block_entity_registry();
+
+    // Resolve species-specific flee detection radius.
+    float radius = params_.flee_detection_radius;
+    const CreatureSpeciesDef* def =
+        species_registry_.get_species(herbivore.species_id);
+    if (def && def->flee_detection_radius > 0.0f)
+        radius = def->flee_detection_radius;
+
+    const float radius_sq = radius * radius;
+
+    for (EntityId pred_id : group.predator_ids) {
+        const CreatureBlockEntityState* pred =
+            registry.get_creature_state(pred_id);
+        if (!pred) continue;
+
+        float dx = herbivore.pos_x - pred->pos_x;
+        float dy = herbivore.pos_y - pred->pos_y;
+        float dz = herbivore.pos_z - pred->pos_z;
+        float dist_sq = dx * dx + dy * dy + dz * dz;
+
+        if (dist_sq < radius_sq) {
+            herbivore.flee_from_x = pred->pos_x;
+            herbivore.flee_from_y = pred->pos_y;
+            herbivore.flee_from_z = pred->pos_z;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void EcosystemSystem::move_creature_toward_target(
+    CreatureBlockEntityState& creature,
+    float speed, float dt) const {
+    float dx = creature.wander_target_x - creature.pos_x;
+    float dy = creature.wander_target_y - creature.pos_y;
+    float dz = creature.wander_target_z - creature.pos_z;
+    float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (dist < 0.01f) return;
+
+    // Normalize direction.
+    float nx = dx / dist;
+    float ny = dy / dist;
+    float nz = dz / dist;
+
+    // Move by speed * dt, but don't overshoot.
+    float step = speed * dt;
+    if (step > dist) step = dist;
+
+    creature.pos_x += nx * step;
+    creature.pos_y += ny * step;
+    creature.pos_z += nz * step;
+}
+
+// ============================================================
+// Player combat (hunting) — attack and kill proxy creatures
+// ============================================================
+
+EcosystemSystem::AttackResult EcosystemSystem::attack_creature(
+    const std::string& dimension,
+    float player_x, float player_y, float player_z,
+    float look_dir_x, float look_dir_y, float look_dir_z,
+    float reach, float damage, int64_t tick) {
+    AttackResult result;
+
+    if (!world_) return result;
+
+    // Normalize look direction.
+    float look_len = std::sqrt(look_dir_x * look_dir_x
+        + look_dir_y * look_dir_y + look_dir_z * look_dir_z);
+    if (look_len < 0.001f) return result;
+    look_dir_x /= look_len;
+    look_dir_y /= look_len;
+    look_dir_z /= look_len;
+
+    const float reach_sq = reach * reach;
+
+    // Compute the player's chunk key.
+    ChunkKey player_chunk = chunk_key_for_position(
+        dimension, player_x, player_y, player_z);
+
+    // Search all active proxy groups in the player's dimension.
+    // We check the player's chunk and immediate neighbors to handle
+    // creatures near chunk boundaries.
+    EntityId best_id;
+    float best_dot = -2.0f;
+    float best_dist_sq = reach_sq + 1.0f;
+    ChunkKey best_chunk;
+
+    for (const auto& [chunk_key, group] : active_proxies_) {
+        if (chunk_key.dimension_id != dimension) continue;
+
+        // Quick reject: only check chunks within reach distance.
+        // A chunk is at most kChunkSize blocks across, so we check
+        // if the chunk center is within reach + kChunkSize*sqrt(3).
+        const float cx_center = (chunk_key.chunk_x + 0.5f)
+            * ChunkData::kChunkSize;
+        const float cy_center = (chunk_key.chunk_y + 0.5f)
+            * ChunkData::kChunkSize;
+        const float cz_center = (chunk_key.chunk_z + 0.5f)
+            * ChunkData::kChunkSize;
+        float cdx = cx_center - player_x;
+        float cdy = cy_center - player_y;
+        float cdz = cz_center - player_z;
+        float cdist_sq = cdx * cdx + cdy * cdy + cdz * cdz;
+        float max_chunk_dist = reach + ChunkData::kChunkSize * 1.74f;
+        if (cdist_sq > max_chunk_dist * max_chunk_dist) continue;
+
+        auto& registry = world_->block_entity_registry();
+
+        // Check all herbivore proxies in this chunk.
+        for (EntityId id : group.herbivore_ids) {
+            const CreatureBlockEntityState* cs =
+                registry.get_creature_state(id);
+            if (!cs) continue;
+
+            float dx = cs->pos_x - player_x;
+            float dy = cs->pos_y - player_y;
+            float dz = cs->pos_z - player_z;
+            float dist_sq = dx * dx + dy * dy + dz * dz;
+            if (dist_sq > reach_sq) continue;
+
+            // View cone check: dot product of look direction and
+            // direction to creature. Allow a wide cone (~60 degrees).
+            float inv_dist = 1.0f / std::sqrt(dist_sq);
+            float dot = look_dir_x * dx * inv_dist
+                      + look_dir_y * dy * inv_dist
+                      + look_dir_z * dz * inv_dist;
+            if (dot < 0.5f) continue;
+
+            // Pick the closest creature in the center of view.
+            if (dot > best_dot || (dot == best_dot && dist_sq < best_dist_sq)) {
+                best_id = id;
+                best_dot = dot;
+                best_dist_sq = dist_sq;
+                best_chunk = chunk_key;
+            }
+        }
+
+        // Check all predator proxies in this chunk.
+        for (EntityId id : group.predator_ids) {
+            const CreatureBlockEntityState* cs =
+                registry.get_creature_state(id);
+            if (!cs) continue;
+
+            float dx = cs->pos_x - player_x;
+            float dy = cs->pos_y - player_y;
+            float dz = cs->pos_z - player_z;
+            float dist_sq = dx * dx + dy * dy + dz * dz;
+            if (dist_sq > reach_sq) continue;
+
+            float inv_dist = 1.0f / std::sqrt(dist_sq);
+            float dot = look_dir_x * dx * inv_dist
+                      + look_dir_y * dy * inv_dist
+                      + look_dir_z * dz * inv_dist;
+            if (dot < 0.5f) continue;
+
+            if (dot > best_dot || (dot == best_dot && dist_sq < best_dist_sq)) {
+                best_id = id;
+                best_dot = dot;
+                best_dist_sq = dist_sq;
+                best_chunk = chunk_key;
+            }
+        }
+    }
+
+    if (best_dot < -1.0f) return result;
+
+    // Found a target — apply damage.
+    result = apply_damage_to_creature(best_id, damage, tick);
+    result.chunk_key = best_chunk;
+    return result;
+}
+
+EcosystemSystem::AttackResult EcosystemSystem::apply_damage_to_creature(
+    EntityId creature_id, float damage, int64_t tick) {
+    AttackResult result;
+
+    if (!world_) return result;
+
+    auto& registry = world_->block_entity_registry();
+    CreatureBlockEntityState* cs = registry.get_creature_state_mut(creature_id);
+    if (!cs) return result;
+
+    result.hit = true;
+    result.creature_id = creature_id.id;
+    result.species_id = cs->species_id;
+
+    // Clamp damage to remaining health.
+    float actual_damage = std::min(damage, cs->health);
+    cs->health -= actual_damage;
+    result.damage_dealt = actual_damage;
+    result.remaining_health = cs->health;
+
+    // Find the chunk key for this creature by searching active_proxies_.
+    ChunkKey chunk;
+    for (const auto& [ck, group] : active_proxies_) {
+        bool found = false;
+        for (EntityId id : group.herbivore_ids) {
+            if (id.id == creature_id.id) { chunk = ck; found = true; break; }
+        }
+        if (found) break;
+        for (EntityId id : group.predator_ids) {
+            if (id.id == creature_id.id) { chunk = ck; found = true; break; }
+        }
+        if (found) break;
+    }
+
+    result.chunk_key = chunk;
+
+    // Emit creature_damaged event.
+    if (event_bus_) {
+        event_bus_->emit(GameEvent::creature_damaged(
+            creature_id.id, cs->species_id,
+            actual_damage, cs->health,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+
+    // Check if creature is killed.
+    if (cs->health <= 0.0f) {
+        result.killed = true;
+        kill_proxy_creature(creature_id, chunk,
+            cs->creature_role, cs->species_id, tick);
+    }
+
+    return result;
+}
+
+void EcosystemSystem::kill_proxy_creature(
+    EntityId creature_id, const ChunkKey& chunk,
+    CreatureRole role, uint16_t species_id, int64_t tick) {
+    if (!world_) return;
+
+    auto& registry = world_->block_entity_registry();
+
+    // Add hunting pressure to the population cell.
+    PopulationCell* cell = get_population_cell(chunk);
+    if (cell) {
+        if (role == CreatureRole::HERBIVORE) {
+            cell->hunting_pressure_herb += params_.hunting_kill_contribution;
+        } else {
+            cell->hunting_pressure_pred += params_.hunting_kill_contribution;
+        }
+    }
+
+    // Remove from proxy group.
+    auto it = active_proxies_.find(chunk);
+    if (it != active_proxies_.end()) {
+        ProxyGroup& group = it->second;
+        if (role == CreatureRole::HERBIVORE) {
+            group.herbivore_ids.erase(
+                std::remove(group.herbivore_ids.begin(),
+                            group.herbivore_ids.end(),
+                            creature_id),
+                group.herbivore_ids.end());
+        } else {
+            group.predator_ids.erase(
+                std::remove(group.predator_ids.begin(),
+                            group.predator_ids.end(),
+                            creature_id),
+                group.predator_ids.end());
+        }
+    }
+
+    // Emit creature_killed event (before removing entity so
+    // listeners can still query the entity).
+    if (event_bus_) {
+        event_bus_->emit(GameEvent::creature_killed(
+            creature_id.id, species_id,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+
+    // Remove the entity from the registry.
+    registry.remove_entity(creature_id);
+}
+
+ChunkKey EcosystemSystem::chunk_key_for_position(
+    const std::string& dimension,
+    float world_x, float world_y, float world_z) const {
+    // Floor to get block coordinates, then integer-divide by chunk size.
+    int bx = static_cast<int>(std::floor(world_x));
+    int by = static_cast<int>(std::floor(world_y));
+    int bz = static_cast<int>(std::floor(world_z));
+    int cx = (bx >= 0 ? bx : bx - ChunkData::kChunkSize + 1)
+           / ChunkData::kChunkSize;
+    int cy = (by >= 0 ? by : by - ChunkData::kChunkSize + 1)
+           / ChunkData::kChunkSize;
+    int cz = (bz >= 0 ? bz : bz - ChunkData::kChunkSize + 1)
+           / ChunkData::kChunkSize;
+    return ChunkKey(dimension, cx, cy, cz);
+}
+
+// --- Biome inference and default overrides ---
+
+uint8_t EcosystemSystem::infer_biome_type(const ChunkKey& key) const {
+    if (!world_) return ecosystem_biome::kPlains;
+
+    const ChunkData* chunk = world_->get_chunk(
+        key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    if (!chunk) return ecosystem_biome::kPlains;
+
+    // Resolve material role IDs from worldgen config.
+    auto config = world_->worldgen_config();
+    TerrainMaterialId sand_id = 0;
+    TerrainMaterialId stone_id = 0;
+    TerrainMaterialId water_id = 0;
+    TerrainMaterialId dirt_id = 0;
+    if (config) {
+        sand_id = config->roles.sand;
+        stone_id = config->roles.stone;
+        water_id = config->roles.water;
+        dirt_id = config->roles.dirt;
+    }
+
+    // Count surface-level exposed cells by material type.
+    // Only scan the top quarter of the chunk (y >= 3/4 of size_y)
+    // to capture surface biome rather than underground.
+    const int size_x = chunk->terrain.size_x;
+    const int size_y = chunk->terrain.size_y;
+    const int size_z = chunk->terrain.size_z;
+    const int surface_y_start = size_y * 3 / 4;
+
+    int sand_count = 0;
+    int stone_count = 0;
+    int water_count = 0;
+    int dirt_count = 0;
+    int total_counted = 0;
+
+    for (int y = surface_y_start; y < size_y; ++y) {
+        for (int z = 0; z < size_z; ++z) {
+            for (int x = 0; x < size_x; ++x) {
+                TerrainMaterialId mat = chunk->terrain.cell_at(x, y, z).material;
+                if (mat == 0) continue;  // Skip air.
+                ++total_counted;
+                if (mat == sand_id) ++sand_count;
+                else if (mat == stone_id) ++stone_count;
+                else if (mat == water_id) ++water_count;
+                else if (mat == dirt_id) ++dirt_count;
+            }
+        }
+    }
+
+    if (total_counted == 0) return ecosystem_biome::kPlains;
+
+    // Classify by dominant surface material.
+    const float threshold = 0.4f;
+    if (static_cast<float>(water_count) / total_counted >= threshold) {
+        return ecosystem_biome::kOcean;
+    }
+    if (static_cast<float>(sand_count) / total_counted >= threshold) {
+        return ecosystem_biome::kDesert;
+    }
+    if (static_cast<float>(stone_count) / total_counted >= threshold) {
+        return ecosystem_biome::kRocky;
+    }
+
+    return ecosystem_biome::kPlains;
+}
+
+void EcosystemSystem::register_default_biome_overrides() {
+    using namespace ecosystem_biome;
+    using namespace creature_species;
+
+    // Plains (0): temperate, balanced ecosystem.
+    {
+        EcosystemParams::BiomeOverride& bo =
+            params_.biome_overrides[params_.biome_override_count++];
+        bo.biome_type = kPlains;
+        bo.base_water = 0.5f;
+        bo.base_fertility = 0.5f;
+        bo.veg_growth_multiplier = 1.0f;
+        bo.max_vegetation = 1.0f;
+        bo.max_herbivore = 1.0f;
+        bo.max_predator = 1.0f;
+        bo.herb_species_ids = {kGlowDeer, kRockLizard};
+        bo.pred_species_ids = {kThunderbird, kBlazeBeast};
+    }
+
+    // Desert (1): low water, sparse vegetation, heat-adapted species.
+    {
+        EcosystemParams::BiomeOverride& bo =
+            params_.biome_overrides[params_.biome_override_count++];
+        bo.biome_type = kDesert;
+        bo.base_water = 0.1f;
+        bo.base_fertility = 0.2f;
+        bo.veg_growth_multiplier = 0.4f;
+        bo.max_vegetation = 0.4f;
+        bo.max_herbivore = 0.5f;
+        bo.max_predator = 0.4f;
+        bo.herb_species_ids = {kRockLizard};
+        bo.pred_species_ids = {kThunderbird};
+    }
+
+    // Rocky (2): low fertility, hardy species only.
+    {
+        EcosystemParams::BiomeOverride& bo =
+            params_.biome_overrides[params_.biome_override_count++];
+        bo.biome_type = kRocky;
+        bo.base_water = 0.3f;
+        bo.base_fertility = 0.3f;
+        bo.veg_growth_multiplier = 0.5f;
+        bo.max_vegetation = 0.5f;
+        bo.max_herbivore = 0.4f;
+        bo.max_predator = 0.5f;
+        bo.herb_species_ids = {kRockLizard};
+        bo.pred_species_ids = {kThunderbird, kBlazeBeast};
+    }
+
+    // Ocean (3): water-dominated, aquatic species only.
+    {
+        EcosystemParams::BiomeOverride& bo =
+            params_.biome_overrides[params_.biome_override_count++];
+        bo.biome_type = kOcean;
+        bo.base_water = 1.0f;
+        bo.base_fertility = 0.1f;
+        bo.veg_growth_multiplier = 0.2f;
+        bo.max_vegetation = 0.2f;
+        bo.max_herbivore = 0.1f;
+        bo.max_predator = 0.6f;
+        bo.herb_species_ids = {};
+        bo.pred_species_ids = {kSeaSerpent};
+    }
+
+    // Barren (4): toxic/corrosive, no natural fauna.
+    {
+        EcosystemParams::BiomeOverride& bo =
+            params_.biome_overrides[params_.biome_override_count++];
+        bo.biome_type = kBarren;
+        bo.base_water = 0.05f;
+        bo.base_fertility = 0.05f;
+        bo.veg_growth_multiplier = 0.1f;
+        bo.max_vegetation = 0.1f;
+        bo.max_herbivore = 0.0f;
+        bo.max_predator = 0.0f;
+        bo.herb_species_ids = {};
+        bo.pred_species_ids = {};
     }
 }
 

@@ -11,6 +11,7 @@
 #include "core/simulation/season_system.hpp"
 #include "core/simulation/region_system.hpp"
 #include "core/simulation/region_graph.hpp"
+#include "core/simulation/ecosystem_system.hpp"
 #include "bindings/world/gd_world_data.h"
 
 namespace science_and_theology {
@@ -79,6 +80,14 @@ void GDTickSystem::register_region_system() {
     if (tick_system_) {
         auto sys = std::make_unique<RegionSystem>();
         region_system_ = sys.get();
+        tick_system_->register_subsystem(std::move(sys));
+    }
+}
+
+void GDTickSystem::register_ecosystem_system() {
+    if (tick_system_) {
+        auto sys = std::make_unique<EcosystemSystem>();
+        ecosystem_system_ = sys.get();
         tick_system_->register_subsystem(std::move(sys));
     }
 }
@@ -177,6 +186,197 @@ godot::Dictionary GDTickSystem::get_region_data(
     return d;
 }
 
+// --- Ecosystem query ---
+
+godot::Dictionary GDTickSystem::get_population_data(
+    const godot::String& dimension, int cx, int cy, int cz) const {
+    godot::Dictionary d;
+    if (!ecosystem_system_) {
+        d["vegetation"] = 0.0f;
+        d["herbivore"] = 0.0f;
+        d["predator"] = 0.0f;
+        d["fertility"] = 0.0f;
+        d["water"] = 0.0f;
+        d["dead_biomass"] = 0.0f;
+        return d;
+    }
+
+    ChunkKey key(dimension.utf8().get_data(), cx, cy, cz);
+    const PopulationCell* cell = ecosystem_system_->get_population_cell(key);
+    if (!cell) {
+        d["vegetation"] = 0.0f;
+        d["herbivore"] = 0.0f;
+        d["predator"] = 0.0f;
+        d["fertility"] = 0.0f;
+        d["water"] = 0.0f;
+        d["dead_biomass"] = 0.0f;
+        return d;
+    }
+
+    d["vegetation"] = cell->vegetation_density;
+    d["herbivore"] = cell->herbivore_density;
+    d["predator"] = cell->predator_density;
+    d["fertility"] = cell->soil_fertility;
+    d["water"] = cell->water_availability;
+    d["dead_biomass"] = cell->dead_biomass;
+    return d;
+}
+
+float GDTickSystem::get_total_vegetation() const {
+    if (!ecosystem_system_) return 0.0f;
+    return ecosystem_system_->total_vegetation();
+}
+
+float GDTickSystem::get_total_herbivore() const {
+    if (!ecosystem_system_) return 0.0f;
+    return ecosystem_system_->total_herbivore();
+}
+
+float GDTickSystem::get_total_predator() const {
+    if (!ecosystem_system_) return 0.0f;
+    return ecosystem_system_->total_predator();
+}
+
+int64_t GDTickSystem::get_total_proxy_count() const {
+    if (!ecosystem_system_) return 0;
+    return static_cast<int64_t>(ecosystem_system_->total_proxy_count());
+}
+
+godot::Array GDTickSystem::get_proxy_data(
+    const godot::String& dimension, int cx, int cy, int cz) const {
+    godot::Array result;
+    if (!ecosystem_system_ || !world_set) return result;
+
+    ChunkKey key(dimension.utf8().get_data(), cx, cy, cz);
+    const EcosystemSystem::ProxyGroup* group =
+        ecosystem_system_->get_proxy_group(key);
+    if (!group) return result;
+
+    auto& registry = get_world_data_ptr()->block_entity_registry();
+
+    auto add_creature = [&](EntityId id) {
+        const CreatureBlockEntityState* cs = registry.get_creature_state(id);
+        if (!cs) return;
+
+        godot::Dictionary d;
+        d["id"] = static_cast<int64_t>(id.id);
+
+        // Resolve species name from registry.
+        const CreatureSpeciesDef* def =
+            ecosystem_system_->species_registry().get_species(cs->species_id);
+        if (def) {
+            d["species"] = godot::String(def->species_key.c_str());
+            d["display_name"] = godot::String(def->display_name.c_str());
+            d["model_key"] = godot::String(def->model_key.c_str());
+            d["model_scale"] = def->model_scale;
+        } else {
+            d["species"] = godot::String("unknown");
+            d["display_name"] = godot::String("Unknown");
+            d["model_key"] = godot::String("");
+            d["model_scale"] = 1.0f;
+        }
+        d["role"] = godot::String(
+            kCreatureRoleNames[static_cast<int>(cs->creature_role)]);
+
+        const char* state_name = "Idle";
+        switch (cs->ai_state) {
+            case CreatureState::WANDERING: state_name = "Wandering"; break;
+            case CreatureState::FLEEING:   state_name = "Fleeing"; break;
+            default: break;
+        }
+        d["state"] = godot::String(state_name);
+        d["pos_x"] = cs->pos_x;
+        d["pos_y"] = cs->pos_y;
+        d["pos_z"] = cs->pos_z;
+        d["health"] = cs->health;
+        result.append(d);
+    };
+
+    for (EntityId id : group->herbivore_ids) {
+        add_creature(id);
+    }
+    for (EntityId id : group->predator_ids) {
+        add_creature(id);
+    }
+
+    return result;
+}
+
+void GDTickSystem::sync_ecosystem_to_chunks() {
+    if (!ecosystem_system_) return;
+    ecosystem_system_->sync_all_populations_to_chunks();
+}
+
+void GDTickSystem::restore_ecosystem_from_chunks() {
+    if (!ecosystem_system_) return;
+    ecosystem_system_->restore_populations_from_chunks();
+}
+
+godot::Dictionary GDTickSystem::attack_creature(
+    const godot::String& dimension,
+    const godot::Vector3& player_pos,
+    const godot::Vector3& look_dir,
+    float reach, float damage) {
+    godot::Dictionary result;
+    result["hit"] = false;
+    result["killed"] = false;
+    result["creature_id"] = static_cast<int64_t>(0);
+    result["species_id"] = static_cast<int64_t>(0);
+    result["damage_dealt"] = 0.0f;
+    result["remaining_health"] = 0.0f;
+
+    godot::Dictionary chunk_dict;
+    chunk_dict["dimension"] = dimension;
+    chunk_dict["cx"] = 0;
+    chunk_dict["cy"] = 0;
+    chunk_dict["cz"] = 0;
+    result["chunk"] = chunk_dict;
+
+    if (!ecosystem_system_ || !tick_system_) return result;
+
+    int64_t tick = tick_system_->tick_count();
+    auto ar = ecosystem_system_->attack_creature(
+        dimension.utf8().get_data(),
+        player_pos.x, player_pos.y, player_pos.z,
+        look_dir.x, look_dir.y, look_dir.z,
+        reach, damage, tick);
+
+    result["hit"] = ar.hit;
+    result["killed"] = ar.killed;
+    result["creature_id"] = static_cast<int64_t>(ar.creature_id);
+    result["species_id"] = static_cast<int64_t>(ar.species_id);
+    result["damage_dealt"] = ar.damage_dealt;
+    result["remaining_health"] = ar.remaining_health;
+
+    chunk_dict["dimension"] = godot::String(ar.chunk_key.dimension_id.c_str());
+    chunk_dict["cx"] = ar.chunk_key.chunk_x;
+    chunk_dict["cy"] = ar.chunk_key.chunk_y;
+    chunk_dict["cz"] = ar.chunk_key.chunk_z;
+    result["chunk"] = chunk_dict;
+
+    return result;
+}
+
+godot::Array GDTickSystem::get_species_drops(int64_t species_id) const {
+    godot::Array result;
+    if (!ecosystem_system_) return result;
+
+    const CreatureSpeciesDef* def =
+        ecosystem_system_->species_registry().get_species(
+            static_cast<uint16_t>(species_id));
+    if (!def) return result;
+
+    for (const auto& drop : def->drops) {
+        godot::Dictionary d;
+        d["item_key"] = godot::String(drop.item_key.c_str());
+        d["chance"] = drop.chance;
+        d["min_count"] = drop.min_count;
+        d["max_count"] = drop.max_count;
+        result.append(d);
+    }
+    return result;
+}
+
 void GDTickSystem::tick(float delta) {
     if (!tick_system_ || !world_set) return;
     tick_system_->tick(delta);
@@ -265,32 +465,6 @@ godot::Array GDTickSystem::get_active_chunks() const {
         arr.append(chunk_key_to_dict(key));
     }
     return arr;
-}
-
-godot::Array GDTickSystem::poll_events() {
-    godot::Array arr;
-    // EventBus drains its queue during process_queue() in tick().
-    // For GDScript, events are typically handled via signals.
-    // This method is a polling alternative for deferred inspection.
-    return arr;
-}
-
-godot::Array GDTickSystem::get_machine_errors() const {
-    godot::Array arr;
-    if (!tick_system_ || !tick_system_->error_handler()) return arr;
-    auto errors = tick_system_->error_handler()->get_all_errors();
-    for (const auto& err : errors) {
-        arr.append(error_to_dict(err));
-    }
-    return arr;
-}
-
-void GDTickSystem::clear_machine_error(int64_t machine_id) {
-    if (tick_system_ && tick_system_->error_handler()) {
-        MachineId mid;
-        mid.id = static_cast<uint64_t>(machine_id);
-        tick_system_->error_handler()->clear_error(mid);
-    }
 }
 
 godot::Array GDTickSystem::get_dirty_chunks() const {
@@ -456,6 +630,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_day_night_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_region_system"),
         &GDTickSystem::register_region_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_ecosystem_system"),
+        &GDTickSystem::register_ecosystem_system);
     godot::ClassDB::bind_method(godot::D_METHOD("get_day_night_state"),
         &GDTickSystem::get_day_night_state);
     godot::ClassDB::bind_method(godot::D_METHOD("get_time_of_day"),
@@ -468,6 +644,31 @@ void GDTickSystem::_bind_methods() {
         "type_index"), &GDTickSystem::get_region_count_by_type);
     godot::ClassDB::bind_method(godot::D_METHOD("get_region_data",
         "type_index", "region_id"), &GDTickSystem::get_region_data);
+
+    // Ecosystem query methods.
+    godot::ClassDB::bind_method(godot::D_METHOD("get_population_data",
+        "dimension", "cx", "cy", "cz"),
+        &GDTickSystem::get_population_data);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_total_vegetation"),
+        &GDTickSystem::get_total_vegetation);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_total_herbivore"),
+        &GDTickSystem::get_total_herbivore);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_total_predator"),
+        &GDTickSystem::get_total_predator);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_total_proxy_count"),
+        &GDTickSystem::get_total_proxy_count);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_proxy_data",
+        "dimension", "cx", "cy", "cz"),
+        &GDTickSystem::get_proxy_data);
+    godot::ClassDB::bind_method(godot::D_METHOD("sync_ecosystem_to_chunks"),
+        &GDTickSystem::sync_ecosystem_to_chunks);
+    godot::ClassDB::bind_method(godot::D_METHOD("restore_ecosystem_from_chunks"),
+        &GDTickSystem::restore_ecosystem_from_chunks);
+    godot::ClassDB::bind_method(godot::D_METHOD("attack_creature",
+        "dimension", "player_pos", "look_dir", "reach", "damage"),
+        &GDTickSystem::attack_creature);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_species_drops",
+        "species_id"), &GDTickSystem::get_species_drops);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",
@@ -508,14 +709,6 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::get_active_chunk_count);
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_chunks"),
         &GDTickSystem::get_active_chunks);
-
-    // Deprecated: prefer signals instead.
-    godot::ClassDB::bind_method(godot::D_METHOD("poll_events"),
-        &GDTickSystem::poll_events);
-    godot::ClassDB::bind_method(godot::D_METHOD("get_machine_errors"),
-        &GDTickSystem::get_machine_errors);
-    godot::ClassDB::bind_method(godot::D_METHOD("clear_machine_error",
-        "machine_id"), &GDTickSystem::clear_machine_error);
 
     godot::ClassDB::bind_method(godot::D_METHOD("get_dirty_chunks"),
         &GDTickSystem::get_dirty_chunks);
@@ -638,6 +831,38 @@ void GDTickSystem::_bind_methods() {
         godot::PropertyInfo(godot::Variant::FLOAT, "old_temp"),
         godot::PropertyInfo(godot::Variant::FLOAT, "new_temp"),
         godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+
+    // Ecosystem signals.
+    ADD_SIGNAL(godot::MethodInfo("creature_spawned",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "species_key"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_despawned",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "species_key"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_damaged",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "damage"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "remaining_health"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_killed",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
 }
 
 void GDTickSystem::subscribe_to_event_bus() {
@@ -829,6 +1054,50 @@ void GDTickSystem::subscribe_to_event_bus() {
                 e.float_data.at("old_temp"),
                 e.float_data.at("new_temp"),
                 godot::String(e.source_dimension.c_str()));
+        }));
+
+    // --- Ecosystem event subscriptions ---
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_SPAWNED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_spawned",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("species_key").c_str()),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_DESPAWNED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_despawned",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("species_key").c_str()),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_DAMAGED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_damaged",
+                static_cast<int64_t>(e.source_id),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                static_cast<float>(e.float_data.at("damage")),
+                static_cast<float>(e.float_data.at("remaining_health")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_KILLED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_killed",
+                static_cast<int64_t>(e.source_id),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
         }));
 }
 

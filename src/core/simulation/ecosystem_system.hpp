@@ -7,6 +7,7 @@
 #include "population_cell.hpp"
 #include "ecosystem_params.hpp"
 #include "season_def.hpp"
+#include "creature_species.hpp"
 
 namespace science_and_theology {
 
@@ -46,8 +47,10 @@ public:
     SIMULATION_SYSTEM_NAME(EcosystemSystem, "EcosystemSystem")
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     // Runs after Season (priority 6) so season is current.
@@ -62,6 +65,12 @@ public:
     const EcosystemParams& params() const { return params_; }
 
     void set_params(const EcosystemParams& p) { params_ = p; }
+
+    // --- Species registry ---
+
+    // Access the creature species registry.
+    CreatureSpeciesRegistry& species_registry() { return species_registry_; }
+    const CreatureSpeciesRegistry& species_registry() const { return species_registry_; }
 
     // --- Population cell access ---
 
@@ -135,6 +144,46 @@ public:
     // Handles wandering, fleeing, and position updates.
     void tick_proxies(const ChunkKey& chunk, int64_t tick, float delta);
 
+    // --- Player combat (hunting) ---
+
+    // Result of an attack attempt on a proxy creature.
+    struct AttackResult {
+        // Whether the attack hit a valid creature.
+        bool hit = false;
+        // Whether the creature was killed by this attack.
+        bool killed = false;
+        // The entity ID of the attacked creature (0 if miss).
+        uint64_t creature_id = 0;
+        // Species ID of the attacked creature.
+        uint16_t species_id = 0;
+        // Damage dealt (clamped to remaining health).
+        float damage_dealt = 0.0f;
+        // Health remaining after damage [0, 1].
+        float remaining_health = 0.0f;
+        // Chunk key where the creature resides.
+        ChunkKey chunk_key;
+    };
+
+    // Attempt to attack a creature near the player's look direction.
+    // player_pos: player world position (x, y, z packed into float3).
+    // look_dir: normalized player look direction.
+    // reach: maximum attack distance in blocks.
+    // damage: damage amount [0, 1] to apply.
+    // tick: current simulation tick.
+    // Returns AttackResult with hit/kill info.
+    AttackResult attack_creature(
+        const std::string& dimension,
+        float player_x, float player_y, float player_z,
+        float look_dir_x, float look_dir_y, float look_dir_z,
+        float reach, float damage, int64_t tick);
+
+    // Apply damage to a specific creature by EntityId.
+    // Returns AttackResult (hit=false if entity not found or not a creature).
+    // This is the lower-level API used by attack_creature() internally
+    // and can also be called directly for targeted effects.
+    AttackResult apply_damage_to_creature(
+        EntityId creature_id, float damage, int64_t tick);
+
     // --- Diagnostics ---
 
     // Returns the total vegetation density across all tracked chunks.
@@ -145,6 +194,19 @@ public:
 
     // Returns the total predator density across all tracked chunks.
     float total_predator() const;
+
+    // --- Persistence ---
+
+    // Sync the in-memory PopulationCell for a chunk to its ChunkData
+    // so that it will be included in the next save.
+    void sync_population_to_chunk(const ChunkKey& key);
+
+    // Sync all tracked population cells to their ChunkData.
+    void sync_all_populations_to_chunks();
+
+    // Restore population cells from ChunkData that have persisted
+    // ecosystem data. Called after world load.
+    void restore_populations_from_chunks();
 
 private:
     // Advance the population equations for a single cell by dt ticks.
@@ -179,6 +241,12 @@ private:
     // Compute the desired number of proxy creatures for a given density.
     int density_to_proxy_count(float density, float min_threshold) const;
 
+    // Select a random species ID for a given role in a given biome.
+    // Falls back to the first registered species of that role if
+    // the biome has no species list configured.
+    uint16_t pick_species_for_biome(
+        CreatureRole role, uint8_t biome_type) const;
+
     // Compute a random spawn position within a chunk.
     void random_spawn_position_in_chunk(
         const ChunkKey& chunk,
@@ -199,8 +267,30 @@ private:
         CreatureBlockEntityState& creature,
         float speed, float dt) const;
 
+    // Kill a proxy creature: remove from registry, remove from
+    // proxy group, add hunting pressure, emit events.
+    void kill_proxy_creature(
+        EntityId creature_id, const ChunkKey& chunk,
+        CreatureRole role, uint16_t species_id, int64_t tick);
+
+    // Find the chunk key that contains a given world position.
+    ChunkKey chunk_key_for_position(
+        const std::string& dimension,
+        float world_x, float world_y, float world_z) const;
+
+    // Infer biome type from chunk terrain material composition.
+    // Scans surface-level cells and classifies by dominant material.
+    uint8_t infer_biome_type(const ChunkKey& key) const;
+
+    // Register default BiomeOverride entries with species lists
+    // for each ecosystem_biome constant.
+    void register_default_biome_overrides();
+
     // Ecosystem parameters (tunable at runtime).
     EcosystemParams params_;
+
+    // Creature species definitions (data-driven).
+    CreatureSpeciesRegistry species_registry_;
 
     // Per-chunk population data. Owned by this system (方案B).
     std::unordered_map<ChunkKey, PopulationCell> populations_;

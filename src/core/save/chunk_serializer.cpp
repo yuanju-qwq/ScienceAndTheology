@@ -75,6 +75,12 @@ std::vector<uint8_t> ChunkSerializer::serialize(
         write_block_entity(buf, be);
     }
 
+    // Population cell (ecosystem data, version 6+).
+    write_uint8(buf, chunk.has_population_cell ? 1 : 0);
+    if (chunk.has_population_cell) {
+        write_population_cell(buf, chunk.population_cell);
+    }
+
     return buf;
 }
 
@@ -206,6 +212,20 @@ bool ChunkSerializer::deserialize(
         }
     }
 
+    // Population cell (ecosystem data, version 6+).
+    if (version >= 6) {
+        uint8_t has_pop;
+        if (!read_uint8(data, offset, has_pop)) return false;
+        chunk.has_population_cell = (has_pop != 0);
+        if (chunk.has_population_cell) {
+            if (!read_population_cell(data, offset, chunk.population_cell)) {
+                return false;
+            }
+        }
+    } else {
+        chunk.has_population_cell = false;
+    }
+
     return true;
 }
 
@@ -231,6 +251,11 @@ void ChunkSerializer::write_uint32(std::vector<uint8_t>& buf, uint32_t value) {
 }
 
 void ChunkSerializer::write_uint64(std::vector<uint8_t>& buf, uint64_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    buf.insert(buf.end(), bytes, bytes + sizeof(value));
+}
+
+void ChunkSerializer::write_float(std::vector<uint8_t>& buf, float value) {
     const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
     buf.insert(buf.end(), bytes, bytes + sizeof(value));
 }
@@ -277,6 +302,14 @@ bool ChunkSerializer::read_uint32(const std::vector<uint8_t>& data,
 
 bool ChunkSerializer::read_uint64(const std::vector<uint8_t>& data,
                                   size_t& offset, uint64_t& out) {
+    if (offset + sizeof(out) > data.size()) return false;
+    std::memcpy(&out, &data[offset], sizeof(out));
+    offset += sizeof(out);
+    return true;
+}
+
+bool ChunkSerializer::read_float(const std::vector<uint8_t>& data,
+                                 size_t& offset, float& out) {
     if (offset + sizeof(out) > data.size()) return false;
     std::memcpy(&out, &data[offset], sizeof(out));
     offset += sizeof(out);
@@ -469,6 +502,48 @@ bool ChunkSerializer::read_block_entity(
 
     if (!read_uint32(data, offset, entity.owned_cell_count)) return false;
 
+    return true;
+}
+
+// --- Population cell helpers ---
+
+void ChunkSerializer::write_population_cell(
+    std::vector<uint8_t>& buf,
+    const PopulationCell& cell) {
+    write_float(buf, cell.vegetation_density);
+    write_float(buf, cell.herbivore_density);
+    write_float(buf, cell.predator_density);
+    write_float(buf, cell.soil_fertility);
+    write_float(buf, cell.water_availability);
+    write_float(buf, cell.dead_biomass);
+    write_uint8(buf, cell.biome_type);
+    // v7: hunting pressure fields.
+    write_float(buf, cell.hunting_pressure_herb);
+    write_float(buf, cell.hunting_pressure_pred);
+}
+
+bool ChunkSerializer::read_population_cell(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    PopulationCell& cell) {
+    if (!read_float(data, offset, cell.vegetation_density)) return false;
+    if (!read_float(data, offset, cell.herbivore_density)) return false;
+    if (!read_float(data, offset, cell.predator_density)) return false;
+    if (!read_float(data, offset, cell.soil_fertility)) return false;
+    if (!read_float(data, offset, cell.water_availability)) return false;
+    if (!read_float(data, offset, cell.dead_biomass)) return false;
+    uint8_t biome;
+    if (!read_uint8(data, offset, biome)) return false;
+    cell.biome_type = biome;
+    // v7: hunting pressure fields. If not present (v6), default to 0.
+    if (!read_float(data, offset, cell.hunting_pressure_herb)) {
+        cell.hunting_pressure_herb = 0.0f;
+        return true;
+    }
+    if (!read_float(data, offset, cell.hunting_pressure_pred)) {
+        cell.hunting_pressure_pred = 0.0f;
+        return true;
+    }
     return true;
 }
 

@@ -1,4 +1,6 @@
 #include "tree_growth_system.hpp"
+#include "ecosystem_system.hpp"
+#include "population_cell.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -18,7 +20,8 @@ void TreeGrowthSystem::initialize(WorldData* world, EventBus* bus) {
     event_bus_ = bus;
 }
 
-void TreeGrowthSystem::tick_active(const ChunkKey& chunk, float delta) {
+void TreeGrowthSystem::tick_active(const ChunkKey& chunk, float delta,
+                                   const TickContext* ctx) {
     (void)delta;
     if (!world_) return;
 
@@ -35,14 +38,15 @@ void TreeGrowthSystem::tick_active(const ChunkKey& chunk, float delta) {
         if (growth_count_ >= kMaxGrowthPerTick) break;
 
         if (registry.get_entity_type(entity_id) == BlockEntityType::TREE) {
-            if (try_grow_tree(entity_id, chunk.dimension_id, tick)) {
+            if (try_grow_tree(entity_id, chunk.dimension_id, tick, ctx)) {
                 ++growth_count_;
             }
         }
     }
 }
 
-void TreeGrowthSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void TreeGrowthSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                    const TickContext* ctx) {
     (void)chunk;
     (void)delta;
     // Trees do not grow in sleeping chunks.
@@ -57,7 +61,8 @@ void TreeGrowthSystem::shutdown() {
 bool TreeGrowthSystem::try_grow_tree(
     EntityId entity_id,
     const std::string& dimension_id,
-    int64_t current_tick) {
+    int64_t current_tick,
+    const TickContext* ctx) {
     auto& registry = world_->block_entity_registry();
     TreeBlockEntityState* state = registry.get_tree_state_mut(entity_id);
     if (!state) return false;
@@ -73,16 +78,58 @@ bool TreeGrowthSystem::try_grow_tree(
     const TreeSpeciesDef* species = config->find_tree_species(state->species_key);
     if (!species) return false;
 
-    // Check if enough ticks have elapsed since the last growth transition.
-    const int64_t ticks_required = (state->growth_stage == TreeGrowthStage::SAPLING)
-        ? species->ticks_to_young
-        : species->ticks_to_mature;
+    // --- Ecosystem fertility/water growth rate modifier ---
+    // Base ticks required for this transition.
+    const int64_t base_ticks_required =
+        (state->growth_stage == TreeGrowthStage::SAPLING)
+            ? species->ticks_to_young
+            : species->ticks_to_mature;
+
+    // Query ecosystem PopulationCell for this tree's chunk.
+    // Fertility and water modulate effective growth speed:
+    //   effective_elapsed = elapsed * fertility_factor * water_factor
+    //   fertility_factor = 0.3 + 0.7 * soil_fertility  (range 0.3x ~ 1.0x)
+    //   water_factor     = 0.3 + 0.7 * water_availability (range 0.3x ~ 1.0x)
+    // In poor conditions, trees grow very slowly (up to ~11x longer).
+    float fertility_factor = 1.0f;
+    float water_factor = 1.0f;
+
+    if (ctx && ctx->ecosystem) {
+        // Get the root position to determine the chunk.
+        const BlockEntityPlacement* placement = registry.get_placement(entity_id);
+        if (placement) {
+            constexpr int kChunkSize = 32;
+            const int cx = static_cast<int>(
+                std::floor(static_cast<float>(placement->root_x) / kChunkSize));
+            const int cy = static_cast<int>(
+                std::floor(static_cast<float>(placement->root_y) / kChunkSize));
+            const int cz = static_cast<int>(
+                std::floor(static_cast<float>(placement->root_z) / kChunkSize));
+
+            ChunkKey key(dimension_id, cx, cy, cz);
+            const PopulationCell* cell =
+                ctx->ecosystem->get_population_cell(key);
+            if (cell) {
+                fertility_factor = 0.3f + 0.7f * cell->soil_fertility;
+                water_factor = 0.3f + 0.7f * cell->water_availability;
+            }
+        }
+    }
+
+    // Effective ticks required: scale base by inverse of growth modifiers.
+    // Lower fertility/water → higher effective ticks required.
+    const float growth_modifier = fertility_factor * water_factor;
+    const int64_t effective_ticks_required = (growth_modifier > 0.001f)
+        ? static_cast<int64_t>(
+              std::ceil(static_cast<float>(base_ticks_required) / growth_modifier))
+        : base_ticks_required * 100;
+
     const int64_t elapsed = current_tick - state->last_growth_tick;
-    if (elapsed < ticks_required) {
+    if (elapsed < effective_ticks_required) {
         return false;
     }
 
-    // Get the root position.
+    // Get the root position (may already have been fetched above).
     const BlockEntityPlacement* placement = registry.get_placement(entity_id);
     if (!placement) return false;
 

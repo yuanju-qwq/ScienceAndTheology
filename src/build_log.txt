@@ -1,0 +1,8 @@
+﻿cmake : Error: could not load cache
+所在位置 行:1 字符: 42
++ ... nceAndTheology\src; cmake --build build --config Release 2>&1 | Out-F ...
++                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Error: could not load cache:Strin 
+   g) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

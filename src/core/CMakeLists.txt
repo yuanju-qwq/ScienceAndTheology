@@ -98,6 +98,8 @@ target_sources(snt_core PRIVATE
     simulation/ecosystem_params.hpp
     simulation/ecosystem_system.hpp
     simulation/ecosystem_system.cpp
+    simulation/creature_species.hpp
+    simulation/creature_species.cpp
     simulation/season_def.hpp
     simulation/season_system.hpp
     simulation/season_system.cpp

@@ -11,7 +11,8 @@ void DayNightSystem::initialize(WorldData* world, EventBus* bus) {
     event_bus_ = bus;
 }
 
-void DayNightSystem::tick_active(const ChunkKey& chunk, float delta) {
+void DayNightSystem::tick_active(const ChunkKey& chunk, float delta,
+                                 const TickContext* ctx) {
     (void)delta;
     if (!world_) return;
 
@@ -46,7 +47,8 @@ void DayNightSystem::tick_active(const ChunkKey& chunk, float delta) {
     state_ = compute_day_night_state(tod, twilight);
 }
 
-void DayNightSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void DayNightSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                  const TickContext* ctx) {
     (void)chunk;
     (void)delta;
     // Day/night is global per-dimension; no per-chunk work in sleeping chunks.

@@ -57,6 +57,7 @@ struct TerrainCell {
     CellFluidId fluid_type = kInvalidCellFluidId;
     int16_t fluid_mass = 0;          // 0 ~ kCellFluidCapacity (mB)
     int16_t fluid_temperature = 300; // Kelvin
+    bool fluid_is_gas = false;       // true = gas (no gravity, 6-dir diffusion)
 
     // --- Solid block queries ---
     bool is_walkable() const { return flags & TF_WALKABLE; }
@@ -82,7 +83,8 @@ struct TerrainCell {
 
     // Attempts to insert fluid into this cell.
     // Returns the amount actually inserted.
-    int16_t insert_fluid(CellFluidId fluid, int16_t to_insert) {
+    int16_t insert_fluid(CellFluidId fluid, int16_t to_insert,
+                         bool is_gas = false) {
         if (to_insert <= 0) return 0;
         if (fluid_type != kInvalidCellFluidId && fluid_type != fluid) return 0;
         int16_t space = fluid_remaining_space();
@@ -90,6 +92,7 @@ struct TerrainCell {
         fluid_mass += inserted;
         if (fluid_mass > 0 && fluid_type == kInvalidCellFluidId) {
             fluid_type = fluid;
+            fluid_is_gas = is_gas;
         }
         return inserted;
     }
@@ -112,6 +115,7 @@ struct TerrainCell {
         fluid_type = kInvalidCellFluidId;
         fluid_mass = 0;
         fluid_temperature = 300;
+        fluid_is_gas = false;
     }
 };
 

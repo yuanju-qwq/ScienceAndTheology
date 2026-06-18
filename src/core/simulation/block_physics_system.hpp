@@ -30,8 +30,10 @@ public:
     SIMULATION_SYSTEM_NAME(BlockPhysicsSystem, "BlockPhysicsSystem")
 
     void initialize(WorldData* world, EventBus* bus) override;
-    void tick_active(const ChunkKey& chunk, float delta) override;
-    void tick_sleeping(const ChunkKey& chunk, float delta) override;
+    void tick_active(const ChunkKey& chunk, float delta,
+                     const TickContext* ctx = nullptr) override;
+    void tick_sleeping(const ChunkKey& chunk, float delta,
+                       const TickContext* ctx = nullptr) override;
     void shutdown() override;
 
     // Runs after DayNight (priority 0) and before machines (priority 2)

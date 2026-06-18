@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
+
+#include "creature_species.hpp"
 
 namespace science_and_theology {
 
@@ -151,6 +154,19 @@ struct EcosystemParams {
     // Maximum wander distance from current position (in blocks).
     float wander_radius = 8.0f;
 
+    // --- Hunting pressure parameters ---
+
+    // Amount added to hunting_pressure_herb/pred per player kill.
+    // This translates to an extra death rate of:
+    //   hunting_death = pressure * density
+    // So a pressure of 0.05 with density 0.3 gives 0.015 extra death/tick.
+    float hunting_kill_contribution = 0.05f;
+
+    // Per-tick decay multiplier for hunting pressure.
+    // 0.99 means pressure decays by 1% per tick.
+    // At 20 TPS, half-life ≈ 69 ticks ≈ 3.5 seconds.
+    float hunting_pressure_decay = 0.99f;
+
     // --- Per-biome overrides ---
 
     // Per-biome parameter overrides. If a biome has an entry,
@@ -177,6 +193,14 @@ struct EcosystemParams {
 
         // Maximum predator density cap for this biome.
         float max_predator = 1.0f;
+
+        // Species that spawn as herbivores in this biome.
+        // Empty = use default (first registered herbivore species).
+        std::vector<uint16_t> herb_species_ids;
+
+        // Species that spawn as predators in this biome.
+        // Empty = use default (first registered predator species).
+        std::vector<uint16_t> pred_species_ids;
     };
 
     static constexpr int kMaxBiomeOverrides = 16;

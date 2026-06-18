@@ -42,6 +42,9 @@ var _universe_manager: UniverseManager = null
 # Reference to the GDWorldData (obtained via ChunkRendererBridge).
 var _world_data: GDWorldData = null
 
+# Cached reference to the GDTickSystem (obtained from UniverseManager).
+var _tick_system: GDTickSystem = null
+
 
 func _ready() -> void:
 	pass
@@ -53,6 +56,7 @@ func _ready() -> void:
 func setup(universe_manager: UniverseManager, world_data: GDWorldData) -> void:
 	_universe_manager = universe_manager
 	_world_data = world_data
+	_tick_system = universe_manager._tick_system
 
 
 # --- Full universe save ---
@@ -71,7 +75,11 @@ func save_universe(save_dir: String) -> bool:
 		push_warning("UniverseSaveManager: failed to write universe header")
 		return false
 
-	# 2. Save all loaded planets' chunk data.
+	# 2. Sync ecosystem population data to ChunkData before serialization.
+	if _tick_system != null:
+		_tick_system.sync_ecosystem_to_chunks()
+
+	# 3. Save all loaded planets' chunk data.
 	for planet in _universe_manager.get_landable_planets():
 		var dim := planet.dimension_id
 		if _universe_manager.is_planet_loaded(dim):
@@ -81,10 +89,10 @@ func save_universe(save_dir: String) -> bool:
 			else:
 				planet_save_completed.emit(dim)
 
-	# 3. Save universe metadata (JSON, for debugging).
+	# 4. Save universe metadata (JSON, for debugging).
 	_save_universe_meta(save_dir)
 
-	# 4. Save any planet summaries for unloaded planets (binary).
+	# 5. Save any planet summaries for unloaded planets (binary).
 	_save_all_summaries(save_dir)
 
 	save_completed.emit(save_dir)
@@ -128,6 +136,10 @@ func save_planet(save_dir: String, dimension_id: StringName) -> int:
 	if _world_data == null:
 		return -1
 
+	# Sync ecosystem population data to ChunkData before serialization.
+	if _tick_system != null:
+		_tick_system.sync_ecosystem_to_chunks()
+
 	var count := _world_data.save_dimension(save_dir, String(dimension_id))
 	if count >= 0:
 		_save_planet_summary(save_dir, dimension_id)
@@ -146,6 +158,9 @@ func load_planet(save_dir: String, dimension_id: StringName) -> int:
 
 	var count := _world_data.load_dimension(save_dir, String(dimension_id))
 	if count >= 0:
+		# Restore ecosystem population data from ChunkData after load.
+		if _tick_system != null:
+			_tick_system.restore_ecosystem_from_chunks()
 		planet_load_completed.emit(dimension_id)
 
 	return count

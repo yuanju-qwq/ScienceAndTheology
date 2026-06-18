@@ -23,9 +23,6 @@ public:
     void set_satiation_max(float max_val);
     void set_decay_rate(float rate);
 
-    // Eat food (legacy): restores satiation only.
-    float eat(float food_value);
-
     // Eat food with element essence: restores satiation + element essence.
     // food_dict keys: "food_value" (float), "elements" (Array of [element_id, value]).
     float eat_food(const godot::Dictionary& food_dict);

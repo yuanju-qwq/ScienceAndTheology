@@ -142,9 +142,6 @@ public:
     // Returns the actual satiation amount restored.
     float eat(const FoodDef& food);
 
-    // Legacy eat: restores satiation only (no essence).
-    float eat(float food_value);
-
     // Direct set (for save/load or admin commands).
     void set_satiation(float value);
 

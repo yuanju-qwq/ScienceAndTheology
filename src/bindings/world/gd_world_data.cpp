@@ -258,6 +258,7 @@ void GDWorldData::set_chunk_from_dict(
     PackedInt32Array fluid_types = data.get("fluid_types", PackedInt32Array());
     PackedInt32Array fluid_masses = data.get("fluid_masses", PackedInt32Array());
     PackedInt32Array fluid_temps = data.get("fluid_temps", PackedInt32Array());
+    PackedByteArray fluid_gas_flags = data.get("fluid_gas_flags", PackedByteArray());
 
     if (fluid_types.size() >= cell_count &&
         fluid_masses.size() >= cell_count &&
@@ -269,6 +270,10 @@ void GDWorldData::set_chunk_from_dict(
                 static_cast<int16_t>(fluid_masses[i]);
             chunk.terrain.cells[i].fluid_temperature =
                 static_cast<int16_t>(fluid_temps[i]);
+            if (fluid_gas_flags.size() > i) {
+                chunk.terrain.cells[i].fluid_is_gas =
+                    (fluid_gas_flags[i] != 0);
+            }
         }
     }
 
@@ -576,11 +581,13 @@ godot::Dictionary GDWorldData::terrain_to_dict(
     PackedInt32Array fluid_types;
     PackedInt32Array fluid_masses;
     PackedInt32Array fluid_temps;
+    PackedByteArray fluid_gas_flags;
     materials.resize(cell_count);
     flags.resize(cell_count);
     fluid_types.resize(cell_count);
     fluid_masses.resize(cell_count);
     fluid_temps.resize(cell_count);
+    fluid_gas_flags.resize(cell_count);
 
     for (int i = 0; i < cell_count; ++i) {
         materials[i] = static_cast<uint8_t>(terrain.cells[i].material);
@@ -588,6 +595,7 @@ godot::Dictionary GDWorldData::terrain_to_dict(
         fluid_types[i] = static_cast<int32_t>(terrain.cells[i].fluid_type);
         fluid_masses[i] = static_cast<int32_t>(terrain.cells[i].fluid_mass);
         fluid_temps[i] = static_cast<int32_t>(terrain.cells[i].fluid_temperature);
+        fluid_gas_flags[i] = terrain.cells[i].fluid_is_gas ? 1 : 0;
     }
 
     result["size_x"] = terrain.size_x;
@@ -598,6 +606,7 @@ godot::Dictionary GDWorldData::terrain_to_dict(
     result["fluid_types"] = fluid_types;
     result["fluid_masses"] = fluid_masses;
     result["fluid_temps"] = fluid_temps;
+    result["fluid_gas_flags"] = fluid_gas_flags;
 
     return result;
 }
@@ -786,6 +795,7 @@ godot::Dictionary GDWorldData::get_terrain_cell(
     d["fluid_type"] = static_cast<int>(cell.fluid_type);
     d["fluid_mass"] = static_cast<int>(cell.fluid_mass);
     d["fluid_temperature"] = static_cast<int>(cell.fluid_temperature);
+    d["fluid_is_gas"] = cell.fluid_is_gas;
     return d;
 }
 
@@ -995,40 +1005,6 @@ void GDWorldData::_drain_all_async_tasks() {
         pool->wait_for_task_completion(task_id);
     }
     active_native_tasks_.clear();
-}
-
-int64_t GDWorldData::save_world(const godot::String& save_dir) {
-    std::string dir_str = save_dir.utf8().get_data();
-    int count = SaveManager::save_world(dir_str, seed_, world_);
-    if (count < 0) {
-        UtilityFunctions::push_warning(
-            "GDWorldData: save_world failed for path: ", save_dir);
-    }
-    return static_cast<int64_t>(count);
-}
-
-int64_t GDWorldData::load_world(const godot::String& save_dir) {
-    _drain_all_async_tasks();
-    {
-        std::lock_guard<std::mutex> lock(async_results_mutex_);
-        async_results_ = std::queue<AsyncChunkResult>();
-        pending_async_chunks_.clear();
-    }
-
-    std::string dir_str = save_dir.utf8().get_data();
-
-    auto [ok, loaded_seed] = SaveManager::load_world(dir_str, world_);
-    if (!ok) {
-        UtilityFunctions::push_warning(
-            "GDWorldData: load_world failed for path: ", save_dir);
-        return -1;
-    }
-
-    // Update seed to match loaded world.
-    seed_ = loaded_seed;
-    rebuild_generator();
-
-    return loaded_seed;
 }
 
 godot::Array GDWorldData::list_saves(const godot::String& base_saves_dir) {
@@ -1419,10 +1395,6 @@ void GDWorldData::_bind_methods() {
                  "get_max_async_results_per_frame");
 
     // Save / load.
-    ClassDB::bind_method(D_METHOD("save_world", "save_dir"),
-                         &GDWorldData::save_world);
-    ClassDB::bind_method(D_METHOD("load_world", "save_dir"),
-                         &GDWorldData::load_world);
     ClassDB::bind_static_method("GDWorldData",
         D_METHOD("list_saves", "base_saves_dir"),
         &GDWorldData::list_saves);

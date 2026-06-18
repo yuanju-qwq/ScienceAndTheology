@@ -9,7 +9,8 @@ void MachineSystem::initialize(WorldData* world, EventBus* bus) {
     event_bus_ = bus;
 }
 
-void MachineSystem::tick_active(const ChunkKey& chunk, float delta) {
+void MachineSystem::tick_active(const ChunkKey& chunk, float delta,
+                                const TickContext* ctx) {
     if (!world_ || !event_bus_) return;
 
     auto* chunk_data = world_->get_chunk(
@@ -34,7 +35,8 @@ void MachineSystem::tick_active(const ChunkKey& chunk, float delta) {
     (void)delta;
 }
 
-void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
+void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta,
+                                 const TickContext* ctx) {
     if (!world_ || !event_bus_) return;
 
     auto* chunk_data = world_->get_chunk(

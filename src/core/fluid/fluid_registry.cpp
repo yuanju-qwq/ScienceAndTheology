@@ -106,6 +106,25 @@ void FluidRegistry::register_builtin_fluids() {
     // --- Other ---
     register_fluid({"mercury", "Mercury", "Hg", 234, false});
     register_fluid({"distilled_water", "Distilled Water", "H2O", 300, false});
+
+    // --- Phase transition links (must be after all fluids registered) ---
+    // Water evaporates at 373 K (100°C) into steam.
+    FluidId water_id = get_fluid_id("water");
+    FluidId steam_id = get_fluid_id("steam");
+    if (water_id != kInvalidFluidId && steam_id != kInvalidFluidId) {
+        FluidDefinition* water_def = const_cast<FluidDefinition*>(
+            get_fluid(water_id));
+        FluidDefinition* steam_def = const_cast<FluidDefinition*>(
+            get_fluid(steam_id));
+        if (water_def) {
+            water_def->evaporation_temp = 373;
+            water_def->evaporation_target = steam_id;
+        }
+        if (steam_def) {
+            steam_def->condensation_temp = 373;
+            steam_def->condensation_target = water_id;
+        }
+    }
 }
 
 } // namespace science_and_theology::gt
