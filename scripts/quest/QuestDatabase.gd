@@ -53,6 +53,7 @@ func _ready() -> void:
 
 # Load all quest content into the given GDQuestSystem node.
 # quest_system: a GDQuestSystem instance.
+@warning_ignore("unsafe_method_access")
 func load_content(quest_system: Node) -> void:
 	if _loaded:
 		return
@@ -144,6 +145,7 @@ func _quest(
 # Chapter registration
 # ============================================================
 
+@warning_ignore("unsafe_method_access")
 func _register_chapters() -> void:
 	_quest_system.register_chapter("stone_age", "Stone Age", "pickaxe.stone", 0)
 	_quest_system.register_chapter("bronze_age", "Bronze Age", "ingot.bronze", 1)
@@ -157,6 +159,7 @@ func _register_chapters() -> void:
 # Stone Age quests
 # ============================================================
 
+@warning_ignore("unsafe_method_access")
 func _register_stone_age_quests() -> void:
 	var chapter := "stone_age"
 
@@ -275,6 +278,7 @@ func _register_stone_age_quests() -> void:
 # Bronze Age quests
 # ============================================================
 
+@warning_ignore("unsafe_method_access")
 func _register_bronze_age_quests() -> void:
 	var chapter := "bronze_age"
 
@@ -305,6 +309,7 @@ func _register_bronze_age_quests() -> void:
 # Steam Age quests
 # ============================================================
 
+@warning_ignore("unsafe_method_access")
 func _register_steam_age_quests() -> void:
 	var chapter := "steam_age"
 

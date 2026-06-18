@@ -1,4 +1,5 @@
 @tool
+class_name TranslationValidator
 extends EditorPlugin
 
 # TranslationValidator — scans all title_key usage and validates .csv completeness
@@ -23,7 +24,6 @@ const COMMENT_PREFIX := "#"
 
 var _code_keys: Dictionary = {}   # key -> [file:line]
 var _csv_keys: Dictionary = {}    # locale -> {key -> line}
-var _title_key_assignments: Dictionary = {}  # key -> [file:line]
 
 
 func _enter_tree() -> void:
@@ -39,7 +39,7 @@ func _on_validate() -> void:
 
 
 static func validate() -> void:
-	var v := TranslationValidator.new()
+	var v: TranslationValidator = TranslationValidator.new()
 	v._run()
 	v.free()
 
@@ -94,23 +94,24 @@ func _parse_csv(path: String, file_name: String) -> void:
 			continue
 
 		var key := line.substr(0, comma_idx).strip_edges()
-		var value := line.substr(comma_idx + 1).strip_edges()
+		var _value := line.substr(comma_idx + 1).strip_edges()
 
 		if key.is_empty():
 			push_warning("TranslationValidator: %s:%d — empty key" % [file_name, line_num])
 			continue
 
-		if _csv_keys[locale].has(key):
+		var locale_dict: Dictionary = _csv_keys[locale]
+		if locale_dict.has(key):
 			push_warning("TranslationValidator: %s:%d — duplicate key '%s' (first at line %d)" %
-				[file_name, line_num, key, _csv_keys[locale][key]])
+				[file_name, line_num, key, locale_dict[key]])
 		else:
-			_csv_keys[locale][key] = line_num
+			locale_dict[key] = line_num
 
 	file.close()
 
 
 func _scan_gdscript_files() -> void:
-	for dir_path in SCRIPT_DIRS:
+	for dir_path: String in SCRIPT_DIRS:
 		_scan_directory(dir_path)
 
 
@@ -160,7 +161,8 @@ func _scan_file(path: String) -> void:
 			if key != null:
 				if not _code_keys.has(key):
 					_code_keys[key] = []
-				_code_keys[key].append("%s:%d" % [path.trim_prefix("res://"), line_num])
+				var key_refs: Array = _code_keys[key]
+				key_refs.append("%s:%d" % [path.trim_prefix("res://"), line_num])
 
 			tr_pos = line.find("tr(", close_paren)
 
@@ -168,14 +170,15 @@ func _scan_file(path: String) -> void:
 		var patterns := [
 			_title_key_assignment_regex(),
 		]
-		for pattern in patterns:
-			var match := pattern.search(line)
+		for pattern: RegEx in patterns:
+			var match: RegExMatch = pattern.search(line)
 			if match:
-				var key := match.get_string("key")
+				var key: String = match.get_string("key")
 				if key:
 					if not _code_keys.has(key):
 						_code_keys[key] = []
-					_code_keys[key].append("%s:%d" % [path.trim_prefix("res://"), line_num])
+					var key_refs: Array = _code_keys[key]
+					key_refs.append("%s:%d" % [path.trim_prefix("res://"), line_num])
 
 	file.close()
 
@@ -222,12 +225,12 @@ func _title_key_assignment_regex() -> RegEx:
 func _report_results() -> void:
 	print("\n=== Translation Validation Report ===")
 
-	var en_keys := _csv_keys.get("en", {})
-	var zh_keys := _csv_keys.get("zh", {})
+	var en_keys: Dictionary = _csv_keys.get("en", {})
+	var zh_keys: Dictionary = _csv_keys.get("zh", {})
 
 	# Check keys in code that are missing from en.csv
 	var missing_en: Array[String] = []
-	for key in _code_keys:
+	for key: String in _code_keys:
 		if not en_keys.has(key):
 			missing_en.append(key)
 
@@ -235,14 +238,14 @@ func _report_results() -> void:
 		missing_en.sort()
 		print("\n--- Keys used in code but MISSING from en.csv (%d) ---" % missing_en.size())
 		for key in missing_en:
-			var refs := _code_keys[key]
-			print("  %s  (used in: %s)" % [key, "; ".join(refs)])
+			var refs: Array = _code_keys[key]
+			print("  %s  (used in: %s)" % [key, "; ".join(PackedStringArray(refs))])
 	else:
 		print("\nAll code keys are present in en.csv ✓")
 
 	# Check keys missing from zh.csv
 	var missing_zh: Array[String] = []
-	for key in _code_keys:
+	for key: String in _code_keys:
 		if not zh_keys.has(key):
 			missing_zh.append(key)
 
@@ -250,14 +253,14 @@ func _report_results() -> void:
 		missing_zh.sort()
 		print("\n--- Keys used in code but MISSING from zh.csv (%d) ---" % missing_zh.size())
 		for key in missing_zh:
-			var refs := _code_keys[key]
-			print("  %s  (used in: %s)" % [key, "; ".join(refs)])
+			var refs: Array = _code_keys[key]
+			print("  %s  (used in: %s)" % [key, "; ".join(PackedStringArray(refs))])
 	else:
 		print("\nAll code keys are present in zh.csv ✓")
 
 	# Check unused keys in CSV (only report from en.csv)
 	var unused: Array[String] = []
-	for key in en_keys:
+	for key: String in en_keys:
 		if not _code_keys.has(key):
 			unused.append(key)
 

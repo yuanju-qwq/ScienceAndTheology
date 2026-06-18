@@ -32,11 +32,11 @@ func add_mechanism(mechanism: MapMechanismResource) -> void:
 func add_generated_mechanisms(mechanism_data: Array) -> int:
 	var added := 0
 
-	for entry in mechanism_data:
+	for entry: Variant in mechanism_data:
 		if not (entry is Dictionary):
 			continue
 
-		var mechanism := _make_mechanism_from_dict(entry)
+		var mechanism := _make_mechanism_from_dict(entry as Dictionary)
 		if mechanism == null or _has_mechanism_id(mechanism.mechanism_id):
 			continue
 
@@ -107,6 +107,7 @@ func get_mechanism(mechanism_id: StringName) -> MapMechanismResource:
 	return null
 
 
+@warning_ignore("unsafe_call_argument")
 func set_world_flag(flag_name: StringName, is_active: bool) -> void:
 	if flag_name == &"":
 		return
@@ -121,6 +122,7 @@ func set_world_flag(flag_name: StringName, is_active: bool) -> void:
 		world_flags_changed.emit()
 
 
+@warning_ignore("unsafe_call_argument")
 func is_world_flag_active(flag_name: StringName) -> bool:
 	if flag_name == &"":
 		return false
@@ -132,11 +134,12 @@ func get_save_data() -> Dictionary:
 	return _world_flags.duplicate(true)
 
 
+@warning_ignore("unsafe_call_argument")
 func load_save_data(save_data: Dictionary) -> void:
 	_world_flags.clear()
 
-	for flag_key in save_data.keys():
-		_world_flags[String(flag_key)] = bool(save_data[flag_key])
+	for flag_key: String in save_data.keys():
+		_world_flags[flag_key] = bool(save_data[flag_key])
 
 	_apply_world_state()
 	world_flags_changed.emit()
@@ -163,6 +166,7 @@ func _get_effect_value(effect: Dictionary, is_active: bool) -> Variant:
 	return effect.get("when_inactive", false)
 
 
+@warning_ignore("unsafe_call_argument")
 func _apply_effect(effect: Dictionary, value: Variant) -> void:
 	var effect_type := StringName(str(effect.get("type", "")))
 
@@ -231,6 +235,7 @@ func _has_mechanism_id(mechanism_id: StringName) -> bool:
 	return false
 
 
+@warning_ignore("unsafe_call_argument", "int_as_enum_without_cast")
 func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
 	var mechanism := MapMechanismResource.new()
 	mechanism.mechanism_id = StringName(str(data.get("mechanism_id", "")))
@@ -242,13 +247,13 @@ func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
 	mechanism.title_key = str(data.get("title_key", "ui.mechanism"))
 	mechanism.action_label = str(data.get("action_label", "Use Mechanism"))
 	mechanism.flag_name = StringName(str(data.get("flag_name", "")))
-	mechanism.activation_mode = int(data.get("activation_mode", MapMechanismResource.ActivationMode.INTERACT))
+	mechanism.activation_mode = int(data.get("activation_mode", MapMechanismResource.ActivationMode.INTERACT)) as MapMechanismResource.ActivationMode
 	mechanism.one_shot = bool(data.get("one_shot", true))
 	mechanism.required_flag = StringName(str(data.get("required_flag", "")))
 
 	var typed_effects: Array[Dictionary] = []
 	var effects: Array = data.get("effects", [])
-	for effect in effects:
+	for effect: Variant in effects:
 		if effect is Dictionary:
 			typed_effects.append(effect)
 	mechanism.effects = typed_effects

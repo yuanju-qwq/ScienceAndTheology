@@ -95,7 +95,7 @@ func make_placeholder_icon(color: Color, size: int = 20) -> ImageTexture:
 		for x in size:
 			if x == 0 or y == 0 or x == size - 1 or y == size - 1:
 				image.set_pixel(x, y, border_c)
-			elif (x / 4 + y / 4) % 2 == 0:
+			elif (int(x / 4.0) + int(y / 4.0)) % 2 == 0:
 				image.set_pixel(x, y, color)
 			else:
 				image.set_pixel(x, y, color.darkened(0.12))
@@ -120,7 +120,7 @@ func _reg(id: String, category: String, color: Color, title: String,
 
 	if not _category_order.has(category):
 		_category_order[category] = PackedStringArray()
-	var arr := _category_order[category] as PackedStringArray
+	var arr: PackedStringArray = _category_order[category]
 	_category_order[category] = arr + PackedStringArray([id])
 	return e
 
@@ -280,9 +280,9 @@ func _register_materials() -> void:
 		["wood",           "Wood",            0x8B5E3C, _STATE_SOLID,     0,   0,  0.5,  "C6H10O5",  "organic"],
 	]
 
-	for d in mat_data:
+	for d: Array in mat_data:
 		var suffix: String = d[0]
-		var name: String = d[1]
+		var entry_name: String = d[1]
 		var col: int = d[2]
 		var state: String = d[3]
 		var melt: int = d[4]
@@ -302,7 +302,7 @@ func _register_materials() -> void:
 			subtitle = subtype + " · " + state
 
 		# Build description.
-		var lines: Array[String] = [name + " (" + _formula_display(formula) + ")."]
+		var lines: Array[String] = [entry_name + " (" + _formula_display(formula) + ")."]
 		lines.append("State: " + state + ".")
 
 		if melt > 0:
@@ -321,7 +321,7 @@ func _register_materials() -> void:
 		if boil > 0:
 			props.append({"label": "Boiling Point", "value": _temp_str(boil)})
 
-		_reg(eid, "materials", color, name, subtitle, "\n".join(lines), props)
+		_reg(eid, "materials", color, entry_name, subtitle, "\n".join(lines), props)
 
 
 # ── Fluid registration (29 entries) ──────────────────────────────────────
@@ -358,9 +358,9 @@ func _register_fluids() -> void:
 		["distilled_water",   "Distilled Water",     0x3355FF, 300, false, "H2O"],
 	]
 
-	for d in fluid_data:
+	for d: Array in fluid_data:
 		var suffix: String = d[0]
-		var name: String = d[1]
+		var entry_name: String = d[1]
 		var col: int = d[2]
 		var temp: int = d[3]
 		var is_gas: bool = d[4]
@@ -371,7 +371,7 @@ func _register_fluids() -> void:
 		var state_str := "Gas" if is_gas else "Liquid"
 		var subtitle := state_str + " · Temperature: " + _temp_str(temp, true)
 
-		var lines: Array[String] = [name + " (" + _formula_display(formula) + ")."]
+		var lines: Array[String] = [entry_name + " (" + _formula_display(formula) + ")."]
 		lines.append("Type: " + state_str + ".")
 		lines.append("Standard temperature: " + _temp_str(temp, true) + ".")
 
@@ -381,7 +381,7 @@ func _register_fluids() -> void:
 			{"label": "Temperature", "value": _temp_str(temp, true)},
 		]
 
-		_reg(eid, "fluids", color, name, subtitle, "\n".join(lines), props)
+		_reg(eid, "fluids", color, entry_name, subtitle, "\n".join(lines), props)
 
 
 # ── Item registration ────────────────────────────────────────────────────
@@ -472,12 +472,12 @@ func _register_items() -> void:
 		[item_db.ITEM_GT_SAW, "GT Saw", 0xB0A090,
 			"A GregTech saw. Used for cutting and precision crafting."],
 	]
-	for t in gt_tools:
+	for t: Array in gt_tools:
 		var item_id: int = t[0]
 		var item_def: ItemDef = item_db.get_item(item_id)
 		if item_def:
 			var eid := "item.tool_" + str(item_id)
-			var icon: Texture2D = item_def.icon if item_def.icon else make_placeholder_icon(Color.hex(t[2]))
+			var icon: Texture2D = item_def.icon if item_def.icon else make_placeholder_icon(Color.hex(int(str(t[2]))))
 			var e := WikiEntry.new()
 			e.id = eid
 			e.category = "items"
@@ -488,7 +488,7 @@ func _register_items() -> void:
 			entries[eid] = e
 			if not _category_order.has("items"):
 				_category_order["items"] = PackedStringArray()
-			var arr := _category_order["items"] as PackedStringArray
+			var arr: PackedStringArray = _category_order["items"]
 			_category_order["items"] = arr + PackedStringArray([eid])
 
 
@@ -516,8 +516,8 @@ func _register_item_from_db(item_db: ItemDatabase, item_id: int, cat: String,
 	# Add tool stats if available.
 	var tool_stats: ToolDef = item_db.get_tool_stats(item_id)
 	if tool_stats:
-		var tier_names := {0: "Wood", 1: "Stone", 2: "Iron", 3: "Diamond"}
-		var type_names := {0: "N/A", 1: "Pickaxe", 2: "Axe", 3: "Shovel", 4: "Sword"}
+		var _tier_names := {0: "Wood", 1: "Stone", 2: "Iron", 3: "Diamond"}
+		var _type_names := {0: "N/A", 1: "Pickaxe", 2: "Axe", 3: "Shovel", 4: "Sword"}
 		if tool_stats.speed > 0:
 			props.append({"label": "Speed", "value": "%.1f" % tool_stats.speed})
 		if tool_stats.durability > 0:
@@ -532,7 +532,7 @@ func _register_item_from_db(item_db: ItemDatabase, item_id: int, cat: String,
 	entries[eid] = e
 	if not _category_order.has(cat):
 		_category_order[cat] = PackedStringArray()
-	var arr := _category_order[cat] as PackedStringArray
+	var arr: PackedStringArray = _category_order[cat]
 	_category_order[cat] = arr + PackedStringArray([eid])
 
 
@@ -543,7 +543,7 @@ func _register_magic() -> void:
 		"fire":  0xFF4400, "water": 0x4488FF, "earth": 0x886633, "air":   0xCCFFCC,
 		"light": 0xFFFF88, "dark":  0x444466, "order": 0xFFFFFF, "chaos": 0x664488,
 	}
-	for element in rune_colors:
+	for element: String in rune_colors:
 		var ename: String = element
 		var col: int = rune_colors[element]
 		var cap_name := ename[0].to_upper() + ename.substr(1)

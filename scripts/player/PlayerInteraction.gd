@@ -34,6 +34,7 @@ func process_cooldown(delta: float) -> void:
 # Uses server-side distance + view cone detection (no Area3D needed).
 # Damage is driven by the equipped weapon's attack_damage stat.
 # Returns true if an attack was attempted (hit or miss).
+@warning_ignore("unsafe_call_argument")
 func try_attack_creature() -> bool:
 	if _player._input_locked or _attack_cooldown_remaining > 0.0:
 		return false
@@ -94,6 +95,7 @@ func try_attack_creature() -> bool:
 
 # Called when a creature is killed by the player.
 # Handles loot drops from the species' drop table.
+@warning_ignore("unsafe_call_argument")
 func _on_creature_killed(result: Dictionary) -> void:
 	var species_id := int(result.get("species_id", 0))
 	_debug("creature killed! species_id=%d" % species_id)
@@ -140,6 +142,7 @@ func _on_creature_killed(result: Dictionary) -> void:
 		_debug("  drop: %s x%d (item_id=%d)" % [item_key, count, item_id])
 
 
+@warning_ignore("unsafe_call_argument")
 func try_mine_target(target: Dictionary) -> bool:
 	var command_server := _player.get_command_server()
 	if command_server == null or target.is_empty():
@@ -166,7 +169,7 @@ func try_mine_target(target: Dictionary) -> bool:
 	if world:
 		var chunk: Vector3i = target.get("chunk", Vector3i.ZERO)
 		var local: Vector3i = target.get("local", Vector3i.ZERO)
-		world.refresh_cell(target.get("dimension", OVERWORLD), chunk, local)
+		world.refresh_cell(StringName(target.get("dimension", OVERWORLD)), chunk, local)
 
 	# Emit block_mined signal for quest system.
 	var block_key := _resolve_block_key(material)
@@ -191,6 +194,7 @@ func try_place_or_interact(target: Dictionary) -> bool:
 	return false
 
 
+@warning_ignore("unsafe_call_argument")
 func try_place_world_object(target: Dictionary) -> bool:
 	var command_server := _player.get_command_server()
 	var equipment: GDPlayerEquipment = _player.equipment
@@ -254,7 +258,7 @@ func try_use_connector(auto_only: bool) -> bool:
 
 	var dimension := _player.get_current_dimension()
 	var cell := _player.get_current_cell()
-	var connector = connector_manager.get_connector_at(dimension, cell)
+	var connector: MapConnector = connector_manager.get_connector_at(dimension, cell)
 	if connector == null:
 		return false
 	if auto_only and not connector.activates_on_enter():
@@ -263,7 +267,7 @@ func try_use_connector(auto_only: bool) -> bool:
 		return false
 
 	var target_dimension: StringName = connector.get_target_dimension_for(dimension, cell)
-	var target_cell: Vector3i = connector.get_target_cell_for(dimension, cell)
+	var _target_cell: Vector3i = connector.get_target_cell_for(dimension, cell)
 	if target_dimension == &"":
 		return false
 
@@ -281,7 +285,7 @@ func try_activate_mechanism(auto_only: bool) -> bool:
 
 	var dimension := _player.get_current_dimension()
 	var cell := _player.get_current_cell()
-	var mechanism = mechanism_manager.get_mechanism_at(dimension, cell)
+	var mechanism: MapMechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 	if mechanism == null:
 		return false
 	if auto_only and not mechanism.activates_on_enter():
@@ -296,11 +300,12 @@ func try_activate_mechanism(auto_only: bool) -> bool:
 	return true
 
 
+@warning_ignore("unsafe_call_argument")
 func try_open_furnace(auto_only: bool) -> bool:
 	if auto_only:
 		return false
 	var furnace_manager: FurnaceManager = _player.furnace_manager
-	var furnace_ui = _player.furnace_ui
+	var furnace_ui: FurnaceUI = _player.furnace_ui
 	if furnace_manager == null or furnace_ui == null:
 		return false
 	var cell := _player.get_current_cell()
@@ -319,10 +324,10 @@ func try_open_furnace(auto_only: bool) -> bool:
 		cell + Vector3i.BACK,
 	])
 
-	for candidate in candidates:
+	for candidate: Vector3i in candidates:
 		if not furnace_manager.has_furnace(dimension, candidate):
 			continue
-		var data = furnace_manager.get_furnace(dimension, candidate)
+		var data: GDFurnaceData = furnace_manager.get_furnace(dimension, candidate)
 		furnace_ui.open(data, dimension, candidate, furnace_manager)
 		_player._set_input_locked(true)
 		_cooldown_remaining = _player.connector_cooldown
@@ -330,13 +335,14 @@ func try_open_furnace(auto_only: bool) -> bool:
 	return false
 
 
+@warning_ignore("unsafe_call_argument")
 func get_nearby_station() -> String:
 	var world: ChunkRendererBridge = _player.world
 	if world == null:
 		return ""
 	var cell := _player.get_current_cell()
 	var dimension := _player.get_current_dimension()
-	for offset in [
+	for offset: Vector3i in [
 		Vector3i.ZERO,
 		Vector3i.RIGHT,
 		Vector3i.LEFT,
@@ -355,6 +361,7 @@ func get_nearby_station() -> String:
 
 # Resolve a block key from a material ID for quest conditions.
 # Strips the "snt:" prefix from material keys for cleaner matching.
+@warning_ignore("unsafe_call_argument")
 func _resolve_block_key(material_id: int) -> String:
 	if _player == null or _player.world == null:
 		return ""
@@ -414,7 +421,7 @@ func try_use_station_blueprint() -> bool:
 	if equipment == null:
 		return false
 
-	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var held_id: int = equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
 	if held_id != ItemDatabase.ITEM_STATION_BLUEPRINT:
 		return false
 
@@ -435,6 +442,7 @@ func try_use_station_blueprint() -> bool:
 
 
 # Called when the player confirms station creation in the setup UI.
+@warning_ignore("unsafe_call_argument")
 func _on_station_confirmed(params: Dictionary) -> void:
 	_player._set_input_locked(false)
 
@@ -464,9 +472,9 @@ func _on_station_confirmed(params: Dictionary) -> void:
 	# Consume the blueprint item.
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment != null:
-		var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+		var held_id: int = equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
 		if held_id == ItemDatabase.ITEM_STATION_BLUEPRINT and _cached_blueprint_slot >= 0:
-			_player.inventory.remove_slot(_cached_blueprint_slot)
+			_player.inventory.set_slot(_cached_blueprint_slot, 0, 0, -1)
 			_cached_blueprint_slot = -1
 			_player.inventory_changed.emit()
 

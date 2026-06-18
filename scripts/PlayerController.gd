@@ -4,7 +4,9 @@
 class_name PlayerController
 extends CharacterBody3D
 
+@warning_ignore("unused_signal")
 signal connector_used(connector_id: int, from_dimension: StringName, to_dimension: StringName)
+@warning_ignore("unused_signal")
 signal mechanism_activated(mechanism_id: StringName, dimension: StringName)
 signal hotbar_changed(index: int)
 signal inventory_changed
@@ -14,6 +16,7 @@ const GRAVITY_STRENGTH := 22.0
 const JUMP_VELOCITY := 7.0
 const CLIMB_SPEED := 3.0
 const OVERWORLD: StringName = &"overworld"
+const MAIN_MENU_SCENE_PATH := "res://MainMenu.tscn"
 
 # Creative fly mode — toggled via /fly console command.
 var fly_mode := false:
@@ -82,6 +85,9 @@ var selected_hotbar := 0
 @onready var camera: Camera3D = get_node_or_null(camera_path) as Camera3D
 @onready var selection_box: Node3D = get_node_or_null(selection_path) as Node3D
 
+# Exit menu (pause menu) — created programmatically and added to the UI layer.
+var exit_menu: ExitMenu = null
+
 # Sub-modules for separated concerns.
 var _interaction: PlayerInteraction
 var _ui_connector: PlayerUIConnector
@@ -140,6 +146,7 @@ func _ready() -> void:
 	_ui_connector.connect_ui()
 	_connect_console()
 	_connect_quest_system()
+	_setup_exit_menu()
 	_update_camera_rotation()
 	_select_hotbar(selected_hotbar)
 	_last_cell = get_current_cell()
@@ -163,27 +170,43 @@ func _unhandled_input(event: InputEvent) -> void:
 	if console_ui and console_ui.is_open():
 		return
 
+	# ESC toggles the exit menu — handled even when input is locked (menu open).
+	if event is InputEventKey:
+		var key_event: InputEventKey = event
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_ESCAPE:
+			if exit_menu and exit_menu.is_open():
+				_close_exit_menu()
+				return
+			if not _input_locked:
+				_open_exit_menu()
+				return
+
 	if event is InputEventMouseMotion and _mouse_captured and not _input_locked:
-		rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
-		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
+		var motion: InputEventMouseMotion = event
+		rotate_y(-motion.relative.x * MOUSE_SENSITIVITY)
+		_pitch = clampf(_pitch - motion.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
 		_update_camera_rotation()
 		return
 
-	if event is InputEventKey and event.pressed and not event.echo and not _input_locked:
-		_handle_key(event)
-		return
+	if event is InputEventKey:
+		var key_event: InputEventKey = event
+		if key_event.pressed and not key_event.echo and not _input_locked:
+			_handle_key(key_event)
+			return
 
-	if event is InputEventMouseButton and event.pressed and not _input_locked:
-		if event.button_index == MOUSE_BUTTON_LEFT:
-			# Try creature attack first; fall back to block mining.
-			if not _interaction.try_attack_creature():
-				_interaction.try_mine_target(_target)
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			_interaction.try_place_or_interact(_target)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_select_hotbar((selected_hotbar - 1 + 9) % 9)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_select_hotbar((selected_hotbar + 1) % 9)
+	if event is InputEventMouseButton:
+		var mouse_event: InputEventMouseButton = event
+		if mouse_event.pressed and not _input_locked:
+			if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+				# Try creature attack first; fall back to block mining.
+				if not _interaction.try_attack_creature():
+					_interaction.try_mine_target(_target)
+			elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+				_interaction.try_place_or_interact(_target)
+			elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
+				_select_hotbar((selected_hotbar - 1 + 9) % 9)
+			elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+				_select_hotbar((selected_hotbar + 1) % 9)
 
 
 func _handle_key(event: InputEventKey) -> void:
@@ -203,11 +226,7 @@ func _handle_key(event: InputEventKey) -> void:
 		if _ui_connector.close_furnace_if_open():
 			return
 		_ui_connector.toggle_wiki()
-	elif key == KEY_I or key == KEY_ESCAPE:
-		if key == KEY_ESCAPE and _mouse_captured:
-			_mouse_captured = false
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			return
+	elif key == KEY_I:
 		if _ui_connector.close_furnace_if_open():
 			return
 		if wiki_ui and wiki_ui.visible:
@@ -265,10 +284,10 @@ func _handle_movement(delta: float) -> void:
 		return
 
 	var up := -_gravity_direction
-	var basis := global_transform.basis
-	var forward := -basis.z
+	var xform_basis := global_transform.basis
+	var forward := -xform_basis.z
 	forward = (forward - up * forward.dot(up)).normalized()
-	var right := basis.x
+	var right := xform_basis.x
 	right = (right - up * right.dot(up)).normalized()
 
 	var direction := (right * input_vector.x + forward * -input_vector.y).normalized()
@@ -300,10 +319,10 @@ func _handle_movement(delta: float) -> void:
 
 # Creative fly mode: 6DoF movement relative to camera.
 func _handle_fly_movement(delta: float) -> void:
-	var basis := global_transform.basis
-	var forward := -basis.z
-	var right := basis.x
-	var up := basis.y
+	var xform_basis := global_transform.basis
+	var forward := -xform_basis.z
+	var right := xform_basis.x
+	var up := xform_basis.y
 
 	var direction := Vector3.ZERO
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
@@ -330,10 +349,10 @@ func _handle_fly_movement(delta: float) -> void:
 
 # Zero-G movement (space, no fly mode): camera-relative with Space/Shift for up/down.
 func _handle_zero_g_movement(delta: float, input_vector: Vector2) -> void:
-	var basis := global_transform.basis
-	var forward := -basis.z
-	var right := basis.x
-	var up := basis.y
+	var xform_basis := global_transform.basis
+	var forward := -xform_basis.z
+	var right := xform_basis.x
+	var up := xform_basis.y
 
 	var direction := right * input_vector.x + forward * -input_vector.y
 	if Input.is_key_pressed(KEY_SPACE):
@@ -359,7 +378,7 @@ func _check_climbing() -> void:
 	var dimension := get_current_dimension()
 
 	var candidates := [cell, cell + Vector3i.UP]
-	for candidate in candidates:
+	for candidate: Vector3i in candidates:
 		var info := world.get_cell_info(candidate, dimension)
 		var data: Dictionary = info.get("data", {})
 		if data.get("is_climbable", false):
@@ -515,6 +534,7 @@ func _update_camera_rotation() -> void:
 		head.rotation.x = _pitch
 
 
+@warning_ignore("unsafe_call_argument")
 func _update_target() -> void:
 	_target.clear()
 	if camera == null or world == null:
@@ -587,6 +607,7 @@ func _get_equipped_tool_def() -> ToolDef:
 
 # --- Hotbar ---
 
+@warning_ignore("unsafe_call_argument")
 func _select_hotbar(index: int) -> void:
 	selected_hotbar = clampi(index, 0, 8)
 	var slot: Dictionary = inventory.get_slot(selected_hotbar) if inventory else {}
@@ -672,6 +693,60 @@ func _on_console_closed() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+# --- Exit menu (pause menu) ---
+
+func _setup_exit_menu() -> void:
+	exit_menu = ExitMenu.new()
+	exit_menu.name = "ExitMenu"
+	# Add to the UI CanvasLayer so it renders alongside other UIs.
+	var ui_layer := get_node_or_null(^"../UI")
+	if ui_layer != null:
+		ui_layer.add_child(exit_menu)
+	else:
+		add_child(exit_menu)
+	exit_menu.resume_requested.connect(_on_exit_menu_resume)
+	exit_menu.return_to_main_menu_requested.connect(_on_exit_menu_return_to_main)
+	exit_menu.quit_requested.connect(_on_exit_menu_quit)
+
+
+func _open_exit_menu() -> void:
+	if exit_menu == null:
+		return
+	# Close any open gameplay UIs first so the exit menu is the top overlay.
+	_ui_connector.close_furnace_if_open()
+	if wiki_ui and wiki_ui.visible:
+		wiki_ui.toggle()
+	if inventory_ui and inventory_ui.visible:
+		_ui_connector.toggle_inventory()
+	if crafting_ui and crafting_ui.visible:
+		_ui_connector.toggle_crafting()
+	if quest_ui and quest_ui.is_open():
+		_ui_connector.toggle_quest_book()
+	exit_menu.open()
+	_set_input_locked(true)
+
+
+func _close_exit_menu() -> void:
+	if exit_menu == null:
+		return
+	exit_menu.close()
+	_set_input_locked(false)
+	_mouse_captured = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+func _on_exit_menu_resume() -> void:
+	_close_exit_menu()
+
+
+func _on_exit_menu_return_to_main() -> void:
+	get_tree().change_scene_to_file(MAIN_MENU_SCENE_PATH)
+
+
+func _on_exit_menu_quit() -> void:
+	get_tree().quit()
+
+
 # --- Status label ---
 
 func _update_status_label() -> void:
@@ -708,6 +783,7 @@ func _update_status_label() -> void:
 
 # --- Quest system ---
 
+@warning_ignore("unsafe_method_access")
 func _connect_quest_system() -> void:
 	if quest_system == null:
 		return
@@ -742,6 +818,7 @@ func _quest_inventory_query(item_key: String) -> int:
 	return inventory.count_item(item_id)
 
 
+@warning_ignore("unsafe_method_access")
 func _on_quest_inventory_changed() -> void:
 	if quest_system == null:
 		return
@@ -749,6 +826,7 @@ func _on_quest_inventory_changed() -> void:
 	quest_system.on_inventory_changed(inv_callable)
 
 
+@warning_ignore("unsafe_method_access")
 func _on_quest_item_crafted(item_id: int, count: int) -> void:
 	if quest_system == null:
 		return
@@ -758,12 +836,14 @@ func _on_quest_item_crafted(item_id: int, count: int) -> void:
 	quest_system.on_item_crafted(key, count)
 
 
+@warning_ignore("unsafe_method_access")
 func _on_quest_block_mined(block_key: String) -> void:
 	if quest_system == null:
 		return
 	quest_system.on_block_mined(block_key, 1)
 
 
+@warning_ignore("unsafe_method_access")
 func _on_quest_machine_placed(machine_type: String) -> void:
 	if quest_system == null:
 		return

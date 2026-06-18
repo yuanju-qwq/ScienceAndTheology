@@ -24,9 +24,9 @@ var workbench_material_id: int = AIR_MATERIAL
 
 @export var world_data: GDWorldData = null
 @export var worldgen_config: Resource = null
-@export var seed: int = 0:
+@export var world_seed: int = 0:
 	set(value):
-		seed = value
+		world_seed = value
 		if world_data:
 			world_data.seed = value
 
@@ -114,7 +114,7 @@ func initialize() -> void:
 
 	if world_data == null:
 		world_data = GDWorldData.new()
-		world_data.seed = seed if seed != 0 else randi()
+		world_data.seed = world_seed if world_seed != 0 else randi()
 	if world_data:
 		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 
@@ -150,7 +150,7 @@ func initialize_for_universe(config: Resource, initial_dimension: StringName) ->
 
 	if world_data == null:
 		world_data = GDWorldData.new()
-		world_data.seed = seed if seed != 0 else randi()
+		world_data.seed = world_seed if world_seed != 0 else randi()
 	if world_data:
 		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 
@@ -302,6 +302,7 @@ func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vecto
 
 # Resolve runtime material IDs from the frozen worldgen config snapshot.
 # Must be called after worldgen_config is assigned to world_data.
+@warning_ignore("unsafe_method_access", "unsafe_call_argument")
 func _resolve_runtime_material_ids() -> void:
 	if worldgen_config == null:
 		push_warning("ChunkRendererBridge: cannot resolve runtime material IDs — no worldgen_config.")
@@ -346,14 +347,14 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	var visible_order: Array = result.get("visible_order", [])
 
 	# Ensure all wanted chunks are loaded (C++ only computes positions; loading is async).
-	for pos in wanted_visible.keys():
+	for pos: Vector3i in wanted_visible.keys():
 		_ensure_chunk_loaded(pos)
 
-	for key in _visible_chunks.keys():
+	for key: Vector3i in _visible_chunks.keys():
 		if not wanted_visible.has(key):
 			_remove_chunk_view(key)
 
-	for pos in visible_order:
+	for pos: Vector3i in visible_order:
 		if _visible_chunks.has(pos):
 			continue
 		if not _pending_view_queue.has(pos):
@@ -375,7 +376,7 @@ func _refresh_station_chunks() -> void:
 			_enqueue_chunk_view(chunk)
 
 	# Remove views for chunks that are no longer occupied.
-	for key in _visible_chunks.keys():
+	for key: Vector3i in _visible_chunks.keys():
 		var chunk_key: Vector3i = key
 		if not _active_station.is_chunk_occupied(chunk_key):
 			_remove_chunk_view(chunk_key)
@@ -443,6 +444,7 @@ func _process_visible_queue() -> void:
 
 # --- Chunk rendering (scene-tree operations, stays in GDScript) ---
 
+@warning_ignore("unsafe_call_argument")
 func _create_chunk_view(chunk: Vector3i) -> void:
 	var terrain := world_data.get_chunk_terrain(active_dimension, chunk.x, chunk.y, chunk.z)
 	if terrain.is_empty():
@@ -480,7 +482,7 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	full_node.name = "LOD0_Full"
 	root.add_child(full_node)
 
-	for material_id_key in greedy_mesh.keys():
+	for material_id_key: Variant in greedy_mesh.keys():
 		var mid: int = int(material_id_key)
 		var mesh_data: Dictionary = greedy_mesh[material_id_key]
 		_create_greedy_mesh_instance(full_node, mid, mesh_data, chunk_offset)
@@ -498,7 +500,7 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	simplified_node.visible = false
 	root.add_child(simplified_node)
 
-	for material_id_key in greedy_mesh.keys():
+	for material_id_key: Variant in greedy_mesh.keys():
 		var mid: int = int(material_id_key)
 		var mesh_data: Dictionary = greedy_mesh[material_id_key]
 		_create_greedy_mesh_instance(simplified_node, mid, mesh_data, chunk_offset)
@@ -547,6 +549,7 @@ func _create_greedy_mesh_instance(root: Node3D, material_id: int,
 
 
 # Create a single chunk-level collision body from exposed face triangles.
+@warning_ignore("integer_division")
 func _create_chunk_collision(root: Node3D, col_verts: PackedVector3Array,
 		col_indices: PackedInt32Array, chunk_offset: Vector3) -> void:
 	# Build triangle array for ConcavePolygonShape3D.
@@ -574,6 +577,7 @@ func _create_chunk_collision(root: Node3D, col_verts: PackedVector3Array,
 	root.add_child(static_body)
 
 
+@warning_ignore("unsafe_cast")
 func _remove_chunk_view(chunk: Vector3i) -> void:
 	var entry: Dictionary = _visible_chunks.get(chunk, {})
 	var node: Node = entry.get("root") as Node
@@ -586,7 +590,7 @@ func _remove_chunk_view(chunk: Vector3i) -> void:
 # Clear all chunk views, pending queue, and tracked chunks.
 # Used when switching dimensions or re-initializing the universe.
 func _clear_all_chunk_views() -> void:
-	for chunk in _visible_chunks.keys():
+	for chunk: Vector3i in _visible_chunks.keys():
 		_remove_chunk_view(chunk)
 	_visible_chunks.clear()
 	_pending_view_queue.clear()
@@ -595,6 +599,7 @@ func _clear_all_chunk_views() -> void:
 
 # --- Material cache ---
 
+@warning_ignore("unsafe_method_access")
 func _build_materials() -> void:
 	_materials.clear()
 	_material_cache.clear()
@@ -611,6 +616,7 @@ func _build_materials() -> void:
 const TERRAIN_BLOCK_SHADER := preload("res://resource/shaders/terrain_block.gdshader")
 
 
+@warning_ignore("unsafe_method_access", "unsafe_call_argument")
 func _get_material(material_id: int) -> Material:
 	if _material_cache.has(material_id):
 		return _material_cache[material_id]
@@ -753,6 +759,7 @@ func _refresh_lod_manager_from_universe() -> void:
 
 # Switch between LOD 0 (full) and LOD 1 (simplified) chunk views,
 # or hide chunks entirely when the proxy sphere is active (LOD 2+).
+@warning_ignore("unsafe_method_access")
 func _update_chunk_visibility_for_lod() -> void:
 	# In multi-planet mode, refresh LOD manager from UniverseManager.
 	if _universe_manager != null:
@@ -772,7 +779,7 @@ func _update_chunk_visibility_for_lod() -> void:
 	var show_simplified := lod_level == PlanetLodManager.LOD_SIMPLIFIED_MESH
 	var show_root := show_full or show_simplified
 
-	for chunk in _visible_chunks.keys():
+	for chunk: Vector3i in _visible_chunks.keys():
 		var entry: Dictionary = _visible_chunks[chunk]
 		var root: Node3D = entry.get("root")
 		var full: Node3D = entry.get("full")

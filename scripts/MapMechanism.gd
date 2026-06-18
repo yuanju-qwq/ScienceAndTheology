@@ -26,6 +26,7 @@ func is_at(target_dimension: StringName, target_cell_position: Vector3i) -> bool
 	return dimension == target_dimension and cell_position == target_cell_position
 
 
+@warning_ignore("unsafe_call_argument")
 func is_available(world_flags: Dictionary) -> bool:
 	if required_flag != &"" and not bool(world_flags.get(String(required_flag), false)):
 		return false

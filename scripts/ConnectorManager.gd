@@ -21,11 +21,11 @@ func add_connector(connector: MapConnectorResource) -> void:
 func add_generated_connectors(connector_data: Array) -> int:
 	var added := 0
 
-	for entry in connector_data:
+	for entry: Variant in connector_data:
 		if not (entry is Dictionary):
 			continue
 
-		var connector := _make_connector_from_dict(entry)
+		var connector := _make_connector_from_dict(entry as Dictionary)
 		if connector == null or _has_connector_id(connector.connector_id):
 			continue
 
@@ -151,6 +151,7 @@ func _has_connector_id(connector_id: int) -> bool:
 	return false
 
 
+@warning_ignore("unsafe_call_argument", "int_as_enum_without_cast")
 func _make_connector_from_dict(data: Dictionary) -> MapConnectorResource:
 	var connector := MapConnectorResource.new()
 	connector.connector_id = int(data.get("connector_id", 0))
@@ -167,7 +168,7 @@ func _make_connector_from_dict(data: Dictionary) -> MapConnectorResource:
 	connector.one_way = bool(data.get("one_way", false))
 	connector.locked = bool(data.get("locked", false))
 	connector.connector_type = StringName(str(data.get("connector_type", "")))
-	connector.activation_mode = int(data.get("activation_mode", MapConnectorResource.ActivationMode.INTERACT))
+	connector.activation_mode = int(data.get("activation_mode", MapConnectorResource.ActivationMode.INTERACT)) as MapConnectorResource.ActivationMode
 
 	if not connector.has_valid_route():
 		return null

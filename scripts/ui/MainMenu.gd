@@ -318,6 +318,12 @@ func _build_world_list_panel() -> void:
 	btn_load.pressed.connect(_on_load_world)
 	btn_row.add_child(btn_load)
 
+	var btn_delete := _make_button("删除世界", 120, BUTTON_HEIGHT)
+	btn_delete.pressed.connect(_on_delete_world)
+	btn_delete.add_theme_color_override("font_color", Color(0.90, 0.45, 0.45, 1.0))
+	btn_delete.add_theme_color_override("font_hover_color", Color(1.0, 0.55, 0.55, 1.0))
+	btn_row.add_child(btn_delete)
+
 	var btn_back := _make_button("返回", 120, BUTTON_HEIGHT)
 	btn_back.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	btn_back.pressed.connect(_show_main_menu)
@@ -682,6 +688,63 @@ func _on_load_world() -> void:
 	var entry: Dictionary = _world_list[_selected_world_index]
 	_load_world(entry)
 	_start_game()
+
+
+func _on_delete_world() -> void:
+	if _selected_world_index < 0 or _selected_world_index >= _world_list.size():
+		_set_status("请先选择一个世界")
+		return
+	var entry: Dictionary = _world_list[_selected_world_index]
+	var world_name := str(entry.get("name", ""))
+	var folder := str(entry.get("folder", ""))
+	# Use a confirmation dialog to prevent accidental deletion.
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "删除世界"
+	dialog.dialog_text = "确定要删除世界 \"%s\" 吗？\n此操作不可撤销！" % world_name
+	dialog.ok_button_text = "删除"
+	dialog.cancel_button_text = "取消"
+	# Style the OK button to signal destructive action.
+	dialog.confirmed.connect(_confirm_delete_world.bind(folder))
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(420, 140))
+	# Clean up the dialog after it closes.
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.confirmed.connect(dialog.queue_free)
+
+
+func _confirm_delete_world(folder: String) -> void:
+	var full_path := SAVE_ROOT + folder + "/"
+	if not DirAccess.dir_exists_absolute(full_path):
+		_set_status("世界文件夹不存在")
+		_refresh_world_list()
+		return
+	var err := _remove_dir_recursive(full_path)
+	if err != OK:
+		_set_status("删除世界失败！")
+		return
+	_set_status("世界已删除")
+	_selected_world_index = -1
+	_refresh_world_list()
+
+
+func _remove_dir_recursive(path: String) -> Error:
+	var dir := DirAccess.open(path)
+	if dir == null:
+		return FAILED
+	dir.list_dir_begin()
+	var file_name := dir.get_next()
+	while file_name != "":
+		if file_name == "." or file_name == "..":
+			file_name = dir.get_next()
+			continue
+		var full_path := path + "/" + file_name
+		if dir.current_is_dir():
+			_remove_dir_recursive(full_path)
+		else:
+			dir.remove(file_name)
+		file_name = dir.get_next()
+	dir.list_dir_end()
+	return DirAccess.remove_absolute(path)
 
 
 func _on_create_world() -> void:

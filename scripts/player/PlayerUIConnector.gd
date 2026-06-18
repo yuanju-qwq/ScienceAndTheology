@@ -11,10 +11,10 @@ func setup(player: PlayerController) -> void:
 
 
 func connect_ui() -> void:
-	var hotbar_ui = _player.hotbar_ui
-	var inventory_ui = _player.inventory_ui
-	var crafting_ui = _player.crafting_ui
-	var furnace_ui = _player.furnace_ui
+	var hotbar_ui: HotbarUI = _player.hotbar_ui
+	var inventory_ui: InventoryUI = _player.inventory_ui
+	var crafting_ui: CraftingUI = _player.crafting_ui
+	var furnace_ui: FurnaceUI = _player.furnace_ui
 
 	if hotbar_ui:
 		hotbar_ui.set_player(_player)
@@ -37,8 +37,8 @@ func connect_ui() -> void:
 
 
 func toggle_inventory() -> void:
-	var crafting_ui = _player.crafting_ui
-	var inventory_ui = _player.inventory_ui
+	var crafting_ui: CraftingUI = _player.crafting_ui
+	var inventory_ui: InventoryUI = _player.inventory_ui
 	if crafting_ui and crafting_ui.visible:
 		toggle_crafting()
 	if inventory_ui:
@@ -46,9 +46,9 @@ func toggle_inventory() -> void:
 
 
 func toggle_wiki() -> void:
-	var crafting_ui = _player.crafting_ui
-	var inventory_ui = _player.inventory_ui
-	var wiki_ui = _player.wiki_ui
+	var crafting_ui: CraftingUI = _player.crafting_ui
+	var inventory_ui: InventoryUI = _player.inventory_ui
+	var wiki_ui: WikiUI = _player.wiki_ui
 	if crafting_ui and crafting_ui.visible:
 		toggle_crafting()
 	if inventory_ui and inventory_ui.visible:
@@ -59,8 +59,8 @@ func toggle_wiki() -> void:
 
 
 func toggle_crafting(station: String = "") -> void:
-	var crafting_ui = _player.crafting_ui
-	var inventory_ui = _player.inventory_ui
+	var crafting_ui: CraftingUI = _player.crafting_ui
+	var inventory_ui: InventoryUI = _player.inventory_ui
 	if crafting_ui == null:
 		return
 	if inventory_ui and inventory_ui.visible:
@@ -76,8 +76,8 @@ func toggle_quest_book() -> void:
 	var quest_ui: QuestBookUI = _player.quest_ui
 	if quest_ui == null:
 		return
-	var crafting_ui = _player.crafting_ui
-	var inventory_ui = _player.inventory_ui
+	var crafting_ui: CraftingUI = _player.crafting_ui
+	var inventory_ui: InventoryUI = _player.inventory_ui
 	if crafting_ui and crafting_ui.visible:
 		toggle_crafting()
 	if inventory_ui and inventory_ui.visible:
@@ -87,7 +87,7 @@ func toggle_quest_book() -> void:
 
 
 func close_furnace_if_open() -> bool:
-	var furnace_ui = _player.furnace_ui
+	var furnace_ui: FurnaceUI = _player.furnace_ui
 	if furnace_ui and furnace_ui.visible:
 		furnace_ui.close()
 		_player._set_input_locked(false)
@@ -96,14 +96,14 @@ func close_furnace_if_open() -> bool:
 
 
 func update_hotbar_display() -> void:
-	var hotbar_ui = _player.hotbar_ui
+	var hotbar_ui: HotbarUI = _player.hotbar_ui
 	if hotbar_ui:
 		hotbar_ui.refresh()
 
 
 func update_connector_prompt() -> void:
-	var connector_prompt = _player.connector_prompt
-	var connector_prompt_label = _player.connector_prompt_label
+	var connector_prompt: CanvasItem = _player.connector_prompt
+	var connector_prompt_label: Label = _player.connector_prompt_label
 	if connector_prompt == null or connector_prompt_label == null:
 		return
 
@@ -112,14 +112,14 @@ func update_connector_prompt() -> void:
 	var text := ""
 	var connector_manager: ConnectorManager = _player.connector_manager
 	if connector_manager != null:
-		var connector = connector_manager.get_connector_at(dimension, cell)
+		var connector: MapConnector = connector_manager.get_connector_at(dimension, cell)
 		if connector != null and connector.requires_interaction():
 			text = "E  %s" % String(connector.connector_type).replace("_", " ").capitalize()
 
 	if text == "":
 		var mechanism_manager: MechanismManager = _player.mechanism_manager
 		if mechanism_manager != null:
-			var mechanism = mechanism_manager.get_mechanism_at(dimension, cell)
+			var mechanism: MapMechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 			if mechanism != null and mechanism.requires_interaction():
 				text = "E  %s" % (mechanism.action_label if mechanism.action_label != "" else tr(mechanism.title_key))
 
