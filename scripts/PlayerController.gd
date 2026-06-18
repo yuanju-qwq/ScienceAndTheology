@@ -48,7 +48,7 @@ var fly_speed := 20.0
 @export var console_ui_path: NodePath = ^"../UI/ConsoleUI"
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
 @export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
-@export var target_label_path: NodePath = ^"../UI/TargetLabel"
+@export var probe_panel_path: NodePath = ^"../UI/ProbePanel"
 @export var head_path: NodePath = ^"Head"
 @export var camera_path: NodePath = ^"Head/Camera3D"
 @export var selection_path: NodePath = ^"../SelectionBox"
@@ -73,7 +73,7 @@ var selected_hotbar := 0
 @onready var console_ui: ConsoleUI = get_node_or_null(console_ui_path) as ConsoleUI
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
-@onready var target_label: Label = get_node_or_null(target_label_path) as Label
+@onready var probe_panel: ProbePanel = get_node_or_null(probe_panel_path) as ProbePanel
 @onready var head: Node3D = get_node_or_null(head_path) as Node3D
 @onready var camera: Camera3D = get_node_or_null(camera_path) as Camera3D
 @onready var selection_box: Node3D = get_node_or_null(selection_path) as Node3D
@@ -101,12 +101,15 @@ var _gravity_multiplier := 1.0
 
 # --- Atmosphere hazard system ---
 
-# Damage per second when in a toxic atmosphere without protection.
-const TOXIC_DAMAGE_PER_SEC := 5.0
-# Damage per second when in a corrosive atmosphere without protection.
-const CORROSIVE_DAMAGE_PER_SEC := 8.0
-# Damage per second when in a vacuum/thin atmosphere without oxygen supply.
-const VACUUM_DAMAGE_PER_SEC := 3.0
+# Default damage rates used when no active planet is available.
+# These match PlanetDescriptor defaults and serve as fallback values.
+const _DEFAULT_TOXIC_DAMAGE_PER_SEC := 5.0
+const _DEFAULT_CORROSIVE_DAMAGE_PER_SEC := 8.0
+const _DEFAULT_VACUUM_DAMAGE_PER_SEC := 3.0
+
+# Cached reference to the active planet descriptor.
+# Updated each frame by _update_gravity_direction().
+var _active_planet: PlanetDescriptor = null
 
 # Current atmosphere type at the player's position.
 # Updated each frame alongside gravity.
@@ -207,6 +210,9 @@ func _handle_key(event: InputEventKey) -> void:
 		_ui_connector.toggle_inventory()
 	elif key == KEY_E or key == KEY_SPACE:
 		_interaction.try_place_or_interact(_target)
+	elif key == KEY_F3:
+		if probe_panel:
+			probe_panel.toggle_mode()
 
 
 # --- Movement and physics ---
@@ -366,9 +372,10 @@ func _update_gravity_direction() -> void:
 	if _universe_manager != null:
 		_gravity_direction = _universe_manager.compute_gravity_direction(global_position)
 		_gravity_multiplier = _universe_manager.compute_gravity_multiplier(global_position)
-		# Cache atmosphere type from the active planet.
-		if _universe_manager.active_planet != null:
-			_atmosphere_type = _universe_manager.active_planet.atmosphere_type
+		# Cache the active planet descriptor for atmosphere hazard lookups.
+		_active_planet = _universe_manager.active_planet
+		if _active_planet != null:
+			_atmosphere_type = _active_planet.atmosphere_type
 		else:
 			_atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
 		if fly_mode:
@@ -437,11 +444,11 @@ func _update_atmosphere_hazard(delta: float) -> void:
 	match _atmosphere_type:
 		PlanetDescriptor.AtmosphereType.NONE, \
 		PlanetDescriptor.AtmosphereType.THIN:
-			damage_rate = VACUUM_DAMAGE_PER_SEC
+			damage_rate = _active_planet.vacuum_damage_per_sec if _active_planet != null else _DEFAULT_VACUUM_DAMAGE_PER_SEC
 		PlanetDescriptor.AtmosphereType.TOXIC:
-			damage_rate = TOXIC_DAMAGE_PER_SEC
+			damage_rate = _active_planet.toxic_damage_per_sec if _active_planet != null else _DEFAULT_TOXIC_DAMAGE_PER_SEC
 		PlanetDescriptor.AtmosphereType.CORROSIVE:
-			damage_rate = CORROSIVE_DAMAGE_PER_SEC
+			damage_rate = _active_planet.corrosive_damage_per_sec if _active_planet != null else _DEFAULT_CORROSIVE_DAMAGE_PER_SEC
 		PlanetDescriptor.AtmosphereType.BREATHABLE, _:
 			damage_rate = 0.0
 
@@ -503,6 +510,8 @@ func _update_target() -> void:
 	_target.clear()
 	if camera == null or world == null:
 		_set_selection_visible(false)
+		if probe_panel:
+			probe_panel.clear_target()
 		return
 
 	var from := camera.global_position
@@ -514,8 +523,8 @@ func _update_target() -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		_set_selection_visible(false)
-		if target_label:
-			target_label.text = ""
+		if probe_panel:
+			probe_panel.clear_target()
 		return
 
 	var normal: Vector3 = hit.get("normal", Vector3.UP)
@@ -526,11 +535,15 @@ func _update_target() -> void:
 	var data: Dictionary = info.get("data", {})
 	if data.is_empty():
 		_set_selection_visible(false)
+		if probe_panel:
+			probe_panel.clear_target()
 		return
 
 	var material := int(data.get("material", 0))
 	if material == 0:
 		_set_selection_visible(false)
+		if probe_panel:
+			probe_panel.clear_target()
 		return
 
 	_target = info
@@ -540,14 +553,41 @@ func _update_target() -> void:
 	_set_selection_visible(true)
 	if selection_box:
 		selection_box.global_position = world.cell_to_world_position(cell)
-	if target_label:
-		var def: Dictionary = world.get_world_data().get_terrain_material_def(material) if world.get_world_data() else {}
-		target_label.text = str(def.get("display_name", "Block"))
+	if probe_panel:
+		var mat_def: Dictionary = world.get_world_data().get_terrain_material_def(material) if world.get_world_data() else {}
+		var tool_def: ToolDef = _get_equipped_tool_def()
+		var tool_tag: String = mat_def.get("required_tool_tag", "")
+		var matches := _check_tool_match(tool_def, tool_tag, mat_def.get("required_mining_level", 0))
+		probe_panel.update_target(mat_def, tool_def, matches)
 
 
 func _set_selection_visible(vis: bool) -> void:
 	if selection_box:
 		selection_box.visible = vis
+
+
+# --- Probe panel helpers ---
+
+# Get the ToolDef for the currently equipped main-hand item, or null.
+func _get_equipped_tool_def() -> ToolDef:
+	var held_id := get_equipped_item_id()
+	if held_id == 0:
+		return null
+	return ItemDatabase.get_tool_stats(held_id)
+
+
+# Check whether the given tool matches the block's tool tag and mining level.
+func _check_tool_match(tool: ToolDef, required_tag: String, required_level: int) -> bool:
+	if required_tag == "":
+		return true
+	if tool == null:
+		return false
+	var tool_type_name: String = ToolDef.ToolType.keys()[tool.tool_type].to_lower()
+	if tool_type_name != required_tag.to_lower():
+		return false
+	if tool.mining_level < required_level:
+		return false
+	return true
 
 
 # --- Hotbar ---

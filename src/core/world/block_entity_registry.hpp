@@ -34,6 +34,7 @@ public:
         // Type-specific runtime state.
         // Only one variant is active at a time, determined by entity_type.
         TreeBlockEntityState tree_state;
+        CreatureBlockEntityState creature_state;
     };
 
     BlockEntityRegistry() = default;
@@ -59,6 +60,13 @@ public:
         int64_t planted_tick,
         const std::vector<OwnedCell>& owned_cells);
 
+    // Register a creature block entity. Returns its assigned EntityId.
+    EntityId register_creature_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        CreatureType creature_type,
+        int64_t spawn_tick);
+
     // Remove a block entity by ID. Also removes its spatial index entries.
     void remove_entity(EntityId id);
 
@@ -75,6 +83,10 @@ public:
     // Returns the tree state for a given entity, or nullptr if not a tree.
     const TreeBlockEntityState* get_tree_state(EntityId id) const;
     TreeBlockEntityState* get_tree_state_mut(EntityId id);
+
+    // Returns the creature state for a given entity, or nullptr if not a creature.
+    const CreatureBlockEntityState* get_creature_state(EntityId id) const;
+    CreatureBlockEntityState* get_creature_state_mut(EntityId id);
 
     // Returns the placement data for a given entity.
     const BlockEntityPlacement* get_placement(EntityId id) const;

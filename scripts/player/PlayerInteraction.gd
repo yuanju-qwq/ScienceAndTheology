@@ -58,6 +58,8 @@ func try_place_or_interact(target: Dictionary) -> bool:
 		return true
 	if try_activate_mechanism(false):
 		return true
+	if try_use_station_blueprint():
+		return true
 	if try_place_world_object(target):
 		return true
 	return false
@@ -228,3 +230,73 @@ func _debug(message: String) -> void:
 		return
 	_player._last_debug_time = now
 	print("PlayerInteraction: ", message)
+
+
+# --- Station blueprint interaction ---
+
+# Station setup UI reference (lazily created).
+var _station_setup_ui: StationSetupUI = null
+
+
+# Try to use the Station Blueprint item from the player's main hand.
+# Opens the station setup UI. Returns true if the blueprint was used.
+func try_use_station_blueprint() -> bool:
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment == null:
+		return false
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id != ItemDatabase.ITEM_STATION_BLUEPRINT:
+		return false
+
+	# Lazily create the station setup UI.
+	if _station_setup_ui == null:
+		_station_setup_ui = StationSetupUI.new()
+		_station_setup_ui.name = "StationSetupUI"
+		_player.get_viewport().get_node_or_null("/root").add_child(_station_setup_ui)
+		_station_setup_ui.station_confirmed.connect(_on_station_confirmed)
+
+	if _station_setup_ui.is_open():
+		return false
+
+	_station_setup_ui.open()
+	_player._set_input_locked(true)
+	return true
+
+
+# Called when the player confirms station creation in the setup UI.
+func _on_station_confirmed(params: Dictionary) -> void:
+	_player._set_input_locked(false)
+
+	# Find the UniverseManager.
+	var um: UniverseManager = _player._universe_manager
+	if um == null:
+		push_warning("PlayerInteraction: cannot create station — no UniverseManager")
+		return
+
+	# Find the parent planet (the player's current planet).
+	var parent_planet: PlanetDescriptor = um.active_planet
+	if parent_planet == null:
+		push_warning("PlayerInteraction: cannot create station — not on a planet")
+		return
+
+	var display_name: String = params.get("display_name", "Outpost")
+	var station_type: int = params.get("station_type", 0)
+	var orbit_height: float = params.get("orbit_height", 2000.0)
+	var gravity_mult: float = params.get("gravity_multiplier", 1.0)
+
+	var station := um.create_station(
+		display_name, parent_planet, orbit_height, station_type, gravity_mult)
+	if station == null:
+		push_warning("PlayerInteraction: station creation failed")
+		return
+
+	# Consume the blueprint item.
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment != null:
+		var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+		if held_id == ItemDatabase.ITEM_STATION_BLUEPRINT:
+			_player.inventory.remove_slot(_player.selected_hotbar)
+			_player.inventory_changed.emit()
+
+	_debug("Station created: %s (%s)" % [station.display_name, String(station.dimension_id)])

@@ -44,7 +44,8 @@ public:
     //   4 - (reserved: Logistics)
     //   5 - Region
     //   6 - Season
-    //   7 - TreeGrowth
+    //   7 - Ecosystem
+    //   8 - TreeGrowth
     virtual int priority() const = 0;
 
     // Thread safety declaration.

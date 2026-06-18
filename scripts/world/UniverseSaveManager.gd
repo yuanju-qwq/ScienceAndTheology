@@ -239,9 +239,11 @@ func _save_universe_meta(save_dir: String) -> void:
 		"universe_mode": _universe_manager.universe_mode,
 		"universe_seed": _universe_manager.universe_seed,
 		"system_density": _universe_manager.system_density,
-		"format_version": 3,
+		"format_version": 4,
 		"systems": [],
 		"planets": [],
+		"stations": [],
+		"station_counter": _universe_manager._station_counter,
 	}
 
 	# Save system-level data (only realized systems in full detail).
@@ -288,6 +290,12 @@ func _save_universe_meta(save_dir: String) -> void:
 		}
 		meta["planets"].append(pd)
 
+	# Save station-level data.
+	for station in _universe_manager.stations:
+		var sd := station.to_dict()
+		sd["loaded"] = _universe_manager.is_station_loaded(station.dimension_id)
+		meta["stations"].append(sd)
+
 	var path := save_dir + "/universe_meta.json"
 	var json := JSON.new()
 	var json_str := json.stringify(meta, "\t")
@@ -323,6 +331,14 @@ func _load_universe_meta(save_dir: String) -> void:
 	_universe_manager.universe_seed = int(meta.get("universe_seed", 0))
 	_universe_manager.system_density = float(meta.get("system_density",
 		SpatialUniverseGrid.DEFAULT_DENSITY))
+
+	# Restore space stations.
+	var stations_data: Array = meta.get("stations", [])
+	for sd in stations_data:
+		var station := StationDescriptor.from_dict(sd)
+		_universe_manager.stations.append(station)
+	_universe_manager._station_counter = int(meta.get("station_counter",
+		_universe_manager.stations.size()))
 
 
 # --- Utility ---

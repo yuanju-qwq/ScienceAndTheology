@@ -80,6 +80,9 @@ const ITEM_STONE_PLATE   = K_NON_MAT_BASE + 33
 const ITEM_WOOD_PLATE    = K_NON_MAT_BASE + 34
 const ITEM_BLANK_PATTERN = K_NON_MAT_BASE + 35
 
+// Space station blueprint item.
+const ITEM_STATION_BLUEPRINT = K_NON_MAT_BASE + 55
+
 // Tree species items: log, plank, sapling, fruit per species.
 // These are non-material items with unique colors per species.
 const ITEM_OAK_LOG      = K_NON_MAT_BASE + 60
@@ -342,6 +345,8 @@ func _register_survival_items() -> void:
 			64, null, "placeables/stone_furnace_icon_32.png")
 	_register(ITEM_LADDER, "Ladder", Color(0.55, 0.30, 0.15),
 			64, null, "placeables/ladder_icon_32.png")
+	_register(ITEM_STATION_BLUEPRINT, "Station Blueprint", Color(0.20, 0.50, 0.80),
+			1, null, "")
 
 
 func _register_tree_species_items() -> void:

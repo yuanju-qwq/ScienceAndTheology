@@ -251,8 +251,10 @@ void TickSystem::run_subsystem_chunks(
         size_t end = std::min(start + chunks_per_worker, chunks.size());
         if (start >= end) break;
 
+        // Capture chunks by value to guarantee lifetime safety across
+        // async workers — ChunkKey is cheap to copy.
         futures.push_back(std::async(std::launch::async,
-            [&sys, &chunks, delta, is_active, start, end]() {
+            [&sys, chunks, delta, is_active, start, end]() {
                 for (size_t i = start; i < end; ++i) {
                     if (is_active) {
                         sys.tick_active(chunks[i], delta);
@@ -298,9 +300,11 @@ void TickSystem::run_priority_group(
     std::vector<std::future<void>> futures;
     futures.reserve(group.size());
 
+    // Capture chunks by value to guarantee lifetime safety across
+    // async workers — ChunkKey is cheap to copy.
     for (auto* sys : group) {
         futures.push_back(std::async(std::launch::async,
-            [this, sys, &chunks, delta, is_active]() {
+            [this, sys, chunks, delta, is_active]() {
                 run_subsystem_chunks(*sys, chunks, delta, is_active);
             }));
     }

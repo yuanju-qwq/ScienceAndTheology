@@ -347,4 +347,60 @@ GameEvent GameEvent::source_essence_changed(
     return ev;
 }
 
+// --- Ecosystem event factories ---
+
+GameEvent GameEvent::ecosystem_population_changed(
+    const std::string& dimension,
+    int cx, int cy, int cz,
+    float old_veg, float new_veg,
+    float old_herb, float new_herb,
+    float old_pred, float new_pred) {
+    GameEvent ev;
+    ev.type = GameEventType::ECOSYSTEM_POPULATION_CHANGED;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.chunk_z = cz;
+    ev.float_data["old_veg"] = static_cast<double>(old_veg);
+    ev.float_data["new_veg"] = static_cast<double>(new_veg);
+    ev.float_data["old_herb"] = static_cast<double>(old_herb);
+    ev.float_data["new_herb"] = static_cast<double>(new_herb);
+    ev.float_data["old_pred"] = static_cast<double>(old_pred);
+    ev.float_data["new_pred"] = static_cast<double>(new_pred);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_spawned(
+    uint64_t creature_id, const std::string& creature_type,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_SPAWNED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.string_data["creature_type"] = creature_type;
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.chunk_z = cz;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_despawned(
+    uint64_t creature_id, const std::string& creature_type,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_DESPAWNED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.string_data["creature_type"] = creature_type;
+    ev.chunk_x = cx;
+    ev.chunk_y = cy;
+    ev.chunk_z = cz;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
 } // namespace science_and_theology

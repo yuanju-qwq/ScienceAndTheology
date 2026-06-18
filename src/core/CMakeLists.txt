@@ -4,6 +4,7 @@
 add_library(snt_core STATIC)
 
 target_include_directories(snt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(snt_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 if(MSVC)
     target_compile_options(snt_core PRIVATE /FS /utf-8)
@@ -32,6 +33,7 @@ target_sources(snt_core PRIVATE
 target_sources(snt_core PRIVATE
     player/inventory.cpp
     player/equipment.cpp
+    player/accessory.cpp
     player/tool_def.cpp
     player/satiation_data.cpp
 )
@@ -92,6 +94,10 @@ target_sources(snt_core PRIVATE
     simulation/block_physics_system.cpp
     simulation/tree_growth_system.hpp
     simulation/tree_growth_system.cpp
+    simulation/population_cell.hpp
+    simulation/ecosystem_params.hpp
+    simulation/ecosystem_system.hpp
+    simulation/ecosystem_system.cpp
     simulation/season_def.hpp
     simulation/season_system.hpp
     simulation/season_system.cpp
@@ -104,6 +110,8 @@ target_sources(snt_core PRIVATE
     simulation/region_graph.cpp
     simulation/region_system.hpp
     simulation/region_system.cpp
+    simulation/tile_fluid_system.hpp
+    simulation/tile_fluid_system.cpp
     simulation/satiation_system.hpp
     simulation/satiation_system.cpp
     simulation/state_sync_common.hpp
@@ -145,6 +153,7 @@ target_sources(snt_core PRIVATE
 target_sources(snt_core PRIVATE
     magic/rune_registry.cpp
     magic/glyph_registry.cpp
+    magic/glyph_conversion.cpp
     magic/spell_compiler.cpp
     magic/ritual_recipe_registry.cpp
     magic/spell_effect/spell_effect_base.cpp

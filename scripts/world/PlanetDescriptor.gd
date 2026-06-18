@@ -47,6 +47,15 @@ enum AtmosphereType {
 # See AtmosphereType enum for details.
 @export var atmosphere_type: AtmosphereType = AtmosphereType.BREATHABLE
 
+# --- Atmosphere hazard damage rates ---
+
+# Damage per second when in a toxic atmosphere without protection.
+@export var toxic_damage_per_sec: float = 5.0
+# Damage per second when in a corrosive atmosphere without protection.
+@export var corrosive_damage_per_sec: float = 8.0
+# Damage per second when in a vacuum/thin atmosphere without oxygen supply.
+@export var vacuum_damage_per_sec: float = 3.0
+
 # Atmosphere visual properties.
 @export var atmosphere_color := Color(0.3, 0.6, 1.0, 1.0)
 @export var atmosphere_scale := 1.08

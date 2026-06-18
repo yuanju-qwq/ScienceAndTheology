@@ -13,6 +13,7 @@ enum class EquipmentSlot : uint8_t {
     OFF_HAND,
     HEAD,
     CHEST,
+    ARM,        // Source law weapon: guide tool / arm guard / aether weapon
     LEGS,
     FEET,
     COUNT
@@ -26,6 +27,7 @@ inline constexpr const char* kEquipmentSlotNames[] = {
     "Off Hand",
     "Head",
     "Chest",
+    "Arm",
     "Legs",
     "Feet",
 };

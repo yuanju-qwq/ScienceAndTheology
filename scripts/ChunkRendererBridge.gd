@@ -48,6 +48,7 @@ var workbench_material_id: int = AIR_MATERIAL
 @export var debug_chunk_streaming_interval := 2.0
 @export var planet_lod_manager_path: NodePath = ^"../PlanetLodManager"
 @export var universe_manager_path: NodePath = ^"../UniverseManager"
+@export var command_server_path: NodePath = ^"../GameCommandServer"
 
 var is_initialized := false
 
@@ -70,6 +71,13 @@ var _universe_manager: UniverseManager = null
 # Switched by UniverseManager when the player moves between planets.
 var active_dimension: StringName = OVERWORLD
 
+# If true, the active dimension is a space station using build-aware loading.
+# Only occupied chunks (those with player-placed content) are loaded.
+var _is_station_dimension: bool = false
+
+# Reference to the active StationDescriptor (null if on a planet).
+var _active_station: StationDescriptor = null
+
 
 func _ready() -> void:
 	# If UniverseManager is present, it will call initialize_for_universe()
@@ -78,6 +86,7 @@ func _ready() -> void:
 	if um != null:
 		return
 	initialize()
+	_connect_command_server()
 
 
 func _process(delta: float) -> void:
@@ -156,6 +165,7 @@ func initialize_for_universe(config: Resource, initial_dimension: StringName) ->
 
 	_build_materials()
 	_connect_planet_lod_manager()
+	_connect_command_server()
 	if auto_generate_start_chunks:
 		_generate_initial_chunks()
 
@@ -165,6 +175,7 @@ func initialize_for_universe(config: Resource, initial_dimension: StringName) ->
 
 # Switch the active dimension (planet) being rendered.
 # Clears current chunk views and starts streaming the new planet.
+# If the dimension belongs to a space station, enables build-aware loading.
 func set_active_dimension(dimension_id: StringName) -> void:
 	if dimension_id == active_dimension:
 		return
@@ -173,8 +184,25 @@ func set_active_dimension(dimension_id: StringName) -> void:
 
 	active_dimension = dimension_id
 
+	# Check if this dimension is a space station.
+	_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+	if _universe_manager != null:
+		var station := _universe_manager.get_station_by_dimension(dimension_id)
+		if station != null:
+			_is_station_dimension = true
+			_active_station = station
+		else:
+			_is_station_dimension = false
+			_active_station = null
+	else:
+		_is_station_dimension = false
+		_active_station = null
+
 	if auto_generate_start_chunks:
-		_generate_initial_chunks()
+		if _is_station_dimension and _active_station != null:
+			_generate_station_chunks()
+		else:
+			_generate_initial_chunks()
 
 
 # --- Runtime material ID accessors ---
@@ -209,6 +237,39 @@ func cell_to_chunk(cell: Vector3i) -> Vector3i:
 
 func cell_to_local(cell: Vector3i) -> Vector3i:
 	return GDChunkHelper.cell_to_local(cell, CHUNK_SIZE)
+
+
+# Notify the bridge that a block was placed at the given cell in the given dimension.
+# If the dimension is a space station, marks the chunk as occupied so it
+# will be loaded and rendered on future visits.
+func notify_block_placed(dimension: StringName, cell: Vector3i) -> void:
+	if not _is_station_dimension or _active_station == null:
+		return
+	if dimension != active_dimension:
+		return
+	var chunk := cell_to_chunk(cell)
+	if _active_station.mark_chunk_occupied(chunk):
+		_ensure_chunk_loaded(chunk)
+		_enqueue_chunk_view(chunk)
+
+
+# Connect to the GameCommandServer's world_object_synced signal
+# to detect block placements in station dimensions.
+func _connect_command_server() -> void:
+	var cmd_server := get_node_or_null(command_server_path) as GameCommandServer
+	if cmd_server == null:
+		return
+	if not cmd_server.world_object_synced.is_connected(_on_world_object_placed):
+		cmd_server.world_object_synced.connect(_on_world_object_placed)
+
+
+# Callback for when a world object is placed via the command server.
+# Triggers build-aware chunk tracking for station dimensions.
+func _on_world_object_placed(_object_type: StringName, action: StringName,
+		dimension: StringName, cell: Vector3i) -> void:
+	if action != &"placed":
+		return
+	notify_block_placed(dimension, cell)
 
 
 func get_cell_info(cell: Vector3i, dimension: StringName = OVERWORLD) -> Dictionary:
@@ -260,10 +321,25 @@ func _generate_initial_chunks() -> void:
 			_enqueue_chunk_view(pos)
 
 
+# Generate initial chunks for a space station dimension.
+# Only loads chunks that are in the station's occupied set.
+func _generate_station_chunks() -> void:
+	if _active_station == null:
+		return
+	for chunk in _active_station.get_occupied_chunks():
+		_ensure_chunk_loaded(chunk)
+		_enqueue_chunk_view(chunk)
+
+
 func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
 
-	# Delegate visibility computation to C++.
+	# Space station: build-aware loading — only load occupied chunks.
+	if _is_station_dimension and _active_station != null:
+		_refresh_station_chunks()
+		return
+
+	# Planet: radius-based loading (original behavior).
 	var result := GDChunkHelper.compute_visible_chunks(
 		player_chunk, loaded_radius, view_radius, use_spherical_loading)
 	var wanted_visible: Dictionary = result.get("wanted_visible", {})
@@ -282,6 +358,27 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 			continue
 		if not _pending_view_queue.has(pos):
 			_enqueue_chunk_view(pos)
+
+	_process_visible_queue()
+
+
+# Refresh chunks for a space station dimension.
+# Loads all occupied chunks, unloads chunks that are no longer occupied.
+func _refresh_station_chunks() -> void:
+	if _active_station == null:
+		return
+
+	# Ensure all occupied chunks are loaded and enqueued for view.
+	for chunk in _active_station.get_occupied_chunks():
+		_ensure_chunk_loaded(chunk)
+		if not _visible_chunks.has(chunk) and not _pending_view_queue.has(chunk):
+			_enqueue_chunk_view(chunk)
+
+	# Remove views for chunks that are no longer occupied.
+	for key in _visible_chunks.keys():
+		var chunk_key: Vector3i = key
+		if not _active_station.is_chunk_occupied(chunk_key):
+			_remove_chunk_view(chunk_key)
 
 	_process_visible_queue()
 

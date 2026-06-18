@@ -21,6 +21,7 @@ enum class SyncFlags : uint32_t {
     CONNECTOR       = 1 << 6,
     ENTITY          = 1 << 7,
     SOURCE_LAW      = 1 << 8,
+    ECOSYSTEM       = 1 << 9,
     ALL             = 0xFFFFFFFF,
 };
 

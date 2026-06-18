@@ -21,10 +21,13 @@ set(SOURCES
     simulation/gd_tick_system.cpp
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp
+    player/gd_player_accessory.cpp
     player/gd_player_helper.cpp
     player/gd_satiation_data.cpp
     magic/gd_rune_registry.cpp
     magic/gd_glyph_registry.cpp
+    magic/gd_glyph_conversion.cpp
+    magic/gd_source_law_weapon.cpp
     magic/gd_spell_book.cpp
     magic/gd_mana_pool.cpp
     fuel/gd_fuel_registry.cpp

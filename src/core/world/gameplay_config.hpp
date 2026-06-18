@@ -70,6 +70,16 @@ struct GameplayConfig {
     // Master switch for seasonal color changes on trees.
     bool enable_season_colors = true;
 
+    // --- Ecosystem system ---
+
+    // Master switch for the ecosystem simulation.
+    // When false, no population dynamics are computed.
+    bool enable_ecosystem = true;
+
+    // Global multiplier applied to all ecosystem rates.
+    // 0.0 = frozen ecosystem, 1.0 = normal, 2.0 = accelerated.
+    float ecosystem_rate_multiplier = 1.0f;
+
     // --- Per-planet overrides ---
 
     // Per-dimension gameplay config overrides. If a dimension has an entry
@@ -103,6 +113,13 @@ struct GameplayConfig {
 
         bool has_twilight_fraction = false;
         float twilight_fraction = 0.1f;
+
+        // Ecosystem per-planet overrides.
+        bool has_enable_ecosystem = false;
+        bool enable_ecosystem = true;
+
+        bool has_ecosystem_rate_multiplier = false;
+        float ecosystem_rate_multiplier = 1.0f;
     };
 
     std::unordered_map<std::string, PlanetOverride> planet_overrides;
@@ -181,6 +198,26 @@ struct GameplayConfig {
             return it->second.twilight_fraction;
         }
         return twilight_fraction;
+    }
+
+    // --- Ecosystem resolved accessors ---
+
+    bool is_ecosystem_enabled(const std::string& dimension_id) const {
+        auto it = planet_overrides.find(dimension_id);
+        if (it != planet_overrides.end() && it->second.has_enable_ecosystem) {
+            return it->second.enable_ecosystem;
+        }
+        return enable_ecosystem;
+    }
+
+    float get_ecosystem_rate_multiplier(
+        const std::string& dimension_id) const {
+        auto it = planet_overrides.find(dimension_id);
+        if (it != planet_overrides.end() &&
+            it->second.has_ecosystem_rate_multiplier) {
+            return it->second.ecosystem_rate_multiplier;
+        }
+        return ecosystem_rate_multiplier;
     }
 };
 

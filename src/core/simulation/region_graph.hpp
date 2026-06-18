@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "../world/chunk_data.hpp"
+#include "../world/terrain_data.hpp"
 
 namespace science_and_theology {
 
@@ -58,6 +59,41 @@ struct RegionData {
 
     // Number of member nodes in this region.
     size_t node_count = 0;
+};
+
+// ============================================================
+// FluidRegionData — per-region fluid aggregate data
+// ============================================================
+//
+// Stored alongside RegionData for regions of type FLUID.
+// When is_equilibrium is true, the region uses a water-level model
+// instead of per-cell simulation, achieving O(1) cost per tick.
+
+struct FluidRegionData {
+    // The fluid type in this region. All cells in a fluid region
+    // must carry the same fluid type (no mixing).
+    CellFluidId fluid_type = kInvalidCellFluidId;
+
+    // When true, this region is in equilibrium: the water surface
+    // is flat and no per-cell simulation is needed.
+    // The region can be woken by any disturbance (block placement,
+    // machine extraction, temperature change).
+    bool is_equilibrium = true;
+
+    // Water level y-coordinate. Only valid when is_equilibrium is true.
+    // Cells below water_level_y are assumed full; cells at water_level_y
+    // may be partially filled; cells above are empty.
+    int32_t water_level_y = 0;
+
+    // Total fluid mass in this region (mB). Used to compute
+    // water_level_y and to validate mass conservation.
+    int64_t total_mass = 0;
+
+    // Number of cells that contain fluid in this region.
+    size_t fluid_cell_count = 0;
+
+    // Average temperature across the region (Kelvin).
+    int16_t avg_temperature = 300;
 };
 
 } // namespace science_and_theology

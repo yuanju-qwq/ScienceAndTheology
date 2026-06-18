@@ -45,11 +45,12 @@ enum class BlockEntityType : uint8_t {
     NONE        = 0,
     TREE        = 1,
     MACHINE     = 2,
-    COUNT       = 3,
+    CREATURE    = 3,
+    COUNT       = 4,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
-    "None", "Tree", "Machine",
+    "None", "Tree", "Machine", "Creature",
 };
 
 // A cell coordinate owned by a BlockEntity.
@@ -90,6 +91,64 @@ struct TreeBlockEntityState {
     int64_t planted_tick = 0;
     int64_t last_growth_tick = 0;
     std::vector<OwnedCell> owned_cells;
+};
+
+// ============================================================
+// CreatureBlockEntityState — proxy creature entity for ecosystem
+// ============================================================
+//
+// Proxy creatures are visual representations of population density.
+// They are spawned in active chunks based on PopulationCell density
+// and despawned when the chunk goes to sleep.
+//
+// AI states:
+//   IDLE     — standing still, waiting for next action
+//   WANDERING — moving toward a random target within the chunk
+//   FLEEING   — running away from a nearby predator (herbivores only)
+
+enum class CreatureState : uint8_t {
+    IDLE      = 0,
+    WANDERING = 1,
+    FLEEING   = 2,
+    COUNT     = 3,
+};
+
+constexpr const char* kCreatureStateNames[] = {
+    "Idle", "Wandering", "Fleeing",
+};
+
+enum class CreatureType : uint8_t {
+    HERBIVORE = 0,
+    PREDATOR  = 1,
+    COUNT     = 2,
+};
+
+constexpr const char* kCreatureTypeNames[] = {
+    "Herbivore", "Predator",
+};
+
+struct CreatureBlockEntityState {
+    CreatureType creature_type = CreatureType::HERBIVORE;
+    CreatureState ai_state = CreatureState::IDLE;
+    float health = 1.0f;
+    int64_t spawn_tick = 0;
+
+    // Current position (world block coordinates).
+    float pos_x = 0.0f;
+    float pos_y = 0.0f;
+    float pos_z = 0.0f;
+
+    // Wander target position.
+    float wander_target_x = 0.0f;
+    float wander_target_y = 0.0f;
+    float wander_target_z = 0.0f;
+    int64_t next_wander_tick = 0;
+
+    // Flee target: position to run away from.
+    float flee_from_x = 0.0f;
+    float flee_from_y = 0.0f;
+    float flee_from_z = 0.0f;
+    int64_t flee_end_tick = 0;
 };
 
 } // namespace science_and_theology

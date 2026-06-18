@@ -16,6 +16,7 @@
 [ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
 [ext_resource type="Script" path="res://scripts/world/UniverseManager.gd" id="17_universe_manager"]
 [ext_resource type="Script" path="res://scripts/world/DayNightCycle.gd" id="18_day_night_cycle"]
+[ext_resource type="Script" path="res://scripts/ui/ProbePanel.gd" id="19_probe_panel"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -159,12 +160,8 @@ offset_right = 224.0
 offset_bottom = 38.0
 text = "3D Surface"
 
-[node name="TargetLabel" type="Label" parent="UI"]
-offset_left = 20.0
-offset_top = 38.0
-offset_right = 224.0
-offset_bottom = 60.0
-text = ""
+[node name="ProbePanel" type="Control" parent="UI"]
+script = ExtResource("19_probe_panel")
 
 [node name="ConnectorPrompt" type="Control" parent="UI"]
 visible = false

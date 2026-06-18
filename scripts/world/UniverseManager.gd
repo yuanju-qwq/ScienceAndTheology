@@ -37,6 +37,9 @@ signal active_planet_changed(planet: PlanetDescriptor)
 signal planet_loaded(planet: PlanetDescriptor)
 signal planet_unloaded(planet: PlanetDescriptor)
 signal system_realized(system: StarSystemDescriptor)
+signal station_created(station: StationDescriptor)
+signal station_loaded(station: StationDescriptor)
+signal station_unloaded(station: StationDescriptor)
 
 # Universe generation mode: "solar_system" or "random".
 @export var universe_mode: String = "solar_system"
@@ -97,8 +100,22 @@ var planets: Array[PlanetDescriptor]:
 # The planet the player is currently on or nearest to.
 var active_planet: PlanetDescriptor = null
 
+# --- Space station management ---
+
+# All player-built space stations.
+var stations: Array[StationDescriptor] = []
+
+# Auto-incrementing counter for station dimension IDs.
+var _station_counter: int = 0
+
+# The station the player is currently inside (null if on a planet).
+var active_station: StationDescriptor = null
+
 # Planets whose voxel chunks are currently loaded in memory.
 var _loaded_planets: Dictionary = {}
+
+# Stations whose voxel chunks are currently loaded in memory.
+var _loaded_stations: Dictionary = {}
 
 # PlanetLodManager instances keyed by dimension_id.
 var _lod_managers: Dictionary = {}
@@ -140,6 +157,7 @@ func _process(delta: float) -> void:
 	_update_system_realization()
 	_update_active_planet()
 	_update_planet_loading()
+	_update_station_loading()
 	_drive_tick_system(delta)
 	_maybe_debug_log(delta)
 
@@ -367,6 +385,14 @@ func _update_active_planet() -> void:
 	if _player == null:
 		return
 
+	# Check if the player is inside a station first.
+	var nearest_station := find_nearest_station(_player.global_position)
+	if nearest_station != null and nearest_station.is_in_gravity_range(_player.global_position):
+		if active_station == null or nearest_station.dimension_id != active_station.dimension_id:
+			_set_active_station(nearest_station)
+		return
+
+	# Otherwise, check planets.
 	var nearest := find_nearest_planet(_player.global_position)
 	if nearest == null:
 		return
@@ -375,9 +401,24 @@ func _update_active_planet() -> void:
 		_set_active_planet(nearest)
 
 
+func _set_active_station(station: StationDescriptor) -> void:
+	active_station = station
+	active_planet = null
+
+	if _chunk_bridge != null:
+		if not _bridge_initialized:
+			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
+			_chunk_bridge.initialize_for_universe(config, station.dimension_id)
+			_bridge_initialized = true
+			_initialize_tick_system()
+		else:
+			_chunk_bridge.set_active_dimension(station.dimension_id)
+
+
 func _set_active_planet(planet: PlanetDescriptor) -> void:
 	var old := active_planet
 	active_planet = planet
+	active_station = null
 	active_planet_changed.emit(planet)
 
 	if _chunk_bridge != null and not planet.is_star:
@@ -596,10 +637,30 @@ func find_nearest_planet(position: Vector3) -> PlanetDescriptor:
 	return best
 
 
+# Find the nearest space station to a given universe-space position.
+# Returns null if no stations exist.
+func find_nearest_station(position: Vector3) -> StationDescriptor:
+	var best: StationDescriptor = null
+	var best_dist: float = INF
+
+	for station in stations:
+		var dist := position.distance_to(station.universe_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = station
+
+	return best
+
+
 # Compute the combined gravity direction at a given universe-space position.
-# Considers gravity from both planets and stars within the nearest system.
-# Stars exert gravity but are not landable.
+# Considers gravity from planets, stars, and space stations.
+# Station gravity always points downward (artificial gravity).
 func compute_gravity_direction(position: Vector3) -> Vector3:
+	# Check stations first — they have the strongest local gravity.
+	for station in stations:
+		if station.is_in_gravity_range(position):
+			return station.gravity_direction_at(position)
+
 	var nearest_sys := find_nearest_system(position)
 	if nearest_sys == null or not nearest_sys.is_realized():
 		return Vector3.ZERO
@@ -625,7 +686,13 @@ func compute_gravity_direction(position: Vector3) -> Vector3:
 
 
 # Compute the gravity strength multiplier at a given position.
+# Includes station gravity.
 func compute_gravity_multiplier(position: Vector3) -> float:
+	# Check stations first.
+	for station in stations:
+		if station.is_in_gravity_range(position):
+			return station.gravity_multiplier
+
 	var nearest_sys := find_nearest_system(position)
 	if nearest_sys == null or not nearest_sys.is_realized():
 		return 0.0
@@ -648,7 +715,12 @@ func compute_gravity_multiplier(position: Vector3) -> float:
 
 
 # Check whether a position is within any planet's gravity range.
+# Also checks space station gravity ranges.
 func is_in_any_gravity_range(position: Vector3) -> bool:
+	for station in stations:
+		if station.is_in_gravity_range(position):
+			return true
+
 	for sys in systems:
 		if not sys.is_realized():
 			continue
@@ -743,8 +815,15 @@ func _drive_tick_system(delta: float) -> void:
 	if _tick_system == null or not _tick_system_initialized:
 		return
 
-	# Compute the player's chunk coordinates from world position.
-	var dimension := String(active_planet.dimension_id) if active_planet else "overworld"
+	# Determine the active dimension: station or planet.
+	var dimension: String
+	if active_station != null:
+		dimension = String(active_station.dimension_id)
+	elif active_planet != null:
+		dimension = String(active_planet.dimension_id)
+	else:
+		dimension = "overworld"
+
 	var player_chunk := _compute_player_chunk()
 
 	_tick_system.set_player_chunk(dimension, player_chunk.x, player_chunk.y, player_chunk.z)
@@ -770,12 +849,15 @@ func _maybe_debug_log(delta: float) -> void:
 
 	var player_pos := _player.global_position if _player else Vector3.ZERO
 	var active_name := active_planet.display_name if active_planet else "None"
+	var station_name := active_station.display_name if active_station else "None"
 	var loaded_count := _loaded_planets.size()
+	var loaded_station_count := _loaded_stations.size()
 	var sim_count := _virtual_sim.get_simulated_dimensions().size() if _virtual_sim else 0
 	var realized_count := get_realized_system_count()
-	print("UniverseManager: mode=%s seed=%d systems=%d realized=%d planets=%d active=%s loaded=%d simulating=%d pos=%s" % [
+	print("UniverseManager: mode=%s seed=%d systems=%d realized=%d planets=%d stations=%d active=%s active_station=%s loaded=%d loaded_stations=%d simulating=%d pos=%s" % [
 		universe_mode, universe_seed, systems.size(), realized_count,
-		all_planets.size(), active_name, loaded_count, sim_count, str(player_pos)])
+		all_planets.size(), stations.size(), active_name, station_name,
+		loaded_count, loaded_station_count, sim_count, str(player_pos)])
 
 
 # --- Internal helpers ---
@@ -787,3 +869,197 @@ func _find_first_landable_planet() -> PlanetDescriptor:
 			if not landable.is_empty():
 				return landable[0]
 	return null
+
+
+# --- Space station management ---
+
+# Create a new space station orbiting the given parent planet.
+# Returns the created StationDescriptor, or null on failure.
+# Parameters:
+#   display_name:    player-chosen name for the station.
+#   parent_planet:   the PlanetDescriptor this station orbits.
+#   orbit_height:    height above the planet surface in universe units.
+#   station_type:    StationDescriptor.StationType enum value.
+#   gravity_mult:    gravity multiplier inside the station (1.0 = normal).
+func create_station(
+		display_name: String,
+		parent_planet: PlanetDescriptor,
+		orbit_height: float,
+		station_type: int = StationDescriptor.StationType.OUTPOST,
+		gravity_mult: float = 1.0) -> StationDescriptor:
+	if parent_planet == null:
+		push_warning("UniverseManager: cannot create station — no parent planet")
+		return null
+
+	var station := StationDescriptor.new()
+	station.dimension_id = StringName(&"station_%d" % _station_counter)
+	station.display_name = display_name
+	station.parent_planet_id = parent_planet.dimension_id
+	station.orbit_height = orbit_height
+	station.station_type = station_type as StationDescriptor.StationType
+	station.gravity_multiplier = gravity_mult
+	station.atmosphere_type = PlanetDescriptor.AtmosphereType.BREATHABLE
+	station.seed = universe_seed ^ (station.dimension_id.hash() & 0xFFFFFFFF)
+	station.system_id = parent_planet.system_id
+
+	# Compute universe position: above the planet at orbit_height.
+	# Direction: use the planet's "up" (positive Y in universe space).
+	var orbit_dir := Vector3.UP
+	station.universe_position = parent_planet.universe_position + orbit_dir * (parent_planet.planet_radius + orbit_height)
+
+	# Mark the initial core chunks as occupied.
+	station.initialize_core_chunks()
+
+	# Fill the initial core with a floor at y=0.
+	_populate_station_core(station)
+
+	# Register the station.
+	stations.append(station)
+	_station_counter += 1
+
+	station_created.emit(station)
+	return station
+
+
+# Get a StationDescriptor by its dimension_id.
+func get_station_by_dimension(dimension_id: StringName) -> StationDescriptor:
+	for station in stations:
+		if station.dimension_id == dimension_id:
+			return station
+	return null
+
+
+# Check whether a station's voxel chunks are currently loaded.
+func is_station_loaded(dimension_id: StringName) -> bool:
+	return _loaded_stations.has(dimension_id)
+
+
+# Get all stations orbiting a specific planet.
+func get_stations_for_planet(planet_dimension_id: StringName) -> Array[StationDescriptor]:
+	var result: Array[StationDescriptor] = []
+	for station in stations:
+		if station.parent_planet_id == planet_dimension_id:
+			result.append(station)
+	return result
+
+
+# Fill the initial core chunks of a newly created station with a floor
+# and perimeter walls. Uses stone for the floor and deepstone for walls.
+# This is called once during create_station() after the core chunks are
+# marked as occupied.
+func _populate_station_core(station: StationDescriptor) -> void:
+	if _chunk_bridge == null:
+		return
+	var world_data: GDWorldData = _chunk_bridge.get_world_data()
+	if world_data == null:
+		return
+
+	var dim := String(station.dimension_id)
+	var core_size := station.initial_core_size()
+	var chunk_size := 32
+
+	# Material IDs from BuiltinTerrainContent.
+	var floor_material := 1    # MAT_STONE
+	var wall_material := 13    # MAT_DEEPSTONE
+
+	# Compute the global block range for the core.
+	var half_x := core_size.x / 2
+	var half_z := core_size.z / 2
+	var min_x := -half_x * chunk_size
+	var max_x := (-half_x + core_size.x) * chunk_size
+	var min_z := -half_z * chunk_size
+	var max_z := (-half_z + core_size.z) * chunk_size
+	var wall_height := 4  # Walls are 4 blocks tall.
+
+	for gx in range(min_x, max_x):
+		for gz in range(min_z, max_z):
+			# Floor at y=0.
+			_set_station_block(world_data, dim, gx, 0, gz, floor_material)
+
+			# Perimeter walls.
+			var on_x_min := gx == min_x
+			var on_x_max := gx == max_x - 1
+			var on_z_min := gz == min_z
+			var on_z_max := gz == max_z - 1
+			if on_x_min or on_x_max or on_z_min or on_z_max:
+				for gy in range(1, wall_height + 1):
+					_set_station_block(world_data, dim, gx, gy, gz, wall_material)
+
+
+# Helper: set a single block in the station dimension.
+func _set_station_block(world_data: GDWorldData, dimension: String,
+		block_x: int, block_y: int, block_z: int, material: int) -> void:
+	var chunk_size := 32
+	var cx := int(floorf(float(block_x) / chunk_size))
+	var cy := int(floorf(float(block_y) / chunk_size))
+	var cz := int(floorf(float(block_z) / chunk_size))
+	var lx := block_x - cx * chunk_size
+	var ly := block_y - cy * chunk_size
+	var lz := block_z - cz * chunk_size
+	world_data.set_terrain_cell(dimension, cx, cy, cz, lx, ly, lz, material)
+
+
+# Load a station's chunks into memory.
+# Called when the player approaches or enters the station.
+func _load_station(station: StationDescriptor) -> void:
+	var dim := station.dimension_id
+	if _loaded_stations.has(dim):
+		return
+
+	_loaded_stations[dim] = true
+
+	# Reconcile virtual production if the station was being simulated.
+	if _virtual_sim != null and _virtual_sim.is_simulating(dim):
+		_reconcile_virtual_production(dim)
+		_virtual_sim.unregister_planet(dim)
+
+	# Load chunk data from disk via the save manager.
+	if _save_manager != null and _save_dir != "":
+		_save_manager.load_planet(_save_dir, dim)
+
+	station_loaded.emit(station)
+
+
+# Unload a station's chunks from memory.
+# Called when the player moves away from the station.
+func _unload_station(station: StationDescriptor) -> void:
+	var dim := station.dimension_id
+
+	# Capture a production summary before unloading.
+	var summary := PlanetSummary.create_from_world(dim, 0)
+
+	# Serialize chunk data to disk and unload from memory.
+	if _save_manager != null and _save_dir != "":
+		_save_manager.save_planet(_save_dir, dim)
+
+	# Unload chunks from memory.
+	if _chunk_bridge != null:
+		var world_data := _chunk_bridge.get_world_data()
+		if world_data != null:
+			world_data.unload_dimension(String(dim))
+
+	# Register for virtual simulation.
+	if _virtual_sim != null and summary.has_production():
+		_virtual_sim.register_planet(summary)
+
+	_loaded_stations.erase(dim)
+	station_unloaded.emit(station)
+
+
+# Update station loading/unloading based on player distance.
+func _update_station_loading() -> void:
+	if _player == null:
+		return
+
+	var player_pos := _player.global_position
+
+	for station in stations:
+		var dist := player_pos.distance_to(station.universe_position)
+		var load_dist := station.gravity_radius()
+		var unload_dist := load_dist * 1.5
+		var is_loaded := _loaded_stations.has(station.dimension_id)
+
+		if not is_loaded and dist <= load_dist:
+			_load_station(station)
+		elif is_loaded and dist > unload_dist:
+			_unload_station(station)

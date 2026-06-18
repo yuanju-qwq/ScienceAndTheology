@@ -254,6 +254,24 @@ void GDWorldData::set_chunk_from_dict(
             static_cast<uint32_t>(flags[i]);
     }
 
+    // Restore fluid data if present (backward compatible: missing = no fluid).
+    PackedInt32Array fluid_types = data.get("fluid_types", PackedInt32Array());
+    PackedInt32Array fluid_masses = data.get("fluid_masses", PackedInt32Array());
+    PackedInt32Array fluid_temps = data.get("fluid_temps", PackedInt32Array());
+
+    if (fluid_types.size() >= cell_count &&
+        fluid_masses.size() >= cell_count &&
+        fluid_temps.size() >= cell_count) {
+        for (int i = 0; i < cell_count; ++i) {
+            chunk.terrain.cells[i].fluid_type =
+                static_cast<CellFluidId>(fluid_types[i]);
+            chunk.terrain.cells[i].fluid_mass =
+                static_cast<int16_t>(fluid_masses[i]);
+            chunk.terrain.cells[i].fluid_temperature =
+                static_cast<int16_t>(fluid_temps[i]);
+        }
+    }
+
     // Restore connectors from dict if present.
     Array connector_array = data.get("connectors", Array());
     for (int i = 0; i < connector_array.size(); ++i) {
@@ -555,12 +573,21 @@ godot::Dictionary GDWorldData::terrain_to_dict(
 
     PackedByteArray materials;
     PackedInt32Array flags;
+    PackedInt32Array fluid_types;
+    PackedInt32Array fluid_masses;
+    PackedInt32Array fluid_temps;
     materials.resize(cell_count);
     flags.resize(cell_count);
+    fluid_types.resize(cell_count);
+    fluid_masses.resize(cell_count);
+    fluid_temps.resize(cell_count);
 
     for (int i = 0; i < cell_count; ++i) {
         materials[i] = static_cast<uint8_t>(terrain.cells[i].material);
         flags[i] = static_cast<int32_t>(terrain.cells[i].flags);
+        fluid_types[i] = static_cast<int32_t>(terrain.cells[i].fluid_type);
+        fluid_masses[i] = static_cast<int32_t>(terrain.cells[i].fluid_mass);
+        fluid_temps[i] = static_cast<int32_t>(terrain.cells[i].fluid_temperature);
     }
 
     result["size_x"] = terrain.size_x;
@@ -568,6 +595,9 @@ godot::Dictionary GDWorldData::terrain_to_dict(
     result["size_z"] = terrain.size_z;
     result["materials"] = materials;
     result["flags"] = flags;
+    result["fluid_types"] = fluid_types;
+    result["fluid_masses"] = fluid_masses;
+    result["fluid_temps"] = fluid_temps;
 
     return result;
 }
@@ -751,6 +781,11 @@ godot::Dictionary GDWorldData::get_terrain_cell(
     d["is_gravity_fall"] = cell.is_gravity_fall();
     d["is_collapse_risk"] = cell.is_collapse_risk();
     d["is_support_beam"] = cell.is_support_beam();
+    // Fluid data
+    d["has_fluid"] = cell.has_fluid();
+    d["fluid_type"] = static_cast<int>(cell.fluid_type);
+    d["fluid_mass"] = static_cast<int>(cell.fluid_mass);
+    d["fluid_temperature"] = static_cast<int>(cell.fluid_temperature);
     return d;
 }
 

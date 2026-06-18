@@ -8,6 +8,15 @@ namespace science_and_theology {
 using TerrainMaterialId = uint8_t;
 using TerrainMaterial = TerrainMaterialId;
 
+// Fluid type identifier for per-cell fluid data.
+// Mirrors gt::FluidId (uint16_t) from resource_types.hpp to avoid
+// cross-namespace dependencies in the world layer.
+using CellFluidId = uint16_t;
+inline constexpr CellFluidId kInvalidCellFluidId = 0xFFFF;
+
+// Maximum fluid mass per cell in millibuckets (mB).
+inline constexpr int16_t kCellFluidCapacity = 1000;
+
 // Per-cell gameplay flags derived from material properties.
 enum TerrainFlags : uint32_t {
     TF_WALKABLE       = 1 << 0,
@@ -35,10 +44,21 @@ inline constexpr bool operator&(uint32_t a, TerrainFlags b) {
 }
 
 // A single voxel in the terrain volume.
+// Contains both solid block data and per-cell fluid data.
+// Fluid and solid blocks are mutually exclusive: placing a solid block
+// displaces any fluid in the cell (see TileFluidSystem::displace_fluid).
 struct TerrainCell {
     TerrainMaterial material = 0;
     uint32_t flags = 0;
 
+    // --- Per-cell fluid data ---
+    // Valid when fluid_mass > 0. When a solid block is present,
+    // fluid should be displaced before the block is placed.
+    CellFluidId fluid_type = kInvalidCellFluidId;
+    int16_t fluid_mass = 0;          // 0 ~ kCellFluidCapacity (mB)
+    int16_t fluid_temperature = 300; // Kelvin
+
+    // --- Solid block queries ---
     bool is_walkable() const { return flags & TF_WALKABLE; }
     bool is_solid() const { return flags & TF_SOLID; }
     bool is_liquid() const { return flags & TF_LIQUID; }
@@ -51,6 +71,48 @@ struct TerrainCell {
     bool is_collapse_risk() const { return flags & TF_COLLAPSE_RISK; }
     // Support beam: prevents cave-ins within its support radius.
     bool is_support_beam() const { return flags & TF_SUPPORT_BEAM; }
+
+    // --- Fluid queries ---
+    bool has_fluid() const { return fluid_mass > 0; }
+    bool fluid_is_full() const { return fluid_mass >= kCellFluidCapacity; }
+    int16_t fluid_remaining_space() const {
+        return (fluid_mass < kCellFluidCapacity)
+            ? static_cast<int16_t>(kCellFluidCapacity - fluid_mass) : 0;
+    }
+
+    // Attempts to insert fluid into this cell.
+    // Returns the amount actually inserted.
+    int16_t insert_fluid(CellFluidId fluid, int16_t to_insert) {
+        if (to_insert <= 0) return 0;
+        if (fluid_type != kInvalidCellFluidId && fluid_type != fluid) return 0;
+        int16_t space = fluid_remaining_space();
+        int16_t inserted = (to_insert < space) ? to_insert : space;
+        fluid_mass += inserted;
+        if (fluid_mass > 0 && fluid_type == kInvalidCellFluidId) {
+            fluid_type = fluid;
+        }
+        return inserted;
+    }
+
+    // Attempts to extract fluid from this cell.
+    // Returns the amount actually extracted.
+    int16_t extract_fluid(int16_t to_extract) {
+        if (to_extract <= 0) return 0;
+        int16_t extracted = (to_extract < fluid_mass) ? to_extract : fluid_mass;
+        fluid_mass -= extracted;
+        if (fluid_mass <= 0) {
+            fluid_type = kInvalidCellFluidId;
+            fluid_mass = 0;
+        }
+        return extracted;
+    }
+
+    // Clears all fluid data from this cell.
+    void clear_fluid() {
+        fluid_type = kInvalidCellFluidId;
+        fluid_mass = 0;
+        fluid_temperature = 300;
+    }
 };
 
 // Terrain data for one chunk. Pure data, no rendering information.

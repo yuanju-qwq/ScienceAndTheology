@@ -38,10 +38,11 @@ public:
     void tick_sleeping(const ChunkKey& chunk, float delta) override;
     void shutdown() override;
 
-    // Runs after DayNight (0), BlockPhysics (1), Machine (2), Season (6).
-    // This ensures block physics has settled and season is current
-    // before growth modifies terrain.
-    int priority() const override { return 7; }
+    // Runs after DayNight (0), BlockPhysics (1), Machine (2), Season (6),
+    // Ecosystem (7). This ensures block physics has settled, season is
+    // current, and ecosystem vegetation_density is available for
+    // tree growth decisions.
+    int priority() const override { return 8; }
 
     // Maximum number of growth transitions per tick.
     // Prevents frame spikes when many trees are ready simultaneously.

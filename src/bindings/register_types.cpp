@@ -23,9 +23,12 @@
 #include "simulation/gd_tick_system.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
+#include "player/gd_player_accessory.h"
 #include "player/gd_player_helper.h"
 #include "magic/gd_rune_registry.hpp"
 #include "magic/gd_glyph_registry.hpp"
+#include "magic/gd_glyph_conversion.hpp"
+#include "magic/gd_source_law_weapon.hpp"
 #include "magic/gd_spell_book.hpp"
 #include "magic/gd_mana_pool.hpp"
 #include "fuel/gd_fuel_registry.hpp"
@@ -38,6 +41,7 @@
 #include "core/machine/recipe.hpp"
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
+#include "core/magic/glyph_conversion.hpp"
 #include "core/magic/ritual_recipe_registry.hpp"
 #include "core/material/material.hpp"
 #include "core/material/material_item.hpp"
@@ -58,6 +62,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     gt::ModuleRegistry::initialize();
     magic::RuneRegistry::initialize();
     magic::GlyphRegistry::initialize();
+    magic::GlyphConversion::initialize();
     magic::RitualRecipeRegistry::initialize();
     gt::initialize_materials();
     gt::ItemRegistry::initialize();
@@ -89,9 +94,12 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDTickSystem>();
     ClassDB::register_class<GDPlayerInventory>();
     ClassDB::register_class<GDPlayerEquipment>();
+    ClassDB::register_class<GDPlayerAccessory>();
     ClassDB::register_class<GDPlayerHelper>();
     ClassDB::register_class<GDRuneRegistry>();
     ClassDB::register_class<GDGlyphRegistry>();
+    ClassDB::register_class<GDGlyphConversion>();
+    ClassDB::register_class<GDSourceLawWeapon>();
     ClassDB::register_class<GDSpellBook>();
     ClassDB::register_class<GDManaPool>();
     ClassDB::register_class<GDFuelRegistry>();

@@ -78,6 +78,11 @@ enum class GameEventType : uint32_t {
     HUNGER_LEVEL_CHANGED    = 641,
     SOURCE_ESSENCE_CHANGED  = 642,
 
+    // Ecosystem events
+    ECOSYSTEM_POPULATION_CHANGED = 800,
+    CREATURE_SPAWNED             = 801,
+    CREATURE_DESPAWNED           = 802,
+
     // Custom / user-defined slot
     CUSTOM = 0x80000000,
 };
@@ -172,6 +177,25 @@ struct GameEvent {
 
     static GameEvent source_essence_changed(
         uint64_t player_id, float old_total, float new_total);
+
+    // --- Ecosystem event factories ---
+
+    static GameEvent ecosystem_population_changed(
+        const std::string& dimension,
+        int cx, int cy, int cz,
+        float old_veg, float new_veg,
+        float old_herb, float new_herb,
+        float old_pred, float new_pred);
+
+    static GameEvent creature_spawned(
+        uint64_t creature_id, const std::string& creature_type,
+        const std::string& dimension,
+        int cx, int cy, int cz);
+
+    static GameEvent creature_despawned(
+        uint64_t creature_id, const std::string& creature_type,
+        const std::string& dimension,
+        int cx, int cy, int cz);
 
     // --- Region event factories ---
 

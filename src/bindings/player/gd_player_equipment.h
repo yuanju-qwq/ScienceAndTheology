@@ -16,8 +16,9 @@ public:
         SLOT_OFF_HAND  = 1,
         SLOT_HEAD      = 2,
         SLOT_CHEST     = 3,
-        SLOT_LEGS      = 4,
-        SLOT_FEET      = 5,
+        SLOT_ARM       = 4,
+        SLOT_LEGS      = 5,
+        SLOT_FEET      = 6,
     };
 
     GDPlayerEquipment();

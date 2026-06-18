@@ -58,6 +58,34 @@ EntityId BlockEntityRegistry::register_tree_entity(
     return id;
 }
 
+EntityId BlockEntityRegistry::register_creature_entity(
+    const std::string& dimension_id,
+    int32_t root_x, int32_t root_y, int32_t root_z,
+    CreatureType creature_type,
+    int64_t spawn_tick) {
+    EntityId id = next_id();
+
+    BlockEntityEntry entry;
+    entry.dimension_id = dimension_id;
+    entry.placement.id = id;
+    entry.placement.entity_type = BlockEntityType::CREATURE;
+    entry.placement.root_x = root_x;
+    entry.placement.root_y = root_y;
+    entry.placement.root_z = root_z;
+    entry.placement.owned_cell_count = 0;
+
+    entry.creature_state.creature_type = creature_type;
+    entry.creature_state.health = 1.0f;
+    entry.creature_state.spawn_tick = spawn_tick;
+
+    // Index by chunk.
+    ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
+    chunk_entities_[ck].push_back(id);
+
+    entities_[id] = std::move(entry);
+    return id;
+}
+
 void BlockEntityRegistry::remove_entity(EntityId id) {
     auto it = entities_.find(id);
     if (it == entities_.end()) return;
@@ -122,6 +150,22 @@ TreeBlockEntityState* BlockEntityRegistry::get_tree_state_mut(EntityId id) {
     if (it == entities_.end()) return nullptr;
     if (it->second.placement.entity_type != BlockEntityType::TREE) return nullptr;
     return &it->second.tree_state;
+}
+
+const CreatureBlockEntityState* BlockEntityRegistry::get_creature_state(
+    EntityId id) const {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return nullptr;
+    if (it->second.placement.entity_type != BlockEntityType::CREATURE) return nullptr;
+    return &it->second.creature_state;
+}
+
+CreatureBlockEntityState* BlockEntityRegistry::get_creature_state_mut(
+    EntityId id) {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return nullptr;
+    if (it->second.placement.entity_type != BlockEntityType::CREATURE) return nullptr;
+    return &it->second.creature_state;
 }
 
 const BlockEntityPlacement* BlockEntityRegistry::get_placement(
