@@ -33,21 +33,6 @@ const K_FORM_COUNT     = 31
 const K_MAT_ITEM_BASE  = 1
 const K_NON_MAT_BASE   = K_MAT_ITEM_BASE + 113 * K_FORM_COUNT + 1
 
-const ITEM_WORKBENCH   = K_NON_MAT_BASE + 52
-const ITEM_FURNACE     = K_NON_MAT_BASE + 53
-const ITEM_LADDER      = K_NON_MAT_BASE + 54
-const ITEM_WOODEN_PICKAXE = K_NON_MAT_BASE + 36
-const ITEM_STONE_PICKAXE  = K_NON_MAT_BASE + 37
-const ITEM_IRON_PICKAXE   = K_NON_MAT_BASE + 38
-const ITEM_WOODEN_AXE     = K_NON_MAT_BASE + 40
-const ITEM_STONE_AXE      = K_NON_MAT_BASE + 41
-const ITEM_IRON_AXE       = K_NON_MAT_BASE + 42
-const ITEM_WOODEN_SHOVEL  = K_NON_MAT_BASE + 44
-const ITEM_STONE_SHOVEL   = K_NON_MAT_BASE + 45
-const ITEM_IRON_SHOVEL    = K_NON_MAT_BASE + 46
-const ITEM_WOODEN_SWORD   = K_NON_MAT_BASE + 48
-const ITEM_STONE_SWORD    = K_NON_MAT_BASE + 49
-const ITEM_IRON_SWORD     = K_NON_MAT_BASE + 50
 const ITEM_GT_HAMMER      = K_NON_MAT_BASE + 0
 const ITEM_GT_WRENCH      = K_NON_MAT_BASE + 1
 const ITEM_GT_FILE        = K_NON_MAT_BASE + 2
@@ -80,6 +65,22 @@ const ITEM_STONE_PLATE   = K_NON_MAT_BASE + 33
 const ITEM_WOOD_PLATE    = K_NON_MAT_BASE + 34
 const ITEM_BLANK_PATTERN = K_NON_MAT_BASE + 35
 
+const ITEM_WOODEN_PICKAXE = K_NON_MAT_BASE + 36
+const ITEM_STONE_PICKAXE  = K_NON_MAT_BASE + 37
+const ITEM_IRON_PICKAXE   = K_NON_MAT_BASE + 38
+const ITEM_WOODEN_AXE     = K_NON_MAT_BASE + 40
+const ITEM_STONE_AXE      = K_NON_MAT_BASE + 41
+const ITEM_IRON_AXE       = K_NON_MAT_BASE + 42
+const ITEM_WOODEN_SHOVEL  = K_NON_MAT_BASE + 44
+const ITEM_STONE_SHOVEL   = K_NON_MAT_BASE + 45
+const ITEM_IRON_SHOVEL    = K_NON_MAT_BASE + 46
+const ITEM_WOODEN_SWORD   = K_NON_MAT_BASE + 48
+const ITEM_STONE_SWORD    = K_NON_MAT_BASE + 49
+const ITEM_IRON_SWORD     = K_NON_MAT_BASE + 50
+
+const ITEM_WORKBENCH   = K_NON_MAT_BASE + 52
+const ITEM_FURNACE     = K_NON_MAT_BASE + 53
+const ITEM_LADDER      = K_NON_MAT_BASE + 54
 # Space station blueprint item.
 const ITEM_STATION_BLUEPRINT = K_NON_MAT_BASE + 55
 
@@ -147,6 +148,7 @@ static func _make_placeholder_icon(color: Color, size: int = 16) -> ImageTexture
 	for y in size:
 		for x in size:
 			var border := x == 0 or y == 0 or x == size - 1 or y == size - 1
+			@warning_ignore("integer_division")
 			var check := (x / 4 + y / 4) % 2 == 0
 			var c := gray if border else (color if check else color.darkened(0.15))
 			image.set_pixel(x, y, c)
@@ -283,7 +285,6 @@ func _make_tool_def(tool_type: int, tier: int, mining_level: int, speed: float, 
 	return t
 
 func _register_tool_items() -> void:
-	var mk := _make_tool_def
 	var PICK := ToolDef.ToolType.PICKAXE
 	var AXE := ToolDef.ToolType.AXE
 	var SHOVEL := ToolDef.ToolType.SHOVEL
@@ -297,29 +298,29 @@ func _register_tool_items() -> void:
 	var silver := Color(0.75, 0.75, 0.80)
 
 	_register(ITEM_WOODEN_PICKAXE, "wooden_pickaxe", brown, 1,
-			mk.call(PICK, W, 0, 1.5, 60, 2.0), "tools/wooden_pickaxe_icon_32.png")
+			_make_tool_def(PICK, W, 0, 1.5, 60, 2.0), "tools/wooden_pickaxe_icon_32.png")
 	_register(ITEM_STONE_PICKAXE, "stone_pickaxe", gray, 1,
-			mk.call(PICK, S, 1, 2.0, 130, 3.0), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(PICK, S, 1, 2.0, 130, 3.0), "tools/stone_pickaxe_icon_32.png")
 	_register(ITEM_IRON_PICKAXE, "iron_pickaxe", silver, 1,
-			mk.call(PICK, I, 2, 3.0, 250, 4.0), "tools/iron_pickaxe_icon_32.png")
+			_make_tool_def(PICK, I, 2, 3.0, 250, 4.0), "tools/iron_pickaxe_icon_32.png")
 	_register(ITEM_WOODEN_AXE, "wooden_axe", brown, 1,
-			mk.call(AXE, W, 0, 1.5, 60, 3.0), "tools/wooden_axe_icon_32.png")
+			_make_tool_def(AXE, W, 0, 1.5, 60, 3.0), "tools/wooden_axe_icon_32.png")
 	_register(ITEM_STONE_AXE, "stone_axe", gray, 1,
-			mk.call(AXE, S, 1, 2.0, 130, 4.0), "tools/stone_axe_icon_32.png")
+			_make_tool_def(AXE, S, 1, 2.0, 130, 4.0), "tools/stone_axe_icon_32.png")
 	_register(ITEM_IRON_AXE, "iron_axe", silver, 1,
-			mk.call(AXE, I, 2, 3.0, 250, 5.0), "tools/iron_axe_icon_32.png")
+			_make_tool_def(AXE, I, 2, 3.0, 250, 5.0), "tools/iron_axe_icon_32.png")
 	_register(ITEM_WOODEN_SHOVEL, "wooden_shovel", brown, 1,
-			mk.call(SHOVEL, W, 0, 1.5, 60, 1.5), "tools/wooden_shovel_icon_32.png")
+			_make_tool_def(SHOVEL, W, 0, 1.5, 60, 1.5), "tools/wooden_shovel_icon_32.png")
 	_register(ITEM_STONE_SHOVEL, "stone_shovel", gray, 1,
-			mk.call(SHOVEL, S, 1, 2.0, 130, 2.5), "tools/stone_shovel_icon_32.png")
+			_make_tool_def(SHOVEL, S, 1, 2.0, 130, 2.5), "tools/stone_shovel_icon_32.png")
 	_register(ITEM_IRON_SHOVEL, "iron_shovel", silver, 1,
-			mk.call(SHOVEL, I, 2, 3.0, 250, 3.5), "tools/iron_shovel_icon_32.png")
+			_make_tool_def(SHOVEL, I, 2, 3.0, 250, 3.5), "tools/iron_shovel_icon_32.png")
 	_register(ITEM_WOODEN_SWORD, "wooden_sword", brown, 1,
-			mk.call(SWORD, W, 0, 1.0, 60, 4.0), "tools/wooden_sword_icon_32.png")
+			_make_tool_def(SWORD, W, 0, 1.0, 60, 4.0), "tools/wooden_sword_icon_32.png")
 	_register(ITEM_STONE_SWORD, "stone_sword", gray, 1,
-			mk.call(SWORD, S, 1, 1.0, 130, 5.0), "tools/stone_sword_icon_32.png")
+			_make_tool_def(SWORD, S, 1, 1.0, 130, 5.0), "tools/stone_sword_icon_32.png")
 	_register(ITEM_IRON_SWORD, "iron_sword", silver, 1,
-			mk.call(SWORD, I, 2, 1.0, 250, 6.0), "tools/iron_sword_icon_32.png")
+			_make_tool_def(SWORD, I, 2, 1.0, 250, 6.0), "tools/iron_sword_icon_32.png")
 
 
 func _register_component_items() -> void:
@@ -545,7 +546,7 @@ func _register_non_material_keys() -> void:
 		ITEM_OLIVE_FRUIT: "fruit.olive",
 		ITEM_STATION_BLUEPRINT: "station_blueprint",
 	}
-	for id in entries:
+	for id: int in entries:
 		var key: String = entries[id]
 		_key_to_id[key] = id
 		_id_to_key[id] = key
@@ -557,20 +558,20 @@ func _register_non_material_keys() -> void:
 func _register_material_item_keys() -> void:
 	# Helper: compute material item ID.
 	# This mirrors the C++ mat_item() macro: base + mat_id * form_count + form_id.
-	var mat_item := func(mat_id: int, form_id: int) -> int:
+	var compute_mat_item := func(mat_id: int, form_id: int) -> int:
 		return K_MAT_ITEM_BASE + mat_id * K_FORM_COUNT + form_id
 
 	# Register specific material items used in quest conditions.
 	var quest_material_items := {
-		mat_item.call(MATERIAL_STONE, FORM_DUST): "dust.stone",
-		mat_item.call(MATERIAL_COAL, FORM_GEM): "gem.coal",
-		mat_item.call(MATERIAL_COPPER, FORM_DUST): "dust.copper",
-		mat_item.call(MATERIAL_IRON, FORM_DUST): "dust.iron",
-		mat_item.call(MATERIAL_IRON, FORM_INGOT): "ingot.iron",
-		mat_item.call(MATERIAL_IRON, FORM_PLATE): "plate.iron",
-		mat_item.call(MATERIAL_IRON, FORM_ROD): "rod.iron",
-		mat_item.call(MATERIAL_WOOD, FORM_PLATE): "plate.wood",
-		mat_item.call(MATERIAL_WOOD, FORM_ROD): "rod.wood",
+		compute_mat_item.call(MATERIAL_STONE, FORM_DUST): "dust.stone",
+		compute_mat_item.call(MATERIAL_COAL, FORM_GEM): "gem.coal",
+		compute_mat_item.call(MATERIAL_COPPER, FORM_DUST): "dust.copper",
+		compute_mat_item.call(MATERIAL_IRON, FORM_DUST): "dust.iron",
+		compute_mat_item.call(MATERIAL_IRON, FORM_INGOT): "ingot.iron",
+		compute_mat_item.call(MATERIAL_IRON, FORM_PLATE): "plate.iron",
+		compute_mat_item.call(MATERIAL_IRON, FORM_ROD): "rod.iron",
+		compute_mat_item.call(MATERIAL_WOOD, FORM_PLATE): "plate.wood",
+		compute_mat_item.call(MATERIAL_WOOD, FORM_ROD): "rod.wood",
 	}
 
 	# Add bronze (alloy, not in the basic material list).
@@ -586,7 +587,7 @@ func _register_material_item_keys() -> void:
 		"circuit_basic": "circuit_basic",
 	}
 
-	for id in quest_material_items:
+	for id: int in quest_material_items:
 		var key: String = quest_material_items[id]
 		# Don't overwrite existing _id_to_key entries, only add new ones
 		if not _id_to_key.has(id):
@@ -597,7 +598,7 @@ func _register_material_item_keys() -> void:
 	# Register extra key-only entries (without item_id resolution).
 	# These are used by the quest system for string matching even if
 	# the item_id lookup doesn't work.
-	for key in extra_keys:
+	for key: String in extra_keys:
 		if not _key_to_id.has(key):
 			# Mark with a sentinel id so key lookup returns something non-negative.
 			_key_to_id[key] = -2

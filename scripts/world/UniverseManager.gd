@@ -136,7 +136,7 @@ var _player: Node3D = null
 var _chunk_bridge: ChunkRendererBridge = null
 var _tick_system: GDTickSystem = null
 var _tick_system_initialized := false
-var _quest_system: Node = null
+var _quest_system: GDQuestSystem = null
 var _quest_system_initialized := false
 var _debug_elapsed := 0.0
 var _bridge_initialized := false
@@ -174,8 +174,8 @@ func _apply_game_session_overrides() -> void:
 	if game_session == null:
 		return
 	var session_mode := str(game_session.get("universe_mode"))
-	var session_seed := int(game_session.get("universe_seed"))
-	var session_density := float(game_session.get("system_density"))
+	var session_seed := int(str(game_session.get("universe_seed")).to_int())
+	var session_density := float(str(game_session.get("system_density")).to_float())
 	if session_mode != "":
 		universe_mode = session_mode
 	if session_seed != 0:
@@ -388,9 +388,36 @@ func _set_initial_active_planet() -> void:
 		active_planet = _find_first_landable_planet()
 		return
 
+	# Choose a spawn planet: prefer breathable atmosphere (e.g., Earth).
+	var spawn_planet := _find_spawn_planet()
+	if spawn_planet != null:
+		# Place player above the planet's local surface.
+		# Player position doubles as the planet-local coordinate; the surface
+		# top is at y≈0 (local_center = (0, -radius, 0)). Spawn above the
+		# highest possible terrain (terrain_height_scale) to avoid clipping.
+		var spawn_y := spawn_planet.terrain_height_scale + 4.0
+		_player.global_position = Vector3(0.5, spawn_y, 0.5)
+		_set_active_planet(spawn_planet)
+		return
+
 	var nearest := find_nearest_planet(_player.global_position)
 	if nearest != null:
 		_set_active_planet(nearest)
+
+
+# Find a suitable planet for the player's initial spawn.
+# Prefers planets with breathable atmosphere (e.g., Earth), then falls back
+# to the first landable planet. Stars are excluded.
+func _find_spawn_planet() -> PlanetDescriptor:
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
+			if planet.atmosphere_type == PlanetDescriptor.AtmosphereType.BREATHABLE:
+				return planet
+	return _find_first_landable_planet()
 
 
 func _update_active_planet() -> void:
@@ -404,7 +431,15 @@ func _update_active_planet() -> void:
 			_set_active_station(nearest_station)
 		return
 
-	# Otherwise, check planets.
+	# If we already have an active planet and the player is still within its
+	# local gravity range, keep it. The player position doubles as the
+	# planet-local coordinate, so we check against local_center.
+	if active_planet != null and not active_planet.is_star:
+		var local_dist := _player.global_position.distance_to(active_planet.local_center)
+		if local_dist <= active_planet.gravity_radius():
+			return
+
+	# Otherwise, find the nearest planet by universe distance.
 	var nearest := find_nearest_planet(_player.global_position)
 	if nearest == null:
 		return
@@ -428,7 +463,7 @@ func _set_active_station(station: StationDescriptor) -> void:
 
 
 func _set_active_planet(planet: PlanetDescriptor) -> void:
-	var old := active_planet
+	var _old := active_planet
 	active_planet = planet
 	active_station = null
 	active_planet_changed.emit(planet)
@@ -532,7 +567,7 @@ func _reconcile_virtual_production(dimension_id: StringName) -> void:
 	# and logistics towers, then adding items to their inventories.
 	# For now, log the reconciliation for debugging.
 	if debug_universe:
-		for item_key in accumulated.keys():
+		for item_key: String in accumulated.keys():
 			var count: int = accumulated[item_key]
 			print("UniverseManager: reconcile %d x %s for %s" % [
 				count, item_key, String(dimension_id)])
@@ -582,11 +617,11 @@ func load_universe() -> bool:
 # --- Public API: system queries ---
 
 # Find the nearest star system to a given universe-space position.
-func find_nearest_system(position: Vector3) -> StarSystemDescriptor:
+func find_nearest_system(pos: Vector3) -> StarSystemDescriptor:
 	var best: StarSystemDescriptor = null
 	var best_dist: float = INF
 	for sys in systems:
-		var dist := position.distance_to(sys.universe_position)
+		var dist := pos.distance_to(sys.universe_position)
 		if dist < best_dist:
 			best_dist = dist
 			best = sys
@@ -631,7 +666,7 @@ func get_system_count() -> int:
 # Find the nearest planet to a given universe-space position.
 # Stars are excluded from consideration.
 # Only considers planets in realized systems.
-func find_nearest_planet(position: Vector3) -> PlanetDescriptor:
+func find_nearest_planet(pos: Vector3) -> PlanetDescriptor:
 	var best: PlanetDescriptor = null
 	var best_dist: float = INF
 
@@ -641,7 +676,7 @@ func find_nearest_planet(position: Vector3) -> PlanetDescriptor:
 		for planet in sys.planets:
 			if planet.is_star:
 				continue
-			var dist := position.distance_to(planet.universe_position)
+			var dist := pos.distance_to(planet.universe_position)
 			if dist < best_dist:
 				best_dist = dist
 				best = planet
@@ -651,12 +686,12 @@ func find_nearest_planet(position: Vector3) -> PlanetDescriptor:
 
 # Find the nearest space station to a given universe-space position.
 # Returns null if no stations exist.
-func find_nearest_station(position: Vector3) -> StationDescriptor:
+func find_nearest_station(pos: Vector3) -> StationDescriptor:
 	var best: StationDescriptor = null
 	var best_dist: float = INF
 
 	for station in stations:
-		var dist := position.distance_to(station.universe_position)
+		var dist := pos.distance_to(station.universe_position)
 		if dist < best_dist:
 			best_dist = dist
 			best = station
@@ -667,13 +702,23 @@ func find_nearest_station(position: Vector3) -> StationDescriptor:
 # Compute the combined gravity direction at a given universe-space position.
 # Considers gravity from planets, stars, and space stations.
 # Station gravity always points downward (artificial gravity).
-func compute_gravity_direction(position: Vector3) -> Vector3:
+func compute_gravity_direction(pos: Vector3) -> Vector3:
 	# Check stations first — they have the strongest local gravity.
 	for station in stations:
-		if station.is_in_gravity_range(position):
-			return station.gravity_direction_at(position)
+		if station.is_in_gravity_range(pos):
+			return station.gravity_direction_at(pos)
 
-	var nearest_sys := find_nearest_system(position)
+	# When an active planet is set, use its local_center for gravity.
+	# The player position doubles as the planet-local coordinate, so
+	# local_center is the correct gravity source (not universe_position).
+	# This avoids the player being pulled toward the Sun (at the universe
+	# origin) while standing on a planet's local surface.
+	if active_planet != null and not active_planet.is_star:
+		var local_dist := pos.distance_to(active_planet.local_center)
+		if local_dist > 0.001 and local_dist <= active_planet.gravity_radius():
+			return (active_planet.local_center - pos).normalized()
+
+	var nearest_sys := find_nearest_system(pos)
 	if nearest_sys == null or not nearest_sys.is_realized():
 		return Vector3.ZERO
 
@@ -681,12 +726,12 @@ func compute_gravity_direction(position: Vector3) -> Vector3:
 	var best_influence := 0.0
 
 	for body in nearest_sys.all_bodies():
-		var dist := position.distance_to(body.universe_position)
+		var dist := pos.distance_to(body.universe_position)
 		var gravity_radius := body.gravity_radius()
 		if dist > gravity_radius or dist < 0.001:
 			continue
 
-		var dir := (body.universe_position - position).normalized()
+		var dir := (body.universe_position - pos).normalized()
 		var t := 1.0 - (dist / gravity_radius)
 		var influence := body.gravity_multiplier * t * t
 
@@ -699,20 +744,27 @@ func compute_gravity_direction(position: Vector3) -> Vector3:
 
 # Compute the gravity strength multiplier at a given position.
 # Includes station gravity.
-func compute_gravity_multiplier(position: Vector3) -> float:
+func compute_gravity_multiplier(pos: Vector3) -> float:
 	# Check stations first.
 	for station in stations:
-		if station.is_in_gravity_range(position):
+		if station.is_in_gravity_range(pos):
 			return station.gravity_multiplier
 
-	var nearest_sys := find_nearest_system(position)
+	# When an active planet is set, use its gravity multiplier directly
+	# if the player is within its local gravity range.
+	if active_planet != null and not active_planet.is_star:
+		var local_dist := pos.distance_to(active_planet.local_center)
+		if local_dist <= active_planet.gravity_radius():
+			return active_planet.gravity_multiplier
+
+	var nearest_sys := find_nearest_system(pos)
 	if nearest_sys == null or not nearest_sys.is_realized():
 		return 0.0
 
 	var best_mult := 0.0
 
 	for body in nearest_sys.all_bodies():
-		var dist := position.distance_to(body.universe_position)
+		var dist := pos.distance_to(body.universe_position)
 		var gravity_radius := body.gravity_radius()
 		if dist > gravity_radius:
 			continue
@@ -728,16 +780,16 @@ func compute_gravity_multiplier(position: Vector3) -> float:
 
 # Check whether a position is within any planet's gravity range.
 # Also checks space station gravity ranges.
-func is_in_any_gravity_range(position: Vector3) -> bool:
+func is_in_any_gravity_range(pos: Vector3) -> bool:
 	for station in stations:
-		if station.is_in_gravity_range(position):
+		if station.is_in_gravity_range(pos):
 			return true
 
 	for sys in systems:
 		if not sys.is_realized():
 			continue
 		for planet in sys.planets:
-			if planet.is_in_gravity_range(position):
+			if planet.is_in_gravity_range(pos):
 				return true
 	return false
 
@@ -997,8 +1049,8 @@ func _populate_station_core(station: StationDescriptor) -> void:
 	var wall_material := 13    # MAT_DEEPSTONE
 
 	# Compute the global block range for the core.
-	var half_x := core_size.x / 2
-	var half_z := core_size.z / 2
+	var half_x := core_size.x / 2.0
+	var half_z := core_size.z / 2.0
 	var min_x := -half_x * chunk_size
 	var max_x := (-half_x + core_size.x) * chunk_size
 	var min_z := -half_z * chunk_size

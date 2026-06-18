@@ -51,22 +51,22 @@ func _item_key(item_key: String, count: int = 1) -> Dictionary:
 func _mat(form: String, material: String, count: int = 1) -> Dictionary:
 	return _item_key("%s.%s" % [form, material], count)
 
-func _fluid(name: String, amount: int) -> Dictionary:
+func _fluid(fluid_name: String, amount: int) -> Dictionary:
 	return {
 		"type": "fluid",
-		"fluid_name": name,
+		"fluid_name": fluid_name,
 		"amount": amount,
 	}
 
 func _recipe(
-		name: String,
+		recipe_name: String,
 		category: String,
 		required_station: String,
 		inputs: Array,
 		output: Dictionary,
 		required_tool: String = "") -> Dictionary:
 	var data := {
-		"name": name,
+		"name": recipe_name,
 		"category": category,
 		"required_station": required_station,
 		"inputs": inputs,
@@ -77,20 +77,20 @@ func _recipe(
 	return data
 
 func _hand(
-		name: String,
+		recipe_name: String,
 		category: String,
 		inputs: Array,
 		output: Dictionary,
 		required_tool: String = "") -> Dictionary:
-	return _recipe(name, category, "", inputs, output, required_tool)
+	return _recipe(recipe_name, category, "", inputs, output, required_tool)
 
 func _bench(
-		name: String,
+		recipe_name: String,
 		category: String,
 		inputs: Array,
 		output: Dictionary,
 		required_tool: String = "") -> Dictionary:
-	return _recipe(name, category, "workbench", inputs, output, required_tool)
+	return _recipe(recipe_name, category, "workbench", inputs, output, required_tool)
 
 func _add_recipe_if_valid(
 		recipes: Array,
@@ -104,16 +104,19 @@ func _add_recipe_if_valid(
 				recipe.get("name", "<unnamed>"))
 
 func _recipe_items_are_valid(recipe: Dictionary) -> bool:
-	if not _stack_is_valid(recipe.get("output", {})):
+	var output_dict: Dictionary = recipe.get("output", {})
+	if not _stack_is_valid(output_dict):
 		return false
-	for input in recipe.get("inputs", []):
-		if not _stack_is_valid(input):
+	for input: Dictionary in recipe.get("inputs", []):
+		if not _stack_is_valid(input as Dictionary):
 			return false
 	return true
 
 func _stack_is_valid(stack: Dictionary) -> bool:
 	if stack.has("item_id"):
-		return GDCraftingManager.is_valid_item(int(stack["item_id"]))
+		@warning_ignore("unsafe_cast")
+		var item_id_value: int = stack["item_id"] as int
+		return GDCraftingManager.is_valid_item(item_id_value)
 	if stack.has("item_key"):
 		return _has_key(str(stack["item_key"]))
 	return false
@@ -139,7 +142,7 @@ func _add_material_compression_recipes(recipes: Array) -> void:
 		"gold", "silver", "nickel", "zinc", "aluminum", "brass",
 		"invar", "electrum", "wrought_iron", "bismuth", "antimony",
 	]
-	for material in compressible_metals:
+	for material: String in compressible_metals:
 		_add_recipe_if_valid(recipes, _hand(
 				"compress_%s_nugget_to_ingot" % material,
 				"materials",
@@ -165,7 +168,7 @@ func _add_material_compression_recipes(recipes: Array) -> void:
 		"coal", "diamond", "emerald", "lapis", "redstone",
 		"glowstone", "sulfur", "saltpeter",
 	]
-	for material in dust_materials:
+	for material: String in dust_materials:
 		_add_recipe_if_valid(recipes, _hand(
 				"compress_%s_dust_to_block" % material,
 				"materials",
@@ -248,7 +251,7 @@ func _add_part_recipes(recipes: Array) -> void:
 func _add_wire_recipes(recipes: Array) -> void:
 	var wire_metals := ["copper", "tin", "gold", "silver", "aluminum",
 			"nickel", "lead", "zinc", "iron", "steel"]
-	for material in wire_metals:
+	for material: String in wire_metals:
 		_add_recipe_if_valid(recipes, _bench(
 				"craft_%s_wire" % material,
 				"wires",
@@ -259,7 +262,7 @@ func _add_wire_recipes(recipes: Array) -> void:
 func _add_cable_recipes(recipes: Array) -> void:
 	var cable_metals := ["copper", "tin", "gold", "silver",
 			"aluminum", "nickel", "iron", "steel"]
-	for material in cable_metals:
+	for material: String in cable_metals:
 		_add_recipe_if_valid(recipes, _bench(
 				"craft_%s_cable" % material,
 				"cables",
@@ -396,7 +399,7 @@ func _add_misc_recipes(recipes: Array) -> void:
 		["cherry", "log.cherry", "plank.cherry"],
 		["olive", "log.olive", "plank.olive"],
 	]
-	for species in tree_species:
+	for species: Array in tree_species:
 		var sp_name: String = species[0]
 		var log_key: String = species[1]
 		var plank_key: String = species[2]

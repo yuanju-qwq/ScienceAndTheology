@@ -18,7 +18,7 @@ static func check_tool_match(tool: ToolDef, required_tag: String, required_level
 		return true
 	if tool == null:
 		return false
-	var tool_type_name: String = ToolType.keys()[tool.tool_type].to_lower()
+	var tool_type_name: String = str(ToolType.keys()[tool.tool_type]).to_lower()
 	if tool_type_name != required_tag.to_lower():
 		return false
 	if tool.mining_level < required_level:
