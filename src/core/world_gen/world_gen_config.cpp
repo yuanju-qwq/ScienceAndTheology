@@ -190,13 +190,19 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, static_cast<uint64_t>(rule.detail_octaves));
         hash_combine(hash, static_cast<uint64_t>((rule.detail_threshold + 2.0f) * 100000.0f));
     }
-    for (const auto& rule : config.ore_vein_rules) {
-        hash_combine(hash, string_hash(rule.key));
-        hash_combine(hash, string_hash(rule.dimension_id));
-        hash_combine(hash, rule.host_material);
-        hash_combine(hash, rule.ore_material);
-        hash_combine(hash, static_cast<uint64_t>((rule.combined_min + 2.0f) * 100000.0f));
-        hash_combine(hash, static_cast<uint64_t>((rule.combined_max + 2.0f) * 100000.0f));
+    for (const auto& group : config.ore_vein_groups) {
+        hash_combine(hash, string_hash(group.key));
+        hash_combine(hash, string_hash(group.dimension_id));
+        hash_combine(hash, group.host_material);
+        hash_combine(hash, group.primary_ore);
+        hash_combine(hash, group.secondary_ore);
+        hash_combine(hash, group.between_ore);
+        hash_combine(hash, group.sporadic_ore);
+        hash_combine(hash, static_cast<uint64_t>((group.depth_min + 100.0f) * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>((group.depth_max + 100.0f) * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(group.radius * 1000.0f));
+        hash_combine(hash, static_cast<uint64_t>(group.density * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(group.weight * 100000.0f));
     }
     for (const auto& rule : config.rock_layer_rules) {
         hash_combine(hash, string_hash(rule.key));

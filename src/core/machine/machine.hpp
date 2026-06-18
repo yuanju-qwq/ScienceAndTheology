@@ -209,6 +209,12 @@ public:
     // Advance the machine by one tick. Called each game tick (20 TPS).
     void tick();
 
+    // Advance the machine by N ticks in one call.
+    // Used by sleeping chunks to catch up in bulk (same total progress,
+    // fewer individual calls). Each tick advances progress by 1.
+    // Only the final state change event is emitted (not per-tick).
+    void tick_n(int64_t ticks);
+
     // Force-stop processing and return to IDLE. Consumes no inputs.
     void abort();
 

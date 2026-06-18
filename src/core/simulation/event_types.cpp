@@ -170,4 +170,181 @@ GameEvent GameEvent::player_equipment_changed(
     return ev;
 }
 
+// --- Region event factories ---
+
+GameEvent GameEvent::region_created(
+    uint64_t region_id, const std::string& region_type,
+    const std::string& dimension) {
+    GameEvent ev;
+    ev.type = GameEventType::REGION_CREATED;
+    ev.source_id = region_id;
+    ev.source_dimension = dimension;
+    ev.string_data["region_type"] = region_type;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::region_destroyed(
+    uint64_t region_id, const std::string& region_type,
+    const std::string& dimension) {
+    GameEvent ev;
+    ev.type = GameEventType::REGION_DESTROYED;
+    ev.source_id = region_id;
+    ev.source_dimension = dimension;
+    ev.string_data["region_type"] = region_type;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::region_merged(
+    uint64_t merged_id, uint64_t absorbed_id,
+    const std::string& region_type, const std::string& dimension) {
+    GameEvent ev;
+    ev.type = GameEventType::REGION_MERGED;
+    ev.source_id = merged_id;
+    ev.source_dimension = dimension;
+    ev.string_data["region_type"] = region_type;
+    ev.int_data["absorbed_id"] = static_cast<int64_t>(absorbed_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::region_split(
+    uint64_t original_id, uint64_t new_id,
+    const std::string& region_type, const std::string& dimension) {
+    GameEvent ev;
+    ev.type = GameEventType::REGION_SPLIT;
+    ev.source_id = original_id;
+    ev.source_dimension = dimension;
+    ev.string_data["region_type"] = region_type;
+    ev.int_data["new_id"] = static_cast<int64_t>(new_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::region_pollution_changed(
+    uint64_t region_id, double old_level, double new_level,
+    const std::string& dimension) {
+    GameEvent ev;
+    ev.type = GameEventType::REGION_POLLUTION_CHANGED;
+    ev.source_id = region_id;
+    ev.source_dimension = dimension;
+    ev.float_data["old_level"] = old_level;
+    ev.float_data["new_level"] = new_level;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::region_temperature_changed(
+    uint64_t region_id, double old_temp, double new_temp,
+    const std::string& dimension) {
+    GameEvent ev;
+    ev.type = GameEventType::REGION_TEMPERATURE_CHANGED;
+    ev.source_id = region_id;
+    ev.source_dimension = dimension;
+    ev.float_data["old_temp"] = old_temp;
+    ev.float_data["new_temp"] = new_temp;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+// --- Source law event factories ---
+
+GameEvent GameEvent::source_law_changed(uint64_t player_id) {
+    GameEvent ev;
+    ev.type = GameEventType::SOURCE_LAW_CHANGED;
+    ev.source_id = player_id;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::organ_transformed(
+    uint64_t player_id, int slot, int element) {
+    GameEvent ev;
+    ev.type = GameEventType::ORGAN_TRANSFORMED;
+    ev.source_id = player_id;
+    ev.int_data["slot"] = slot;
+    ev.int_data["element"] = element;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::organ_purified(
+    uint64_t player_id, int slot) {
+    GameEvent ev;
+    ev.type = GameEventType::ORGAN_PURIFIED;
+    ev.source_id = player_id;
+    ev.int_data["slot"] = slot;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::stability_changed(
+    uint64_t player_id, float old_val, float new_val) {
+    GameEvent ev;
+    ev.type = GameEventType::STABILITY_CHANGED;
+    ev.source_id = player_id;
+    ev.float_data["old_val"] = static_cast<double>(old_val);
+    ev.float_data["new_val"] = static_cast<double>(new_val);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::mutation_changed(
+    uint64_t player_id, float old_val, float new_val) {
+    GameEvent ev;
+    ev.type = GameEventType::MUTATION_CHANGED;
+    ev.source_id = player_id;
+    ev.float_data["old_val"] = static_cast<double>(old_val);
+    ev.float_data["new_val"] = static_cast<double>(new_val);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::mana_changed(
+    uint64_t player_id, int old_val, int new_val) {
+    GameEvent ev;
+    ev.type = GameEventType::MANA_CHANGED;
+    ev.source_id = player_id;
+    ev.int_data["old_val"] = old_val;
+    ev.int_data["new_val"] = new_val;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+// --- Satiation event factories ---
+
+GameEvent GameEvent::satiation_changed(
+    uint64_t player_id, float old_val, float new_val) {
+    GameEvent ev;
+    ev.type = GameEventType::SATIATION_CHANGED;
+    ev.source_id = player_id;
+    ev.float_data["old_val"] = static_cast<double>(old_val);
+    ev.float_data["new_val"] = static_cast<double>(new_val);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::hunger_level_changed(
+    uint64_t player_id, int old_level, int new_level) {
+    GameEvent ev;
+    ev.type = GameEventType::HUNGER_LEVEL_CHANGED;
+    ev.source_id = player_id;
+    ev.int_data["old_level"] = old_level;
+    ev.int_data["new_level"] = new_level;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::source_essence_changed(
+    uint64_t player_id, float old_total, float new_total) {
+    GameEvent ev;
+    ev.type = GameEventType::SOURCE_ESSENCE_CHANGED;
+    ev.source_id = player_id;
+    ev.float_data["old_total"] = static_cast<double>(old_total);
+    ev.float_data["new_total"] = static_cast<double>(new_total);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
 } // namespace science_and_theology

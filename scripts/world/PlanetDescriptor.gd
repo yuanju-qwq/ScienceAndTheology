@@ -5,6 +5,17 @@
 class_name PlanetDescriptor
 extends Resource
 
+# --- Atmosphere type enum ---
+
+# Determines the gameplay effects of a planet's atmosphere.
+enum AtmosphereType {
+	NONE = 0,       # Vacuum — no atmosphere (e.g., Mercury, asteroids).
+	THIN = 1,       # Thin atmosphere — oxygen mask required (e.g., Mars).
+	BREATHABLE = 2, # Breathable — safe without equipment (e.g., Earth).
+	TOXIC = 3,      # Toxic — continuous damage without suit (e.g., Venus).
+	CORROSIVE = 4,  # Corrosive — damage + equipment degradation (e.g., acid world).
+}
+
 # Unique dimension identifier used as the chunk storage key in C++ WorldData.
 # Must match the dimension_id in PlanetConfig registered via GDTerrainContentRegistry.
 @export var dimension_id: StringName = &"overworld"
@@ -31,6 +42,10 @@ extends Resource
 # Gravity multiplier relative to the default GRAVITY_STRENGTH.
 # 1.0 = standard gravity, 0.38 = Mars-like, 2.5 = super-Earth.
 @export var gravity_multiplier: float = 1.0
+
+# Atmosphere gameplay type — determines environmental hazards.
+# See AtmosphereType enum for details.
+@export var atmosphere_type: AtmosphereType = AtmosphereType.BREATHABLE
 
 # Atmosphere visual properties.
 @export var atmosphere_color := Color(0.3, 0.6, 1.0, 1.0)
@@ -111,6 +126,7 @@ func to_planet_config_dict() -> Dictionary:
 		"core_boundary_noise_scale": core_boundary_noise_scale,
 		"core_boundary_noise_octaves": core_boundary_noise_octaves,
 		"core_boundary_noise_amplitude": core_boundary_noise_amplitude,
+		"atmosphere_type": atmosphere_type,
 	}
 
 

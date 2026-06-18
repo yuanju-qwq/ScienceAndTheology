@@ -160,13 +160,50 @@ struct BiomeRule {
     float detail_threshold = -1.0f;
 };
 
-struct OreVeinRule {
+// Ore vein group: a GT-style multi-ore vein that contains primary, secondary,
+// between, and sporadic ore materials. Each vein group occupies a spatial
+// region defined by noise, with a defined depth range and density.
+// Within a vein, the distribution follows:
+//   - primary_ore:   ~40% of vein blocks (core of the vein)
+//   - secondary_ore: ~30% of vein blocks (surrounding primary)
+//   - between_ore:   ~20% of vein blocks (between primary clusters)
+//   - sporadic_ore:  ~10% of vein blocks (rare scattered pockets)
+struct OreVeinGroup {
     std::string key;
     std::string dimension_id = "overworld";
+
+    // Host rock material that this vein replaces.
     TerrainMaterialId host_material = 0;
-    TerrainMaterialId ore_material = 0;
-    float combined_min = 0.5f;
-    float combined_max = 1.0f;
+
+    // Primary ore: most abundant in the vein center.
+    TerrainMaterialId primary_ore = 0;
+
+    // Secondary ore: less abundant, surrounds primary clusters.
+    TerrainMaterialId secondary_ore = 0;
+
+    // Between ore: scattered between primary clusters.
+    TerrainMaterialId between_ore = 0;
+
+    // Sporadic ore: rare, small pockets within the vein.
+    TerrainMaterialId sporadic_ore = 0;
+
+    // Depth range: distance from the planet surface toward the core.
+    // Only blocks within this depth range can host this vein group.
+    float depth_min = 0.0f;
+    float depth_max = 100.0f;
+
+    // Vein radius: approximate horizontal extent of the vein in blocks.
+    // Controls the noise scale for vein shape (larger = wider vein).
+    float radius = 16.0f;
+
+    // Density: probability that a block within the vein shape is replaced
+    // by an ore material (0.0 = none, 1.0 = all blocks replaced).
+    float density = 0.6f;
+
+    // Weight: relative probability of this vein group being selected
+    // when multiple vein groups could occupy the same position.
+    // Higher weight = more common vein group.
+    float weight = 1.0f;
 };
 
 // Rock layer: determines underground rock type per region on the planet surface.
@@ -203,6 +240,16 @@ struct RockLayerRule {
 
     // Ores that can spawn in this rock layer (material IDs).
     std::vector<TerrainMaterialId> associated_ores;
+};
+
+// Atmosphere type — determines gameplay effects of a planet's atmosphere.
+// Must match the AtmosphereType enum in PlanetDescriptor.gd.
+enum AtmosphereType {
+    ATMO_NONE = 0,       // Vacuum — no atmosphere (e.g., Mercury, asteroids).
+    ATMO_THIN = 1,       // Thin atmosphere — oxygen mask required (e.g., Mars).
+    ATMO_BREATHABLE = 2, // Breathable — safe without equipment (e.g., Earth).
+    ATMO_TOXIC = 3,      // Toxic — continuous damage without suit (e.g., Venus).
+    ATMO_CORROSIVE = 4,  // Corrosive — damage + equipment degradation (e.g., acid world).
 };
 
 // Planet configuration for spherical world generation.
@@ -270,11 +317,15 @@ struct PlanetConfig {
     // 0.15 = core boundary can deviate by ±15% of core radius.
     float core_boundary_noise_amplitude = 0.15f;
 
+    // Atmosphere type — determines environmental hazards.
+    // See AtmosphereType enum for values.
+    int atmosphere_type = ATMO_BREATHABLE;
+
     bool is_planet() const { return planet_radius > 0.0f; }
 };
 
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 7;
+    static constexpr uint32_t kSchemaVersion = 8;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
@@ -284,7 +335,7 @@ struct WorldGenConfigSnapshot {
     RuntimeMaterialIds runtime_ids;
     std::vector<BaseTerrainRule> base_terrain_rules;
     std::vector<BiomeRule> biome_rules;
-    std::vector<OreVeinRule> ore_vein_rules;
+    std::vector<OreVeinGroup> ore_vein_groups;
     std::vector<RockLayerRule> rock_layer_rules;
     std::vector<PlanetConfig> planet_configs;
     std::vector<TreeSpeciesDef> tree_species;

@@ -167,6 +167,7 @@ static func _planet_to_dict(planet: PlanetDescriptor) -> Dictionary:
 		"star_spectral_type": planet.star_spectral_type,
 		"is_primary_star": planet.is_primary_star,
 		"gravity_multiplier": planet.gravity_multiplier,
+		"atmosphere_type": planet.atmosphere_type,
 		"star_color": [
 			planet.star_color.r,
 			planet.star_color.g,
@@ -205,6 +206,7 @@ static func _planet_from_dict(data: Dictionary) -> PlanetDescriptor:
 	desc.star_spectral_type = int(data.get("star_spectral_type", 5))
 	desc.is_primary_star = data.get("is_primary_star", false)
 	desc.gravity_multiplier = data.get("gravity_multiplier", 1.0)
+	desc.atmosphere_type = data.get("atmosphere_type", PlanetDescriptor.AtmosphereType.BREATHABLE) as PlanetDescriptor.AtmosphereType
 	var sc: Array = data.get("star_color", [1.0, 0.95, 0.8])
 	desc.star_color = Color(sc[0], sc[1], sc[2])
 	desc.star_light_energy = data.get("star_light_energy", 2.2)

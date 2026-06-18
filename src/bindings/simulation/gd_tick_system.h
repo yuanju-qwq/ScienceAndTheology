@@ -10,6 +10,7 @@
 
 #include "core/simulation/tick_system.hpp"
 #include "core/simulation/day_night_system.hpp"
+#include "core/simulation/region_system.hpp"
 
 namespace science_and_theology {
 
@@ -61,6 +62,12 @@ public:
     // first (before other subsystems) since it runs at priority 0.
     void register_day_night_system();
 
+    // Register the region simulation subsystem.
+    // Must be called after set_world_data(). Manages RegionGraphs
+    // for power grids, fluid networks, pollution, and temperature.
+    // Runs at priority 5 (after Machine, before Season).
+    void register_region_system();
+
     // --- Day/Night query ---
 
     // Returns the current day/night state as a Dictionary.
@@ -72,6 +79,19 @@ public:
     // Convenience: returns true if the sun is above the horizon.
     bool get_is_daytime() const;
 
+    // --- Region query ---
+
+    // Returns the total number of regions across all types.
+    int64_t get_region_count() const;
+
+    // Returns the number of regions for a specific type.
+    // type_index: 0=PowerGrid, 1=Fluid, 2=Connected, 3=Pollution, 4=Temperature.
+    int64_t get_region_count_by_type(int64_t type_index) const;
+
+    // Returns region data as a Dictionary for a given region type and ID.
+    // type_index: 0=PowerGrid, 1=Fluid, 2=Connected, 3=Pollution, 4=Temperature.
+    godot::Dictionary get_region_data(int64_t type_index, int64_t region_id) const;
+
     // Advance simulation by one frame.
     void tick(float delta);
 
@@ -81,6 +101,31 @@ public:
     // Active chunk radius.
     int64_t get_active_radius() const;
     void set_active_radius(int64_t radius);
+
+    // --- Sleep interval configuration ---
+
+    // Sleep interval for NEAR tier (in ticks).
+    int64_t get_sleep_near_interval() const;
+    void set_sleep_near_interval(int64_t interval);
+
+    // Sleep interval for MID tier (in ticks).
+    int64_t get_sleep_mid_interval() const;
+    void set_sleep_mid_interval(int64_t interval);
+
+    // Sleep interval for FAR tier (in ticks).
+    int64_t get_sleep_far_interval() const;
+    void set_sleep_far_interval(int64_t interval);
+
+    // --- Parallel execution control ---
+
+    // Enable or disable parallel subsystem execution.
+    void set_parallel_enabled(bool enabled);
+    bool get_parallel_enabled() const;
+
+    // Maximum number of worker threads for chunk-level parallelism.
+    // 0 = auto (hardware_concurrency - 1).
+    void set_max_worker_threads(int64_t count);
+    int64_t get_max_worker_threads() const;
 
     // Current tick count.
     int64_t get_tick_count() const;
@@ -145,6 +190,9 @@ private:
 
     // Raw pointer to the DayNightSystem (owned by tick_system_).
     DayNightSystem* day_night_system_ = nullptr;
+
+    // Raw pointer to the RegionSystem (owned by tick_system_).
+    RegionSystem* region_system_ = nullptr;
 
     std::vector<EventBus::HandlerId> event_subscriptions_;
 

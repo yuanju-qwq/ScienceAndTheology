@@ -20,6 +20,7 @@ enum class SyncFlags : uint32_t {
     ITEM_NET        = 1 << 5,
     CONNECTOR       = 1 << 6,
     ENTITY          = 1 << 7,
+    SOURCE_LAW      = 1 << 8,
     ALL             = 0xFFFFFFFF,
 };
 

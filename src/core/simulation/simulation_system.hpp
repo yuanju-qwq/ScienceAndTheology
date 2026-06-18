@@ -42,10 +42,26 @@ public:
     //   2 - Machine
     //   3 - (reserved: Fluid)
     //   4 - (reserved: Logistics)
-    //   5 - (reserved: Region)
+    //   5 - Region
     //   6 - Season
     //   7 - TreeGrowth
     virtual int priority() const = 0;
+
+    // Thread safety declaration.
+    // Returns true if this subsystem supports concurrent calls to
+    // tick_active() / tick_sleeping() from multiple threads.
+    //
+    // If true, TickSystem may:
+    //   a. Run this subsystem in parallel with other subsystems at the
+    //      same priority level (priority-group parallelism).
+    //   b. Run tick_active() for multiple chunks in parallel (chunk-level
+    //      parallelism).
+    //
+    // If false, TickSystem will only call this subsystem from the main
+    // thread, sequentially.
+    //
+    // Default: false (safe for all existing subsystems).
+    virtual bool is_thread_safe() const { return false; }
 
 protected:
     WorldData* world_ = nullptr;

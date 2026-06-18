@@ -52,9 +52,6 @@ private:
         TerrainMaterialId sand = 0;
         TerrainMaterialId water = 0;
         TerrainMaterialId lava = 0;
-        TerrainMaterialId ore_iron = 0;
-        TerrainMaterialId ore_copper = 0;
-        TerrainMaterialId ore_coal = 0;
         TerrainMaterialId wood = 0;
         TerrainMaterialId leaves = 0;
         TerrainMaterialId deepstone = 0;
@@ -91,10 +88,12 @@ private:
                     int chunk_x, int chunk_y, int chunk_z,
                     TerrainData& terrain);
 
-    // Pass 3: Place ore veins in mineable cells.
-    void pass_ore(const std::string& dimension_id,
-                  int chunk_x, int chunk_y, int chunk_z,
-                  TerrainData& terrain);
+    // Pass 3: Place GT-style multi-ore vein groups.
+    // Each vein group contains primary, secondary, between, and sporadic ores.
+    // Veins are placed by 2D noise in x/z, constrained by depth range.
+    void pass_ore_vein_group(const std::string& dimension_id,
+                             int chunk_x, int chunk_y, int chunk_z,
+                             TerrainData& terrain);
 
     // Pass 4: Place trees and small surface voxel features.
     // Also creates BlockEntityPlacement entries in chunk.block_entities.

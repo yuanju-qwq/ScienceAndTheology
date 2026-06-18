@@ -128,6 +128,7 @@ static func _create_mercury(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -128.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "mercury")
 	desc.gravity_multiplier = 0.38
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
 	desc.terrain_height_scale = 8.0
 	desc.elevation_noise_scale = 0.012
 	desc.cave_threshold = 0.4
@@ -150,6 +151,7 @@ static func _create_venus(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -480.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "venus")
 	desc.gravity_multiplier = 0.9
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
 	desc.terrain_height_scale = 12.0
 	desc.elevation_noise_scale = 0.006
 	desc.cave_threshold = 0.45
@@ -175,6 +177,7 @@ static func _create_earth(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -512.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "earth")
 	desc.gravity_multiplier = 1.0
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.BREATHABLE
 	desc.terrain_height_scale = 16.0
 	desc.elevation_noise_scale = 0.008
 	desc.elevation_octaves = 5
@@ -203,6 +206,7 @@ static func _create_mars(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -320.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "mars")
 	desc.gravity_multiplier = 0.38
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.THIN
 	desc.terrain_height_scale = 20.0
 	desc.elevation_noise_scale = 0.005
 	desc.elevation_octaves = 4
@@ -231,6 +235,7 @@ static func _create_jupiter(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -768.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "jupiter")
 	desc.gravity_multiplier = 2.5
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
 	desc.terrain_height_scale = 4.0
 	desc.elevation_noise_scale = 0.003
 	desc.elevation_octaves = 6
@@ -258,6 +263,7 @@ static func _create_saturn(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -640.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "saturn")
 	desc.gravity_multiplier = 1.07
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
 	desc.terrain_height_scale = 3.0
 	desc.elevation_noise_scale = 0.002
 	desc.elevation_octaves = 6
@@ -285,6 +291,7 @@ static func _create_uranus(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -448.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "uranus")
 	desc.gravity_multiplier = 0.89
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
 	desc.terrain_height_scale = 2.0
 	desc.elevation_noise_scale = 0.002
 	desc.elevation_octaves = 5
@@ -312,6 +319,7 @@ static func _create_neptune(universe_seed: int) -> PlanetDescriptor:
 	desc.local_center = Vector3(0.0, -432.0, 0.0)
 	desc.seed = _hash_planet_seed(universe_seed, "neptune")
 	desc.gravity_multiplier = 1.14
+	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
 	desc.terrain_height_scale = 2.0
 	desc.elevation_noise_scale = 0.002
 	desc.elevation_octaves = 5

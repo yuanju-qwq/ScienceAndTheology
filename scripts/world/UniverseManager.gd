@@ -730,6 +730,7 @@ func _initialize_tick_system() -> void:
 	_tick_system.register_day_night_system()
 	_tick_system.register_block_physics_system()
 	_tick_system.register_machine_system()
+	_tick_system.register_region_system()
 	_tick_system.register_tree_growth_system()
 	_tick_system.register_season_system()
 

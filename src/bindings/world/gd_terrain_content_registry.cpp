@@ -300,23 +300,38 @@ BiomeRule biome_rule_from_dict(
     return rule;
 }
 
-OreVeinRule ore_rule_from_dict(
+OreVeinGroup ore_vein_group_from_dict(
     const Dictionary& def,
     const std::unordered_map<std::string, TerrainMaterialId>& ids_by_key) {
-    OreVeinRule rule;
-    rule.key = to_std_string(def.get("key", ""));
-    rule.dimension_id = dimension_from_dict(def);
-    rule.host_material = material_from_dict(
+    OreVeinGroup group;
+    group.key = to_std_string(def.get("key", ""));
+    group.dimension_id = dimension_from_dict(def);
+    group.host_material = material_from_dict(
         def, "host_material_key", "host_material_id",
-        rule.host_material, ids_by_key);
-    rule.ore_material = material_from_dict(
-        def, "ore_material_key", "ore_material_id",
-        rule.ore_material, ids_by_key);
-    rule.combined_min = static_cast<float>(
-        def.get("combined_min", rule.combined_min));
-    rule.combined_max = static_cast<float>(
-        def.get("combined_max", rule.combined_max));
-    return rule;
+        group.host_material, ids_by_key);
+    group.primary_ore = material_from_dict(
+        def, "primary_ore_key", "primary_ore_id",
+        group.primary_ore, ids_by_key);
+    group.secondary_ore = material_from_dict(
+        def, "secondary_ore_key", "secondary_ore_id",
+        group.secondary_ore, ids_by_key);
+    group.between_ore = material_from_dict(
+        def, "between_ore_key", "between_ore_id",
+        group.between_ore, ids_by_key);
+    group.sporadic_ore = material_from_dict(
+        def, "sporadic_ore_key", "sporadic_ore_id",
+        group.sporadic_ore, ids_by_key);
+    group.depth_min = static_cast<float>(
+        def.get("depth_min", group.depth_min));
+    group.depth_max = static_cast<float>(
+        def.get("depth_max", group.depth_max));
+    group.radius = static_cast<float>(
+        def.get("radius", group.radius));
+    group.density = static_cast<float>(
+        def.get("density", group.density));
+    group.weight = static_cast<float>(
+        def.get("weight", group.weight));
+    return group;
 }
 
 RockLayerRule rock_layer_rule_from_dict(
@@ -406,6 +421,8 @@ PlanetConfig planet_config_from_dict(const Dictionary& def) {
         def.get("core_boundary_noise_octaves", config.core_boundary_noise_octaves));
     config.core_boundary_noise_amplitude = static_cast<float>(
         def.get("core_boundary_noise_amplitude", config.core_boundary_noise_amplitude));
+    config.atmosphere_type = static_cast<int>(
+        def.get("atmosphere_type", config.atmosphere_type));
     return config;
 }
 
@@ -644,25 +661,32 @@ bool GDTerrainContentRegistry::register_biome_rule(const Dictionary& def) {
     return true;
 }
 
-bool GDTerrainContentRegistry::register_ore_vein_rule(const Dictionary& def) {
-    if (!check_mutable("register ore vein rule")) {
+bool GDTerrainContentRegistry::register_ore_vein_group(const Dictionary& def) {
+    if (!check_mutable("register ore vein group")) {
         return false;
     }
-    OreVeinRule rule = ore_rule_from_dict(def, material_ids_by_key_);
-    if (rule.key.empty() || rule.dimension_id.empty()) {
+    OreVeinGroup group = ore_vein_group_from_dict(def, material_ids_by_key_);
+    if (group.key.empty() || group.dimension_id.empty()) {
         UtilityFunctions::push_warning(
-            "GDTerrainContentRegistry: ore vein rule requires key and dimension.");
+            "GDTerrainContentRegistry: ore vein group requires key and dimension.");
+        return false;
+    }
+    if (group.primary_ore == 0) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: ore vein group '",
+            String(group.key.c_str()),
+            "' requires a valid primary_ore.");
         return false;
     }
 
-    auto existing = std::find_if(ore_vein_rules_.begin(), ore_vein_rules_.end(),
-        [&rule](const OreVeinRule& item) {
-            return item.key == rule.key;
+    auto existing = std::find_if(ore_vein_groups_.begin(), ore_vein_groups_.end(),
+        [&group](const OreVeinGroup& item) {
+            return item.key == group.key;
         });
-    if (existing != ore_vein_rules_.end()) {
-        *existing = std::move(rule);
+    if (existing != ore_vein_groups_.end()) {
+        *existing = std::move(group);
     } else {
-        ore_vein_rules_.push_back(std::move(rule));
+        ore_vein_groups_.push_back(std::move(group));
     }
     return true;
 }
@@ -827,7 +851,7 @@ std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot
     snapshot->runtime_ids = runtime_ids_;
     snapshot->base_terrain_rules = base_terrain_rules_;
     snapshot->biome_rules = biome_rules_;
-    snapshot->ore_vein_rules = ore_vein_rules_;
+    snapshot->ore_vein_groups = ore_vein_groups_;
     snapshot->rock_layer_rules = rock_layer_rules_;
     snapshot->planet_configs = planet_configs_;
     snapshot->tree_species = tree_species_;
@@ -932,9 +956,14 @@ Array GDTerrainContentRegistry::validate() const {
             issues.append("Biome rule has empty key or dimension.");
         }
     }
-    for (const auto& rule : ore_vein_rules_) {
-        if (rule.key.empty() || rule.dimension_id.empty()) {
-            issues.append("Ore vein rule has empty key or dimension.");
+    for (const auto& group : ore_vein_groups_) {
+        if (group.key.empty() || group.dimension_id.empty()) {
+            issues.append("Ore vein group has empty key or dimension.");
+        }
+        if (group.primary_ore == 0) {
+            issues.append(String("Ore vein group '") +
+                          String(group.key.c_str()) +
+                          "' has no primary ore material.");
         }
     }
 
@@ -950,7 +979,7 @@ void GDTerrainContentRegistry::clear() {
     roles_ = TerrainMaterialRoles{};
     base_terrain_rules_.clear();
     biome_rules_.clear();
-    ore_vein_rules_.clear();
+    ore_vein_groups_.clear();
     rock_layer_rules_.clear();
     planet_configs_.clear();
     tree_species_.clear();
@@ -1000,8 +1029,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::register_base_terrain_rule);
     ClassDB::bind_method(D_METHOD("register_biome_rule", "def"),
                          &GDTerrainContentRegistry::register_biome_rule);
-    ClassDB::bind_method(D_METHOD("register_ore_vein_rule", "def"),
-                         &GDTerrainContentRegistry::register_ore_vein_rule);
+    ClassDB::bind_method(D_METHOD("register_ore_vein_group", "def"),
+                         &GDTerrainContentRegistry::register_ore_vein_group);
     ClassDB::bind_method(D_METHOD("register_rock_layer_rule", "def"),
                          &GDTerrainContentRegistry::register_rock_layer_rule);
     ClassDB::bind_method(D_METHOD("register_planet_config", "def"),

@@ -267,7 +267,20 @@ namespace materials {
     constexpr uint16_t STYRENE      = 111;
     constexpr uint16_t WOOD        = 112;
 
-    constexpr uint16_t COUNT = 113;
+    // --- Planetary rock types (DUST_ONLY, each yields unique dust) ---
+    // Different planets have different rock compositions.
+    // These are NOT named after planets; they are generic geological types
+    // that can appear on various planets depending on their properties.
+    constexpr uint16_t GRANITE     = 113;  // Common crustal rock (Earth-like)
+    constexpr uint16_t BASALT      = 114;  // Volcanic rock (large/volcanic planets)
+    constexpr uint16_t MARBLE      = 115;  // Metamorphic rock (high-pressure planets)
+    constexpr uint16_t SANDSTONE   = 116;  // Sedimentary rock (desert/dry planets)
+    constexpr uint16_t SHALE       = 117;  // Sedimentary rock (water-bearing planets)
+    constexpr uint16_t KOMATIITE   = 118;  // Ancient volcanic rock (high-gravity planets)
+    constexpr uint16_t REGOLITH    = 119;  // Weathered surface rock (thin-atmo planets)
+    constexpr uint16_t ANORTHOSTIE = 120;  // Highland crust rock (no-atmo planets)
+
+    constexpr uint16_t COUNT = 121;
 } // namespace materials
 
 // Initialize the material registry (called once at startup).

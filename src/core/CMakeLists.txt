@@ -33,6 +33,7 @@ target_sources(snt_core PRIVATE
     player/inventory.cpp
     player/equipment.cpp
     player/tool_def.cpp
+    player/satiation_data.cpp
 )
 
 # Common shared systems (used by both GT and AE)
@@ -99,6 +100,12 @@ target_sources(snt_core PRIVATE
     simulation/day_night_system.cpp
     simulation/error_handler.hpp
     simulation/error_handler.cpp
+    simulation/region_graph.hpp
+    simulation/region_graph.cpp
+    simulation/region_system.hpp
+    simulation/region_system.cpp
+    simulation/satiation_system.hpp
+    simulation/satiation_system.cpp
     simulation/state_sync_common.hpp
     simulation/state_sync_server.hpp
     simulation/state_sync_server.cpp
@@ -141,4 +148,15 @@ target_sources(snt_core PRIVATE
     magic/spell_compiler.cpp
     magic/ritual_recipe_registry.cpp
     magic/spell_effect/spell_effect_base.cpp
+)
+
+# Source Law Sublimation system (V0.1: unified base data, V0.2: initiation & skills)
+target_sources(snt_core PRIVATE
+    source_law/source_law_types.cpp
+    source_law/player_source_law_data.cpp
+    source_law/elixir_registry.cpp
+    source_law/sublimation_path_registry.cpp
+    source_law/dropped_organ_registry.cpp
+    source_law/organ_skill_system.cpp
+    source_law/mutation_system.cpp
 )

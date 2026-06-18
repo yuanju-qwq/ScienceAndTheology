@@ -41,19 +41,24 @@ void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
         chunk.dimension_id, chunk.chunk_x, chunk.chunk_y, chunk.chunk_z);
     if (!chunk_data) return;
 
-    // Sleeping machines process at reduced rate.
-    // Approximate: advance progress proportionally to delta.
+    // Compute the number of ticks to advance.
+    // delta is scaled by the sleep interval (e.g., delta=0.05 * interval=20 = 1s).
+    // At 20 TPS, one tick = 0.05s, so ticks = delta / 0.05 = delta * kTicksPerSecond.
+    constexpr float kTicksPerSecond = 20.0f;
+    const int64_t ticks_to_advance = static_cast<int64_t>(
+        std::max(1.0f, delta * kTicksPerSecond));
+
     for (const auto& mid : chunk_data->machines) {
         auto it = machine_registry_.find(mid);
         if (it == machine_registry_.end()) continue;
 
         gt::Machine* machine = it->second;
         if (!machine) continue;
-        if (machine->state() != gt::MachineState::PROCESSING) continue;
 
-        // Sleeping machines don't do full tick — just approximate progress.
-        // A real implementation would use power_available * efficiency.
-        (void)delta;
+        // Sleeping machines advance by the accumulated tick count.
+        // This keeps their production rate identical to active machines;
+        // only the update frequency is lower.
+        machine->tick_n(ticks_to_advance);
     }
 }
 

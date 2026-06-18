@@ -95,6 +95,26 @@ var _is_climbing := false
 var _gravity_direction := Vector3.DOWN
 var _planet_center := Vector3.ZERO
 
+# Per-planet gravity multiplier (1.0 = Earth-like, 0.38 = Mars-like).
+# Updated each frame by _update_gravity_direction().
+var _gravity_multiplier := 1.0
+
+# --- Atmosphere hazard system ---
+
+# Damage per second when in a toxic atmosphere without protection.
+const TOXIC_DAMAGE_PER_SEC := 5.0
+# Damage per second when in a corrosive atmosphere without protection.
+const CORROSIVE_DAMAGE_PER_SEC := 8.0
+# Damage per second when in a vacuum/thin atmosphere without oxygen supply.
+const VACUUM_DAMAGE_PER_SEC := 3.0
+
+# Current atmosphere type at the player's position.
+# Updated each frame alongside gravity.
+var _atmosphere_type: int = PlanetDescriptor.AtmosphereType.BREATHABLE
+
+# Accumulated damage timer for atmosphere hazard ticks.
+var _atmo_damage_timer := 0.0
+
 
 func _ready() -> void:
 	_interaction = PlayerInteraction.new()
@@ -121,6 +141,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_interaction.process_cooldown(delta)
 	_update_gravity_direction()
+	_update_atmosphere_hazard(delta)
 	_update_target()
 	_handle_movement(delta)
 	_interaction.try_auto_cell_events()
@@ -191,10 +212,16 @@ func _handle_key(event: InputEventKey) -> void:
 # --- Movement and physics ---
 
 func _handle_movement(delta: float) -> void:
+	# Effective gravity strength adjusted by per-planet multiplier.
+	var effective_gravity := GRAVITY_STRENGTH * _gravity_multiplier
+	# Jump velocity scales with sqrt of multiplier so jump height
+	# is inversely proportional to gravity (physically consistent).
+	var effective_jump := JUMP_VELOCITY * sqrt(_gravity_multiplier)
+
 	if _input_locked:
 		velocity.x = move_toward(velocity.x, 0.0, move_speed)
 		velocity.z = move_toward(velocity.z, 0.0, move_speed)
-		velocity += _gravity_direction * GRAVITY_STRENGTH * delta
+		velocity += _gravity_direction * effective_gravity * delta
 		move_and_slide()
 		return
 
@@ -248,9 +275,9 @@ func _handle_movement(delta: float) -> void:
 			velocity += _gravity_direction * CLIMB_SPEED
 	elif is_on_floor():
 		if Input.is_key_pressed(KEY_SPACE):
-			velocity -= _gravity_direction * JUMP_VELOCITY
+			velocity -= _gravity_direction * effective_jump
 	else:
-		velocity += _gravity_direction * GRAVITY_STRENGTH * delta
+		velocity += _gravity_direction * effective_gravity * delta
 
 	move_and_slide()
 	_align_body_to_gravity(delta)
@@ -332,11 +359,18 @@ func _check_climbing() -> void:
 func _update_gravity_direction() -> void:
 	if not use_planet_gravity or world == null:
 		_gravity_direction = Vector3.DOWN
+		_gravity_multiplier = 1.0
 		return
 
 	# Prefer multi-planet gravity from UniverseManager.
 	if _universe_manager != null:
 		_gravity_direction = _universe_manager.compute_gravity_direction(global_position)
+		_gravity_multiplier = _universe_manager.compute_gravity_multiplier(global_position)
+		# Cache atmosphere type from the active planet.
+		if _universe_manager.active_planet != null:
+			_atmosphere_type = _universe_manager.active_planet.atmosphere_type
+		else:
+			_atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
 		if fly_mode:
 			_gravity_direction = Vector3.ZERO
 		return
@@ -345,11 +379,17 @@ func _update_gravity_direction() -> void:
 	var world_data_node := world.get_world_data()
 	if world_data_node == null:
 		_gravity_direction = Vector3.DOWN
+		_gravity_multiplier = 1.0
 		return
 
 	_planet_center = _get_planet_center_from_config(world_data_node.worldgen_config)
 	_gravity_direction = GDPlayerHelper.compute_gravity_direction(
 		global_position, _planet_center, planet_gravity_radius, use_planet_gravity)
+
+	# Single-planet fallback: derive multiplier from active planet descriptor.
+	_gravity_multiplier = 1.0
+	if _universe_manager != null and _universe_manager.active_planet != null:
+		_gravity_multiplier = _universe_manager.active_planet.gravity_multiplier
 
 	# In fly mode, override gravity to zero so player has full 6DoF control.
 	if fly_mode:
@@ -373,6 +413,58 @@ func _align_body_to_gravity(delta: float) -> void:
 	var new_basis := GDPlayerHelper.align_body_to_gravity(
 		global_transform.basis, target_up, 8.0, delta)
 	global_transform.basis = new_basis
+
+
+# --- Atmosphere hazard system ---
+
+# Apply environmental damage based on the current planet's atmosphere type.
+# BREATHABLE: no damage.
+# THIN/NONE: slow suffocation damage without oxygen supply.
+# TOXIC: continuous poison damage without suit.
+# CORROSIVE: heavy damage + equipment degradation without suit.
+# TODO: check player equipment for oxygen mask / hazard suit to negate damage.
+func _update_atmosphere_hazard(delta: float) -> void:
+	# No hazard in creative fly mode.
+	if fly_mode:
+		return
+
+	# No hazard in space (zero-G, no active planet).
+	if _gravity_direction == Vector3.ZERO:
+		return
+
+	var damage_rate := 0.0
+
+	match _atmosphere_type:
+		PlanetDescriptor.AtmosphereType.NONE, \
+		PlanetDescriptor.AtmosphereType.THIN:
+			damage_rate = VACUUM_DAMAGE_PER_SEC
+		PlanetDescriptor.AtmosphereType.TOXIC:
+			damage_rate = TOXIC_DAMAGE_PER_SEC
+		PlanetDescriptor.AtmosphereType.CORROSIVE:
+			damage_rate = CORROSIVE_DAMAGE_PER_SEC
+		PlanetDescriptor.AtmosphereType.BREATHABLE, _:
+			damage_rate = 0.0
+
+	if damage_rate <= 0.0:
+		_atmo_damage_timer = 0.0
+		return
+
+	_atmo_damage_timer += delta
+	# TODO: Apply damage to player health system when implemented.
+	# For now, log a warning every 2 seconds so developers can verify.
+	if _atmo_damage_timer >= 2.0:
+		_atmo_damage_timer -= 2.0
+		var atmo_name := "unknown"
+		match _atmosphere_type:
+			PlanetDescriptor.AtmosphereType.NONE:
+				atmo_name = "vacuum"
+			PlanetDescriptor.AtmosphereType.THIN:
+				atmo_name = "thin"
+			PlanetDescriptor.AtmosphereType.TOXIC:
+				atmo_name = "toxic"
+			PlanetDescriptor.AtmosphereType.CORROSIVE:
+				atmo_name = "corrosive"
+		push_warning("Player in %s atmosphere: %.1f dmg/sec" % [atmo_name, damage_rate])
 
 
 # --- Inventory and equipment ---
@@ -552,11 +644,28 @@ func _update_status_label() -> void:
 	if label == null:
 		return
 
+	# Atmosphere type short name for status display.
+	var atmo_short := ""
+	match _atmosphere_type:
+		PlanetDescriptor.AtmosphereType.NONE:
+			atmo_short = "vacuum"
+		PlanetDescriptor.AtmosphereType.THIN:
+			atmo_short = "thin"
+		PlanetDescriptor.AtmosphereType.BREATHABLE:
+			atmo_short = "breathable"
+		PlanetDescriptor.AtmosphereType.TOXIC:
+			atmo_short = "toxic"
+		PlanetDescriptor.AtmosphereType.CORROSIVE:
+			atmo_short = "corrosive"
+
 	if fly_mode:
 		label.text = "Fly (creative)"
 	elif _gravity_direction == Vector3.ZERO:
 		label.text = "Space (zero-G)"
 	elif _universe_manager != null and _universe_manager.active_planet != null:
-		label.text = _universe_manager.active_planet.display_name
+		var planet := _universe_manager.active_planet
+		var grav_text := "g=%.2f" % _gravity_multiplier
+		label.text = "%s (%s, %s)" % [planet.display_name, grav_text, atmo_short]
 	else:
-		label.text = "3D Surface"
+		var grav_text := "g=%.2f" % _gravity_multiplier
+		label.text = "3D Surface (%s, %s)" % [grav_text, atmo_short]

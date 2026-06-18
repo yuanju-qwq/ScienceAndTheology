@@ -29,6 +29,8 @@
 #include "magic/gd_spell_book.hpp"
 #include "magic/gd_mana_pool.hpp"
 #include "fuel/gd_fuel_registry.hpp"
+#include "source_law/gd_player_source_law_data.hpp"
+#include "player/gd_satiation_data.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
@@ -40,6 +42,8 @@
 #include "core/material/material.hpp"
 #include "core/material/material_item.hpp"
 #include "core/crafting/crafting.hpp"
+#include "core/source_law/elixir_registry.hpp"
+#include "core/source_law/sublimation_path_registry.hpp"
 
 using namespace godot;
 
@@ -60,6 +64,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     gt::FuelRegistry::initialize();
     gt::CraftingManager::initialize();
     gt::RecipeDatabase::initialize();
+    source_law::ElixirRegistry::initialize();
+    source_law::SublimationPathRegistry::initialize();
 
     ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
@@ -89,6 +95,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDSpellBook>();
     ClassDB::register_class<GDManaPool>();
     ClassDB::register_class<GDFuelRegistry>();
+    ClassDB::register_class<GDPlayerSourceLawData>();
+    ClassDB::register_class<GDSatiationData>();
     GDAutocraftingService::initialize();
 }
 

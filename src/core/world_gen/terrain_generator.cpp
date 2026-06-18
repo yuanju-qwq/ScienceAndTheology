@@ -51,7 +51,7 @@ ChunkData TerrainGenerator::generate_chunk(
     pass_base_terrain(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_rock_layer(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_biome(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
-    pass_ore(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
+    pass_ore_vein_group(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_surface_objects(normalized_dimension, chunk_x, chunk_y, chunk_z,
                          chunk.terrain, chunk.block_entities);
     pass_gameplay(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk);
@@ -506,165 +506,157 @@ void TerrainGenerator::pass_biome(
     }
 }
 
-// --- Pass 3: Ore ---
+// --- Pass 3: Ore Vein Groups (GT-style) ---
 
-void TerrainGenerator::pass_ore(
+void TerrainGenerator::pass_ore_vein_group(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     TerrainData& terrain) {
-    std::vector<const OreVeinRule*> rules;
-    for (const auto& rule : config_->ore_vein_rules) {
-        if (rule.dimension_id == dimension_id) {
-            rules.push_back(&rule);
+    // Collect vein groups for this dimension.
+    std::vector<const OreVeinGroup*> groups;
+    for (const auto& group : config_->ore_vein_groups) {
+        if (group.dimension_id == dimension_id) {
+            groups.push_back(&group);
         }
     }
-    if (rules.empty()) {
+    if (groups.empty()) {
         return;
     }
 
-    // Collect rock layer rules for ore-layer association filtering.
-    std::vector<const RockLayerRule*> rock_rules;
-    for (const auto& rule : config_->rock_layer_rules) {
-        if (rule.dimension_id == dimension_id) {
-            rock_rules.push_back(&rule);
-        }
+    // Compute total weight for weighted selection.
+    float total_weight = 0.0f;
+    for (const auto* group : groups) {
+        total_weight += group->weight;
     }
-    const bool has_rock_layers = !rock_rules.empty();
+    if (total_weight <= 0.0f) {
+        return;
+    }
 
     const PlanetConfig* planet = config_->find_planet_config(dimension_id);
 
-    NoiseGenerator ore_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::ORE), chunk_x, chunk_y, chunk_z));
-    NoiseGenerator vein_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::ORE) + 1, chunk_x, chunk_y, chunk_z));
-    NoiseGenerator rock_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::ROCK_LAYER),
+    // Noise generators for vein group placement.
+    // vein_select_noise: selects which vein group occupies each position.
+    // vein_shape_noise: determines the shape/density within the vein.
+    // ore_type_noise: determines primary/secondary/between/sporadic distribution.
+    NoiseGenerator vein_select_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::ORE_VEIN_GROUP),
+        chunk_x, chunk_y, chunk_z));
+    NoiseGenerator vein_shape_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::ORE_VEIN_GROUP) + 1,
+        chunk_x, chunk_y, chunk_z));
+    NoiseGenerator ore_type_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::ORE_VEIN_GROUP) + 2,
+        chunk_x, chunk_y, chunk_z));
+
+    // Reuse base terrain noise for depth computation.
+    NoiseGenerator elev_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+        chunk_x, chunk_y, chunk_z));
+    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
         chunk_x, chunk_y, chunk_z));
 
     for (int y = 0; y < terrain.size_y; ++y) {
         for (int z = 0; z < terrain.size_z; ++z) {
             for (int x = 0; x < terrain.size_x; ++x) {
-                TerrainCell& cell = terrain.cell_at(x, y, z);
                 const int global_x = global_coord(chunk_x, x);
                 const int global_y = global_coord(chunk_y, y);
                 const int global_z = global_coord(chunk_z, z);
 
-                const float ore_density = ore_noise.noise_3d_scaled(
+                // Compute depth from surface.
+                float depth = 0.0f;
+                if (planet && planet->is_planet()) {
+                    const float dx = static_cast<float>(global_x) - planet->center_x;
+                    const float dy = static_cast<float>(global_y) - planet->center_y;
+                    const float dz = static_cast<float>(global_z) - planet->center_z;
+                    const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
+                    const float surface_r = planet_surface_radius(
+                        elev_noise, detail_noise,
+                        dx * inv_dist, dy * inv_dist, dz * inv_dist, *planet);
+                    depth = surface_r - dist;
+                } else {
+                    const BaseTerrainRule* base_rule =
+                        config_->find_base_rule(dimension_id);
+                    if (base_rule) {
+                        const int surface_height = surface_height_at(
+                            elev_noise, global_x, global_z, *base_rule);
+                        depth = static_cast<float>(surface_height - global_y);
+                    }
+                }
+
+                // Use vein selection noise to pick a vein group.
+                // The noise value is mapped to a weighted selection.
+                const float select_val = vein_select_noise.noise_3d_scaled(
                     static_cast<float>(global_x),
                     static_cast<float>(global_y),
                     static_cast<float>(global_z),
-                    0.08f, 3);
-                const float vein_shape = vein_noise.noise_3d_scaled(
-                    static_cast<float>(global_x + 5000),
-                    static_cast<float>(global_y + 5000),
-                    static_cast<float>(global_z + 5000),
-                    0.15f, 2);
-                const float depth_bonus = std::clamp((-global_y) / 64.0f, 0.0f, 0.28f);
-                const float combined = ore_density * 0.45f + vein_shape * 0.45f + depth_bonus;
+                    0.04f, 2);
 
-                for (const OreVeinRule* rule : rules) {
-                    if (!is_material(cell, rule->host_material)) {
-                        continue;
-                    }
-
-                    // If rock layer rules exist, check that the current
-                    // rock layer allows this ore type. If no rock layer
-                    // at this position allows the ore, skip it.
-                    if (has_rock_layers) {
-                        bool ore_allowed_by_layer = false;
-                        // Compute depth and noise to find the active rock layer.
-                        float depth = 0.0f;
-                        if (planet && planet->is_planet()) {
-                            const float dx = static_cast<float>(global_x) - planet->center_x;
-                            const float dy = static_cast<float>(global_y) - planet->center_y;
-                            const float dz = static_cast<float>(global_z) - planet->center_z;
-                            const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-                            const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
-                            NoiseGenerator elev_noise(world_seed_.chunk_seed(
-                                static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-                                chunk_x, chunk_y, chunk_z));
-                            NoiseGenerator detail_noise(world_seed_.chunk_seed(
-                                static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
-                                chunk_x, chunk_y, chunk_z));
-                            const float surface_r = planet_surface_radius(
-                                elev_noise, detail_noise,
-                                dx * inv_dist, dy * inv_dist, dz * inv_dist, *planet);
-                            depth = surface_r - dist;
-                        } else {
-                            const BaseTerrainRule* base_rule =
-                                config_->find_base_rule(dimension_id);
-                            if (base_rule) {
-                                NoiseGenerator elev_noise(world_seed_.chunk_seed(
-                                    static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-                                    chunk_x, chunk_y, chunk_z));
-                                const int surface_height = surface_height_at(
-                                    elev_noise, global_x, global_z, *base_rule);
-                                depth = static_cast<float>(surface_height - global_y);
-                            }
-                        }
-
-                        float noise_val = 0.0f;
-                        if (planet && planet->is_planet()) {
-                            const float dx = static_cast<float>(global_x) - planet->center_x;
-                            const float dy = static_cast<float>(global_y) - planet->center_y;
-                            const float dz = static_cast<float>(global_z) - planet->center_z;
-                            const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-                            const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
-                            noise_val = rock_noise.noise_3d_scaled(
-                                dx * inv_dist, dy * inv_dist, dz * inv_dist,
-                                rock_rules.front()->noise_scale,
-                                rock_rules.front()->noise_octaves);
-                        } else {
-                            noise_val = rock_noise.noise_3d_scaled(
-                                static_cast<float>(global_x),
-                                0.0f,
-                                static_cast<float>(global_z),
-                                rock_rules.front()->noise_scale,
-                                rock_rules.front()->noise_octaves);
-                        }
-
-                        // Check each rock layer: if this position falls in a
-                        // layer, check if that layer allows this ore.
-                        for (const RockLayerRule* rl : rock_rules) {
-                            if (depth < rl->depth_min || depth > rl->depth_max) {
-                                continue;
-                            }
-                            if (noise_val < rl->noise_min || noise_val > rl->noise_max) {
-                                continue;
-                            }
-                            // This is the active rock layer. Check if it
-                            // lists this ore as an associated ore.
-                            for (TerrainMaterialId allowed_ore : rl->associated_ores) {
-                                if (allowed_ore == rule->ore_material) {
-                                    ore_allowed_by_layer = true;
-                                    break;
-                                }
-                            }
-                            break;
-                        }
-
-                        // If no rock layer allows this ore, skip it.
-                        // If no rock layer matches this position, allow
-                        // the ore (backward compatibility).
-                        if (!ore_allowed_by_layer) {
-                            // Check if any rock layer matched at all.
-                            bool any_layer_matched = false;
-                            for (const RockLayerRule* rl : rock_rules) {
-                                if (depth >= rl->depth_min && depth <= rl->depth_max &&
-                                    noise_val >= rl->noise_min && noise_val <= rl->noise_max) {
-                                    any_layer_matched = true;
-                                    break;
-                                }
-                            }
-                            if (any_layer_matched) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    if (combined > rule->combined_min && combined <= rule->combined_max) {
-                        set_cell_id(terrain, x, y, z, rule->ore_material);
+                // Weighted selection: map select_val from [-1,1] to [0,total_weight].
+                const float weighted_pos = (select_val + 1.0f) * 0.5f * total_weight;
+                float accumulated = 0.0f;
+                const OreVeinGroup* selected_group = nullptr;
+                for (const auto* group : groups) {
+                    accumulated += group->weight;
+                    if (weighted_pos <= accumulated) {
+                        selected_group = group;
                         break;
                     }
+                }
+                if (selected_group == nullptr) {
+                    selected_group = groups.back();
+                }
+
+                // Check depth range for this vein group.
+                if (depth < selected_group->depth_min || depth > selected_group->depth_max) {
+                    continue;
+                }
+
+                // Check that the current cell is the host material.
+                TerrainCell& cell = terrain.cell_at(x, y, z);
+                if (!is_material(cell, selected_group->host_material)) {
+                    continue;
+                }
+
+                // Vein shape: determines if this block is within the vein.
+                // Scale is inversely proportional to radius (larger veins = wider shape).
+                const float shape_scale = 1.0f / std::max(1.0f, selected_group->radius);
+                const float shape_val = vein_shape_noise.noise_3d_scaled(
+                    static_cast<float>(global_x),
+                    static_cast<float>(global_y),
+                    static_cast<float>(global_z),
+                    shape_scale, 3);
+
+                // The vein exists where shape_val > (1.0 - density).
+                // Higher density = more of the vein region is filled.
+                const float shape_threshold = 1.0f - selected_group->density;
+                if (shape_val <= shape_threshold) {
+                    continue;
+                }
+
+                // Determine ore type based on ore_type_noise.
+                // Distribution: primary ~40%, secondary ~30%, between ~20%, sporadic ~10%.
+                const float ore_val = ore_type_noise.noise_3d_scaled(
+                    static_cast<float>(global_x + 10000),
+                    static_cast<float>(global_y + 10000),
+                    static_cast<float>(global_z + 10000),
+                    0.1f, 2);
+                // Map ore_val from [-1,1] to [0,1].
+                const float ore_normalized = (ore_val + 1.0f) * 0.5f;
+
+                TerrainMaterialId ore_to_place = 0;
+                if (ore_normalized < 0.4f && selected_group->primary_ore != 0) {
+                    ore_to_place = selected_group->primary_ore;
+                } else if (ore_normalized < 0.7f && selected_group->secondary_ore != 0) {
+                    ore_to_place = selected_group->secondary_ore;
+                } else if (ore_normalized < 0.9f && selected_group->between_ore != 0) {
+                    ore_to_place = selected_group->between_ore;
+                } else if (selected_group->sporadic_ore != 0) {
+                    ore_to_place = selected_group->sporadic_ore;
+                }
+
+                if (ore_to_place != 0) {
+                    set_cell_id(terrain, x, y, z, ore_to_place);
                 }
             }
         }
@@ -1089,9 +1081,6 @@ TerrainGenerator::MaterialIds TerrainGenerator::materials() const {
     ids.sand = config_->roles.sand;
     ids.water = config_->roles.water;
     ids.lava = config_->roles.lava;
-    ids.ore_iron = config_->roles.ore_iron;
-    ids.ore_copper = config_->roles.ore_copper;
-    ids.ore_coal = config_->roles.ore_coal;
     ids.wood = config_->roles.wood;
     ids.leaves = config_->roles.leaves;
     ids.deepstone = config_->roles.deepstone;

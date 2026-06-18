@@ -43,6 +43,50 @@ const MAT_OLIVE_WOOD := 36
 const MAT_OLIVE_LEAVES := 37
 const MAT_OLIVE_SAPLING := 38
 
+// Ore materials: metals, non-metals, and gemstones.
+// Based on the periodic table and GT mod vein group design.
+const MAT_ORE_TIN := 39
+const MAT_ORE_ZINC := 40
+const MAT_ORE_LEAD := 41
+const MAT_ORE_SILVER := 42
+const MAT_ORE_GOLD := 43
+const MAT_ORE_NICKEL := 44
+const MAT_ORE_BAUXITE := 45
+const MAT_ORE_MANGANESE := 46
+const MAT_ORE_TUNGSTEN := 47
+const MAT_ORE_TITANIUM := 48
+const MAT_ORE_PLATINUM := 49
+const MAT_ORE_COBALT := 50
+const MAT_ORE_URANIUM := 51
+const MAT_ORE_SULFUR := 52
+const MAT_ORE_DIAMOND := 53
+const MAT_ORE_RUBY := 54
+const MAT_ORE_SAPPHIRE := 55
+const MAT_ORE_EMERALD := 56
+const MAT_ORE_SALT := 57
+const MAT_ORE_FLUORITE := 58
+const MAT_ORE_GRAPHITE := 59
+const MAT_ORE_PYRITE := 60
+const MAT_ORE_GALENA := 61
+const MAT_ORE_CINNABAR := 62
+const MAT_ORE_MAGNETITE := 63
+const MAT_ORE_CASSITERITE := 64
+const MAT_ORE_ILMENITE := 65
+const MAT_ORE_CHALCOPYRITE := 66
+const MAT_ORE_SPHALERITE := 67
+const MAT_ORE_PENTLANDITE := 68
+
+# Planetary rock material IDs �?each yields unique dust when mined.
+# These are separate TerrainMaterial entries from the generic snt:stone.
+const MAT_GRANITE     := 69
+const MAT_BASALT      := 70
+const MAT_MARBLE      := 71
+const MAT_SANDSTONE   := 72
+const MAT_SHALE       := 73
+const MAT_KOMATIITE   := 74
+const MAT_REGOLITH    := 75
+const MAT_ANORTHOSTIE := 76
+
 // Canopy shape enum (must match C++ CanopyShape).
 const CANOPY_SPHERE := 0
 const CANOPY_CONE := 1
@@ -99,122 +143,207 @@ static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]
 
 
 # Register generation rules for a single planet dimension.
-# Each planet gets its own base terrain rule, biome rules, ore vein rules,
-# and rock layer rules, all scoped to the planet's dimension_id.
+# Rules are differentiated based on planet properties:
+#   - radius: affects rock layer depth range
+#   - gravity_multiplier: affects collapse chance
+#   - sea_level_fraction: affects water-related biomes
+#   - atmosphere_type: affects special biome/rock rules
+#   - cave_threshold: affects cave density in base terrain
 static func _register_planet_generation_rules(registry: Object, planet: PlanetDescriptor) -> void:
 	var dim := String(planet.dimension_id)
+	var radius := planet.planet_radius
+	var gravity := planet.gravity_multiplier
+	var has_water := planet.sea_level_fraction > 0.01
+	var atmo_type: int = planet.atmosphere_type
 
-	# Base terrain rule — same structure as overworld, but per-dimension.
+	# --- Base terrain rule ---
+	# Adjust water elevation and stone thresholds based on planet properties.
+	# Planets without water use extreme thresholds so water never appears.
+	# Cave density is derived from the planet's cave_threshold parameter.
+	var water_elev_max := -0.25 if has_water else -999.0
+	var water_detail_max := 0.3 if has_water else -999.0
+	# Stone exposure: higher gravity = more exposed rock (steeper terrain).
+	var stone_abs_min := 0.55 if gravity < 1.5 else 0.45
 	registry.register_base_terrain_rule({
 		"dimension": dim,
 		"mode": "surface_elevation",
 		"default_material_key": "snt:dirt",
-		"low_elevation_material_key": "snt:water",
+		"low_elevation_material_key": "snt:water" if has_water else "snt:stone",
 		"high_elevation_material_key": "snt:stone",
 		"elevation_scale": 0.02,
 		"elevation_octaves": 4,
 		"detail_scale": 0.05,
 		"detail_octaves": 3,
-		"water_elevation_max": -0.25,
-		"water_detail_max": 0.3,
-		"stone_elevation_abs_min": 0.55,
+		"water_elevation_max": water_elev_max,
+		"water_detail_max": water_detail_max,
+		"stone_elevation_abs_min": stone_abs_min,
 	})
 
-	# Biome rules — same as overworld, scoped to this dimension.
+	# --- Biome rules ---
+	# Desert: always present on hot dry areas.
+	# On thin/no-atmosphere planets, desert expands (wider temperature range).
+	var desert_temp_min := 0.3
+	if atmo_type == PlanetDescriptor.AtmosphereType.NONE or \
+			atmo_type == PlanetDescriptor.AtmosphereType.THIN:
+		desert_temp_min = 0.1
 	registry.register_biome_rule({
 		"key": "snt:desert_sand",
 		"dimension": dim,
 		"source_material_key": "snt:dirt",
 		"result_material_key": "snt:sand",
-		"temperature_min": 0.3,
+		"temperature_min": desert_temp_min,
 		"humidity_max": -0.2,
 	})
-	registry.register_biome_rule({
-		"key": "snt:beach_sand",
-		"dimension": dim,
-		"source_material_key": "snt:dirt",
-		"result_material_key": "snt:sand",
-		"requires_near_material": true,
-		"near_material_key": "snt:water",
-		"near_radius": 2,
-	})
+	# Beach sand: only on planets with water.
+	if has_water:
+		registry.register_biome_rule({
+			"key": "snt:beach_sand",
+			"dimension": dim,
+			"source_material_key": "snt:dirt",
+			"result_material_key": "snt:sand",
+			"requires_near_material": true,
+			"near_material_key": "snt:water",
+			"near_radius": 2,
+		})
+	# Rocky highlands: always present on cold dry areas.
+	# On toxic/corrosive planets, rock exposure expands (less vegetation).
+	var rocky_temp_max := -0.4
+	if atmo_type == PlanetDescriptor.AtmosphereType.TOXIC or \
+			atmo_type == PlanetDescriptor.AtmosphereType.CORROSIVE:
+		rocky_temp_max = -0.1
 	registry.register_biome_rule({
 		"key": "snt:rocky_highlands",
 		"dimension": dim,
 		"source_material_key": "snt:dirt",
 		"result_material_key": "snt:stone",
-		"temperature_max": -0.4,
+		"temperature_max": rocky_temp_max,
 		"humidity_max": -0.1,
 	})
+	# Barren wasteland: on toxic/corrosive planets, dirt becomes stone
+	# even in moderate temperatures (no soil formation).
+	if atmo_type == PlanetDescriptor.AtmosphereType.TOXIC or \
+			atmo_type == PlanetDescriptor.AtmosphereType.CORROSIVE:
+		registry.register_biome_rule({
+			"key": "snt:barren_wasteland",
+			"dimension": dim,
+			"source_material_key": "snt:dirt",
+			"result_material_key": "snt:stone",
+			"temperature_min": -0.1,
+			"temperature_max": 0.3,
+			"humidity_max": 0.0,
+		})
 
-	# Ore vein rules — same as overworld, scoped to this dimension.
-	registry.register_ore_vein_rule({
-		"key": "snt:ore_iron",
-		"dimension": dim,
-		"host_material_key": "snt:stone",
-		"ore_material_key": "snt:ore_iron",
-		"combined_min": 0.5,
-		"combined_max": 1.0,
-	})
-	registry.register_ore_vein_rule({
-		"key": "snt:ore_copper",
-		"dimension": dim,
-		"host_material_key": "snt:stone",
-		"ore_material_key": "snt:ore_copper",
-		"combined_min": 0.25,
-		"combined_max": 0.5,
-	})
-	registry.register_ore_vein_rule({
-		"key": "snt:ore_coal",
-		"dimension": dim,
-		"host_material_key": "snt:stone",
-		"ore_material_key": "snt:ore_coal",
-		"combined_min": 0.05,
-		"combined_max": 0.25,
-	})
+	# --- Rock type selection (must be before ore vein and rock layer rules) ---
+	# Select primary and secondary rock types based on planet properties.
+	# This is what makes each planet's underground composition unique.
+	var primary_rock := "snt:granite_rock"   # default
+	var secondary_rock := "snt:basalt_rock"   # default
+	var deep_rock := "snt:deepstone"          # always deepstone for deep layers
 
-	# Rock layer rules — same as overworld, scoped to this dimension.
+	# Thin/no atmosphere planets: regolith or anorthosite surface rock.
+	if atmo_type == PlanetDescriptor.AtmosphereType.NONE:
+		primary_rock = "snt:anorthosite_rock"
+		secondary_rock = "snt:regolith_rock"
+	elif atmo_type == PlanetDescriptor.AtmosphereType.THIN:
+		primary_rock = "snt:regolith_rock"
+		secondary_rock = "snt:granite_rock"
+	# High gravity planets: komatiite (ancient volcanic).
+	elif gravity >= 1.8:
+		primary_rock = "snt:komatiite_rock"
+		secondary_rock = "snt:basalt_rock"
+	# Water-bearing planets: shale + granite (sedimentary + igneous).
+	elif has_water and gravity < 1.2:
+		primary_rock = "snt:granite_rock"
+		secondary_rock = "snt:shale_rock"
+	# Desert/dry planets: sandstone + marble.
+	elif not has_water and atmo_type == PlanetDescriptor.AtmosphereType.BREATHABLE:
+		primary_rock = "snt:sandstone_rock"
+		secondary_rock = "snt:marble_rock"
+	# Toxic/corrosive: basalt + marble (chemically resistant).
+	elif atmo_type == PlanetDescriptor.AtmosphereType.TOXIC or \
+			atmo_type == PlanetDescriptor.AtmosphereType.CORROSIVE:
+		primary_rock = "snt:basalt_rock"
+		secondary_rock = "snt:marble_rock"
+
+	# --- Rock layer rules ---
+	# Depth range scales with planet radius.
+	# Small planets have shallower crust layers.
+	var crust_depth := mini(radius * 0.2, 100.0)
+	var deep_start := crust_depth * 0.6
+
+	# Primary rock layer: covers the largest noise range.
+	var primary_collapse := 0.3 * gravity
 	registry.register_rock_layer_rule({
-		"key": "snt:granite",
+		"key": "snt:primary_rock",
 		"dimension": dim,
-		"rock_material_key": "snt:stone",
+		"rock_material_key": primary_rock,
 		"noise_scale": 0.005,
 		"noise_octaves": 3,
 		"noise_min": -1.0,
 		"noise_max": 0.0,
 		"depth_min": 0.0,
-		"depth_max": 100.0,
+		"depth_max": crust_depth,
 		"hardness_multiplier": 1.0,
-		"collapse_chance": 0.3,
-		"associated_ores": ["snt:ore_iron", "snt:ore_copper"],
+		"collapse_chance": primary_collapse,
+		"associated_ores": [
+			"snt:ore_iron", "snt:ore_copper",
+			"snt:ore_chalcopyrite", "snt:ore_cassiterite",
+			"snt:ore_sphalerite", "snt:ore_galena",
+			"snt:ore_magnetite", "snt:ore_bauxite",
+			"snt:ore_salt", "snt:ore_sulfur",
+			"snt:ore_tin", "snt:ore_zinc",
+			"snt:ore_pyrite", "snt:ore_fluorite",
+		] if radius >= 200.0 else [
+			"snt:ore_iron", "snt:ore_chalcopyrite",
+			"snt:ore_cassiterite", "snt:ore_salt",
+			"snt:ore_tin", "snt:ore_pyrite",
+		],
 	})
-	registry.register_rock_layer_rule({
-		"key": "snt:basalt",
-		"dimension": dim,
-		"rock_material_key": "snt:stone",
-		"noise_scale": 0.005,
-		"noise_octaves": 3,
-		"noise_min": 0.0,
-		"noise_max": 1.0,
-		"depth_min": 0.0,
-		"depth_max": 100.0,
-		"hardness_multiplier": 1.2,
-		"collapse_chance": 0.25,
-		"associated_ores": ["snt:ore_iron"],
-	})
+
+	# Secondary rock layer: different composition, complementary noise range.
+	if radius >= 250.0:
+		var secondary_collapse := 0.25 * gravity
+		registry.register_rock_layer_rule({
+			"key": "snt:secondary_rock",
+			"dimension": dim,
+			"rock_material_key": secondary_rock,
+			"noise_scale": 0.005,
+			"noise_octaves": 3,
+			"noise_min": 0.0,
+			"noise_max": 1.0,
+			"depth_min": 0.0,
+			"depth_max": crust_depth,
+			"hardness_multiplier": 1.2,
+			"collapse_chance": secondary_collapse,
+			"associated_ores": [
+				"snt:ore_iron", "snt:ore_magnetite",
+				"snt:ore_pentlandite", "snt:ore_ilmenite",
+				"snt:ore_nickel", "snt:ore_cinnabar",
+				"snt:ore_manganese",
+			],
+		})
+
+	# Deep rock layer: deepstone, always present.
+	var deep_collapse := 0.5 * gravity
 	registry.register_rock_layer_rule({
 		"key": "snt:deeprock",
 		"dimension": dim,
-		"rock_material_key": "snt:deepstone",
+		"rock_material_key": deep_rock,
 		"noise_scale": 0.003,
 		"noise_octaves": 2,
 		"noise_min": -1.0,
 		"noise_max": 1.0,
-		"depth_min": 60.0,
+		"depth_min": deep_start,
 		"depth_max": 10000.0,
 		"hardness_multiplier": 1.5,
-		"collapse_chance": 0.5,
-		"associated_ores": [],
+		"collapse_chance": deep_collapse,
+		"associated_ores": [
+			"snt:ore_tungsten", "snt:ore_titanium",
+			"snt:ore_uranium", "snt:ore_platinum",
+			"snt:ore_cobalt", "snt:ore_diamond",
+			"snt:ore_ruby", "snt:ore_sapphire",
+			"snt:ore_emerald", "snt:ore_graphite",
+		],
 	})
 
 
@@ -302,6 +431,361 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"required_mining_level": 0,
 		"drops": [{ "item_key": "gem.coal", "count": 1 }],
 	})
+
+	// --- Basic metal ores ---
+
+	// Tin: common shallow ore, used for bronze alloy.
+	registry.register_material({
+		"id": MAT_ORE_TIN,
+		"key": "snt:ore_tin",
+		"display_name": "Tin Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.tin", "count": 1 }],
+	})
+	// Zinc: common shallow ore, used for brass alloy.
+	registry.register_material({
+		"id": MAT_ORE_ZINC,
+		"key": "snt:ore_zinc",
+		"display_name": "Zinc Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.zinc", "count": 1 }],
+	})
+	// Lead: common mid-depth ore, heavy metal.
+	registry.register_material({
+		"id": MAT_ORE_LEAD,
+		"key": "snt:ore_lead",
+		"display_name": "Lead Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.2,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.lead", "count": 1 }],
+	})
+
+	// --- Precious metal ores ---
+
+	// Silver: mid-depth precious metal.
+	registry.register_material({
+		"id": MAT_ORE_SILVER,
+		"key": "snt:ore_silver",
+		"display_name": "Silver Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.silver", "count": 1 }],
+	})
+	// Gold: mid-deep precious metal.
+	registry.register_material({
+		"id": MAT_ORE_GOLD,
+		"key": "snt:ore_gold",
+		"display_name": "Gold Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 3.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.gold", "count": 1 }],
+	})
+
+	// --- Alloy metal ores ---
+
+	// Nickel: mid-depth ore for stainless steel and invar.
+	registry.register_material({
+		"id": MAT_ORE_NICKEL,
+		"key": "snt:ore_nickel",
+		"display_name": "Nickel Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.nickel", "count": 1 }],
+	})
+	// Bauxite: shallow ore for aluminum alloys.
+	registry.register_material({
+		"id": MAT_ORE_BAUXITE,
+		"key": "snt:ore_bauxite",
+		"display_name": "Bauxite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.bauxite", "count": 1 }],
+	})
+	// Manganese: mid-depth ore for steel alloys.
+	registry.register_material({
+		"id": MAT_ORE_MANGANESE,
+		"key": "snt:ore_manganese",
+		"display_name": "Manganese Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.manganese", "count": 1 }],
+	})
+	// Tungsten: deep ore for hard alloys.
+	registry.register_material({
+		"id": MAT_ORE_TUNGSTEN,
+		"key": "snt:ore_tungsten",
+		"display_name": "Tungsten Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 4.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "crushed.tungsten", "count": 1 }],
+	})
+	// Titanium: deep ore for advanced alloys.
+	registry.register_material({
+		"id": MAT_ORE_TITANIUM,
+		"key": "snt:ore_titanium",
+		"display_name": "Titanium Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 4.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "crushed.titanium", "count": 1 }],
+	})
+
+	// --- Rare metal ores ---
+
+	// Platinum: very deep, extremely rare catalyst metal.
+	registry.register_material({
+		"id": MAT_ORE_PLATINUM,
+		"key": "snt:ore_platinum",
+		"display_name": "Platinum Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 5.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 4,
+		"drops": [{ "item_key": "crushed.platinum", "count": 1 }],
+	})
+	// Cobalt: deep ore for superalloys.
+	registry.register_material({
+		"id": MAT_ORE_COBALT,
+		"key": "snt:ore_cobalt",
+		"display_name": "Cobalt Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 3.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "crushed.cobalt", "count": 1 }],
+	})
+
+	// --- Energy ores ---
+
+	// Uranium: very deep, extremely rare nuclear fuel.
+	registry.register_material({
+		"id": MAT_ORE_URANIUM,
+		"key": "snt:ore_uranium",
+		"display_name": "Uranium Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 5.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 4,
+		"drops": [{ "item_key": "crushed.uranium", "count": 1 }],
+	})
+	// Sulfur: volcanic zone ore for chemical processing.
+	registry.register_material({
+		"id": MAT_ORE_SULFUR,
+		"key": "snt:ore_sulfur",
+		"display_name": "Sulfur Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "dust.sulfur", "count": 1 }],
+	})
+
+	// --- Gemstone ores ---
+
+	// Diamond: very deep, extremely rare industrial/cutting gem.
+	registry.register_material({
+		"id": MAT_ORE_DIAMOND,
+		"key": "snt:ore_diamond",
+		"display_name": "Diamond Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 5.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 4,
+		"drops": [{ "item_key": "gem.diamond", "count": 1 }],
+	})
+	// Ruby: deep chromium-based gemstone.
+	registry.register_material({
+		"id": MAT_ORE_RUBY,
+		"key": "snt:ore_ruby",
+		"display_name": "Ruby Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 4.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "gem.ruby", "count": 1 }],
+	})
+	// Sapphire: deep aluminum-based gemstone.
+	registry.register_material({
+		"id": MAT_ORE_SAPPHIRE,
+		"key": "snt:ore_sapphire",
+		"display_name": "Sapphire Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 4.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "gem.sapphire", "count": 1 }],
+	})
+	// Emerald: deep beryllium-based gemstone.
+	registry.register_material({
+		"id": MAT_ORE_EMERALD,
+		"key": "snt:ore_emerald",
+		"display_name": "Emerald Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 4.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "gem.emerald", "count": 1 }],
+	})
+
+	// --- Non-metal / industrial ores ---
+
+	// Salt: shallow-mid depth, food and chemical industry.
+	registry.register_material({
+		"id": MAT_ORE_SALT,
+		"key": "snt:ore_salt",
+		"display_name": "Salt Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.2,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "dust.salt", "count": 1, "min_count": 1, "max_count": 3 }],
+	})
+	// Fluorite: mid-depth smelting flux.
+	registry.register_material({
+		"id": MAT_ORE_FLUORITE,
+		"key": "snt:ore_fluorite",
+		"display_name": "Fluorite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "dust.fluorite", "count": 1 }],
+	})
+	// Graphite: mid-deep carbon material.
+	registry.register_material({
+		"id": MAT_ORE_GRAPHITE,
+		"key": "snt:ore_graphite",
+		"display_name": "Graphite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "dust.graphite", "count": 1 }],
+	})
+
+	// --- GT-style mineral ores (multi-element minerals) ---
+
+	// Pyrite: iron disulfide FeS2, common in many vein groups.
+	registry.register_material({
+		"id": MAT_ORE_PYRITE,
+		"key": "snt:ore_pyrite",
+		"display_name": "Pyrite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.pyrite", "count": 1 }],
+	})
+	// Galena: lead sulfide PbS, lead-silver bearing mineral.
+	registry.register_material({
+		"id": MAT_ORE_GALENA,
+		"key": "snt:ore_galena",
+		"display_name": "Galena Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.3,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.galena", "count": 1 }],
+	})
+	// Cinnabar: mercury sulfide HgS, volcanic zones.
+	registry.register_material({
+		"id": MAT_ORE_CINNABAR,
+		"key": "snt:ore_cinnabar",
+		"display_name": "Cinnabar Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "dust.cinnabar", "count": 1 }],
+	})
+	// Magnetite: iron oxide Fe3O4, primary iron ore in GT veins.
+	registry.register_material({
+		"id": MAT_ORE_MAGNETITE,
+		"key": "snt:ore_magnetite",
+		"display_name": "Magnetite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 3.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.magnetite", "count": 1 }],
+	})
+	// Cassiterite: tin oxide SnO2, primary tin ore.
+	registry.register_material({
+		"id": MAT_ORE_CASSITERITE,
+		"key": "snt:ore_cassiterite",
+		"display_name": "Cassiterite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.cassiterite", "count": 1 }],
+	})
+	// Ilmenite: iron-titanium oxide FeTiO3, titanium source.
+	registry.register_material({
+		"id": MAT_ORE_ILMENITE,
+		"key": "snt:ore_ilmenite",
+		"display_name": "Ilmenite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 3.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "crushed.ilmenite", "count": 1 }],
+	})
+	// Chalcopyrite: copper iron sulfide CuFeS2, primary copper ore.
+	registry.register_material({
+		"id": MAT_ORE_CHALCOPYRITE,
+		"key": "snt:ore_chalcopyrite",
+		"display_name": "Chalcopyrite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.2,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.chalcopyrite", "count": 1 }],
+	})
+	// Sphalerite: zinc sulfide ZnS, primary zinc ore.
+	registry.register_material({
+		"id": MAT_ORE_SPHALERITE,
+		"key": "snt:ore_sphalerite",
+		"display_name": "Sphalerite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"drops": [{ "item_key": "crushed.sphalerite", "count": 1 }],
+	})
+	// Pentlandite: iron-nickel sulfide (Ni,Fe)9S8, primary nickel ore.
+	registry.register_material({
+		"id": MAT_ORE_PENTLANDITE,
+		"key": "snt:ore_pentlandite",
+		"display_name": "Pentlandite Ore",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 2.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"drops": [{ "item_key": "crushed.pentlandite", "count": 1 }],
+	})
+
 	registry.register_material({
 		"id": MAT_WOOD,
 		"key": "snt:wood",
@@ -360,6 +844,115 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"display_name": "Core Barrier",
 		"flags": FLAG_SOLID | FLAG_INDESTRUCTIBLE,
 		"hardness": -1.0,
+	})
+
+	# --- Planetary rock materials ---
+	# Each rock type is a separate TerrainMaterial with unique drops.
+	# Different planets use different rock compositions in their rock layers.
+
+	# Granite: common crustal rock, standard hardness.
+	registry.register_material({
+		"id": MAT_GRANITE,
+		"key": "snt:granite_rock",
+		"display_name": "Granite",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
+		"hardness": 1.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"collapse_chance": 0.3,
+		"rock_layer_key": "snt:granite",
+		"drops": [{ "item_key": "dust.granite", "count": 1 }],
+	})
+	# Basalt: harder volcanic rock, slightly more durable.
+	registry.register_material({
+		"id": MAT_BASALT,
+		"key": "snt:basalt_rock",
+		"display_name": "Basalt",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
+		"hardness": 2.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"collapse_chance": 0.25,
+		"rock_layer_key": "snt:basalt",
+		"drops": [{ "item_key": "dust.basalt", "count": 1 }],
+	})
+	# Marble: metamorphic rock, medium hardness.
+	registry.register_material({
+		"id": MAT_MARBLE,
+		"key": "snt:marble_rock",
+		"display_name": "Marble",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
+		"hardness": 1.3,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"collapse_chance": 0.2,
+		"rock_layer_key": "snt:marble",
+		"drops": [{ "item_key": "dust.marble", "count": 1 }],
+	})
+	# Sandstone: soft sedimentary rock, easy to mine.
+	registry.register_material({
+		"id": MAT_SANDSTONE,
+		"key": "snt:sandstone_rock",
+		"display_name": "Sandstone",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_GRAVITY_FALL,
+		"hardness": 0.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 0,
+		"collapse_chance": 0.15,
+		"rock_layer_key": "snt:sandstone",
+		"drops": [{ "item_key": "dust.sandstone", "count": 1 }],
+	})
+	# Shale: sedimentary rock, tends to collapse.
+	registry.register_material({
+		"id": MAT_SHALE,
+		"key": "snt:shale_rock",
+		"display_name": "Shale",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
+		"hardness": 1.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"collapse_chance": 0.4,
+		"rock_layer_key": "snt:shale",
+		"drops": [{ "item_key": "dust.shale", "count": 1 }],
+	})
+	# Komatiite: ancient volcanic rock, very hard.
+	registry.register_material({
+		"id": MAT_KOMATIITE,
+		"key": "snt:komatiite_rock",
+		"display_name": "Komatiite",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
+		"hardness": 2.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 2,
+		"collapse_chance": 0.35,
+		"rock_layer_key": "snt:komatiite",
+		"drops": [{ "item_key": "dust.komatiite", "count": 1 }],
+	})
+	# Regolith: weathered surface rock, soft and crumbly.
+	registry.register_material({
+		"id": MAT_REGOLITH,
+		"key": "snt:regolith_rock",
+		"display_name": "Regolith",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_GRAVITY_FALL,
+		"hardness": 0.6,
+		"required_tool_tag": "shovel",
+		"required_mining_level": 0,
+		"collapse_chance": 0.1,
+		"rock_layer_key": "snt:regolith",
+		"drops": [{ "item_key": "dust.regolith", "count": 1 }],
+	})
+	# Anorthosite: highland crust rock, medium hardness.
+	registry.register_material({
+		"id": MAT_ANORTHOSTIE,
+		"key": "snt:anorthosite_rock",
+		"display_name": "Anorthosite",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
+		"hardness": 1.4,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 1,
+		"collapse_chance": 0.2,
+		"rock_layer_key": "snt:anorthosite",
+		"drops": [{ "item_key": "dust.anorthosite", "count": 1 }],
 	})
 
 	// --- Tree species materials ---
@@ -651,6 +1244,89 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:ore_coal", "dimension": "overworld",
 		  "albedo_color": Color(0.13, 0.13, 0.13),
 		  "overlays": [{ "texture_path": "res://resource/terrain/ore/ore_coal_overlay_32.png", "blend": 0.6 }] },
+
+		// --- Basic metal ore visuals ---
+		{ "material_key": "snt:ore_tin", "dimension": "overworld",
+		  "albedo_color": Color(0.60, 0.60, 0.62) },
+		{ "material_key": "snt:ore_zinc", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.58, 0.60) },
+		{ "material_key": "snt:ore_lead", "dimension": "overworld",
+		  "albedo_color": Color(0.40, 0.40, 0.42) },
+
+		// --- Precious metal ore visuals ---
+		{ "material_key": "snt:ore_silver", "dimension": "overworld",
+		  "albedo_color": Color(0.80, 0.80, 0.82) },
+		{ "material_key": "snt:ore_gold", "dimension": "overworld",
+		  "albedo_color": Color(0.85, 0.70, 0.15) },
+
+		// --- Alloy metal ore visuals ---
+		{ "material_key": "snt:ore_nickel", "dimension": "overworld",
+		  "albedo_color": Color(0.58, 0.58, 0.55) },
+		{ "material_key": "snt:ore_bauxite", "dimension": "overworld",
+		  "albedo_color": Color(0.72, 0.55, 0.38) },
+		{ "material_key": "snt:ore_manganese", "dimension": "overworld",
+		  "albedo_color": Color(0.45, 0.38, 0.35) },
+		{ "material_key": "snt:ore_tungsten", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.50, 0.52) },
+		{ "material_key": "snt:ore_titanium", "dimension": "overworld",
+		  "albedo_color": Color(0.60, 0.62, 0.65) },
+
+		// --- Rare metal ore visuals ---
+		{ "material_key": "snt:ore_platinum", "dimension": "overworld",
+		  "albedo_color": Color(0.78, 0.78, 0.80),
+		  "emissive_color": Color(0.05, 0.05, 0.08), "roughness": 0.4 },
+		{ "material_key": "snt:ore_cobalt", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.30, 0.65) },
+
+		// --- Energy ore visuals ---
+		{ "material_key": "snt:ore_uranium", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.55, 0.20),
+		  "emissive_color": Color(0.08, 0.18, 0.03), "roughness": 0.5 },
+		{ "material_key": "snt:ore_sulfur", "dimension": "overworld",
+		  "albedo_color": Color(0.90, 0.85, 0.15) },
+
+		// --- Gemstone ore visuals ---
+		{ "material_key": "snt:ore_diamond", "dimension": "overworld",
+		  "albedo_color": Color(0.70, 0.85, 0.90),
+		  "emissive_color": Color(0.10, 0.15, 0.20), "roughness": 0.2 },
+		{ "material_key": "snt:ore_ruby", "dimension": "overworld",
+		  "albedo_color": Color(0.80, 0.12, 0.15),
+		  "emissive_color": Color(0.15, 0.02, 0.03), "roughness": 0.3 },
+		{ "material_key": "snt:ore_sapphire", "dimension": "overworld",
+		  "albedo_color": Color(0.12, 0.18, 0.75),
+		  "emissive_color": Color(0.02, 0.04, 0.12), "roughness": 0.3 },
+		{ "material_key": "snt:ore_emerald", "dimension": "overworld",
+		  "albedo_color": Color(0.10, 0.60, 0.25),
+		  "emissive_color": Color(0.02, 0.10, 0.04), "roughness": 0.3 },
+
+		// --- Non-metal / industrial ore visuals ---
+		{ "material_key": "snt:ore_salt", "dimension": "overworld",
+		  "albedo_color": Color(0.92, 0.90, 0.88) },
+		{ "material_key": "snt:ore_fluorite", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.65, 0.75) },
+		{ "material_key": "snt:ore_graphite", "dimension": "overworld",
+		  "albedo_color": Color(0.22, 0.22, 0.24) },
+
+		// --- GT-style mineral ore visuals ---
+		{ "material_key": "snt:ore_pyrite", "dimension": "overworld",
+		  "albedo_color": Color(0.72, 0.68, 0.30) },
+		{ "material_key": "snt:ore_galena", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.35, 0.38) },
+		{ "material_key": "snt:ore_cinnabar", "dimension": "overworld",
+		  "albedo_color": Color(0.78, 0.18, 0.15) },
+		{ "material_key": "snt:ore_magnetite", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.30, 0.32) },
+		{ "material_key": "snt:ore_cassiterite", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.45, 0.30) },
+		{ "material_key": "snt:ore_ilmenite", "dimension": "overworld",
+		  "albedo_color": Color(0.38, 0.35, 0.32) },
+		{ "material_key": "snt:ore_chalcopyrite", "dimension": "overworld",
+		  "albedo_color": Color(0.70, 0.55, 0.20) },
+		{ "material_key": "snt:ore_sphalerite", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.40, 0.22) },
+		{ "material_key": "snt:ore_pentlandite", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.52, 0.35) },
+
 		{ "material_key": "snt:wood", "dimension": "overworld",
 		  "albedo_color": Color(0.45, 0.27, 0.12) },
 		{ "material_key": "snt:leaves", "dimension": "overworld",
@@ -775,38 +1451,270 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"temperature_max": -0.4,
 		"humidity_max": -0.1,
 	})
-	registry.register_ore_vein_rule({
-		"key": "snt:ore_iron",
+
+	# --- GT-style ore vein groups ---
+	# Each vein group contains primary, secondary, between, and sporadic ores.
+	# Depth ranges control where each vein type can appear.
+	# Weight controls relative frequency (higher = more common).
+
+	# Chalcopyrite vein: shallow-mid copper source.
+	# Primary: chalcopyrite (CuFeS2), Secondary: pyrite (FeS2),
+	# Between: galena (PbS), Sporadic: sphalerite (ZnS).
+	registry.register_ore_vein_group({
+		"key": "snt:chalcopyrite_vein",
 		"dimension": "overworld",
-		"host_material_key": "snt:stone",
-		"ore_material_key": "snt:ore_iron",
-		"combined_min": 0.5,
-		"combined_max": 1.0,
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_chalcopyrite",
+		"secondary_ore_key": "snt:ore_pyrite",
+		"between_ore_key": "snt:ore_galena",
+		"sporadic_ore_key": "snt:ore_sphalerite",
+		"depth_min": 5.0,
+		"depth_max": 40.0,
+		"radius": 18.0,
+		"density": 0.55,
+		"weight": 2.0,
 	})
-	registry.register_ore_vein_rule({
-		"key": "snt:ore_copper",
+
+	# Cassiterite vein: shallow tin source.
+	# Primary: cassiterite (SnO2), Secondary: tin ore (pure Sn),
+	# Between: chalcopyrite (CuFeS2), Sporadic: galena (PbS).
+	registry.register_ore_vein_group({
+		"key": "snt:cassiterite_vein",
 		"dimension": "overworld",
-		"host_material_key": "snt:stone",
-		"ore_material_key": "snt:ore_copper",
-		"combined_min": 0.25,
-		"combined_max": 0.5,
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_cassiterite",
+		"secondary_ore_key": "snt:ore_tin",
+		"between_ore_key": "snt:ore_chalcopyrite",
+		"sporadic_ore_key": "snt:ore_galena",
+		"depth_min": 0.0,
+		"depth_max": 30.0,
+		"radius": 14.0,
+		"density": 0.50,
+		"weight": 1.5,
 	})
-	registry.register_ore_vein_rule({
-		"key": "snt:ore_coal",
+
+	# Magnetite vein: mid-depth iron source with gold byproduct.
+	# Primary: magnetite (Fe3O4), Secondary: ilmenite (FeTiO3),
+	# Between: gold (Au), Sporadic: pyrite (FeS2).
+	registry.register_ore_vein_group({
+		"key": "snt:magnetite_vein",
 		"dimension": "overworld",
-		"host_material_key": "snt:stone",
-		"ore_material_key": "snt:ore_coal",
-		"combined_min": 0.05,
-		"combined_max": 0.25,
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_magnetite",
+		"secondary_ore_key": "snt:ore_ilmenite",
+		"between_ore_key": "snt:ore_gold",
+		"sporadic_ore_key": "snt:ore_pyrite",
+		"depth_min": 15.0,
+		"depth_max": 55.0,
+		"radius": 20.0,
+		"density": 0.60,
+		"weight": 1.8,
+	})
+
+	# Bauxite vein: shallow aluminum source.
+	# Primary: bauxite (Al(OH)3), Secondary: titanium ore (Ti),
+	# Between: iron ore (Fe), Sporadic: manganese ore (Mn).
+	registry.register_ore_vein_group({
+		"key": "snt:bauxite_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_bauxite",
+		"secondary_ore_key": "snt:ore_titanium",
+		"between_ore_key": "snt:ore_iron",
+		"sporadic_ore_key": "snt:ore_manganese",
+		"depth_min": 0.0,
+		"depth_max": 25.0,
+		"radius": 16.0,
+		"density": 0.50,
+		"weight": 1.2,
+	})
+
+	# Sphalerite vein: shallow-mid zinc source.
+	# Primary: sphalerite (ZnS), Secondary: zinc ore (pure Zn),
+	# Between: galena (PbS), Sporadic: silver ore (Ag).
+	registry.register_ore_vein_group({
+		"key": "snt:sphalerite_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_sphalerite",
+		"secondary_ore_key": "snt:ore_zinc",
+		"between_ore_key": "snt:ore_galena",
+		"sporadic_ore_key": "snt:ore_silver",
+		"depth_min": 5.0,
+		"depth_max": 35.0,
+		"radius": 14.0,
+		"density": 0.50,
+		"weight": 1.3,
+	})
+
+	# Galena vein: mid-depth lead-silver source.
+	# Primary: galena (PbS), Secondary: lead ore (pure Pb),
+	# Between: silver ore (Ag), Sporadic: sphalerite (ZnS).
+	registry.register_ore_vein_group({
+		"key": "snt:galena_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_galena",
+		"secondary_ore_key": "snt:ore_lead",
+		"between_ore_key": "snt:ore_silver",
+		"sporadic_ore_key": "snt:ore_sphalerite",
+		"depth_min": 15.0,
+		"depth_max": 50.0,
+		"radius": 14.0,
+		"density": 0.50,
+		"weight": 1.0,
+	})
+
+	# Pentlandite vein: mid-deep nickel source with cobalt byproduct.
+	# Primary: pentlandite ((Ni,Fe)9S8), Secondary: nickel ore (pure Ni),
+	# Between: cobalt ore (Co), Sporadic: platinum ore (Pt).
+	registry.register_ore_vein_group({
+		"key": "snt:pentlandite_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_pentlandite",
+		"secondary_ore_key": "snt:ore_nickel",
+		"between_ore_key": "snt:ore_cobalt",
+		"sporadic_ore_key": "snt:ore_platinum",
+		"depth_min": 30.0,
+		"depth_max": 70.0,
+		"radius": 12.0,
+		"density": 0.45,
+		"weight": 0.8,
+	})
+
+	# Tungsten vein: deep ore for hard alloys.
+	# Primary: tungsten ore (W), Secondary: manganese ore (Mn),
+	# Between: cassiterite (SnO2), Sporadic: fluorite (CaF2).
+	registry.register_ore_vein_group({
+		"key": "snt:tungsten_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:deepstone",
+		"primary_ore_key": "snt:ore_tungsten",
+		"secondary_ore_key": "snt:ore_manganese",
+		"between_ore_key": "snt:ore_cassiterite",
+		"sporadic_ore_key": "snt:ore_fluorite",
+		"depth_min": 50.0,
+		"depth_max": 100.0,
+		"radius": 10.0,
+		"density": 0.40,
+		"weight": 0.5,
+	})
+
+	# Uranium vein: very deep nuclear fuel source.
+	# Primary: uranium ore (U), Secondary: cobalt ore (Co),
+	# Between: lead ore (Pb), Sporadic: platinum ore (Pt).
+	registry.register_ore_vein_group({
+		"key": "snt:uranium_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:deepstone",
+		"primary_ore_key": "snt:ore_uranium",
+		"secondary_ore_key": "snt:ore_cobalt",
+		"between_ore_key": "snt:ore_lead",
+		"sporadic_ore_key": "snt:ore_platinum",
+		"depth_min": 70.0,
+		"depth_max": 200.0,
+		"radius": 8.0,
+		"density": 0.35,
+		"weight": 0.3,
+	})
+
+	# Platinum group vein: very deep rare catalyst metals.
+	# Primary: platinum ore (Pt), Secondary: nickel ore (Ni),
+	# Between: cobalt ore (Co), Sporadic: iridium (placeholder: gold).
+	registry.register_ore_vein_group({
+		"key": "snt:platinum_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:deepstone",
+		"primary_ore_key": "snt:ore_platinum",
+		"secondary_ore_key": "snt:ore_nickel",
+		"between_ore_key": "snt:ore_cobalt",
+		"sporadic_ore_key": "snt:ore_gold",
+		"depth_min": 80.0,
+		"depth_max": 200.0,
+		"radius": 6.0,
+		"density": 0.30,
+		"weight": 0.2,
+	})
+
+	# Diamond vein: very deep carbon gemstone.
+	# Primary: diamond (C), Secondary: graphite (C),
+	# Between: ruby (Cr), Sporadic: emerald (Be).
+	registry.register_ore_vein_group({
+		"key": "snt:diamond_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:deepstone",
+		"primary_ore_key": "snt:ore_diamond",
+		"secondary_ore_key": "snt:ore_graphite",
+		"between_ore_key": "snt:ore_ruby",
+		"sporadic_ore_key": "snt:ore_emerald",
+		"depth_min": 60.0,
+		"depth_max": 150.0,
+		"radius": 6.0,
+		"density": 0.30,
+		"weight": 0.25,
+	})
+
+	# Sapphire vein: deep gemstone source.
+	# Primary: sapphire (Al2O3), Secondary: bauxite (Al source),
+	# Between: ruby (Cr), Sporadic: emerald (Be).
+	registry.register_ore_vein_group({
+		"key": "snt:sapphire_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:deepstone",
+		"primary_ore_key": "snt:ore_sapphire",
+		"secondary_ore_key": "snt:ore_bauxite",
+		"between_ore_key": "snt:ore_ruby",
+		"sporadic_ore_key": "snt:ore_emerald",
+		"depth_min": 50.0,
+		"depth_max": 120.0,
+		"radius": 8.0,
+		"density": 0.35,
+		"weight": 0.35,
+	})
+
+	# Salt vein: shallow-mid industrial mineral.
+	# Primary: salt (NaCl), Secondary: fluorite (CaF2),
+	# Between: graphite (C), Sporadic: cinnabar (HgS).
+	registry.register_ore_vein_group({
+		"key": "snt:salt_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_salt",
+		"secondary_ore_key": "snt:ore_fluorite",
+		"between_ore_key": "snt:ore_graphite",
+		"sporadic_ore_key": "snt:ore_cinnabar",
+		"depth_min": 5.0,
+		"depth_max": 40.0,
+		"radius": 16.0,
+		"density": 0.55,
+		"weight": 1.0,
+	})
+
+	# Sulfur vein: volcanic zone chemical source.
+	# Primary: sulfur (S), Secondary: pyrite (FeS2),
+	# Between: cinnabar (HgS), Sporadic: sphalerite (ZnS).
+	registry.register_ore_vein_group({
+		"key": "snt:sulfur_vein",
+		"dimension": "overworld",
+		"host_material_key": "snt:granite_rock",
+		"primary_ore_key": "snt:ore_sulfur",
+		"secondary_ore_key": "snt:ore_pyrite",
+		"between_ore_key": "snt:ore_cinnabar",
+		"sporadic_ore_key": "snt:ore_sphalerite",
+		"depth_min": 10.0,
+		"depth_max": 45.0,
+		"radius": 12.0,
+		"density": 0.50,
+		"weight": 0.8,
 	})
 
 	# Rock layer rules: regional rock types that determine underground composition.
-	# Different areas of the planet have different base rock, affecting
-	# hardness, collapse chance, and which ores can spawn.
+	# Overworld uses granite + basalt (Earth-like composition).
 	registry.register_rock_layer_rule({
 		"key": "snt:granite",
 		"dimension": "overworld",
-		"rock_material_key": "snt:stone",
+		"rock_material_key": "snt:granite_rock",
 		"noise_scale": 0.005,
 		"noise_octaves": 3,
 		"noise_min": -1.0,
@@ -815,12 +1723,20 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"depth_max": 100.0,
 		"hardness_multiplier": 1.0,
 		"collapse_chance": 0.3,
-		"associated_ores": ["snt:ore_iron", "snt:ore_copper"],
+		"associated_ores": [
+			"snt:ore_iron", "snt:ore_copper",
+			"snt:ore_chalcopyrite", "snt:ore_cassiterite",
+			"snt:ore_sphalerite", "snt:ore_galena",
+			"snt:ore_magnetite", "snt:ore_bauxite",
+			"snt:ore_salt", "snt:ore_sulfur",
+			"snt:ore_tin", "snt:ore_zinc",
+			"snt:ore_pyrite", "snt:ore_fluorite",
+		],
 	})
 	registry.register_rock_layer_rule({
 		"key": "snt:basalt",
 		"dimension": "overworld",
-		"rock_material_key": "snt:stone",
+		"rock_material_key": "snt:basalt_rock",
 		"noise_scale": 0.005,
 		"noise_octaves": 3,
 		"noise_min": 0.0,
@@ -829,7 +1745,12 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"depth_max": 100.0,
 		"hardness_multiplier": 1.2,
 		"collapse_chance": 0.25,
-		"associated_ores": ["snt:ore_iron"],
+		"associated_ores": [
+			"snt:ore_iron", "snt:ore_magnetite",
+			"snt:ore_pentlandite", "snt:ore_ilmenite",
+			"snt:ore_nickel", "snt:ore_cinnabar",
+			"snt:ore_manganese",
+		],
 	})
 	registry.register_rock_layer_rule({
 		"key": "snt:deeprock",
@@ -843,7 +1764,13 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"depth_max": 10000.0,
 		"hardness_multiplier": 1.5,
 		"collapse_chance": 0.5,
-		"associated_ores": [],
+		"associated_ores": [
+			"snt:ore_tungsten", "snt:ore_titanium",
+			"snt:ore_uranium", "snt:ore_platinum",
+			"snt:ore_cobalt", "snt:ore_diamond",
+			"snt:ore_ruby", "snt:ore_sapphire",
+			"snt:ore_emerald", "snt:ore_graphite",
+		],
 	})
 
 	# Planet configuration: spherical world with radius 512 blocks.
@@ -871,6 +1798,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 		"core_boundary_noise_scale": 0.02,
 		"core_boundary_noise_octaves": 3,
 		"core_boundary_noise_amplitude": 0.15,
+		"atmosphere_type": 2,
 	})
 
 	// --- Tree species registration ---

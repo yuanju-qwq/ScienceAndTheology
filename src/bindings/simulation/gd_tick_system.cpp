@@ -9,6 +9,8 @@
 #include "core/simulation/block_physics_system.hpp"
 #include "core/simulation/tree_growth_system.hpp"
 #include "core/simulation/season_system.hpp"
+#include "core/simulation/region_system.hpp"
+#include "core/simulation/region_graph.hpp"
 #include "bindings/world/gd_world_data.h"
 
 namespace science_and_theology {
@@ -73,6 +75,14 @@ void GDTickSystem::register_day_night_system() {
     }
 }
 
+void GDTickSystem::register_region_system() {
+    if (tick_system_) {
+        auto sys = std::make_unique<RegionSystem>();
+        region_system_ = sys.get();
+        tick_system_->register_subsystem(std::move(sys));
+    }
+}
+
 godot::Dictionary GDTickSystem::get_day_night_state() const {
     godot::Dictionary d;
     if (!day_night_system_) {
@@ -129,6 +139,44 @@ bool GDTickSystem::get_is_daytime() const {
     return day_night_system_->is_daytime();
 }
 
+int64_t GDTickSystem::get_region_count() const {
+    if (!region_system_) return 0;
+    return static_cast<int64_t>(region_system_->total_region_count());
+}
+
+int64_t GDTickSystem::get_region_count_by_type(int64_t type_index) const {
+    if (!region_system_) return 0;
+    if (type_index < 0 || type_index >= static_cast<int64_t>(RegionType::COUNT)) {
+        return 0;
+    }
+    return static_cast<int64_t>(
+        region_system_->region_count(static_cast<RegionType>(type_index)));
+}
+
+godot::Dictionary GDTickSystem::get_region_data(
+    int64_t type_index, int64_t region_id) const {
+    godot::Dictionary d;
+    if (!region_system_) return d;
+    if (type_index < 0 || type_index >= static_cast<int64_t>(RegionType::COUNT)) {
+        return d;
+    }
+
+    auto type = static_cast<RegionType>(type_index);
+    const auto* graph = region_system_->get_graph(type);
+    if (!graph) return d;
+
+    const auto* data = graph->get_region_data(static_cast<uint64_t>(region_id));
+    if (!data) return d;
+
+    d["region_id"] = static_cast<int64_t>(data->region_id);
+    d["type"] = static_cast<int64_t>(data->type);
+    d["dimension"] = godot::String(data->dimension_id.c_str());
+    d["pollution"] = data->pollution;
+    d["temperature"] = data->temperature;
+    d["node_count"] = static_cast<int64_t>(data->node_count);
+    return d;
+}
+
 void GDTickSystem::tick(float delta) {
     if (!tick_system_ || !world_set) return;
     tick_system_->tick(delta);
@@ -149,6 +197,56 @@ void GDTickSystem::set_active_radius(int64_t radius) {
     if (tick_system_) {
         tick_system_->set_active_radius(static_cast<int>(radius));
     }
+}
+
+int64_t GDTickSystem::get_sleep_near_interval() const {
+    return tick_system_ ? tick_system_->sleep_near_interval() : 0;
+}
+
+void GDTickSystem::set_sleep_near_interval(int64_t interval) {
+    if (tick_system_) {
+        tick_system_->set_sleep_near_interval(static_cast<int>(interval));
+    }
+}
+
+int64_t GDTickSystem::get_sleep_mid_interval() const {
+    return tick_system_ ? tick_system_->sleep_mid_interval() : 0;
+}
+
+void GDTickSystem::set_sleep_mid_interval(int64_t interval) {
+    if (tick_system_) {
+        tick_system_->set_sleep_mid_interval(static_cast<int>(interval));
+    }
+}
+
+int64_t GDTickSystem::get_sleep_far_interval() const {
+    return tick_system_ ? tick_system_->sleep_far_interval() : 0;
+}
+
+void GDTickSystem::set_sleep_far_interval(int64_t interval) {
+    if (tick_system_) {
+        tick_system_->set_sleep_far_interval(static_cast<int>(interval));
+    }
+}
+
+void GDTickSystem::set_parallel_enabled(bool enabled) {
+    if (tick_system_) {
+        tick_system_->set_parallel_enabled(enabled);
+    }
+}
+
+bool GDTickSystem::get_parallel_enabled() const {
+    return tick_system_ ? tick_system_->parallel_enabled() : false;
+}
+
+void GDTickSystem::set_max_worker_threads(int64_t count) {
+    if (tick_system_) {
+        tick_system_->set_max_worker_threads(static_cast<int>(count));
+    }
+}
+
+int64_t GDTickSystem::get_max_worker_threads() const {
+    return tick_system_ ? tick_system_->max_worker_threads() : 0;
 }
 
 int64_t GDTickSystem::get_tick_count() const {
@@ -356,12 +454,20 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_season_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_day_night_system"),
         &GDTickSystem::register_day_night_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_region_system"),
+        &GDTickSystem::register_region_system);
     godot::ClassDB::bind_method(godot::D_METHOD("get_day_night_state"),
         &GDTickSystem::get_day_night_state);
     godot::ClassDB::bind_method(godot::D_METHOD("get_time_of_day"),
         &GDTickSystem::get_time_of_day);
     godot::ClassDB::bind_method(godot::D_METHOD("get_is_daytime"),
         &GDTickSystem::get_is_daytime);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_region_count"),
+        &GDTickSystem::get_region_count);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_region_count_by_type",
+        "type_index"), &GDTickSystem::get_region_count_by_type);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_region_data",
+        "type_index", "region_id"), &GDTickSystem::get_region_data);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",
@@ -371,6 +477,31 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::get_active_radius);
     godot::ClassDB::bind_method(godot::D_METHOD("set_active_radius", "radius"),
         &GDTickSystem::set_active_radius);
+
+    // Sleep interval configuration.
+    godot::ClassDB::bind_method(godot::D_METHOD("get_sleep_near_interval"),
+        &GDTickSystem::get_sleep_near_interval);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_sleep_near_interval",
+        "interval"), &GDTickSystem::set_sleep_near_interval);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_sleep_mid_interval"),
+        &GDTickSystem::get_sleep_mid_interval);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_sleep_mid_interval",
+        "interval"), &GDTickSystem::set_sleep_mid_interval);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_sleep_far_interval"),
+        &GDTickSystem::get_sleep_far_interval);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_sleep_far_interval",
+        "interval"), &GDTickSystem::set_sleep_far_interval);
+
+    // Parallel execution control.
+    godot::ClassDB::bind_method(godot::D_METHOD("set_parallel_enabled",
+        "enabled"), &GDTickSystem::set_parallel_enabled);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_parallel_enabled"),
+        &GDTickSystem::get_parallel_enabled);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_max_worker_threads",
+        "count"), &GDTickSystem::set_max_worker_threads);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_max_worker_threads"),
+        &GDTickSystem::get_max_worker_threads);
+
     godot::ClassDB::bind_method(godot::D_METHOD("get_tick_count"),
         &GDTickSystem::get_tick_count);
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_chunk_count"),
@@ -476,6 +607,37 @@ void GDTickSystem::_bind_methods() {
         godot::PropertyInfo(godot::Variant::INT, "slot_type"),
         godot::PropertyInfo(godot::Variant::INT, "old_item_id"),
         godot::PropertyInfo(godot::Variant::INT, "new_item_id")));
+
+    // --- Region signals ---
+
+    ADD_SIGNAL(godot::MethodInfo("region_created",
+        godot::PropertyInfo(godot::Variant::INT, "region_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "region_type"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+    ADD_SIGNAL(godot::MethodInfo("region_destroyed",
+        godot::PropertyInfo(godot::Variant::INT, "region_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "region_type"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+    ADD_SIGNAL(godot::MethodInfo("region_merged",
+        godot::PropertyInfo(godot::Variant::INT, "merged_id"),
+        godot::PropertyInfo(godot::Variant::INT, "absorbed_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "region_type"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+    ADD_SIGNAL(godot::MethodInfo("region_split",
+        godot::PropertyInfo(godot::Variant::INT, "original_id"),
+        godot::PropertyInfo(godot::Variant::INT, "new_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "region_type"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+    ADD_SIGNAL(godot::MethodInfo("region_pollution_changed",
+        godot::PropertyInfo(godot::Variant::INT, "region_id"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "old_level"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "new_level"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
+    ADD_SIGNAL(godot::MethodInfo("region_temperature_changed",
+        godot::PropertyInfo(godot::Variant::INT, "region_id"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "old_temp"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "new_temp"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension")));
 }
 
 void GDTickSystem::subscribe_to_event_bus() {
@@ -607,6 +769,66 @@ void GDTickSystem::subscribe_to_event_bus() {
                 e.int_data.at("slot_type"),
                 e.int_data.at("old_item_id"),
                 e.int_data.at("new_item_id"));
+        }));
+
+    // --- Region event subscriptions ---
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::REGION_CREATED,
+        [this](const GameEvent& e) {
+            emit_signal("region_created",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("region_type").c_str()),
+                godot::String(e.source_dimension.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::REGION_DESTROYED,
+        [this](const GameEvent& e) {
+            emit_signal("region_destroyed",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("region_type").c_str()),
+                godot::String(e.source_dimension.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::REGION_MERGED,
+        [this](const GameEvent& e) {
+            emit_signal("region_merged",
+                static_cast<int64_t>(e.source_id),
+                e.int_data.at("absorbed_id"),
+                godot::String(e.string_data.at("region_type").c_str()),
+                godot::String(e.source_dimension.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::REGION_SPLIT,
+        [this](const GameEvent& e) {
+            emit_signal("region_split",
+                static_cast<int64_t>(e.source_id),
+                e.int_data.at("new_id"),
+                godot::String(e.string_data.at("region_type").c_str()),
+                godot::String(e.source_dimension.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::REGION_POLLUTION_CHANGED,
+        [this](const GameEvent& e) {
+            emit_signal("region_pollution_changed",
+                static_cast<int64_t>(e.source_id),
+                e.float_data.at("old_level"),
+                e.float_data.at("new_level"),
+                godot::String(e.source_dimension.c_str()));
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::REGION_TEMPERATURE_CHANGED,
+        [this](const GameEvent& e) {
+            emit_signal("region_temperature_changed",
+                static_cast<int64_t>(e.source_id),
+                e.float_data.at("old_temp"),
+                e.float_data.at("new_temp"),
+                godot::String(e.source_dimension.c_str()));
         }));
 }
 

@@ -416,6 +416,18 @@ void initialize_materials() {
         gf::DUST_ONLY | static_cast<uint16_t>(MaterialGenFlag::METAL)
         | static_cast<uint16_t>(MaterialGenFlag::BLOCK),
         S::SOLID, 0x8B5E3C, 0, 0, 0.5f, "C6H10O5", 0, nullptr);
+
+    // ====================
+    // Planetary rock types (DUST_ONLY, each yields unique dust)
+    // ====================
+    register_material(materials::GRANITE,     "granite",     "Granite",     gf::DUST_ONLY, S::SOLID, 0xA09890, 0, 0, 2.7f, "SiO2+Al2O3", 0, nullptr);
+    register_material(materials::BASALT,      "basalt",      "Basalt",      gf::DUST_ONLY, S::SOLID, 0x505050, 0, 0, 3.0f, "SiO2+FeO",   0, nullptr);
+    register_material(materials::MARBLE,      "marble",      "Marble",      gf::DUST_ONLY, S::SOLID, 0xE8E0D8, 0, 0, 2.7f, "CaCO3",      0, nullptr);
+    register_material(materials::SANDSTONE,   "sandstone",   "Sandstone",   gf::DUST_ONLY, S::SOLID, 0xC8A870, 0, 0, 2.3f, "SiO2",       0, nullptr);
+    register_material(materials::SHALE,       "shale",       "Shale",       gf::DUST_ONLY, S::SOLID, 0x5A6050, 0, 0, 2.5f, "SiO2+Al2O3", 0, nullptr);
+    register_material(materials::KOMATIITE,   "komatiite",   "Komatiite",   gf::DUST_ONLY, S::SOLID, 0x3A5030, 0, 0, 3.2f, "MgO+SiO2",   0, nullptr);
+    register_material(materials::REGOLITH,    "regolith",    "Regolith",    gf::DUST_ONLY, S::SOLID, 0xA06040, 0, 0, 1.8f, "SiO2+Fe2O3", 0, nullptr);
+    register_material(materials::ANORTHOSTIE, "anorthosite", "Anorthosite", gf::DUST_ONLY, S::SOLID, 0xC0C0C8, 0, 0, 2.7f, "CaAl2Si2O8", 0, nullptr);
 }
 
 // --- Registry lookup ---

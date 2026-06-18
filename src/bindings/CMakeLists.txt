@@ -22,12 +22,14 @@ set(SOURCES
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp
     player/gd_player_helper.cpp
+    player/gd_satiation_data.cpp
     magic/gd_rune_registry.cpp
     magic/gd_glyph_registry.cpp
     magic/gd_spell_book.cpp
     magic/gd_mana_pool.cpp
     fuel/gd_fuel_registry.cpp
     machine/gd_recipe_database.cpp
+    source_law/gd_player_source_law_data.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

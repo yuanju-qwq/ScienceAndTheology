@@ -449,6 +449,18 @@ static func _create_planet_body(rng: RandomNumberGenerator, system_id: StringNam
 	desc.atmosphere_power = rng.randf_range(2.0, 5.0)
 	desc.atmosphere_intensity = rng.randf_range(0.2, 1.8)
 
+	# Atmosphere gameplay type — derived from visual properties.
+	if desc.atmosphere_intensity < 0.25 and desc.atmosphere_scale < 1.03:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
+	elif desc.atmosphere_intensity < 0.5 and desc.atmosphere_scale < 1.06:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.THIN
+	elif desc.sea_level_fraction > 0.05 and desc.atmosphere_intensity >= 0.5:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.BREATHABLE
+	elif rng.randf() < 0.7:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
+	else:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.CORROSIVE
+
 	# Clouds.
 	desc.cloud_coverage = rng.randf_range(0.0, 0.95)
 	desc.cloud_sharpness = rng.randf_range(1.0, 4.0)
@@ -510,6 +522,12 @@ static func _create_starless_planet_body(rng: RandomNumberGenerator,
 	desc.atmosphere_scale = rng.randf_range(1.0, 1.05)
 	desc.atmosphere_power = rng.randf_range(3.0, 6.0)
 	desc.atmosphere_intensity = rng.randf_range(0.05, 0.4)
+
+	# Rogue planets have thin or no atmosphere.
+	if desc.atmosphere_intensity < 0.15:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
+	else:
+		desc.atmosphere_type = PlanetDescriptor.AtmosphereType.THIN
 
 	# Clouds — sparse or none.
 	desc.cloud_coverage = rng.randf_range(0.0, 0.3)

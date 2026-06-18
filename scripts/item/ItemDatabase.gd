@@ -19,6 +19,16 @@ const MATERIAL_COPPER  = 5
 const MATERIAL_IRON    = 7
 const MATERIAL_WOOD    = 112
 
+# Planetary rock material IDs — must match C++ materials:: enum.
+const MATERIAL_GRANITE     = 113
+const MATERIAL_BASALT      = 114
+const MATERIAL_MARBLE      = 115
+const MATERIAL_SANDSTONE   = 116
+const MATERIAL_SHALE       = 117
+const MATERIAL_KOMATIITE   = 118
+const MATERIAL_REGOLITH    = 119
+const MATERIAL_ANORTHOSTIE = 120
+
 const K_FORM_COUNT     = 31
 const K_MAT_ITEM_BASE  = 1
 const K_NON_MAT_BASE   = K_MAT_ITEM_BASE + 113 * K_FORM_COUNT + 1
@@ -185,6 +195,40 @@ func _register_material_items() -> void:
 			64, null, "materials/copper_dust_icon_32.png")
 	_register(mat_item(MATERIAL_IRON, FORM_DUST), "Iron Dust", Color(0.65, 0.60, 0.55),
 			64, null, "materials/iron_dust_icon_32.png")
+
+	# --- Planetary rock dusts ---
+	_register(mat_item(MATERIAL_GRANITE, FORM_DUST), "Granite Dust", Color(0.63, 0.60, 0.56),
+			64, null, "")
+	_register(mat_item(MATERIAL_GRANITE, FORM_TINY_DUST), "Granite Tiny Dust", Color(0.53, 0.50, 0.46),
+			64, null, "")
+	_register(mat_item(MATERIAL_BASALT, FORM_DUST), "Basalt Dust", Color(0.31, 0.31, 0.31),
+			64, null, "")
+	_register(mat_item(MATERIAL_BASALT, FORM_TINY_DUST), "Basalt Tiny Dust", Color(0.26, 0.26, 0.26),
+			64, null, "")
+	_register(mat_item(MATERIAL_MARBLE, FORM_DUST), "Marble Dust", Color(0.91, 0.88, 0.85),
+			64, null, "")
+	_register(mat_item(MATERIAL_MARBLE, FORM_TINY_DUST), "Marble Tiny Dust", Color(0.81, 0.78, 0.75),
+			64, null, "")
+	_register(mat_item(MATERIAL_SANDSTONE, FORM_DUST), "Sandstone Dust", Color(0.78, 0.66, 0.44),
+			64, null, "")
+	_register(mat_item(MATERIAL_SANDSTONE, FORM_TINY_DUST), "Sandstone Tiny Dust", Color(0.68, 0.56, 0.34),
+			64, null, "")
+	_register(mat_item(MATERIAL_SHALE, FORM_DUST), "Shale Dust", Color(0.35, 0.38, 0.31),
+			64, null, "")
+	_register(mat_item(MATERIAL_SHALE, FORM_TINY_DUST), "Shale Tiny Dust", Color(0.28, 0.30, 0.24),
+			64, null, "")
+	_register(mat_item(MATERIAL_KOMATIITE, FORM_DUST), "Komatiite Dust", Color(0.23, 0.31, 0.19),
+			64, null, "")
+	_register(mat_item(MATERIAL_KOMATIITE, FORM_TINY_DUST), "Komatiite Tiny Dust", Color(0.18, 0.24, 0.14),
+			64, null, "")
+	_register(mat_item(MATERIAL_REGOLITH, FORM_DUST), "Regolith Dust", Color(0.63, 0.38, 0.25),
+			64, null, "")
+	_register(mat_item(MATERIAL_REGOLITH, FORM_TINY_DUST), "Regolith Tiny Dust", Color(0.53, 0.30, 0.18),
+			64, null, "")
+	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_DUST), "Anorthosite Dust", Color(0.75, 0.75, 0.78),
+			64, null, "")
+	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_TINY_DUST), "Anorthosite Tiny Dust", Color(0.65, 0.65, 0.68),
+			64, null, "")
 
 func _make_tool_def(tool_type: int, tier: int, mining_level: int, speed: float, durability: int, attack: float) -> ToolDef:
 	var t := ToolDef.new()

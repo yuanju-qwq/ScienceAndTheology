@@ -46,6 +46,14 @@ enum class GameEventType : uint32_t {
     WORLD_SAVED  = 600,
     WORLD_LOADED = 601,
 
+    // Region events
+    REGION_CREATED           = 700,
+    REGION_DESTROYED         = 701,
+    REGION_MERGED            = 702,
+    REGION_SPLIT             = 703,
+    REGION_POLLUTION_CHANGED = 704,
+    REGION_TEMPERATURE_CHANGED = 705,
+
     // Terrain events
     TERRAIN_CHANGED = 604,
 
@@ -56,6 +64,19 @@ enum class GameEventType : uint32_t {
     // Player events
     PLAYER_INVENTORY_CHANGED = 620,
     PLAYER_EQUIPMENT_CHANGED = 621,
+
+    // Source law events
+    SOURCE_LAW_CHANGED      = 630,
+    ORGAN_TRANSFORMED       = 631,
+    ORGAN_PURIFIED          = 632,
+    STABILITY_CHANGED       = 633,
+    MUTATION_CHANGED        = 634,
+    MANA_CHANGED            = 635,
+
+    // Satiation events
+    SATIATION_CHANGED       = 640,
+    HUNGER_LEVEL_CHANGED    = 641,
+    SOURCE_ESSENCE_CHANGED  = 642,
 
     // Custom / user-defined slot
     CUSTOM = 0x80000000,
@@ -121,6 +142,62 @@ struct GameEvent {
 
     static GameEvent player_equipment_changed(
         int slot_type, uint64_t old_item_id, uint64_t new_item_id);
+
+    // --- Source law event factories ---
+
+    static GameEvent source_law_changed(uint64_t player_id);
+
+    static GameEvent organ_transformed(
+        uint64_t player_id, int slot, int element);
+
+    static GameEvent organ_purified(
+        uint64_t player_id, int slot);
+
+    static GameEvent stability_changed(
+        uint64_t player_id, float old_val, float new_val);
+
+    static GameEvent mutation_changed(
+        uint64_t player_id, float old_val, float new_val);
+
+    static GameEvent mana_changed(
+        uint64_t player_id, int old_val, int new_val);
+
+    // --- Satiation event factories ---
+
+    static GameEvent satiation_changed(
+        uint64_t player_id, float old_val, float new_val);
+
+    static GameEvent hunger_level_changed(
+        uint64_t player_id, int old_level, int new_level);
+
+    static GameEvent source_essence_changed(
+        uint64_t player_id, float old_total, float new_total);
+
+    // --- Region event factories ---
+
+    static GameEvent region_created(
+        uint64_t region_id, const std::string& region_type,
+        const std::string& dimension);
+
+    static GameEvent region_destroyed(
+        uint64_t region_id, const std::string& region_type,
+        const std::string& dimension);
+
+    static GameEvent region_merged(
+        uint64_t merged_id, uint64_t absorbed_id,
+        const std::string& region_type, const std::string& dimension);
+
+    static GameEvent region_split(
+        uint64_t original_id, uint64_t new_id,
+        const std::string& region_type, const std::string& dimension);
+
+    static GameEvent region_pollution_changed(
+        uint64_t region_id, double old_level, double new_level,
+        const std::string& dimension);
+
+    static GameEvent region_temperature_changed(
+        uint64_t region_id, double old_temp, double new_temp,
+        const std::string& dimension);
 };
 
 } // namespace science_and_theology

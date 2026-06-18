@@ -128,14 +128,20 @@ Dictionary biome_rule_to_dict(const BiomeRule& rule) {
     return d;
 }
 
-Dictionary ore_rule_to_dict(const OreVeinRule& rule) {
+Dictionary ore_vein_group_to_dict(const OreVeinGroup& group) {
     Dictionary d;
-    d["key"] = String(rule.key.c_str());
-    d["dimension"] = String(rule.dimension_id.c_str());
-    d["host_material_id"] = static_cast<int>(rule.host_material);
-    d["ore_material_id"] = static_cast<int>(rule.ore_material);
-    d["combined_min"] = rule.combined_min;
-    d["combined_max"] = rule.combined_max;
+    d["key"] = String(group.key.c_str());
+    d["dimension"] = String(group.dimension_id.c_str());
+    d["host_material_id"] = static_cast<int>(group.host_material);
+    d["primary_ore_id"] = static_cast<int>(group.primary_ore);
+    d["secondary_ore_id"] = static_cast<int>(group.secondary_ore);
+    d["between_ore_id"] = static_cast<int>(group.between_ore);
+    d["sporadic_ore_id"] = static_cast<int>(group.sporadic_ore);
+    d["depth_min"] = group.depth_min;
+    d["depth_max"] = group.depth_max;
+    d["radius"] = group.radius;
+    d["density"] = group.density;
+    d["weight"] = group.weight;
     return d;
 }
 
@@ -287,10 +293,10 @@ Array GDWorldGenConfig::get_biome_rules() const {
     return result;
 }
 
-Array GDWorldGenConfig::get_ore_vein_rules() const {
+Array GDWorldGenConfig::get_ore_vein_groups() const {
     Array result;
-    for (const auto& rule : get_snapshot()->ore_vein_rules) {
-        result.append(ore_rule_to_dict(rule));
+    for (const auto& group : get_snapshot()->ore_vein_groups) {
+        result.append(ore_vein_group_to_dict(group));
     }
     return result;
 }
@@ -348,8 +354,8 @@ void GDWorldGenConfig::_bind_methods() {
                          &GDWorldGenConfig::get_base_terrain_rules);
     ClassDB::bind_method(D_METHOD("get_biome_rules"),
                          &GDWorldGenConfig::get_biome_rules);
-    ClassDB::bind_method(D_METHOD("get_ore_vein_rules"),
-                         &GDWorldGenConfig::get_ore_vein_rules);
+    ClassDB::bind_method(D_METHOD("get_ore_vein_groups"),
+                         &GDWorldGenConfig::get_ore_vein_groups);
     ClassDB::bind_method(D_METHOD("get_rock_layer_rules"),
                          &GDWorldGenConfig::get_rock_layer_rules);
     ClassDB::bind_method(D_METHOD("validate"),

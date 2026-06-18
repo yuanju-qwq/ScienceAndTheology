@@ -285,6 +285,39 @@ void Machine::tick() {
     }
 }
 
+void Machine::tick_n(int64_t ticks) {
+    if (ticks <= 0) return;
+
+    // Save the initial state to emit a single event at the end.
+    MachineState initial_state = state_;
+
+    // Suppress per-tick event emissions during bulk processing.
+    // We swap out the callback, run the ticks, then restore it.
+    auto saved_cb = std::move(state_change_cb_);
+    state_change_cb_ = nullptr;
+
+    for (int64_t i = 0; i < ticks; ++i) {
+        tick();
+
+        // If the machine enters a terminal state, stop early.
+        // NO_POWER, OUTPUT_FULL, TIER_TOO_LOW, ERROR require
+        // external intervention — no point continuing.
+        if (state_ == MachineState::NO_POWER ||
+            state_ == MachineState::OUTPUT_FULL ||
+            state_ == MachineState::TIER_TOO_LOW ||
+            state_ == MachineState::ERROR) {
+            break;
+        }
+    }
+
+    // Restore the callback and emit a single state change event
+    // if the final state differs from the initial state.
+    state_change_cb_ = std::move(saved_cb);
+    if (state_ != initial_state && state_change_cb_) {
+        state_change_cb_(machine_id_, initial_state, state_);
+    }
+}
+
 void Machine::abort() {
     if (state_ == MachineState::PROCESSING && current_recipe_ != nullptr) {
         on_recipe_aborted(*current_recipe_);

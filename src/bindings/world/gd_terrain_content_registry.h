@@ -41,7 +41,7 @@ public:
     bool set_runtime_material_ids(const godot::Dictionary& def);
     bool register_base_terrain_rule(const godot::Dictionary& def);
     bool register_biome_rule(const godot::Dictionary& def);
-    bool register_ore_vein_rule(const godot::Dictionary& def);
+    bool register_ore_vein_group(const godot::Dictionary& def);
     bool register_rock_layer_rule(const godot::Dictionary& def);
     bool register_planet_config(const godot::Dictionary& def);
     bool register_tree_species(const godot::Dictionary& def);
@@ -70,7 +70,7 @@ private:
     RuntimeMaterialIds runtime_ids_;
     std::vector<BaseTerrainRule> base_terrain_rules_;
     std::vector<BiomeRule> biome_rules_;
-    std::vector<OreVeinRule> ore_vein_rules_;
+    std::vector<OreVeinGroup> ore_vein_groups_;
     std::vector<RockLayerRule> rock_layer_rules_;
     std::vector<PlanetConfig> planet_configs_;
     std::vector<TreeSpeciesDef> tree_species_;

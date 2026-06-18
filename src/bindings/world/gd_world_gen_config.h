@@ -34,7 +34,7 @@ public:
     godot::Dictionary get_runtime_material_ids() const;
     godot::Array get_base_terrain_rules() const;
     godot::Array get_biome_rules() const;
-    godot::Array get_ore_vein_rules() const;
+    godot::Array get_ore_vein_groups() const;
     godot::Array get_rock_layer_rules() const;
     godot::Array validate() const;
 
