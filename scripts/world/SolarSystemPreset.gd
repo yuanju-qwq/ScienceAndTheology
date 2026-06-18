@@ -3,6 +3,10 @@
 # and outer gas/ice giants. Orbital distances and radii are scaled for
 # gameplay (not realistic).
 #
+# Follows the same placeholder → realize pattern as RandomUniverseGenerator:
+# create_placeholder() returns a minimal descriptor, and realize() fills in
+# the fixed star and planet data on demand.
+#
 # Also provides a legacy generate_flat() method that returns a flat
 # Array[PlanetDescriptor] for backward compatibility.
 class_name SolarSystemPreset
@@ -13,40 +17,64 @@ extends RefCounted
 # Real solar system distances are far too large for voxel-scale gameplay.
 const ORBIT_SCALE := 3000.0
 
+# Estimated system radius for the placeholder (Neptune orbit + padding).
+const ESTIMATED_SYSTEM_RADIUS := ORBIT_SCALE * 30.0 + 2000.0
 
-# --- New API: system-based generation ---
 
-# Generate the solar system as a realized StarSystemDescriptor.
-# Returns a single system with the Sun as primary star and 8 planets.
-static func generate(universe_seed: int) -> StarSystemDescriptor:
+# --- Placeholder API ---
+
+# Create a placeholder StarSystemDescriptor for the solar system.
+# Contains only position, type, and seed — no star/planet data.
+static func create_placeholder(universe_seed: int) -> StarSystemDescriptor:
 	var sys := StarSystemDescriptor.new()
 	sys.system_id = &"sys_sol"
 	sys.system_type = StarSystemDescriptor.TYPE_SINGLE_STAR
 	sys.universe_position = Vector3.ZERO
 	sys.system_seed = universe_seed
-	sys.generation_state = StarSystemDescriptor.STATE_REALIZED
+	sys.system_radius = ESTIMATED_SYSTEM_RADIUS
+	sys.generation_state = StarSystemDescriptor.STATE_PLACEHOLDER
+	return sys
 
-	var sun := _create_sun(universe_seed)
-	sun.system_id = sys.system_id
-	sys.stars.append(sun)
+
+# Realize a solar system placeholder: populate the fixed star and planet data.
+# Returns the modified StarSystemDescriptor (generation_state = "realized").
+static func realize(system: StarSystemDescriptor) -> StarSystemDescriptor:
+	if system.is_realized():
+		return system
+
+	var seed_val := system.system_seed
+
+	var sun := _create_sun(seed_val)
+	sun.system_id = system.system_id
+	system.stars.append(sun)
 
 	var planets_data := [
-		_create_mercury(universe_seed),
-		_create_venus(universe_seed),
-		_create_earth(universe_seed),
-		_create_mars(universe_seed),
-		_create_jupiter(universe_seed),
-		_create_saturn(universe_seed),
-		_create_uranus(universe_seed),
-		_create_neptune(universe_seed),
+		_create_mercury(seed_val),
+		_create_venus(seed_val),
+		_create_earth(seed_val),
+		_create_mars(seed_val),
+		_create_jupiter(seed_val),
+		_create_saturn(seed_val),
+		_create_uranus(seed_val),
+		_create_neptune(seed_val),
 	]
 
 	for planet in planets_data:
-		planet.system_id = sys.system_id
-		sys.planets.append(planet)
+		planet.system_id = system.system_id
+		system.planets.append(planet)
 
-	_recompute_system_radius(sys)
-	return sys
+	system.generation_state = StarSystemDescriptor.STATE_REALIZED
+	_recompute_system_radius(system)
+	return system
+
+
+# --- Convenience: generate (placeholder + realize in one step) ---
+
+# Generate the solar system as a realized StarSystemDescriptor.
+# Returns a single system with the Sun as primary star and 8 planets.
+static func generate(universe_seed: int) -> StarSystemDescriptor:
+	var sys := create_placeholder(universe_seed)
+	return realize(sys)
 
 
 # --- Legacy API: flat planet list generation ---

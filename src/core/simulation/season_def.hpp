@@ -50,14 +50,14 @@ constexpr SeasonColorMod kEvergreenSeasonMods[] = {
     {0.85f, 0.9f,  0.85f},  // Winter: slightly darker
 };
 
-// Compute the current season from a game tick counter and days_per_season.
-// Ticks per day = TickSystem::kTicksPerSecond * 60 * seconds_per_day.
-// We use 1200 ticks per game day (60 seconds at 20 TPS).
-inline Season season_from_tick(int64_t tick, int days_per_season) {
+// Compute the current season from a game tick counter, days_per_season,
+// and ticks_per_day (derived from day_length_seconds * TPS).
+inline Season season_from_tick(int64_t tick, int days_per_season,
+                               int64_t ticks_per_day = 12000) {
     if (days_per_season <= 0) days_per_season = 16;
-    constexpr int64_t kTicksPerDay = 1200;
+    if (ticks_per_day <= 0) ticks_per_day = 12000;
     const int64_t ticks_per_season =
-        static_cast<int64_t>(days_per_season) * kTicksPerDay;
+        static_cast<int64_t>(days_per_season) * ticks_per_day;
     const int64_t ticks_per_year = ticks_per_season * 4;
     if (ticks_per_year <= 0) return Season::SPRING;
     const int64_t tick_in_year = tick % ticks_per_year;
@@ -67,20 +67,21 @@ inline Season season_from_tick(int64_t tick, int days_per_season) {
 }
 
 // Compute the day within the current season (0-based).
-inline int day_in_season(int64_t tick, int days_per_season) {
+inline int day_in_season(int64_t tick, int days_per_season,
+                         int64_t ticks_per_day = 12000) {
     if (days_per_season <= 0) days_per_season = 16;
-    constexpr int64_t kTicksPerDay = 1200;
+    if (ticks_per_day <= 0) ticks_per_day = 12000;
     const int64_t ticks_per_season =
-        static_cast<int64_t>(days_per_season) * kTicksPerDay;
+        static_cast<int64_t>(days_per_season) * ticks_per_day;
     if (ticks_per_season <= 0) return 0;
     const int64_t tick_in_season = tick % ticks_per_season;
-    return static_cast<int>(tick_in_season / kTicksPerDay);
+    return static_cast<int>(tick_in_season / ticks_per_day);
 }
 
 // Compute the total game day (0-based, counting from tick 0).
-inline int64_t total_game_day(int64_t tick) {
-    constexpr int64_t kTicksPerDay = 1200;
-    return tick / kTicksPerDay;
+inline int64_t total_game_day(int64_t tick, int64_t ticks_per_day = 12000) {
+    if (ticks_per_day <= 0) ticks_per_day = 12000;
+    return tick / ticks_per_day;
 }
 
 } // namespace science_and_theology

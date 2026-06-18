@@ -15,7 +15,7 @@ var universe_mode: String = "solar_system"
 # Universe seed for deterministic generation. 0 means auto-generate.
 var universe_seed: int = 0
 
-# Maximum number of star systems in a "random" universe.
-# Only affects procedural generation; ignored for "solar_system" mode.
-# Range: 5-100. Default: 0 (use RandomUniverseGenerator defaults).
-var max_systems: int = 0
+# Density of star systems in the universe grid (random mode only).
+# Fraction of grid cells that contain a star system (0.05 - 0.8).
+# Default: 0.0 (use SpatialUniverseGrid.DEFAULT_DENSITY).
+var system_density: float = 0.0

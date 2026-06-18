@@ -31,6 +31,11 @@ void TickSystem::register_subsystem(std::unique_ptr<SimulationSystem> subsystem)
 void TickSystem::tick(float delta) {
     ++tick_counter_;
 
+    // Publish the current tick to WorldData so subsystems can read it.
+    if (world_data_) {
+        world_data_->set_current_tick(tick_counter_);
+    }
+
     rebuild_chunk_sets();
 
     // Phase 1: ACTIVE chunks — full simulation.

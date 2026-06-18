@@ -65,6 +65,70 @@ void GDTickSystem::register_season_system() {
     }
 }
 
+void GDTickSystem::register_day_night_system() {
+    if (tick_system_) {
+        auto sys = std::make_unique<DayNightSystem>();
+        day_night_system_ = sys.get();
+        tick_system_->register_subsystem(std::move(sys));
+    }
+}
+
+godot::Dictionary GDTickSystem::get_day_night_state() const {
+    godot::Dictionary d;
+    if (!day_night_system_) {
+        // Return defaults when the system is not registered.
+        d["time_of_day"] = 0.5f;
+        d["sun_elevation"] = 1.5708f;
+        d["sun_azimuth"] = 0.0f;
+        d["sun_light_energy"] = 2.2f;
+        d["sun_color_r"] = 1.0f;
+        d["sun_color_g"] = 1.0f;
+        d["sun_color_b"] = 1.0f;
+        d["ambient_energy"] = 0.62f;
+        d["ambient_color_r"] = 0.5f;
+        d["ambient_color_g"] = 0.5f;
+        d["ambient_color_b"] = 0.5f;
+        d["is_daytime"] = true;
+        d["moon_elevation"] = -1.5708f;
+        d["moon_azimuth"] = 3.14159f;
+        d["moon_light_energy"] = 0.0f;
+        d["moon_color_r"] = 0.6f;
+        d["moon_color_g"] = 0.65f;
+        d["moon_color_b"] = 0.8f;
+        return d;
+    }
+    const auto& s = day_night_system_->current_state();
+    d["time_of_day"] = s.time_of_day;
+    d["sun_elevation"] = s.sun_elevation;
+    d["sun_azimuth"] = s.sun_azimuth;
+    d["sun_light_energy"] = s.sun_light_energy;
+    d["sun_color_r"] = s.sun_color_r;
+    d["sun_color_g"] = s.sun_color_g;
+    d["sun_color_b"] = s.sun_color_b;
+    d["ambient_energy"] = s.ambient_energy;
+    d["ambient_color_r"] = s.ambient_color_r;
+    d["ambient_color_g"] = s.ambient_color_g;
+    d["ambient_color_b"] = s.ambient_color_b;
+    d["is_daytime"] = s.is_daytime;
+    d["moon_elevation"] = s.moon_elevation;
+    d["moon_azimuth"] = s.moon_azimuth;
+    d["moon_light_energy"] = s.moon_light_energy;
+    d["moon_color_r"] = s.moon_color_r;
+    d["moon_color_g"] = s.moon_color_g;
+    d["moon_color_b"] = s.moon_color_b;
+    return d;
+}
+
+float GDTickSystem::get_time_of_day() const {
+    if (!day_night_system_) return 0.5f;
+    return day_night_system_->time_of_day();
+}
+
+bool GDTickSystem::get_is_daytime() const {
+    if (!day_night_system_) return true;
+    return day_night_system_->is_daytime();
+}
+
 void GDTickSystem::tick(float delta) {
     if (!tick_system_ || !world_set) return;
     tick_system_->tick(delta);
@@ -290,6 +354,14 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_tree_growth_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_season_system"),
         &GDTickSystem::register_season_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_day_night_system"),
+        &GDTickSystem::register_day_night_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_day_night_state"),
+        &GDTickSystem::get_day_night_state);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_time_of_day"),
+        &GDTickSystem::get_time_of_day);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_is_daytime"),
+        &GDTickSystem::get_is_daytime);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",

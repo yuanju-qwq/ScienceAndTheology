@@ -81,6 +81,13 @@ public:
         gameplay_config_ = config;
     }
 
+    // --- Simulation tick ---
+
+    // Current simulation tick counter, set by TickSystem each frame.
+    // Subsystems read this instead of maintaining their own counters.
+    int64_t current_tick() const { return current_tick_; }
+    void set_current_tick(int64_t t) { current_tick_ = t; }
+
     // --- World gen config (read-only reference) ---
 
     // Frozen world generation config snapshot. Provides access to
@@ -125,6 +132,9 @@ private:
 
     // Runtime gameplay configuration.
     GameplayConfig gameplay_config_;
+
+    // Current simulation tick (set by TickSystem).
+    int64_t current_tick_ = 0;
 
     // Frozen world generation config snapshot.
     std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;

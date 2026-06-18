@@ -1,11 +1,12 @@
 # UniverseManager — manages all star systems and planets in the universe.
 # Supports two generation modes: "solar_system" (preset) and
-# "random" (procedural with on-demand realization).
+# "random" (procedural with on-demand generation and realization).
 #
-# The universe is organized as an array of StarSystemDescriptor entries.
-# Each system starts as a "placeholder" and is "realized" on-demand when
-# the player approaches. This enables a virtually infinite universe
-# without upfront generation cost.
+# In "random" mode, the universe is effectively infinite. A SpatialUniverseGrid
+# divides space into cells and deterministically assigns star systems to cells
+# based on the universe seed. System placeholders are generated on-demand as
+# the player explores and unloaded when far away (unless realized). This
+# enables a virtually infinite universe without upfront generation cost.
 #
 # Performance strategy for a factory game:
 #   - Only the active planet's chunks are loaded in memory and rendered.
@@ -52,18 +53,32 @@ signal system_realized(system: StarSystemDescriptor)
 # Distance at which a placeholder system gets realized.
 @export var realize_distance := 50000.0
 
+# Radius around the player to generate system placeholders (random mode).
+# Systems beyond this distance are unloaded if they are still placeholders.
+@export var system_stream_radius := 200000.0
+
+# Density of star systems in the universe grid (random mode).
+# Fraction of grid cells that contain a star system (0.05 - 0.8).
+@export var system_density: float = SpatialUniverseGrid.DEFAULT_DENSITY
+
 # Path to the player node for distance calculations.
 @export var player_node_path: NodePath = ^"../Player"
 
 # Path to the ChunkRendererBridge for dimension switching.
 @export var chunk_renderer_bridge_path: NodePath = ^"../ChunkRendererBridge"
 
+# Path to the GDTickSystem for simulation tick driving.
+@export var tick_system_path: NodePath = ^"../GDTickSystem"
+
 # Whether to show debug information about planet states.
 @export var debug_universe := false
 @export var debug_interval := 1.0
 
-# All star systems in the universe.
+# All star systems currently in scope (random mode: dynamically managed).
 var systems: Array[StarSystemDescriptor] = []
+
+# Spatial grid for deterministic infinite universe generation (random mode).
+var _grid: SpatialUniverseGrid = null
 
 # Convenience: flat list of all planets across all realized systems.
 # Stars are included. Placeholder systems contribute no entries.
@@ -99,6 +114,8 @@ var _save_dir: String = ""
 
 var _player: Node3D = null
 var _chunk_bridge: ChunkRendererBridge = null
+var _tick_system: GDTickSystem = null
+var _tick_system_initialized := false
 var _debug_elapsed := 0.0
 var _bridge_initialized := false
 
@@ -106,6 +123,7 @@ var _bridge_initialized := false
 func _ready() -> void:
 	_apply_game_session_overrides()
 	_generate_universe()
+	_realize_initial_system()
 	_find_references()
 	_create_virtual_simulator()
 	_create_save_manager()
@@ -117,10 +135,12 @@ func _process(delta: float) -> void:
 	if _player == null:
 		return
 
+	_update_system_streaming()
 	_update_system_distances()
 	_update_system_realization()
 	_update_active_planet()
 	_update_planet_loading()
+	_drive_tick_system(delta)
 	_maybe_debug_log(delta)
 
 
@@ -131,6 +151,8 @@ func _apply_game_session_overrides() -> void:
 		universe_mode = GameSession.universe_mode
 	if GameSession.universe_seed != 0:
 		universe_seed = GameSession.universe_seed
+	if GameSession.system_density > 0.0:
+		system_density = GameSession.system_density
 
 
 # --- Universe generation ---
@@ -141,20 +163,45 @@ func _generate_universe() -> void:
 
 	match universe_mode:
 		"solar_system":
-			var sys := SolarSystemPreset.generate(universe_seed)
+			var sys := SolarSystemPreset.create_placeholder(universe_seed)
 			systems.append(sys)
 		"random":
-			var sys_array := RandomUniverseGenerator.generate(universe_seed)
+			_grid = RandomUniverseGenerator.create_grid(universe_seed, system_density)
+			var sys_array := RandomUniverseGenerator.generate_around(
+				_grid, Vector3.ZERO, system_stream_radius)
 			systems = sys_array
 		_:
 			push_warning("UniverseManager: unknown mode '%s', falling back to solar_system" % universe_mode)
-			var sys := SolarSystemPreset.generate(universe_seed)
+			var sys := SolarSystemPreset.create_placeholder(universe_seed)
 			systems.append(sys)
+
+
+# --- Initial system realization ---
+
+# Realize the system closest to the origin so the player has a starting
+# system with full detail immediately on game start.
+func _realize_initial_system() -> void:
+	var best: StarSystemDescriptor = null
+	var best_dist: float = INF
+	for sys in systems:
+		var dist := sys.universe_position.length()
+		if dist < best_dist:
+			best_dist = dist
+			best = sys
+	if best == null:
+		return
+	if best.is_realized():
+		return
+	if best.system_id == &"sys_sol":
+		SolarSystemPreset.realize(best)
+	else:
+		StarSystemGenerator.realize(best)
 
 
 func _find_references() -> void:
 	_player = get_node_or_null(player_node_path) as Node3D
 	_chunk_bridge = get_node_or_null(chunk_renderer_bridge_path) as ChunkRendererBridge
+	_tick_system = get_node_or_null(tick_system_path) as GDTickSystem
 
 
 # --- Virtual simulator ---
@@ -173,6 +220,48 @@ func _create_save_manager() -> void:
 	add_child(_save_manager)
 
 
+# --- System streaming (infinite universe) ---
+
+# Dynamically add and remove system placeholders based on player position.
+# New placeholders are generated via SpatialUniverseGrid for cells within
+# system_stream_radius. Distant placeholders (not yet realized) are removed.
+# Realized systems are never removed because the player may have built on them.
+func _update_system_streaming() -> void:
+	if _grid == null or _player == null:
+		return
+
+	var player_pos := _player.global_position
+
+	# Generate new placeholders around the player.
+	var cells := _grid.get_cells_around(player_pos, system_stream_radius)
+	var existing_ids: Dictionary = {}
+	for sys in systems:
+		existing_ids[sys.system_id] = true
+
+	for cell in cells:
+		var cell_id := StringName(&"sys_%d_%d" % [cell.x, cell.y])
+		if existing_ids.has(cell_id):
+			continue
+		var sys := _grid.create_placeholder_for_cell(cell)
+		systems.append(sys)
+		existing_ids[sys.system_id] = true
+
+	# Remove distant placeholders that have not been realized.
+	var to_remove: Array[int] = []
+	for i in range(systems.size()):
+		var sys := systems[i]
+		if sys.is_realized():
+			continue
+		var dist := player_pos.distance_to(sys.universe_position)
+		if dist > system_stream_radius * 1.2:
+			to_remove.append(i)
+
+	if not to_remove.is_empty():
+		to_remove.reverse()
+		for idx in to_remove:
+			systems.remove_at(idx)
+
+
 # --- System distance and realization ---
 
 # Update the distance from each system to the player.
@@ -185,14 +274,21 @@ func _update_system_distances() -> void:
 
 
 # Realize placeholder systems that are close enough to the player.
+# Dispatches to the correct realize function based on system_id:
+#   "sys_sol" → SolarSystemPreset.realize()
+#   all others → StarSystemGenerator.realize()
 func _update_system_realization() -> void:
 	for sys in systems:
 		if sys.is_realized():
 			continue
-		if sys.distance_to_player <= realize_distance:
+		if sys.distance_to_player > realize_distance:
+			continue
+		if sys.system_id == &"sys_sol":
+			SolarSystemPreset.realize(sys)
+		else:
 			StarSystemGenerator.realize(sys)
-			_create_lod_managers_for_system(sys)
-			system_realized.emit(sys)
+		_create_lod_managers_for_system(sys)
+		system_realized.emit(sys)
 
 
 # --- LOD manager creation ---
@@ -289,6 +385,7 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
 			_chunk_bridge.initialize_for_universe(config, planet.dimension_id)
 			_bridge_initialized = true
+			_initialize_tick_system()
 		else:
 			_chunk_bridge.set_active_dimension(planet.dimension_id)
 
@@ -611,6 +708,53 @@ func get_virtual_simulator() -> VirtualPlanetSimulator:
 # Get the universe save manager (for external access).
 func get_save_manager() -> UniverseSaveManager:
 	return _save_manager
+
+
+# --- Tick system integration ---
+
+# Initialize the GDTickSystem with the world data and register all subsystems.
+# Called once after ChunkRendererBridge is initialized and GDWorldData is available.
+func _initialize_tick_system() -> void:
+	if _tick_system == null or _tick_system_initialized:
+		return
+
+	var world_data: GDWorldData = _chunk_bridge.get_world_data() if _chunk_bridge else null
+	if world_data == null:
+		push_warning("UniverseManager: cannot initialize tick system — no world data")
+		return
+
+	_tick_system.set_world_data(world_data)
+
+	# Register subsystems in priority order.
+	# DayNight must be first (priority 0) so other systems can read is_daytime.
+	_tick_system.register_day_night_system()
+	_tick_system.register_block_physics_system()
+	_tick_system.register_machine_system()
+	_tick_system.register_tree_growth_system()
+	_tick_system.register_season_system()
+
+	_tick_system_initialized = true
+
+
+# Drive the simulation tick each frame.
+# Updates the player chunk position and advances the simulation.
+func _drive_tick_system(delta: float) -> void:
+	if _tick_system == null or not _tick_system_initialized:
+		return
+
+	# Compute the player's chunk coordinates from world position.
+	var dimension := String(active_planet.dimension_id) if active_planet else "overworld"
+	var player_chunk := _compute_player_chunk()
+
+	_tick_system.set_player_chunk(dimension, player_chunk.x, player_chunk.y, player_chunk.z)
+	_tick_system.tick(delta)
+
+
+# Compute the player's current chunk coordinates.
+func _compute_player_chunk() -> Vector3i:
+	if _player == null:
+		return Vector3i.ZERO
+	return GDChunkHelper.world_position_to_chunk(_player.global_position, 32)
 
 
 # --- Debug ---

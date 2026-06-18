@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=17 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -15,6 +15,7 @@
 [ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
 [ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
 [ext_resource type="Script" path="res://scripts/world/UniverseManager.gd" id="17_universe_manager"]
+[ext_resource type="Script" path="res://scripts/world/DayNightCycle.gd" id="18_day_night_cycle"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -49,6 +50,20 @@ transform = Transform3D(0.707107, -0.353553, 0.612372, 0, 0.866025, 0.5, -0.7071
 light_energy = 2.2
 shadow_enabled = true
 
+[node name="Moon" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.707107, 0.353553, -0.612372, 0, -0.866025, -0.5, 0.707107, 0.353553, -0.612372, 0, 8, 0)
+light_color = Color(0.6, 0.65, 0.8, 1)
+light_energy = 0.0
+shadow_enabled = false
+directional_shadow_max_distance = 100.0
+
+[node name="DayNightCycle" type="Node" parent="."]
+script = ExtResource("18_day_night_cycle")
+tick_system_path = NodePath("../GDTickSystem")
+sun_path = NodePath("../Sun")
+moon_path = NodePath("../Moon")
+environment_path = NodePath("../WorldEnvironment")
+
 [node name="ConnectorManager" type="Node" parent="."]
 script = ExtResource("1_connector_manager")
 
@@ -71,6 +86,9 @@ universe_mode = "solar_system"
 universe_seed = 0
 player_node_path = NodePath("../Player")
 chunk_renderer_bridge_path = NodePath("../ChunkRendererBridge")
+tick_system_path = NodePath("../GDTickSystem")
+
+[node name="GDTickSystem" type="GDTickSystem" parent="."]
 
 [node name="WorldObjectRenderer" type="Node3D" parent="."]
 script = ExtResource("8_object_renderer")

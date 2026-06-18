@@ -21,7 +21,8 @@ void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta) {
     (void)delta;
     if (!world_) return;
 
-    ++internal_tick_;
+    // Read the current tick from WorldData (set by TickSystem each frame).
+    const int64_t tick = world_->current_tick();
 
     // Consume block physics events from the WorldData queue.
     // These are enqueued by the command server when blocks are mined.
@@ -30,14 +31,14 @@ void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta) {
         schedule_gravity_fall_after_mine(
             event.dimension_id,
             event.block_x, event.block_y, event.block_z,
-            internal_tick_);
+            tick);
         schedule_collapse_after_mine(
             event.dimension_id,
             event.block_x, event.block_y, event.block_z,
-            internal_tick_);
+            tick);
     }
 
-    process_pending(internal_tick_);
+    process_pending(tick);
 }
 
 void BlockPhysicsSystem::tick_sleeping(const ChunkKey& chunk, float delta) {

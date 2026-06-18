@@ -94,6 +94,9 @@ target_sources(snt_core PRIVATE
     simulation/season_def.hpp
     simulation/season_system.hpp
     simulation/season_system.cpp
+    simulation/day_night_def.hpp
+    simulation/day_night_system.hpp
+    simulation/day_night_system.cpp
     simulation/error_handler.hpp
     simulation/error_handler.cpp
     simulation/state_sync_common.hpp

@@ -34,9 +34,9 @@ public:
     void tick_sleeping(const ChunkKey& chunk, float delta) override;
     void shutdown() override;
 
-    // Runs before machines (priority 0) so that block physics
-    // settles before machine tick reads terrain state.
-    int priority() const override { return 0; }
+    // Runs after DayNight (priority 0) and before machines (priority 2)
+    // so that block physics settles before machine tick reads terrain state.
+    int priority() const override { return 1; }
 
     // --- Scheduled block checks ---
 
@@ -119,7 +119,6 @@ public:
 
 private:
     std::queue<PendingCheck> pending_;
-    int64_t internal_tick_ = 0;
 };
 
 } // namespace science_and_theology

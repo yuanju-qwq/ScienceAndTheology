@@ -37,11 +37,14 @@ public:
 
     // Execution priority within the tick pipeline.
     // 0 = first, higher = later. Default buckets:
-    //   0 - Power
-    //   1 - Machine
-    //   2 - Fluid
-    //   3 - Logistics
-    //   4 - Region
+    //   0 - DayNight
+    //   1 - BlockPhysics
+    //   2 - Machine
+    //   3 - (reserved: Fluid)
+    //   4 - (reserved: Logistics)
+    //   5 - (reserved: Region)
+    //   6 - Season
+    //   7 - TreeGrowth
     virtual int priority() const = 0;
 
 protected:

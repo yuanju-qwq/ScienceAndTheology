@@ -31,8 +31,8 @@ public:
     void tick_sleeping(const ChunkKey& chunk, float delta) override;
     void shutdown() override;
 
-    // Runs before tree growth (priority 5) so season is current.
-    int priority() const override { return 4; }
+    // Runs before tree growth (priority 7) so season is current.
+    int priority() const override { return 6; }
 
     // --- Query ---
 

@@ -44,11 +44,27 @@ struct GameplayConfig {
     // Prevents infinite sand column collapse.
     int max_gravity_fall_chain = 64;
 
+    // --- Day/Night cycle ---
+
+    // Master switch for the day/night cycle.
+    // When false, the sun stays at noon permanently.
+    bool enable_day_night = true;
+
+    // Day length in real seconds. Default: 600 (10 minutes).
+    // At 20 TPS, this equals day_length_seconds * 20 ticks per day.
+    // Per-planet overrides can change this for each world.
+    float day_length_seconds = 600.0f;
+
+    // Twilight duration as a fraction of the day (0.0–0.5).
+    // 0.1 = 10% of the day is sunrise/sunset transition.
+    float twilight_fraction = 0.1f;
+
     // --- Season system ---
 
     // Number of in-game days per season. Default: 16 days.
     // A full year = 4 × days_per_season days.
-    // At 1200 ticks/day (60s at 20 TPS), one year = 64 minutes real time.
+    // The actual ticks-per-day is derived from day_length_seconds:
+    //   ticks_per_day = day_length_seconds * 20
     int days_per_season = 16;
 
     // Master switch for seasonal color changes on trees.
@@ -77,6 +93,16 @@ struct GameplayConfig {
 
         bool has_max_gravity_fall_chain = false;
         int max_gravity_fall_chain = 64;
+
+        // Day/night per-planet overrides.
+        bool has_enable_day_night = false;
+        bool enable_day_night = true;
+
+        bool has_day_length_seconds = false;
+        float day_length_seconds = 600.0f;
+
+        bool has_twilight_fraction = false;
+        float twilight_fraction = 0.1f;
     };
 
     std::unordered_map<std::string, PlanetOverride> planet_overrides;
@@ -129,6 +155,32 @@ struct GameplayConfig {
             return it->second.max_gravity_fall_chain;
         }
         return max_gravity_fall_chain;
+    }
+
+    // --- Day/Night resolved accessors ---
+
+    bool is_day_night_enabled(const std::string& dimension_id) const {
+        auto it = planet_overrides.find(dimension_id);
+        if (it != planet_overrides.end() && it->second.has_enable_day_night) {
+            return it->second.enable_day_night;
+        }
+        return enable_day_night;
+    }
+
+    float get_day_length_seconds(const std::string& dimension_id) const {
+        auto it = planet_overrides.find(dimension_id);
+        if (it != planet_overrides.end() && it->second.has_day_length_seconds) {
+            return it->second.day_length_seconds;
+        }
+        return day_length_seconds;
+    }
+
+    float get_twilight_fraction(const std::string& dimension_id) const {
+        auto it = planet_overrides.find(dimension_id);
+        if (it != planet_overrides.end() && it->second.has_twilight_fraction) {
+            return it->second.twilight_fraction;
+        }
+        return twilight_fraction;
     }
 };
 

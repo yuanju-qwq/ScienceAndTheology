@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/simulation/tick_system.hpp"
+#include "core/simulation/day_night_system.hpp"
 
 namespace science_and_theology {
 
@@ -53,6 +54,23 @@ public:
     // Must be called after set_world_data(). Computes current season
     // from tick counter and exposes it to other systems.
     void register_season_system();
+
+    // Register the day/night cycle simulation subsystem.
+    // Must be called after set_world_data(). Computes time-of-day,
+    // sun/moon position, and lighting parameters. Should be registered
+    // first (before other subsystems) since it runs at priority 0.
+    void register_day_night_system();
+
+    // --- Day/Night query ---
+
+    // Returns the current day/night state as a Dictionary.
+    godot::Dictionary get_day_night_state() const;
+
+    // Convenience: returns current time of day [0, 1).
+    float get_time_of_day() const;
+
+    // Convenience: returns true if the sun is above the horizon.
+    bool get_is_daytime() const;
 
     // Advance simulation by one frame.
     void tick(float delta);
@@ -124,6 +142,9 @@ private:
     std::unique_ptr<TickSystem> tick_system_;
     godot::Resource* gd_world_data_ = nullptr;
     bool world_set = false;
+
+    // Raw pointer to the DayNightSystem (owned by tick_system_).
+    DayNightSystem* day_night_system_ = nullptr;
 
     std::vector<EventBus::HandlerId> event_subscriptions_;
 

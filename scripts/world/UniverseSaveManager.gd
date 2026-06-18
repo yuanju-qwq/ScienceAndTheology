@@ -229,6 +229,8 @@ func _load_all_summaries(save_dir: String) -> void:
 # --- Universe metadata (JSON, for debugging) ---
 
 # Save universe metadata: system descriptors, planet descriptors, and their state.
+# In infinite universe mode, only realized systems are saved in full detail;
+# placeholder systems are regenerated from the seed on load.
 func _save_universe_meta(save_dir: String) -> void:
 	if _universe_manager == null:
 		return
@@ -236,13 +238,16 @@ func _save_universe_meta(save_dir: String) -> void:
 	var meta := {
 		"universe_mode": _universe_manager.universe_mode,
 		"universe_seed": _universe_manager.universe_seed,
-		"format_version": 2,
+		"system_density": _universe_manager.system_density,
+		"format_version": 3,
 		"systems": [],
 		"planets": [],
 	}
 
-	# Save system-level data.
+	# Save system-level data (only realized systems in full detail).
 	for sys in _universe_manager.systems:
+		if not sys.is_realized():
+			continue
 		var sd := {
 			"system_id": String(sys.system_id),
 			"system_type": sys.system_type,
@@ -293,9 +298,10 @@ func _save_universe_meta(save_dir: String) -> void:
 
 
 # Load universe metadata and apply system/planet state.
-# Planet descriptors are regenerated from the universe seed,
-# so this primarily restores system placeholders and validates
+# The universe is regenerated from the seed in _generate_universe(),
+# so the meta file primarily restores system_density and validates
 # the generated state against the saved metadata.
+# Realized systems that were saved will be re-realized by player proximity.
 func _load_universe_meta(save_dir: String) -> void:
 	var path := save_dir + "/universe_meta.json"
 	if not FileAccess.file_exists(path):
@@ -315,11 +321,8 @@ func _load_universe_meta(save_dir: String) -> void:
 	var meta: Dictionary = json.data
 	_universe_manager.universe_mode = meta.get("universe_mode", "solar_system")
 	_universe_manager.universe_seed = int(meta.get("universe_seed", 0))
-
-	# The universe is regenerated from the seed in _generate_universe(),
-	# so the meta file is primarily for debugging and validation.
-	# System generation state (realized vs placeholder) is not restored
-	# from the meta file — it is re-determined by player proximity.
+	_universe_manager.system_density = float(meta.get("system_density",
+		SpatialUniverseGrid.DEFAULT_DENSITY))
 
 
 # --- Utility ---

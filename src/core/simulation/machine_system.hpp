@@ -24,7 +24,7 @@ public:
     void tick_active(const ChunkKey& chunk, float delta) override;
     void tick_sleeping(const ChunkKey& chunk, float delta) override;
     void shutdown() override;
-    int priority() const override { return 1; }
+    int priority() const override { return 2; }
 
     // Register a machine for simulation. Ownership remains with caller.
     void register_machine(MachineId id, gt::Machine* machine);

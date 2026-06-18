@@ -38,8 +38,10 @@ public:
     void tick_sleeping(const ChunkKey& chunk, float delta) override;
     void shutdown() override;
 
-    // Runs after block physics (priority 0) and machines (priority 1).
-    int priority() const override { return 5; }
+    // Runs after DayNight (0), BlockPhysics (1), Machine (2), Season (6).
+    // This ensures block physics has settled and season is current
+    // before growth modifies terrain.
+    int priority() const override { return 7; }
 
     // Maximum number of growth transitions per tick.
     // Prevents frame spikes when many trees are ready simultaneously.
@@ -90,7 +92,6 @@ private:
     bool get_biome_at(int global_x, int global_y, int global_z,
                       float& out_temperature, float& out_humidity) const;
 
-    int64_t internal_tick_ = 0;
     int growth_count_ = 0;
 };
 

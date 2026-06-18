@@ -22,7 +22,8 @@ void TreeGrowthSystem::tick_active(const ChunkKey& chunk, float delta) {
     (void)delta;
     if (!world_) return;
 
-    ++internal_tick_;
+    // Read the current tick from WorldData (set by TickSystem each frame).
+    const int64_t tick = world_->current_tick();
     growth_count_ = 0;
 
     auto& registry = world_->block_entity_registry();
@@ -34,7 +35,7 @@ void TreeGrowthSystem::tick_active(const ChunkKey& chunk, float delta) {
         if (growth_count_ >= kMaxGrowthPerTick) break;
 
         if (registry.get_entity_type(entity_id) == BlockEntityType::TREE) {
-            if (try_grow_tree(entity_id, chunk.dimension_id, internal_tick_)) {
+            if (try_grow_tree(entity_id, chunk.dimension_id, tick)) {
                 ++growth_count_;
             }
         }

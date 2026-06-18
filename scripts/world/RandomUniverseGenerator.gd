@@ -1,8 +1,11 @@
 # RandomUniverseGenerator — procedurally generates a random universe layout.
-# Uses the universe seed to deterministically create star system placeholders
-# distributed across the universe. Each placeholder contains only position,
-# type, and seed data; full star/planet generation happens on-demand via
-# StarSystemGenerator.realize() when the player approaches.
+# Uses SpatialUniverseGrid to deterministically create star system placeholders
+# on-demand around the player's position. The universe is effectively infinite:
+# systems are generated as the player explores and unloaded when far away.
+#
+# Each placeholder contains only position, type, and seed data; full
+# star/planet generation happens on-demand via StarSystemGenerator.realize()
+# when the player approaches.
 #
 # Also provides a legacy generate_flat() method that returns a single
 # fully-realized system as a flat Array[PlanetDescriptor] for backward
@@ -10,15 +13,8 @@
 class_name RandomUniverseGenerator
 extends RefCounted
 
-# Minimum and maximum number of star systems in the universe.
-const MIN_SYSTEMS := 5
-const MAX_SYSTEMS := 20
-
-# Minimum spacing between system barycenters (in universe-space units).
-const MIN_SYSTEM_SPACING := 30000.0
-
-# Maximum Y offset for system positions (slight vertical spread).
-const MAX_SYSTEM_Y_OFFSET := 5000.0
+# Default radius around the player to generate system placeholders.
+const DEFAULT_GENERATION_RADIUS := 200000.0
 
 # --- Legacy constants (kept for generate_flat compatibility) ---
 
@@ -49,66 +45,41 @@ const ATMO_PALETTES: Array[Color] = [
 ]
 
 
-# --- New API: system-based generation ---
+# --- New API: spatial grid-based generation ---
 
-# Generate a random universe as an array of star system placeholders.
-# The first system (index 0) is always realized immediately so the player
-# has a starting system with full detail. All other systems remain as
-# placeholders until the player approaches them.
+# Create a configured SpatialUniverseGrid for the given universe seed.
+# The grid can be used by UniverseManager to dynamically generate and
+# unload system placeholders as the player moves through the universe.
+# density: fraction of grid cells that contain a star system (0.05 - 0.8).
+static func create_grid(universe_seed: int, density: float = SpatialUniverseGrid.DEFAULT_DENSITY) -> SpatialUniverseGrid:
+	var grid := SpatialUniverseGrid.new()
+	grid.configure(universe_seed, density)
+	return grid
+
+
+# Generate the initial set of star system placeholders around the origin.
+# All systems are returned as placeholders; the caller (UniverseManager)
+# is responsible for realizing the initial system.
 # Returns an Array of StarSystemDescriptor resources.
-static func generate(universe_seed: int) -> Array[StarSystemDescriptor]:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = universe_seed
+static func generate(universe_seed: int, density: float = SpatialUniverseGrid.DEFAULT_DENSITY) -> Array[StarSystemDescriptor]:
+	var grid := create_grid(universe_seed, density)
+	return generate_around(grid, Vector3.ZERO, DEFAULT_GENERATION_RADIUS)
 
-	var system_count := rng.randi_range(MIN_SYSTEMS, MAX_SYSTEMS)
+
+# Generate star system placeholders around a given center position.
+# All systems are returned as placeholders; the caller (UniverseManager)
+# is responsible for realizing the initial system.
+# Returns an Array of StarSystemDescriptor resources.
+static func generate_around(grid: SpatialUniverseGrid, center: Vector3,
+		radius: float) -> Array[StarSystemDescriptor]:
+	var cells := grid.get_cells_around(center, radius)
 	var systems: Array[StarSystemDescriptor] = []
 
-	for i in range(system_count):
-		var pos := _generate_system_position(rng, i, systems)
-		var sys := StarSystemGenerator.create_placeholder(i, universe_seed, pos)
-
-		if i == 0:
-			StarSystemGenerator.realize(sys)
-
+	for cell in cells:
+		var sys := grid.create_placeholder_for_cell(cell)
 		systems.append(sys)
 
 	return systems
-
-
-# Generate a position for a new system that maintains minimum spacing
-# from all existing systems. Uses rejection sampling with a fallback
-# that gradually increases the allowed distance.
-static func _generate_system_position(rng: RandomNumberGenerator,
-		system_index: int, existing: Array[StarSystemDescriptor]) -> Vector3:
-	if system_index == 0:
-		return Vector3.ZERO
-
-	var max_attempts := 50
-	for _attempt in range(max_attempts):
-		var angle := rng.randf_range(0.0, TAU)
-		var dist := rng.randf_range(MIN_SYSTEM_SPACING, MIN_SYSTEM_SPACING * 3.0)
-		var offset_y := rng.randf_range(-MAX_SYSTEM_Y_OFFSET, MAX_SYSTEM_Y_OFFSET)
-		var candidate := Vector3(cos(angle) * dist, offset_y, sin(angle) * dist)
-
-		if system_index > 0:
-			candidate += existing[0].universe_position
-
-		var too_close := false
-		for other in existing:
-			if candidate.distance_to(other.universe_position) < MIN_SYSTEM_SPACING:
-				too_close = true
-				break
-
-		if not too_close:
-			return candidate
-
-	var fallback_angle := rng.randf_range(0.0, TAU)
-	var fallback_dist := MIN_SYSTEM_SPACING * (2.0 + float(system_index) * 0.5)
-	var fallback_y := rng.randf_range(-MAX_SYSTEM_Y_OFFSET, MAX_SYSTEM_Y_OFFSET)
-	var fallback_pos := Vector3(cos(fallback_angle) * fallback_dist, fallback_y, sin(fallback_angle) * fallback_dist)
-	if system_index > 0:
-		fallback_pos += existing[0].universe_position
-	return fallback_pos
 
 
 # --- Legacy API: flat planet list generation ---

@@ -431,6 +431,11 @@ godot::Dictionary GDWorldData::get_gameplay_config() const {
     d["support_beam_radius"] = gc.support_beam_radius;
     d["enable_gravity_fall"] = gc.enable_gravity_fall;
     d["max_gravity_fall_chain"] = gc.max_gravity_fall_chain;
+    d["enable_day_night"] = gc.enable_day_night;
+    d["day_length_seconds"] = gc.day_length_seconds;
+    d["twilight_fraction"] = gc.twilight_fraction;
+    d["days_per_season"] = gc.days_per_season;
+    d["enable_season_colors"] = gc.enable_season_colors;
 
     // Serialize planet overrides.
     godot::Dictionary overrides;
@@ -449,6 +454,12 @@ godot::Dictionary GDWorldData::get_gameplay_config() const {
         po["enable_gravity_fall"] = o.enable_gravity_fall;
         po["has_max_gravity_fall_chain"] = o.has_max_gravity_fall_chain;
         po["max_gravity_fall_chain"] = o.max_gravity_fall_chain;
+        po["has_enable_day_night"] = o.has_enable_day_night;
+        po["enable_day_night"] = o.enable_day_night;
+        po["has_day_length_seconds"] = o.has_day_length_seconds;
+        po["day_length_seconds"] = o.day_length_seconds;
+        po["has_twilight_fraction"] = o.has_twilight_fraction;
+        po["twilight_fraction"] = o.twilight_fraction;
         overrides[godot::String(pair.first.c_str())] = po;
     }
     d["planet_overrides"] = overrides;
@@ -467,6 +478,14 @@ void GDWorldData::set_gameplay_config(const godot::Dictionary& config) {
     gc.enable_gravity_fall = config.get("enable_gravity_fall", gc.enable_gravity_fall);
     gc.max_gravity_fall_chain = static_cast<int>(
         config.get("max_gravity_fall_chain", gc.max_gravity_fall_chain));
+    gc.enable_day_night = config.get("enable_day_night", gc.enable_day_night);
+    gc.day_length_seconds = static_cast<float>(
+        config.get("day_length_seconds", gc.day_length_seconds));
+    gc.twilight_fraction = static_cast<float>(
+        config.get("twilight_fraction", gc.twilight_fraction));
+    gc.days_per_season = static_cast<int>(
+        config.get("days_per_season", gc.days_per_season));
+    gc.enable_season_colors = config.get("enable_season_colors", gc.enable_season_colors);
 
     // Deserialize planet overrides.
     godot::Variant overrides_var = config.get("planet_overrides", godot::Dictionary());
@@ -494,6 +513,15 @@ void GDWorldData::set_gameplay_config(const godot::Dictionary& config) {
             o.has_max_gravity_fall_chain = po.get("has_max_gravity_fall_chain", false);
             o.max_gravity_fall_chain = static_cast<int>(po.get("max_gravity_fall_chain", 64));
 
+            o.has_enable_day_night = po.get("has_enable_day_night", false);
+            o.enable_day_night = po.get("enable_day_night", true);
+            o.has_day_length_seconds = po.get("has_day_length_seconds", false);
+            o.day_length_seconds = static_cast<float>(
+                po.get("day_length_seconds", 600.0f));
+            o.has_twilight_fraction = po.get("has_twilight_fraction", false);
+            o.twilight_fraction = static_cast<float>(
+                po.get("twilight_fraction", 0.1f));
+
             gc.planet_overrides[dim_key.utf8().get_data()] = o;
         }
     }
@@ -512,6 +540,11 @@ godot::Dictionary GDWorldData::get_gameplay_config_for_dimension(
     d["support_beam_radius"] = gc.get_support_beam_radius(dim);
     d["enable_gravity_fall"] = gc.is_gravity_fall_enabled(dim);
     d["max_gravity_fall_chain"] = gc.get_max_gravity_fall_chain(dim);
+    d["enable_day_night"] = gc.is_day_night_enabled(dim);
+    d["day_length_seconds"] = gc.get_day_length_seconds(dim);
+    d["twilight_fraction"] = gc.get_twilight_fraction(dim);
+    d["days_per_season"] = gc.days_per_season;
+    d["enable_season_colors"] = gc.enable_season_colors;
     return d;
 }
 

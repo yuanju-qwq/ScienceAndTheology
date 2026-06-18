@@ -16,24 +16,20 @@ void SeasonSystem::tick_active(const ChunkKey& chunk, float delta) {
     (void)delta;
     if (!world_) return;
 
-    const int64_t tick = world_->gameplay_config().days_per_season;  // just trigger
-    (void)tick;
-
-    // Use the TickSystem's tick counter to compute the season.
-    // We read the current tick from the world's state sync or
-    // compute from our own counter. Since we don't have direct
-    // access to TickSystem's counter here, we use an internal counter.
-    // The TickSystem drives all subsystems, so our tick count
-    // stays in sync with the main simulation.
-    static int64_t internal_tick = 0;
-    ++internal_tick;
+    // Read the current tick from WorldData (set by TickSystem each frame).
+    const int64_t tick = world_->current_tick();
 
     const GameplayConfig& gc = world_->gameplay_config();
     const int days_per_season = gc.days_per_season;
 
-    current_season_ = season_from_tick(internal_tick, days_per_season);
-    current_day_in_season_ = day_in_season(internal_tick, days_per_season);
-    current_game_day_ = total_game_day(internal_tick);
+    // Derive ticks_per_day from day_length_seconds and TPS.
+    constexpr float kTicksPerSecond = 20.0f;
+    const int64_t ticks_per_day = static_cast<int64_t>(
+        gc.day_length_seconds * kTicksPerSecond);
+
+    current_season_ = season_from_tick(tick, days_per_season, ticks_per_day);
+    current_day_in_season_ = day_in_season(tick, days_per_season, ticks_per_day);
+    current_game_day_ = total_game_day(tick, ticks_per_day);
 }
 
 void SeasonSystem::tick_sleeping(const ChunkKey& chunk, float delta) {
