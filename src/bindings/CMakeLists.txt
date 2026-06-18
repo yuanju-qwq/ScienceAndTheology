@@ -33,6 +33,7 @@ set(SOURCES
     fuel/gd_fuel_registry.cpp
     machine/gd_recipe_database.cpp
     source_law/gd_player_source_law_data.cpp
+    quest/gd_quest_system.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

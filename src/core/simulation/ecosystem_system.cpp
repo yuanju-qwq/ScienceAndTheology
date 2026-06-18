@@ -1060,6 +1060,32 @@ bool EcosystemSystem::move_creature_toward_target(
     return true;
 }
 
+// --- Player stewardship (feeding) ---
+
+bool EcosystemSystem::feed_creatures(
+    const ChunkKey& key, CreatureRole role, float amount) {
+    if (amount <= 0.0f) return false;
+
+    PopulationCell* cell = get_population_cell(key);
+    if (!cell) return false;
+
+    if (role == CreatureRole::HERBIVORE) {
+        cell->herbivore_density = std::clamp(
+            cell->herbivore_density + amount, 0.0f, 1.0f);
+    } else {
+        cell->predator_density = std::clamp(
+            cell->predator_density + amount, 0.0f, 1.0f);
+    }
+
+    // Trigger proxy rebalance so new creatures appear immediately.
+    if (world_) {
+        const int64_t tick = world_->current_tick();
+        rebalance_proxies(key, tick);
+    }
+
+    return true;
+}
+
 // ============================================================
 // Player combat (hunting) — attack and kill proxy creatures
 // ============================================================

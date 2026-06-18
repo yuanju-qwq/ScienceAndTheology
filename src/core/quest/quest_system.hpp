@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -163,11 +164,11 @@ public:
     // ================================================================
 
     // Serialize all quest progress to a binary stream.
-    void serialize(std::ofstream& out) const;
+    void serialize(std::ostream& out) const;
 
     // Deserialize quest progress from a binary stream.
     // Returns true on success.
-    bool deserialize(std::ifstream& in);
+    bool deserialize(std::istream& in);
 
 private:
     // ================================================================

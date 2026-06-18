@@ -378,7 +378,7 @@ size_t QuestSystem::completed_count() const {
 // Serialization
 // ============================================================
 
-void QuestSystem::serialize(std::ofstream& out) const {
+void QuestSystem::serialize(std::ostream& out) const {
     // Header
     out.write(reinterpret_cast<const char*>(&kQuestProgressVersion), sizeof(uint8_t));
 
@@ -418,7 +418,7 @@ void QuestSystem::serialize(std::ofstream& out) const {
     }
 }
 
-bool QuestSystem::deserialize(std::ifstream& in) {
+bool QuestSystem::deserialize(std::istream& in) {
     uint8_t version = 0;
     in.read(reinterpret_cast<char*>(&version), sizeof(uint8_t));
     if (version != kQuestProgressVersion) return false;
@@ -544,7 +544,7 @@ void QuestSystem::transition_state(const std::string& quest_id,
     case QuestState::AVAILABLE:
         emit_quest_event(GameEventType::QUEST_UNLOCKED, quest_id);
         break;
-    case QuestState::COMPLETED:
+    case QuestState::COMPLETED: {
         prog.completed_tick = current_tick_;
         emit_quest_event(GameEventType::QUEST_COMPLETED, quest_id);
 
@@ -572,6 +572,7 @@ void QuestSystem::transition_state(const std::string& quest_id,
             }
         }
         break;
+    }
     default:
         break;
     }

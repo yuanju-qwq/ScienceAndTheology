@@ -377,6 +377,23 @@ godot::Array GDTickSystem::get_species_drops(int64_t species_id) const {
     return result;
 }
 
+bool GDTickSystem::feed_creatures(
+    const godot::String& dimension,
+    int64_t cx, int64_t cy, int64_t cz,
+    int64_t role, float amount) {
+    if (!ecosystem_system_) return false;
+
+    ChunkKey key(dimension.utf8().get_data(),
+                 static_cast<int>(cx),
+                 static_cast<int>(cy),
+                 static_cast<int>(cz));
+
+    CreatureRole creature_role = (role == 1)
+        ? CreatureRole::PREDATOR : CreatureRole::HERBIVORE;
+
+    return ecosystem_system_->feed_creatures(key, creature_role, amount);
+}
+
 void GDTickSystem::tick(float delta) {
     if (!tick_system_ || !world_set) return;
     tick_system_->tick(delta);
@@ -669,6 +686,9 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::attack_creature);
     godot::ClassDB::bind_method(godot::D_METHOD("get_species_drops",
         "species_id"), &GDTickSystem::get_species_drops);
+    godot::ClassDB::bind_method(godot::D_METHOD("feed_creatures",
+        "dimension", "cx", "cy", "cz", "role", "amount"),
+        &GDTickSystem::feed_creatures);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",

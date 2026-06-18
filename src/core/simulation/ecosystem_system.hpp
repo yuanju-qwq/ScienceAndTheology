@@ -184,6 +184,15 @@ public:
     AttackResult apply_damage_to_creature(
         EntityId creature_id, float damage, int64_t tick);
 
+    // --- Player stewardship (feeding) ---
+
+    // Feed creatures in a chunk, increasing population density.
+    // role: which population to boost (HERBIVORE or PREDATOR).
+    // amount: positive value added to the role's density.
+    // Triggers proxy rebalance so new creatures appear immediately.
+    // Returns true if the chunk had a population cell.
+    bool feed_creatures(const ChunkKey& key, CreatureRole role, float amount);
+
     // --- Diagnostics ---
 
     // Returns the total vegetation density across all tracked chunks.

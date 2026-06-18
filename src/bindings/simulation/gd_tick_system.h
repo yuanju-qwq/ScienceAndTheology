@@ -227,6 +227,19 @@ public:
     // Returns empty array if species_id is invalid.
     godot::Array get_species_drops(int64_t species_id) const;
 
+    // --- Player stewardship (feeding) ---
+
+    // Feed creatures in a chunk, increasing population density.
+    // dimension: the dimension string (e.g. "overworld").
+    // cx, cy, cz: chunk coordinates.
+    // role: 0 = HERBIVORE, 1 = PREDATOR.
+    // amount: positive density increment [0, 1].
+    // Returns true if the chunk had a population cell.
+    bool feed_creatures(
+        const godot::String& dimension,
+        int64_t cx, int64_t cy, int64_t cz,
+        int64_t role, float amount);
+
 protected:
     static void _bind_methods();
 

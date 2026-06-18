@@ -34,6 +34,7 @@
 #include "fuel/gd_fuel_registry.hpp"
 #include "source_law/gd_player_source_law_data.hpp"
 #include "player/gd_satiation_data.hpp"
+#include "quest/gd_quest_system.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
@@ -105,6 +106,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDFuelRegistry>();
     ClassDB::register_class<GDPlayerSourceLawData>();
     ClassDB::register_class<GDSatiationData>();
+    ClassDB::register_class<GDQuestSystem>();
     GDAutocraftingService::initialize();
 }
 
