@@ -130,13 +130,13 @@ func _rebuild() -> void:
 
 	_bg.visible = true
 
-	var display_name: String = _mat_def.get("display_name", "???")
+	var name_key: String = _mat_def.get("title_key", "ui.unknown")
 	var hardness: float = _mat_def.get("hardness", 0.0)
 	var tool_tag: String = _mat_def.get("required_tool_tag", "")
 	var mining_level: int = _mat_def.get("required_mining_level", 0)
 
 	# Name line.
-	_name_label.text = display_name
+	_name_label.text = tr(name_key)
 
 	# Compact info line: hardness + tool + level.
 	var info_parts: PackedStringArray = []

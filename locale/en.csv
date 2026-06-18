@@ -1,0 +1,510 @@
+keys,en
+# ============================================================
+# Item display names (non-material items from tool_items.hpp)
+# ============================================================
+gt_hammer,Hammer
+gt_wrench,Wrench
+gt_file,File
+gt_screwdriver,Screwdriver
+gt_saw,Saw
+gt_wire_cutter,Wire Cutter
+gt_crowbar,Crowbar
+gt_soft_mallet,Soft Mallet
+gt_hard_hammer,Hard Hammer
+machine_hull_basic,Basic Machine Hull
+machine_hull_advanced,Advanced Machine Hull
+electric_motor_lv,LV Electric Motor
+electric_piston_lv,LV Electric Piston
+robot_arm_lv,LV Robot Arm
+conveyor_module_lv,LV Conveyor Module
+pump_lv,LV Pump
+empty_fluid_cell,Empty Fluid Cell
+vacuum_tube,Vacuum Tube
+circuit_primitive,Primitive Circuit
+circuit_basic,Basic Circuit
+circuit_good,Good Circuit
+circuit_advanced,Advanced Circuit
+coal_block,Coal Block
+coke_brick,Coke Brick
+firebrick,Firebrick
+stone_plate,Stone Plate
+wood_plate,Wood Plate
+blank_pattern,Blank Pattern
+wooden_pickaxe,Wooden Pickaxe
+stone_pickaxe,Stone Pickaxe
+iron_pickaxe,Iron Pickaxe
+diamond_pickaxe,Diamond Pickaxe
+wooden_axe,Wooden Axe
+stone_axe,Stone Axe
+iron_axe,Iron Axe
+diamond_axe,Diamond Axe
+wooden_shovel,Wooden Shovel
+stone_shovel,Stone Shovel
+iron_shovel,Iron Shovel
+diamond_shovel,Diamond Shovel
+wooden_sword,Wooden Sword
+stone_sword,Stone Sword
+iron_sword,Iron Sword
+diamond_sword,Diamond Sword
+workbench,Workbench
+stone_furnace,Stone Furnace
+ladder,Ladder
+# Tree species items
+log.oak,Oak Log
+plank.oak,Oak Plank
+sapling.oak,Oak Sapling
+log.birch,Birch Log
+plank.birch,Birch Plank
+sapling.birch,Birch Sapling
+log.spruce,Spruce Log
+plank.spruce,Spruce Plank
+sapling.spruce,Spruce Sapling
+log.acacia,Acacia Log
+plank.acacia,Acacia Plank
+sapling.acacia,Acacia Sapling
+log.maple,Maple Log
+plank.maple,Maple Plank
+sapling.maple,Maple Sapling
+log.sequoia,Sequoia Log
+plank.sequoia,Sequoia Plank
+sapling.sequoia,Sequoia Sapling
+log.cherry,Cherry Log
+plank.cherry,Cherry Plank
+sapling.cherry,Cherry Sapling
+fruit.cherry,Cherry
+log.olive,Olive Log
+plank.olive,Olive Plank
+sapling.olive,Olive Sapling
+fruit.olive,Olive
+
+# ============================================================
+# Material display names (material.cpp name field as key)
+# ============================================================
+material.stone,Stone
+material.flint,Flint
+material.coal,Coal
+material.charcoal,Charcoal
+material.lignite,Lignite
+material.copper,Copper
+material.tin,Tin
+material.iron,Iron
+material.lead,Lead
+material.silver,Silver
+material.gold,Gold
+material.zinc,Zinc
+material.nickel,Nickel
+material.aluminium,Aluminium
+material.platinum,Platinum
+material.tungsten,Tungsten
+material.titanium,Titanium
+material.chrome,Chrome
+material.manganese,Manganese
+material.cobalt,Cobalt
+material.bismuth,Bismuth
+material.antimony,Antimony
+material.bronze,Bronze
+material.brass,Brass
+material.steel,Steel
+material.stainless_steel,Stainless Steel
+material.electrum,Electrum
+material.invar,Invar
+material.cupronickel,Cupronickel
+material.solder,Solder
+material.tin_alloy,Tin Alloy
+material.red_alloy,Red Alloy
+material.annealed_copper,Annealed Copper
+material.tungstensteel,Tungstensteel
+material.hss_g,HSS-G
+material.naquadah,Naquadah
+material.naquadah_alloy,Naquadah Alloy
+material.diamond,Diamond
+material.ruby,Ruby
+material.sapphire,Sapphire
+material.emerald,Emerald
+material.amethyst,Amethyst
+material.lapis,Lapis
+material.quartz,Quartz
+material.nether_quartz,Nether Quartz
+material.uranium,Uranium
+material.plutonium,Plutonium
+material.thorium,Thorium
+material.iridium,Iridium
+material.osmium,Osmium
+material.graphene,Graphene
+material.superconductor,Superconductor
+material.water,Water
+material.lava,Lava
+material.creosote,Creosote
+material.sulfuric_acid,Sulfuric Acid
+material.hydrochloric_acid,Hydrochloric Acid
+material.nitric_acid,Nitric Acid
+material.hydrofluoric_acid,Hydrofluoric Acid
+material.aqua_regia,Aqua Regia
+material.lubricant,Lubricant
+material.biomass,Biomass
+material.ethanol,Ethanol
+material.oil,Oil
+material.oil_heavy,Heavy Oil
+material.oil_light,Light Oil
+material.fuel_diesel,Diesel Fuel
+material.fuel_rocket,Rocket Fuel
+material.glue,Glue
+material.mercury,Mercury
+material.molten_iron,Molten Iron
+material.oxygen,Oxygen
+material.hydrogen,Hydrogen
+material.nitrogen,Nitrogen
+material.carbon_dioxide,Carbon Dioxide
+material.carbon_monoxide,Carbon Monoxide
+material.sulfur_dioxide,Sulfur Dioxide
+material.nitrogen_dioxide,Nitrogen Dioxide
+material.nitric_oxide,Nitric Oxide
+material.ammonia,Ammonia
+material.methane,Methane
+material.natural_gas,Natural Gas
+material.hydrogen_sulfide,Hydrogen Sulfide
+material.ozone,Ozone
+material.chlorine,Chlorine
+material.fluorine,Fluorine
+material.bromine,Bromine
+material.iodine,Iodine
+material.helium,Helium
+material.neon,Neon
+material.argon,Argon
+material.krypton,Krypton
+material.xenon,Xenon
+material.radon,Radon
+material.deuterium,Deuterium
+material.tritium,Tritium
+material.helium_3,Helium-3
+material.plasma_nitrogen,Plasma N2
+material.plasma_oxygen,Plasma O2
+material.plasma_helium,Plasma He
+material.ethylene,Ethylene
+material.propylene,Propylene
+material.benzene,Benzene
+material.toluene,Toluene
+material.phenol,Phenol
+material.formaldehyde,Formaldehyde
+material.acetic_acid,Acetic Acid
+material.acetone,Acetone
+material.glycerol,Glycerol
+material.vinyl_chloride,Vinyl Chloride
+material.styrene,Styrene
+material.steam,Steam
+material.wood,Wood
+material.granite,Granite
+material.basalt,Basalt
+material.marble,Marble
+material.sandstone,Sandstone
+material.shale,Shale
+material.komatiite,Komatiite
+material.regolith,Regolith
+material.anorthosite,Anorthosite
+
+# ============================================================
+# Material form display names (kFormNames as keys)
+# ============================================================
+form.dust,Dust
+form.tiny_dust,Tiny Dust
+form.small_dust,Small Dust
+form.impure_dust,Impure Dust
+form.purified_dust,Purified Dust
+form.crushed,Crushed Ore
+form.crushed_purified,Purified Crushed
+form.crushed_centrifuged,Centrifuged Crushed
+form.gem,Gem
+form.flawed_gem,Flawed Gem
+form.flawless_gem,Flawless Gem
+form.exquisite_gem,Exquisite Gem
+form.ingot,Ingot
+form.ingot_hot,Hot Ingot
+form.nugget,Nugget
+form.block,Block
+form.plate,Plate
+form.double_plate,Double Plate
+form.dense_plate,Dense Plate
+form.rod,Rod
+form.long_rod,Long Rod
+form.bolt,Bolt
+form.screw,Screw
+form.ring,Ring
+form.rotor,Rotor
+form.gear,Gear
+form.small_gear,Small Gear
+form.wire_fine,Fine Wire
+form.wire,Wire
+form.cell,Cell
+form.plasma_cell,Plasma Cell
+
+# ============================================================
+# Creature species display names (species_key as key)
+# ============================================================
+creature.glow_deer,Glow Deer
+creature.rock_lizard,Rock Lizard
+creature.thunderbird,Thunderbird
+creature.sea_serpent,Sea Serpent
+creature.blaze_beast,Blaze Beast
+creature.aether_wraith,Aether Wraith
+creature.aberrant_ascended,Aberrant Ascended
+
+# ============================================================
+# Source law: Creature drop items (snt:* keys)
+# ============================================================
+snt:glow_deer_antler,Glow Deer Antler
+snt:purifying_pollen,Purifying Pollen
+snt:rock_lizard_scale,Rock Lizard Scale
+snt:crystallized_bone_powder,Crystallized Bone Powder
+snt:thunderbird_feather,Thunderbird Feather
+snt:magnetic_crystal_shard,Magnetic Crystal Shard
+snt:sea_serpent_scale,Sea Serpent Scale
+snt:tidal_gland,Tidal Gland
+snt:blazing_core,Blazing Core
+snt:molten_blood_sample,Molten Blood Sample
+snt:aether_fragment,Aether Fragment
+snt:blueprint_shard,Blueprint Shard
+snt:aberrant_organ,Aberrant Organ
+snt:polluted_source_essence,Polluted Source Essence
+
+# ============================================================
+# Source law: Sublimation paths, skills, organs
+# ============================================================
+path.sand_armor,Sand Armor
+path.tidal,Tidal
+path.storm,Storm
+path.furnace,Furnace
+path.radiance,Radiance
+
+# ============================================================
+# Machine modules
+# ============================================================
+module.energy_ulv,Energy Module ULV
+module.energy_lv,Energy Module LV
+module.energy_mv,Energy Module MV
+module.energy_hv,Energy Module HV
+module.energy_ev,Energy Module EV
+module.energy_iv,Energy Module IV
+module.energy_luv,Energy Module LuV
+module.energy_zpm,Energy Module ZPM
+module.energy_uv,Energy Module UV
+module.energy_ulv_4a,Energy Module ULV 4A
+module.energy_lv_4a,Energy Module LV 4A
+module.energy_mv_4a,Energy Module MV 4A
+module.energy_hv_4a,Energy Module HV 4A
+module.energy_ev_4a,Energy Module EV 4A
+module.energy_iv_4a,Energy Module IV 4A
+module.energy_luv_4a,Energy Module LuV 4A
+module.energy_zpm_4a,Energy Module ZPM 4A
+module.energy_uv_4a,Energy Module UV 4A
+module.energy_lv_16a,Energy Module LV 16A
+module.energy_mv_16a,Energy Module MV 16A
+module.energy_hv_16a,Energy Module HV 16A
+module.energy_ev_16a,Energy Module EV 16A
+module.energy_iv_16a,Energy Module IV 16A
+module.energy_luv_16a,Energy Module LuV 16A
+module.energy_zpm_16a,Energy Module ZPM 16A
+module.energy_uv_16a,Energy Module UV 16A
+module.coil_cupronickel,Cupronickel Coil
+module.coil_kanthal,Kanthal Coil
+module.coil_nichrome,Nichrome Coil
+module.coil_tungstensteel,Tungstensteel Coil
+module.coil_hssg,HSS-G Coil
+module.coil_naquadah,Naquadah Coil
+module.coil_naquadah_alloy,Naquadah Alloy Coil
+module.coil_superconductor,Superconductor Coil
+module.muffler_lv,Muffler LV
+module.muffler_mv,Muffler MV
+module.muffler_hv,Muffler HV
+module.muffler_ev,Muffler EV
+module.muffler_iv,Muffler IV+
+
+# ============================================================
+# Fuels
+# ============================================================
+fuel.coal,Coal
+fuel.charcoal,Charcoal
+fuel.wood_log,Wood Log
+fuel.wood_plank,Wood Plank
+fuel.stick,Stick
+fuel.lava,Lava
+fuel.diesel,Diesel Fuel
+fuel.oil,Oil
+fuel.natural_gas,Natural Gas
+fuel.hydrogen,Hydrogen
+
+# ============================================================
+# Terrain materials (BuiltinTerrainContent.gd keys)
+# ============================================================
+terrain.air,Air
+terrain.stone,Stone
+terrain.dirt,Dirt
+terrain.grass,Grass
+terrain.sand,Sand
+terrain.gravel,Gravel
+terrain.snow,Snow
+terrain.ice,Ice
+terrain.water,Water
+terrain.deep_water,Deep Water
+terrain.lava,Lava
+terrain.iron_ore,Iron Ore
+terrain.copper_ore,Copper Ore
+terrain.coal_ore,Coal Ore
+terrain.tin_ore,Tin Ore
+terrain.gold_ore,Gold Ore
+terrain.silver_ore,Silver Ore
+terrain.lead_ore,Lead Ore
+terrain.bauxite_ore,Bauxite Ore
+terrain.uranium_ore,Uranium Ore
+terrain.oak_wood,Oak Wood
+terrain.oak_leaves,Oak Leaves
+terrain.birch_wood,Birch Wood
+terrain.birch_leaves,Birch Leaves
+terrain.spruce_wood,Spruce Wood
+terrain.spruce_leaves,Spruce Leaves
+terrain.acacia_wood,Acacia Wood
+terrain.acacia_leaves,Acacia Leaves
+terrain.maple_wood,Maple Wood
+terrain.maple_leaves,Maple Leaves
+terrain.sequoia_wood,Sequoia Wood
+terrain.sequoia_leaves,Sequoia Leaves
+terrain.cherry_wood,Cherry Wood
+terrain.cherry_leaves,Cherry Leaves
+terrain.olive_wood,Olive Wood
+terrain.olive_leaves,Olive Leaves
+terrain.granite,Granite
+terrain.basalt,Basalt
+terrain.marble,Marble
+terrain.sandstone,Sandstone
+terrain.shale,Shale
+terrain.komatiite,Komatiite
+terrain.regolith,Regolith
+terrain.anorthosite,Anorthosite
+terrain.deepstone,Deepstone
+terrain.core_barrier,Core Barrier
+
+# ============================================================
+# Planet / Station / Universe display names
+# ============================================================
+# These use procedural naming, so keys are provided as fallback templates
+ui.unknown,Unknown
+ui.planet,Planet
+ui.space_station,Space Station
+ui.mechanism,Mechanism
+
+# ============================================================
+# Fluid display names
+# ============================================================
+fluid.water,Water
+fluid.lava,Lava
+fluid.steam,Steam
+fluid.creosote,Creosote
+fluid.sulfuric_acid,Sulfuric Acid
+fluid.hydrochloric_acid,Hydrochloric Acid
+fluid.nitric_acid,Nitric Acid
+fluid.hydrofluoric_acid,Hydrofluoric Acid
+fluid.aqua_regia,Aqua Regia
+fluid.lubricant,Lubricant
+fluid.biomass,Biomass
+fluid.ethanol,Ethanol
+fluid.oil,Oil
+fluid.oil_heavy,Heavy Oil
+fluid.oil_light,Light Oil
+fluid.fuel_diesel,Diesel Fuel
+fluid.fuel_rocket,Rocket Fuel
+fluid.glue,Glue
+fluid.mercury,Mercury
+fluid.oxygen,Oxygen
+fluid.hydrogen,Hydrogen
+fluid.nitrogen,Nitrogen
+fluid.carbon_dioxide,Carbon Dioxide
+fluid.carbon_monoxide,Carbon Monoxide
+fluid.sulfur_dioxide,Sulfur Dioxide
+fluid.nitrogen_dioxide,Nitrogen Dioxide
+fluid.nitric_oxide,Nitric Oxide
+fluid.ammonia,Ammonia
+fluid.methane,Methane
+fluid.natural_gas,Natural Gas
+fluid.hydrogen_sulfide,Hydrogen Sulfide
+fluid.ozone,Ozone
+fluid.chlorine,Chlorine
+fluid.fluorine,Fluorine
+fluid.bromine,Bromine
+fluid.iodine,Iodine
+fluid.helium,Helium
+fluid.neon,Neon
+fluid.argon,Argon
+fluid.krypton,Krypton
+fluid.xenon,Xenon
+fluid.radon,Radon
+fluid.deuterium,Deuterium
+fluid.tritium,Tritium
+fluid.helium_3,Helium-3
+fluid.molten_iron,Molten Iron
+
+# ============================================================
+# Ritual recipe display names
+# ============================================================
+ritual.unknown,Unknown Ritual
+
+# ============================================================
+# Source law: Organ/Skill display names
+# ============================================================
+skill.sand_shield,Sand Shield
+skill.sand_blade,Sand Blade
+skill.tidal_wave,Tidal Wave
+skill.water_breathe,Water Breathe
+skill.storm_bolt,Storm Bolt
+skill.chain_lightning,Chain Lightning
+skill.furnace_blaze,Furnace Blaze
+skill.molten_shield,Molten Shield
+skill.heal_radiance,Heal Radiance
+skill.purifying_light,Purifying Light
+
+# ============================================================
+# Tree species display names
+# ============================================================
+tree.oak,Oak
+tree.birch,Birch
+tree.spruce,Spruce
+tree.acacia,Acacia
+tree.maple,Maple
+tree.sequoia,Sequoia
+tree.cherry,Cherry
+tree.olive,Olive
+
+# ============================================================
+# GDScript-registered item display names (ItemDatabase.gd)
+# ============================================================
+item.wood_log,Wood Log
+item.wood_plank,Wood Plank
+item.stick,Stick
+item.stone_dust,Stone Dust
+item.stone_tiny_dust,Stone Tiny Dust
+item.coal,Coal
+item.crushed_copper,Crushed Copper
+item.crushed_iron,Crushed Iron
+item.copper_dust,Copper Dust
+item.iron_dust,Iron Dust
+item.granite_dust,Granite Dust
+item.granite_tiny_dust,Granite Tiny Dust
+item.basalt_dust,Basalt Dust
+item.basalt_tiny_dust,Basalt Tiny Dust
+item.marble_dust,Marble Dust
+item.marble_tiny_dust,Marble Tiny Dust
+item.sandstone_dust,Sandstone Dust
+item.sandstone_tiny_dust,Sandstone Tiny Dust
+item.shale_dust,Shale Dust
+item.shale_tiny_dust,Shale Tiny Dust
+item.komatiite_dust,Komatiite Dust
+item.komatiite_tiny_dust,Komatiite Tiny Dust
+item.regolith_dust,Regolith Dust
+item.regolith_tiny_dust,Regolith Tiny Dust
+item.anorthosite_dust,Anorthosite Dust
+item.anorthosite_tiny_dust,Anorthosite Tiny Dust
+
+# ============================================================
+# Station names (for crafting station types)
+# ============================================================
+station.crafting_table,Crafting Table
+station.furnace,Furnace
+station.workbench,Workbench

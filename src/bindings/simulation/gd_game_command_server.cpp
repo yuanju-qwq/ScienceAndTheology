@@ -912,7 +912,7 @@ bool GDGameCommandServer::get_tool_stats_for_item(int64_t item_id,
 bool GDGameCommandServer::tool_name_matches(int64_t item_id,
                                             const String& tool_lower) {
     const char* name =
-        gt::ItemRegistry::get_item_display_name(static_cast<gt::ItemId>(item_id));
+        gt::ItemRegistry::get_item_title_key(static_cast<gt::ItemId>(item_id));
     if (name == nullptr) return false;
     return String(name).to_lower().contains(tool_lower);
 }

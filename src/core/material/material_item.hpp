@@ -54,11 +54,11 @@ struct MaterialItem : ItemDefinition {
 
     // Internal storage for ItemDefinition's string pointers.
     char _name_key_buf[64] = {};
-    char _display_name_buf[64] = {};
+    char _title_key_buf[64] = {};
 
     MaterialItem() {
         name_key = _name_key_buf;
-        display_name = _display_name_buf;
+        title_key = _title_key_buf;
     }
 
     // Material units this item contains (144 per ingot, etc.).
@@ -108,8 +108,8 @@ public:
     // Returns the total number of registered material items.
     static size_t get_material_item_count();
 
-    // Get the localized display name for any item ID (material or non-material).
-    static const char* get_item_display_name(ItemId item_id);
+    // Get the title translation key for any item ID (material or non-material).
+    static const char* get_item_title_key(ItemId item_id);
 
     // Returns true if this item ID refers to a valid (registered) item.
     static bool is_valid_item(ItemId item_id);

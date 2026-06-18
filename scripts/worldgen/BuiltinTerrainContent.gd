@@ -351,14 +351,14 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_AIR,
 		"key": "snt:air",
-		"display_name": "Air",
+		"title_key": "terrain.air",
 		"flags": 0,
 		"hardness": 0.0,
 	})
 	registry.register_material({
 		"id": MAT_STONE,
 		"key": "snt:stone",
-		"display_name": "Stone",
+		"title_key": "terrain.stone",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 1.5,
 		"required_tool_tag": "pickaxe",
@@ -370,7 +370,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_DIRT,
 		"key": "snt:dirt",
-		"display_name": "Dirt",
+		"title_key": "terrain.dirt",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.5,
 		"required_tool_tag": "shovel",
@@ -380,7 +380,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SAND,
 		"key": "snt:sand",
-		"display_name": "Sand",
+		"title_key": "terrain.sand",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE | FLAG_GRAVITY_FALL,
 		"hardness": 0.45,
 		"required_tool_tag": "shovel",
@@ -390,21 +390,21 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_WATER,
 		"key": "snt:water",
-		"display_name": "Water",
+		"title_key": "terrain.water",
 		"flags": FLAG_LIQUID,
 		"hardness": 100.0,
 	})
 	registry.register_material({
 		"id": MAT_LAVA,
 		"key": "snt:lava",
-		"display_name": "Lava",
+		"title_key": "terrain.lava",
 		"flags": FLAG_LIQUID,
 		"hardness": 100.0,
 	})
 	registry.register_material({
 		"id": MAT_ORE_IRON,
 		"key": "snt:ore_iron",
-		"display_name": "Iron Ore",
+		"title_key": "terrain.iron_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
@@ -414,7 +414,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_COPPER,
 		"key": "snt:ore_copper",
-		"display_name": "Copper Ore",
+		"title_key": "terrain.copper_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -424,7 +424,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_COAL,
 		"key": "snt:ore_coal",
-		"display_name": "Coal Ore",
+		"title_key": "terrain.coal_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.8,
 		"required_tool_tag": "pickaxe",
@@ -438,7 +438,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_TIN,
 		"key": "snt:ore_tin",
-		"display_name": "Tin Ore",
+		"title_key": "terrain.tin_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -449,7 +449,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_ZINC,
 		"key": "snt:ore_zinc",
-		"display_name": "Zinc Ore",
+		"title_key": "terrain.zinc_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -460,7 +460,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_LEAD,
 		"key": "snt:ore_lead",
-		"display_name": "Lead Ore",
+		"title_key": "terrain.lead_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.2,
 		"required_tool_tag": "pickaxe",
@@ -474,7 +474,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_SILVER,
 		"key": "snt:ore_silver",
-		"display_name": "Silver Ore",
+		"title_key": "terrain.silver_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.8,
 		"required_tool_tag": "pickaxe",
@@ -485,7 +485,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_GOLD,
 		"key": "snt:ore_gold",
-		"display_name": "Gold Ore",
+		"title_key": "terrain.gold_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 3.0,
 		"required_tool_tag": "pickaxe",
@@ -499,7 +499,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_NICKEL,
 		"key": "snt:ore_nickel",
-		"display_name": "Nickel Ore",
+		"title_key": "terrain.nickel_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.8,
 		"required_tool_tag": "pickaxe",
@@ -510,7 +510,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_BAUXITE,
 		"key": "snt:ore_bauxite",
-		"display_name": "Bauxite Ore",
+		"title_key": "terrain.bauxite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -521,7 +521,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_MANGANESE,
 		"key": "snt:ore_manganese",
-		"display_name": "Manganese Ore",
+		"title_key": "terrain.manganese_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
@@ -532,7 +532,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_TUNGSTEN,
 		"key": "snt:ore_tungsten",
-		"display_name": "Tungsten Ore",
+		"title_key": "terrain.tungsten_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 4.0,
 		"required_tool_tag": "pickaxe",
@@ -543,7 +543,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_TITANIUM,
 		"key": "snt:ore_titanium",
-		"display_name": "Titanium Ore",
+		"title_key": "terrain.titanium_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 4.5,
 		"required_tool_tag": "pickaxe",
@@ -557,7 +557,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_PLATINUM,
 		"key": "snt:ore_platinum",
-		"display_name": "Platinum Ore",
+		"title_key": "terrain.platinum_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
@@ -568,7 +568,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_COBALT,
 		"key": "snt:ore_cobalt",
-		"display_name": "Cobalt Ore",
+		"title_key": "terrain.cobalt_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 3.5,
 		"required_tool_tag": "pickaxe",
@@ -582,7 +582,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_URANIUM,
 		"key": "snt:ore_uranium",
-		"display_name": "Uranium Ore",
+		"title_key": "terrain.uranium_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
@@ -593,7 +593,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_SULFUR,
 		"key": "snt:ore_sulfur",
-		"display_name": "Sulfur Ore",
+		"title_key": "terrain.sulfur_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.5,
 		"required_tool_tag": "pickaxe",
@@ -607,7 +607,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_DIAMOND,
 		"key": "snt:ore_diamond",
-		"display_name": "Diamond Ore",
+		"title_key": "terrain.diamond_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
@@ -618,7 +618,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_RUBY,
 		"key": "snt:ore_ruby",
-		"display_name": "Ruby Ore",
+		"title_key": "terrain.ruby_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 4.5,
 		"required_tool_tag": "pickaxe",
@@ -629,7 +629,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_SAPPHIRE,
 		"key": "snt:ore_sapphire",
-		"display_name": "Sapphire Ore",
+		"title_key": "terrain.sapphire_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 4.5,
 		"required_tool_tag": "pickaxe",
@@ -640,7 +640,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_EMERALD,
 		"key": "snt:ore_emerald",
-		"display_name": "Emerald Ore",
+		"title_key": "terrain.emerald_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 4.0,
 		"required_tool_tag": "pickaxe",
@@ -654,7 +654,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_SALT,
 		"key": "snt:ore_salt",
-		"display_name": "Salt Ore",
+		"title_key": "terrain.salt_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.2,
 		"required_tool_tag": "pickaxe",
@@ -665,7 +665,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_FLUORITE,
 		"key": "snt:ore_fluorite",
-		"display_name": "Fluorite Ore",
+		"title_key": "terrain.fluorite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -676,7 +676,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_GRAPHITE,
 		"key": "snt:ore_graphite",
-		"display_name": "Graphite Ore",
+		"title_key": "terrain.graphite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.8,
 		"required_tool_tag": "pickaxe",
@@ -690,7 +690,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_PYRITE,
 		"key": "snt:ore_pyrite",
-		"display_name": "Pyrite Ore",
+		"title_key": "terrain.pyrite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
@@ -701,7 +701,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_GALENA,
 		"key": "snt:ore_galena",
-		"display_name": "Galena Ore",
+		"title_key": "terrain.galena_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.3,
 		"required_tool_tag": "pickaxe",
@@ -712,7 +712,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_CINNABAR,
 		"key": "snt:ore_cinnabar",
-		"display_name": "Cinnabar Ore",
+		"title_key": "terrain.cinnabar_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.8,
 		"required_tool_tag": "pickaxe",
@@ -723,7 +723,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_MAGNETITE,
 		"key": "snt:ore_magnetite",
-		"display_name": "Magnetite Ore",
+		"title_key": "terrain.magnetite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 3.0,
 		"required_tool_tag": "pickaxe",
@@ -734,7 +734,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_CASSITERITE,
 		"key": "snt:ore_cassiterite",
-		"display_name": "Cassiterite Ore",
+		"title_key": "terrain.cassiterite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
@@ -745,7 +745,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_ILMENITE,
 		"key": "snt:ore_ilmenite",
-		"display_name": "Ilmenite Ore",
+		"title_key": "terrain.ilmenite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 3.5,
 		"required_tool_tag": "pickaxe",
@@ -756,7 +756,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_CHALCOPYRITE,
 		"key": "snt:ore_chalcopyrite",
-		"display_name": "Chalcopyrite Ore",
+		"title_key": "terrain.chalcopyrite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.2,
 		"required_tool_tag": "pickaxe",
@@ -767,7 +767,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_SPHALERITE,
 		"key": "snt:ore_sphalerite",
-		"display_name": "Sphalerite Ore",
+		"title_key": "terrain.sphalerite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -778,7 +778,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ORE_PENTLANDITE,
 		"key": "snt:ore_pentlandite",
-		"display_name": "Pentlandite Ore",
+		"title_key": "terrain.pentlandite_ore",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 2.8,
 		"required_tool_tag": "pickaxe",
@@ -789,7 +789,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_WOOD,
 		"key": "snt:wood",
-		"display_name": "Wood",
+		"title_key": "terrain.wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.0,
 		"required_tool_tag": "axe",
@@ -799,7 +799,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_LEAVES,
 		"key": "snt:leaves",
-		"display_name": "Leaves",
+		"title_key": "terrain.leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
@@ -809,7 +809,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_LADDER,
 		"key": "snt:ladder",
-		"display_name": "Ladder",
+		"title_key": "terrain.ladder",
 		"flags": FLAG_MINEABLE | FLAG_CLIMBABLE,
 		"hardness": 0.5,
 		"required_tool_tag": "axe",
@@ -819,7 +819,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_WORKBENCH,
 		"key": "snt:workbench",
-		"display_name": "Workbench",
+		"title_key": "terrain.workbench",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.0,
 		"required_tool_tag": "axe",
@@ -829,7 +829,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_DEEPSTONE,
 		"key": "snt:deepstone",
-		"display_name": "Deepstone",
+		"title_key": "terrain.deepstone",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 10.0,
 		"required_tool_tag": "pickaxe",
@@ -841,7 +841,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_CORE_BARRIER,
 		"key": "snt:core_barrier",
-		"display_name": "Core Barrier",
+		"title_key": "terrain.core_barrier",
 		"flags": FLAG_SOLID | FLAG_INDESTRUCTIBLE,
 		"hardness": -1.0,
 	})
@@ -854,7 +854,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_GRANITE,
 		"key": "snt:granite_rock",
-		"display_name": "Granite",
+		"title_key": "terrain.granite",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 1.5,
 		"required_tool_tag": "pickaxe",
@@ -867,7 +867,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_BASALT,
 		"key": "snt:basalt_rock",
-		"display_name": "Basalt",
+		"title_key": "terrain.basalt",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
@@ -880,7 +880,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_MARBLE,
 		"key": "snt:marble_rock",
-		"display_name": "Marble",
+		"title_key": "terrain.marble",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 1.3,
 		"required_tool_tag": "pickaxe",
@@ -893,7 +893,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SANDSTONE,
 		"key": "snt:sandstone_rock",
-		"display_name": "Sandstone",
+		"title_key": "terrain.sandstone",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_GRAVITY_FALL,
 		"hardness": 0.8,
 		"required_tool_tag": "pickaxe",
@@ -906,7 +906,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SHALE,
 		"key": "snt:shale_rock",
-		"display_name": "Shale",
+		"title_key": "terrain.shale",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 1.0,
 		"required_tool_tag": "pickaxe",
@@ -919,7 +919,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_KOMATIITE,
 		"key": "snt:komatiite_rock",
-		"display_name": "Komatiite",
+		"title_key": "terrain.komatiite",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
@@ -932,7 +932,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_REGOLITH,
 		"key": "snt:regolith_rock",
-		"display_name": "Regolith",
+		"title_key": "terrain.regolith",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_GRAVITY_FALL,
 		"hardness": 0.6,
 		"required_tool_tag": "shovel",
@@ -945,7 +945,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ANORTHOSTIE,
 		"key": "snt:anorthosite_rock",
-		"display_name": "Anorthosite",
+		"title_key": "terrain.anorthosite",
 		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_COLLAPSE_RISK,
 		"hardness": 1.4,
 		"required_tool_tag": "pickaxe",
@@ -961,7 +961,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_OAK_WOOD,
 		"key": "snt:oak_wood",
-		"display_name": "Oak Wood",
+		"title_key": "terrain.oak_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.0,
 		"required_tool_tag": "axe",
@@ -971,7 +971,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_OAK_LEAVES,
 		"key": "snt:oak_leaves",
-		"display_name": "Oak Leaves",
+		"title_key": "terrain.oak_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
@@ -981,7 +981,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_OAK_SAPLING,
 		"key": "snt:oak_sapling",
-		"display_name": "Oak Sapling",
+		"title_key": "terrain.oak_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -993,7 +993,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_BIRCH_WOOD,
 		"key": "snt:birch_wood",
-		"display_name": "Birch Wood",
+		"title_key": "terrain.birch_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 0.8,
 		"required_tool_tag": "axe",
@@ -1003,7 +1003,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_BIRCH_LEAVES,
 		"key": "snt:birch_leaves",
-		"display_name": "Birch Leaves",
+		"title_key": "terrain.birch_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.15,
 		"required_tool_tag": "axe",
@@ -1013,7 +1013,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_BIRCH_SAPLING,
 		"key": "snt:birch_sapling",
-		"display_name": "Birch Sapling",
+		"title_key": "terrain.birch_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1025,7 +1025,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SPRUCE_WOOD,
 		"key": "snt:spruce_wood",
-		"display_name": "Spruce Wood",
+		"title_key": "terrain.spruce_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.0,
 		"required_tool_tag": "axe",
@@ -1035,7 +1035,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SPRUCE_LEAVES,
 		"key": "snt:spruce_leaves",
-		"display_name": "Spruce Leaves",
+		"title_key": "terrain.spruce_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
@@ -1045,7 +1045,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SPRUCE_SAPLING,
 		"key": "snt:spruce_sapling",
-		"display_name": "Spruce Sapling",
+		"title_key": "terrain.spruce_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1057,7 +1057,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ACACIA_WOOD,
 		"key": "snt:acacia_wood",
-		"display_name": "Acacia Wood",
+		"title_key": "terrain.acacia_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 0.9,
 		"required_tool_tag": "axe",
@@ -1067,7 +1067,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ACACIA_LEAVES,
 		"key": "snt:acacia_leaves",
-		"display_name": "Acacia Leaves",
+		"title_key": "terrain.acacia_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.15,
 		"required_tool_tag": "axe",
@@ -1077,7 +1077,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_ACACIA_SAPLING,
 		"key": "snt:acacia_sapling",
-		"display_name": "Acacia Sapling",
+		"title_key": "terrain.acacia_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1089,7 +1089,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_MAPLE_WOOD,
 		"key": "snt:maple_wood",
-		"display_name": "Maple Wood",
+		"title_key": "terrain.maple_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.0,
 		"required_tool_tag": "axe",
@@ -1099,7 +1099,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_MAPLE_LEAVES,
 		"key": "snt:maple_leaves",
-		"display_name": "Maple Leaves",
+		"title_key": "terrain.maple_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
@@ -1109,7 +1109,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_MAPLE_SAPLING,
 		"key": "snt:maple_sapling",
-		"display_name": "Maple Sapling",
+		"title_key": "terrain.maple_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1121,7 +1121,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SEQUOIA_WOOD,
 		"key": "snt:sequoia_wood",
-		"display_name": "Sequoia Wood",
+		"title_key": "terrain.sequoia_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.2,
 		"required_tool_tag": "axe",
@@ -1131,7 +1131,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SEQUOIA_LEAVES,
 		"key": "snt:sequoia_leaves",
-		"display_name": "Sequoia Leaves",
+		"title_key": "terrain.sequoia_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
@@ -1141,7 +1141,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_SEQUOIA_SAPLING,
 		"key": "snt:sequoia_sapling",
-		"display_name": "Sequoia Sapling",
+		"title_key": "terrain.sequoia_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1153,7 +1153,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_CHERRY_WOOD,
 		"key": "snt:cherry_wood",
-		"display_name": "Cherry Wood",
+		"title_key": "terrain.cherry_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 0.7,
 		"required_tool_tag": "axe",
@@ -1163,7 +1163,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_CHERRY_LEAVES,
 		"key": "snt:cherry_leaves",
-		"display_name": "Cherry Leaves",
+		"title_key": "terrain.cherry_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.15,
 		"required_tool_tag": "axe",
@@ -1173,7 +1173,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_CHERRY_SAPLING,
 		"key": "snt:cherry_sapling",
-		"display_name": "Cherry Sapling",
+		"title_key": "terrain.cherry_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1185,7 +1185,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_OLIVE_WOOD,
 		"key": "snt:olive_wood",
-		"display_name": "Olive Wood",
+		"title_key": "terrain.olive_wood",
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 1.1,
 		"required_tool_tag": "axe",
@@ -1195,7 +1195,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_OLIVE_LEAVES,
 		"key": "snt:olive_leaves",
-		"display_name": "Olive Leaves",
+		"title_key": "terrain.olive_leaves",
 		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 		"hardness": 0.2,
 		"required_tool_tag": "axe",
@@ -1205,7 +1205,7 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 	registry.register_material({
 		"id": MAT_OLIVE_SAPLING,
 		"key": "snt:olive_sapling",
-		"display_name": "Olive Sapling",
+		"title_key": "terrain.olive_sapling",
 		"flags": FLAG_MINEABLE,
 		"hardness": 0.0,
 		"required_tool_tag": "axe",
@@ -1806,7 +1806,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Oak: temperate deciduous, round canopy, most common.
 	registry.register_tree_species({
 		"species_key": "oak",
-		"display_name": "Oak",
+		"title_key": "tree.oak",
 		"temperature_min": -0.2,
 		"temperature_max": 0.5,
 		"humidity_min": 0.0,
@@ -1831,7 +1831,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Birch: cold-temperate deciduous, tall narrow canopy.
 	registry.register_tree_species({
 		"species_key": "birch",
-		"display_name": "Birch",
+		"title_key": "tree.birch",
 		"temperature_min": -0.6,
 		"temperature_max": 0.2,
 		"humidity_min": 0.1,
@@ -1856,7 +1856,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Spruce: cold evergreen, cone canopy.
 	registry.register_tree_species({
 		"species_key": "spruce",
-		"display_name": "Spruce",
+		"title_key": "tree.spruce",
 		"temperature_min": -1.0,
 		"temperature_max": -0.1,
 		"humidity_min": 0.0,
@@ -1881,7 +1881,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Acacia: tropical deciduous, umbrella canopy.
 	registry.register_tree_species({
 		"species_key": "acacia",
-		"display_name": "Acacia",
+		"title_key": "tree.acacia",
 		"temperature_min": 0.5,
 		"temperature_max": 1.0,
 		"humidity_min": -0.5,
@@ -1906,7 +1906,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Maple: temperate deciduous, vivid autumn red.
 	registry.register_tree_species({
 		"species_key": "maple",
-		"display_name": "Maple",
+		"title_key": "tree.maple",
 		"temperature_min": -0.3,
 		"temperature_max": 0.4,
 		"humidity_min": 0.1,
@@ -1931,7 +1931,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Sequoia: warm-temperate evergreen, very tall cone canopy.
 	registry.register_tree_species({
 		"species_key": "sequoia",
-		"display_name": "Sequoia",
+		"title_key": "tree.sequoia",
 		"temperature_min": 0.1,
 		"temperature_max": 0.6,
 		"humidity_min": 0.3,
@@ -1956,7 +1956,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Cherry: temperate deciduous, pink blossoms, fruit-bearing.
 	registry.register_tree_species({
 		"species_key": "cherry",
-		"display_name": "Cherry",
+		"title_key": "tree.cherry",
 		"temperature_min": -0.1,
 		"temperature_max": 0.5,
 		"humidity_min": 0.2,
@@ -1983,7 +1983,7 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 	// Olive: warm-temperate evergreen, fruit-bearing.
 	registry.register_tree_species({
 		"species_key": "olive",
-		"display_name": "Olive",
+		"title_key": "tree.olive",
 		"temperature_min": 0.2,
 		"temperature_max": 0.8,
 		"humidity_min": -0.2,

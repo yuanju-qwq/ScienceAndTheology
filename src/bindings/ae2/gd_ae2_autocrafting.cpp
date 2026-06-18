@@ -295,7 +295,7 @@ godot::Dictionary GDAutocraftingService::encode_crafting_pattern(
     ItemId id = PatternDataCache::register_pattern(ins, outs, true, found->name);
     result["success"] = true;
     result["item_id"] = static_cast<int64_t>(id);
-    result["pattern_name"] = godot::String(PatternDataCache::get_pattern_name(id));
+    result["pattern_name"] = godot::String(PatternDataCache::get_pattern_title_key(id));
     return result;
 }
 
@@ -326,7 +326,7 @@ godot::Dictionary GDAutocraftingService::encode_processing_pattern(
     ItemId id = PatternDataCache::register_pattern(ins, outs, false, found->name);
     result["success"] = true;
     result["item_id"] = static_cast<int64_t>(id);
-    result["pattern_name"] = godot::String(PatternDataCache::get_pattern_name(id));
+    result["pattern_name"] = godot::String(PatternDataCache::get_pattern_title_key(id));
     return result;
 }
 

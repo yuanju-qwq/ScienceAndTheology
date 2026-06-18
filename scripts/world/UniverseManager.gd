@@ -73,6 +73,9 @@ signal station_unloaded(station: StationDescriptor)
 # Path to the GDTickSystem for simulation tick driving.
 @export var tick_system_path: NodePath = ^"../GDTickSystem"
 
+# Path to the GDQuestSystem for quest tracking.
+@export var quest_system_path: NodePath = ^"../GDQuestSystem"
+
 # Whether to show debug information about planet states.
 @export var debug_universe := false
 @export var debug_interval := 1.0
@@ -133,6 +136,8 @@ var _player: Node3D = null
 var _chunk_bridge: ChunkRendererBridge = null
 var _tick_system: GDTickSystem = null
 var _tick_system_initialized := false
+var _quest_system: Node = null
+var _quest_system_initialized := false
 var _debug_elapsed := 0.0
 var _bridge_initialized := false
 
@@ -220,6 +225,7 @@ func _find_references() -> void:
 	_player = get_node_or_null(player_node_path) as Node3D
 	_chunk_bridge = get_node_or_null(chunk_renderer_bridge_path) as ChunkRendererBridge
 	_tick_system = get_node_or_null(tick_system_path) as GDTickSystem
+	_quest_system = get_node_or_null(quest_system_path)
 
 
 # --- Virtual simulator ---
@@ -809,6 +815,23 @@ func _initialize_tick_system() -> void:
 
 	_tick_system_initialized = true
 
+	# Initialize quest system after tick system is ready.
+	_initialize_quest_system()
+
+
+# Initialize the GDQuestSystem with quest content and tick counter.
+func _initialize_quest_system() -> void:
+	if _quest_system == null or _quest_system_initialized:
+		return
+
+	# Load quest content from QuestDatabase.
+	var quest_db := preload("res://scripts/quest/QuestDatabase.gd").new()
+	quest_db.name = "QuestDatabase"
+	add_child(quest_db)
+	quest_db.load_content(_quest_system)
+
+	_quest_system_initialized = true
+
 
 # Drive the simulation tick each frame.
 # Updates the player chunk position and advances the simulation.
@@ -829,6 +852,10 @@ func _drive_tick_system(delta: float) -> void:
 
 	_tick_system.set_player_chunk(dimension, player_chunk.x, player_chunk.y, player_chunk.z)
 	_tick_system.tick(delta)
+
+	# Sync tick counter to quest system for REACH_TICK conditions.
+	if _quest_system != null and _quest_system_initialized:
+		_quest_system.set_tick_counter(_tick_system.get_tick_count())
 
 
 # Compute the player's current chunk coordinates.

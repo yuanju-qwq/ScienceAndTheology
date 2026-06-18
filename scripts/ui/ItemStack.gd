@@ -17,7 +17,7 @@ func get_item_def() -> ItemDef:
 
 func get_display_name() -> String:
 	var def := get_item_def()
-	return def.display_name if def else "Unknown"
+	return tr(def.title_key) if def else "Unknown"
 
 func get_icon() -> Texture2D:
 	var def := get_item_def()

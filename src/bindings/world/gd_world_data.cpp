@@ -95,7 +95,7 @@ Dictionary GDWorldData::terrain_material_to_dict(const TerrainMaterialDef& def) 
     Dictionary d;
     d["id"] = static_cast<int>(def.id);
     d["key"] = String(def.key.c_str());
-    d["display_name"] = String(def.display_name.c_str());
+    d["title_key"] = String(def.title_key.c_str());
     d["flags"] = static_cast<int64_t>(def.flags);
     d["hardness"] = def.hardness;
     d["required_tool_tag"] = String(def.required_tool_tag.c_str());
@@ -315,8 +315,8 @@ void GDWorldData::set_chunk_from_dict(
         mechanism.cell_x = static_cast<int>(mechanism_dict.get("cell_x", 0));
         mechanism.cell_y = static_cast<int>(mechanism_dict.get("cell_y", 0));
         mechanism.cell_z = static_cast<int>(mechanism_dict.get("cell_z", 0));
-        mechanism.display_name = static_cast<std::string>(
-            String(mechanism_dict.get("display_name", "")).utf8().get_data());
+        mechanism.title_key = static_cast<std::string>(
+            String(mechanism_dict.get("title_key", "")).utf8().get_data());
         mechanism.action_label = static_cast<std::string>(
             String(mechanism_dict.get("action_label", "")).utf8().get_data());
         mechanism.flag_name = static_cast<std::string>(
@@ -644,7 +644,7 @@ godot::Array GDWorldData::mechanisms_to_array(
         d["cell_x"] = mechanism.cell_x;
         d["cell_y"] = mechanism.cell_y;
         d["cell_z"] = mechanism.cell_z;
-        d["display_name"] = String(mechanism.display_name.c_str());
+        d["title_key"] = String(mechanism.title_key.c_str());
         d["action_label"] = String(mechanism.action_label.c_str());
         d["flag_name"] = String(mechanism.flag_name.c_str());
         d["activation_mode"] = mechanism.activation_mode;

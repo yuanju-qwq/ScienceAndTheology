@@ -266,12 +266,12 @@ godot::Array GDTickSystem::get_proxy_data(
             ecosystem_system_->species_registry().get_species(cs->species_id);
         if (def) {
             d["species"] = godot::String(def->species_key.c_str());
-            d["display_name"] = godot::String(def->display_name.c_str());
+            d["title_key"] = godot::String(def->title_key.c_str());
             d["model_key"] = godot::String(def->model_key.c_str());
             d["model_scale"] = def->model_scale;
         } else {
             d["species"] = godot::String("unknown");
-            d["display_name"] = godot::String("Unknown");
+            d["title_key"] = godot::String("Unknown");
             d["model_key"] = godot::String("");
             d["model_scale"] = 1.0f;
         }
@@ -388,8 +388,8 @@ bool GDTickSystem::feed_creatures(
                  static_cast<int>(cy),
                  static_cast<int>(cz));
 
-    CreatureRole creature_role = (role == 1)
-        ? CreatureRole::PREDATOR : CreatureRole::HERBIVORE;
+    CreatureRole creature_role = (role == static_cast<int64_t>(CreatureRole::HERBIVORE))
+        ? CreatureRole::HERBIVORE : CreatureRole::PREDATOR;
 
     return ecosystem_system_->feed_creatures(key, creature_role, amount);
 }

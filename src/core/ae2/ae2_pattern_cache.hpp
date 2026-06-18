@@ -37,9 +37,9 @@ public:
     // Check if an ItemId belongs to an encoded pattern.
     static bool is_encoded_pattern(ItemId id);
 
-    // Get the display name for an encoded pattern ItemId.
+    // Get the title key for an encoded pattern ItemId.
     // Returns nullptr if not a valid encoded pattern.
-    static const char* get_pattern_name(ItemId id);
+    static const char* get_pattern_title_key(ItemId id);
 
 private:
     struct Impl;

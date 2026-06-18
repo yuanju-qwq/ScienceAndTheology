@@ -72,7 +72,7 @@ func _refresh_display() -> void:
 
 	# Input slot
 	if _furnace_data.input_item_id > 0 and _furnace_data.input_count > 0:
-		var name := GDCraftingManager.get_item_display_name(_furnace_data.input_item_id)
+		var name := tr(GDCraftingManager.get_item_title_key(_furnace_data.input_item_id))
 		_input_label.text = "%s x%d" % [name, _furnace_data.input_count]
 		_input_icon.visible = true
 	else:
@@ -81,7 +81,7 @@ func _refresh_display() -> void:
 
 	# Fuel slot
 	if _furnace_data.fuel_item_id > 0:
-		var name := GDCraftingManager.get_item_display_name(_furnace_data.fuel_item_id)
+		var name := tr(GDCraftingManager.get_item_title_key(_furnace_data.fuel_item_id))
 		_fuel_label.text = name
 		_fuel_icon.visible = true
 	else:
@@ -90,7 +90,7 @@ func _refresh_display() -> void:
 
 	# Output slot
 	if _furnace_data.output_item_id > 0 and _furnace_data.output_count > 0:
-		var name := GDCraftingManager.get_item_display_name(_furnace_data.output_item_id)
+		var name := tr(GDCraftingManager.get_item_title_key(_furnace_data.output_item_id))
 		_output_label.text = "%s x%d" % [name, _furnace_data.output_count]
 		_output_icon.visible = true
 	else:

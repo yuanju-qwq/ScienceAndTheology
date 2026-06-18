@@ -8,19 +8,19 @@ namespace science_and_theology::magic {
 
 static std::vector<RitualRecipe> g_ritual_recipes;
 static std::vector<std::string> g_ritual_name_storage;
-static std::vector<std::string> g_ritual_display_name_storage;
+static std::vector<std::string> g_ritual_title_key_storage;
 static std::unordered_map<std::string, RitualRecipeId> g_ritual_id_map;
 
 void RitualRecipeRegistry::initialize() {
     g_ritual_recipes.clear();
     g_ritual_name_storage.clear();
-    g_ritual_display_name_storage.clear();
+    g_ritual_title_key_storage.clear();
     g_ritual_id_map.clear();
 
     // Reserve ID 0 as invalid.
     g_ritual_recipes.push_back({});
     g_ritual_name_storage.push_back("__invalid__");
-    g_ritual_display_name_storage.push_back("__invalid__");
+    g_ritual_title_key_storage.push_back("__invalid__");
 
     register_builtin_recipes();
 }
@@ -44,11 +44,11 @@ RitualRecipeId RitualRecipeRegistry::register_recipe(const RitualRecipe& recipe)
     RitualRecipeId id = static_cast<RitualRecipeId>(g_ritual_recipes.size());
 
     g_ritual_name_storage.push_back(recipe.id);
-    g_ritual_display_name_storage.push_back(recipe.display_name);
+    g_ritual_title_key_storage.push_back(recipe.title_key);
 
     RitualRecipe stored = recipe;
     stored.id = g_ritual_name_storage.back().c_str();
-    stored.display_name = g_ritual_display_name_storage.back().c_str();
+    stored.title_key = g_ritual_title_key_storage.back().c_str();
 
     g_ritual_recipes.push_back(stored);
     g_ritual_id_map[recipe.id] = id;

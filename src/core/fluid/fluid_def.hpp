@@ -15,7 +15,7 @@ namespace science_and_theology::gt {
 
 struct FluidDefinition {
     const char* name = "";
-    const char* display_name = "";
+    const char* title_key = "";
     const char* chemical_formula = "";
     int64_t temperature = 300;
     bool is_gas = false;

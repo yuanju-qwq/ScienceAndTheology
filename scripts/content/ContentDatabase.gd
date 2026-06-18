@@ -16,8 +16,21 @@ func load_content() -> void:
 	GDCraftingManager.clear_load_report()
 	GDRecipeDatabase.clear_load_report()
 
-	GDCraftingManager.register_recipes(_crafting_recipes())
-	GDRecipeDatabase.register_recipes(_machine_recipes())
+	var crafting_registered: int = GDCraftingManager.register_recipes(_crafting_recipes())
+	var processing_registered: int = GDRecipeDatabase.register_recipes(_processing_recipes())
+	var recipe_maps: PackedStringArray = GDRecipeDatabase.get_machine_types()
+	print("ContentDatabase: loaded crafting=%d processing=%d recipe_maps=%s" %
+			[crafting_registered, processing_registered, str(recipe_maps)])
+	print("ContentDatabase: processing recipe split fuel_furnace=%d electric_macerator=%d" %
+			[GDRecipeDatabase.get_recipes_for_machine("furnace").size(),
+			GDRecipeDatabase.get_recipes_for_machine("macerator").size()])
+
+	var crafting_report: Array = GDCraftingManager.get_load_report()
+	if not crafting_report.is_empty():
+		push_warning("ContentDatabase crafting load report: %s" % str(crafting_report))
+	var machine_report: Array = GDRecipeDatabase.get_load_report()
+	if not machine_report.is_empty():
+		push_warning("ContentDatabase processing load report: %s" % str(machine_report))
 
 func _item(item_id: int, count: int = 1) -> Dictionary:
 	return {
@@ -372,7 +385,7 @@ func _add_misc_recipes(recipes: Array) -> void:
 			[_mat("rod", "wood", 4)],
 			_item_key("ladder", 1)))
 
-	// Tree species wood processing: 1 log → 4 planks (hand: 2, bench+saw: 4).
+	# Tree species wood processing: 1 log -> 4 planks (hand: 2, bench+saw: 4).
 	var tree_species := [
 		["oak", "log.oak", "plank.oak"],
 		["birch", "log.birch", "plank.birch"],
@@ -399,8 +412,30 @@ func _add_misc_recipes(recipes: Array) -> void:
 				_item_key(plank_key, 4),
 				"saw"))
 
-func _machine_recipes() -> Array:
+func _processing_recipes() -> Array:
+	# Processing recipe maps include fuel executors and electric machines.
+	# The furnace map is fuel-fired; electric machines consume EU separately.
 	return [
+		{
+			"name": "smelt_copper_crushed_to_ingot",
+			"machine_type": "furnace",
+			"category": "smelting",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 100,
+			"inputs": [_mat("crushed", "copper", 1)],
+			"outputs": [_mat("ingot", "copper", 1)],
+		},
+		{
+			"name": "smelt_iron_crushed_to_ingot",
+			"machine_type": "furnace",
+			"category": "smelting",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 100,
+			"inputs": [_mat("crushed", "iron", 1)],
+			"outputs": [_mat("ingot", "iron", 1)],
+		},
 		{
 			"name": "macerate_copper_crushed",
 			"machine_type": "macerator",

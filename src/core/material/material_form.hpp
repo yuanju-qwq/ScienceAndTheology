@@ -114,8 +114,8 @@ constexpr const char* kFormNames[] = {
     "cell", "plasma_cell",
 };
 
-// Localized display name for each form.
-constexpr const char* kFormDisplayNames[] = {
+// Translation key for each form.
+constexpr const char* kFormTitleKeys[] = {
     "Dust", "Tiny Dust", "Small Dust",
     "Impure Dust", "Purified Dust",
     "Crushed Ore", "Purified Crushed", "Centrifuged Crushed",
@@ -191,9 +191,9 @@ inline constexpr const char* get_form_name(MaterialForm form) {
     return kFormNames[static_cast<uint16_t>(form)];
 }
 
-// Returns the localized display name.
-inline constexpr const char* get_form_display_name(MaterialForm form) {
-    return kFormDisplayNames[static_cast<uint16_t>(form)];
+// Returns the translation key.
+inline constexpr const char* get_form_title_key(MaterialForm form) {
+    return kFormTitleKeys[static_cast<uint16_t>(form)];
 }
 
 } // namespace science_and_theology::gt

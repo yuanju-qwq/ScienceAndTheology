@@ -26,7 +26,7 @@ enum class ModuleCategory : uint8_t {
 
 struct ModuleDefinition {
     const char* name = "";
-    const char* display_name = "";
+    const char* title_key = "";
     ModuleCategory category = ModuleCategory::ENERGY_INPUT;
     VoltageTier tier = VoltageTier::ULV;
 

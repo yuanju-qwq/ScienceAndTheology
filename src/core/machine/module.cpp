@@ -50,7 +50,7 @@ void ModuleRegistry::register_energy_modules() {
     auto reg = [](const char* name, VoltageTier tier, int64_t max_eu) {
         ModuleDefinition def;
         def.name = name;
-        def.display_name = name;
+        def.title_key = name;
         def.category = ModuleCategory::ENERGY_INPUT;
         def.tier = tier;
         def.max_eu_per_tick = max_eu;
@@ -99,7 +99,7 @@ void ModuleRegistry::register_coils() {
                   int64_t heat, int64_t eff, int64_t parallel) {
         ModuleDefinition def;
         def.name = name;
-        def.display_name = name;
+        def.title_key = name;
         def.category = ModuleCategory::COIL;
         def.tier = tier;
         def.heat_capacity = heat;
@@ -129,7 +129,7 @@ void ModuleRegistry::register_mufflers() {
     auto reg = [](const char* name, VoltageTier tier, int64_t reduction) {
         ModuleDefinition def;
         def.name = name;
-        def.display_name = name;
+        def.title_key = name;
         def.category = ModuleCategory::MUFFLER;
         def.tier = tier;
         def.pollution_reduction_pct = reduction;

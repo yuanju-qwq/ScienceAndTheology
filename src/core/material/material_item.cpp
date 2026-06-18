@@ -31,7 +31,7 @@ void ItemRegistry::initialize() {
         g_item_registry[i].material = nullptr;
         g_item_registry[i].form = MaterialForm::COUNT;
         g_item_registry[i]._name_key_buf[0] = '\0';
-        g_item_registry[i]._display_name_buf[0] = '\0';
+        g_item_registry[i]._title_key_buf[0] = '\0';
     }
 
     // Generate items for each material × form combination.
@@ -64,9 +64,8 @@ void ItemRegistry::register_material_item(const Material* material,
     std::snprintf(entry._name_key_buf, sizeof(entry._name_key_buf), "%s.%s",
                   get_form_name(form), material->name);
 
-    // Build display_name: "MaterialName FormName"
-    std::snprintf(entry._display_name_buf, sizeof(entry._display_name_buf), "%s %s",
-                  material->display_name, get_form_display_name(form));
+    // title_key is the same as name_key for material items
+    entry.title_key = entry._name_key_buf;
 
     ++g_registered_item_count;
 }
@@ -134,20 +133,20 @@ size_t ItemRegistry::get_material_item_count() {
     return g_registered_item_count;
 }
 
-const char* ItemRegistry::get_item_display_name(ItemId item_id) {
+const char* ItemRegistry::get_item_title_key(ItemId item_id) {
     // Check material items first.
     const MaterialItem* item = get_item(item_id);
-    if (item != nullptr) return item->display_name;
+    if (item != nullptr) return item->title_key;
 
     // Check non-material items.
-    const char* name = get_non_material_item_name(item_id);
-    if (name != nullptr) return name;
+    const char* key = get_non_material_item_title_key(item_id);
+    if (key != nullptr) return key;
 
     // Check encoded patterns.
-    const char* pattern_name = PatternDataCache::get_pattern_name(item_id);
-    if (pattern_name != nullptr) return pattern_name;
+    const char* pattern_key = PatternDataCache::get_pattern_title_key(item_id);
+    if (pattern_key != nullptr) return pattern_key;
 
-    return "Unknown";
+    return "ui.unknown";
 }
 
 bool ItemRegistry::is_valid_item(ItemId item_id) {
@@ -159,7 +158,7 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
     }
     // Non-material items.
     if (item_id >= kNonMaterialItemBase && item_id < kNonMaterialItemMax) {
-        return get_non_material_item_name(item_id) != nullptr;
+        return get_non_material_item_title_key(item_id) != nullptr;
     }
     // Encoded patterns.
     return PatternDataCache::is_encoded_pattern(item_id);

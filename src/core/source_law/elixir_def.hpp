@@ -43,7 +43,7 @@ inline const char* elixir_type_name(ElixirType type) {
 
 struct ElixirRecipe {
     const char* id = "";
-    const char* display_name = "";
+    const char* title_key = "";
     ElixirType type = ElixirType::INITIATION;
 
     // Target sublimation path (for initiation elixirs).

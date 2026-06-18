@@ -37,7 +37,7 @@ struct RitualEffectData {
 
 struct RitualRecipe {
     const char* id = "";
-    const char* display_name = "";
+    const char* title_key = "";
 
     std::vector<RitualPedestalSlot> pedestals;
 

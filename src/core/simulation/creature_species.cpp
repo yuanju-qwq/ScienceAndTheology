@@ -62,7 +62,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kGlowDeer;
         def.species_key = "glow_deer";
-        def.display_name = "Glow Deer";
+        def.title_key = "creature.glow_deer";
         def.role = CreatureRole::HERBIVORE;
         def.model_key = "glow_deer";
         def.move_speed = 0.12f;
@@ -80,7 +80,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kRockLizard;
         def.species_key = "rock_lizard";
-        def.display_name = "Rock Lizard";
+        def.title_key = "creature.rock_lizard";
         def.role = CreatureRole::HERBIVORE;
         def.model_key = "rock_lizard";
         def.move_speed = 0.08f;
@@ -100,7 +100,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kThunderbird;
         def.species_key = "thunderbird";
-        def.display_name = "Thunderbird";
+        def.title_key = "creature.thunderbird";
         def.role = CreatureRole::PREDATOR;
         def.model_key = "thunderbird";
         def.move_speed = 0.18f;
@@ -117,7 +117,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kSeaSerpent;
         def.species_key = "sea_serpent";
-        def.display_name = "Sea Serpent";
+        def.title_key = "creature.sea_serpent";
         def.role = CreatureRole::PREDATOR;
         def.model_key = "sea_serpent";
         def.move_speed = 0.14f;
@@ -134,7 +134,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kBlazeBeast;
         def.species_key = "blaze_beast";
-        def.display_name = "Blaze Beast";
+        def.title_key = "creature.blaze_beast";
         def.role = CreatureRole::PREDATOR;
         def.model_key = "blaze_beast";
         def.move_speed = 0.10f;
@@ -153,7 +153,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kAetherWraith;
         def.species_key = "aether_wraith";
-        def.display_name = "Aether Wraith";
+        def.title_key = "creature.aether_wraith";
         def.role = CreatureRole::PREDATOR;
         def.model_key = "aether_wraith";
         def.move_speed = 0.15f;
@@ -170,7 +170,7 @@ void CreatureSpeciesRegistry::register_builtin_species() {
         CreatureSpeciesDef def;
         def.species_id = kAberrantAscended;
         def.species_key = "aberrant_ascended";
-        def.display_name = "Aberrant Ascended";
+        def.title_key = "creature.aberrant_ascended";
         def.role = CreatureRole::PREDATOR;
         def.model_key = "aberrant_ascended";
         def.move_speed = 0.13f;

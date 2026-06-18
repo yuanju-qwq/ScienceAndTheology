@@ -100,7 +100,7 @@ struct ElementComposition {
 // Mirrors GT5's Materials class and IOreMaterial interface.
 struct Material {
     const char* name;           // internal name, e.g. "copper"
-    const char* display_name;   // localized name, e.g. "Copper"
+    const char* title_key;      // translation key, e.g. "material.copper"
     uint16_t id;                // numeric ID (MetaItemSubID in GT5 terms)
     uint16_t generation_flags;  // bitmask of MaterialGenFlag
     MaterialState state;        // solid / liquid / gas / plasma

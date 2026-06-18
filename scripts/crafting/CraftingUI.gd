@@ -97,9 +97,9 @@ func set_station(station: String) -> void:
 func _station_display_name(station: String) -> String:
 	match station:
 		"workbench":
-			return "Workbench"
+			return tr("station.workbench")
 		_:
-			return "Hand Crafting"
+			return tr("station.hand_crafting")
 
 
 func _refresh() -> void:
@@ -183,7 +183,7 @@ func _select_category(category: String) -> void:
 		out_box.size_flags_stretch_ratio = 0.3
 		row.add_child(out_box)
 
-		var out_name := GDCraftingManager.get_item_display_name(out_id)
+		var out_name := tr(GDCraftingManager.get_item_title_key(out_id))
 		var out_label := Label.new()
 		out_label.text = "%s x%d" % [out_name, out_count]
 		out_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -201,7 +201,7 @@ func _select_category(category: String) -> void:
 			var have_count := 0
 			if inventory_valid:
 				have_count = player.inventory.count_item(in_id)
-			var in_name := GDCraftingManager.get_item_display_name(in_id)
+			var in_name := tr(GDCraftingManager.get_item_title_key(in_id))
 			var color := Color(0.4, 1.0, 0.4) if have_count >= in_count else Color(1.0, 0.4, 0.4)
 			var in_label := Label.new()
 			in_label.text = "  %s x%d [%d]" % [in_name, in_count, have_count]
@@ -248,7 +248,7 @@ func _player_has_tool(tool_name: String) -> bool:
 		var slot: Dictionary = inv.get_slot(i)
 		var id := int(slot.get("item_id", 0))
 		if id > 0:
-			var name := GDCraftingManager.get_item_display_name(id)
+			var name := GDCraftingManager.get_item_title_key(id)
 			if name.length() > 0 and name.to_lower().contains(tool_lower):
 				return true
 
@@ -256,7 +256,7 @@ func _player_has_tool(tool_name: String) -> bool:
 	for slot_idx in range(6):
 		var id: int = eq.get_equipped(slot_idx)
 		if id > 0:
-			var name := GDCraftingManager.get_item_display_name(id)
+			var name := GDCraftingManager.get_item_title_key(id)
 			if name.length() > 0 and name.to_lower().contains(tool_lower):
 				return true
 

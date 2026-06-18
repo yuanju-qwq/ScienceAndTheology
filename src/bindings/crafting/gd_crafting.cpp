@@ -173,8 +173,8 @@ void GDCraftingManager::_bind_methods() {
         D_METHOD("get_recipe_count"),
         &GDCraftingManager::get_recipe_count);
     ClassDB::bind_static_method("GDCraftingManager",
-        D_METHOD("get_item_display_name", "item_id"),
-        &GDCraftingManager::get_item_display_name);
+        D_METHOD("get_item_title_key", "item_id"),
+        &GDCraftingManager::get_item_title_key);
     ClassDB::bind_static_method("GDCraftingManager",
         D_METHOD("get_item_id_by_key", "item_key"),
         &GDCraftingManager::get_item_id_by_key);
@@ -266,8 +266,8 @@ int GDCraftingManager::get_recipe_count() {
     return static_cast<int>(CraftingManager::get_recipe_count());
 }
 
-godot::String GDCraftingManager::get_item_display_name(int64_t item_id) {
-    return ItemRegistry::get_item_display_name(static_cast<ItemId>(item_id));
+godot::String GDCraftingManager::get_item_title_key(int64_t item_id) {
+    return ItemRegistry::get_item_title_key(static_cast<ItemId>(item_id));
 }
 
 int64_t GDCraftingManager::get_item_id_by_key(const godot::String& item_key) {

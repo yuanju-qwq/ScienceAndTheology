@@ -40,7 +40,7 @@ godot::Dictionary GDFuelRegistry::get_fuel_info(int64_t item_id) {
     if (def == nullptr) return info;
 
     info["name"] = def->name;
-    info["display_name"] = def->display_name;
+    info["title_key"] = def->title_key;
     info["category"] = static_cast<int>(def->category);
     info["burn_ticks"] = static_cast<int64_t>(def->burn_ticks);
     return info;

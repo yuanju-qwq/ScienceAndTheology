@@ -51,7 +51,7 @@ public:
     static int get_recipe_count();
 
     // Get the display name for any item ID (material or non-material).
-    static godot::String get_item_display_name(int64_t item_id);
+    static godot::String get_item_title_key(int64_t item_id);
 
     // Resolve a stable content key such as "ingot.copper" or "gt_hammer".
     static int64_t get_item_id_by_key(const godot::String& item_key);

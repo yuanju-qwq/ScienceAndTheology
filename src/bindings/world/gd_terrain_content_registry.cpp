@@ -479,7 +479,7 @@ bool GDTerrainContentRegistry::register_material(const Dictionary& def) {
     TerrainMaterialDef material;
     material.id = static_cast<TerrainMaterialId>(raw_id);
     material.key = key.utf8().get_data();
-    material.display_name = String(def.get("display_name", key)).utf8().get_data();
+    material.title_key = String(def.get("title_key", key)).utf8().get_data();
     material.flags = static_cast<uint32_t>(static_cast<int64_t>(
         def.get("flags", 0)));
     material.hardness = static_cast<float>(def.get("hardness", 1.0f));
@@ -757,7 +757,7 @@ bool GDTerrainContentRegistry::register_tree_species(const Dictionary& def) {
 
     TreeSpeciesDef species;
     species.species_key = to_std_string(def.get("species_key", ""));
-    species.display_name = to_std_string(def.get("display_name", ""));
+    species.title_key = to_std_string(def.get("title_key", ""));
 
     if (species.species_key.empty()) {
         UtilityFunctions::push_warning(

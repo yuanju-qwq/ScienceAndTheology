@@ -19,7 +19,7 @@ namespace science_and_theology::gt {
 struct ItemDefinition {
     ItemId id = kInvalidItemId;
     const char* name_key = "";        // e.g. "ingot.copper"
-    const char* display_name = "";    // e.g. "Copper Ingot"
+    const char* title_key = "";       // e.g. "material.copper"
     int64_t max_stack_size = 64;
 };
 

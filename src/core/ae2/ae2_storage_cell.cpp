@@ -16,9 +16,8 @@ StorageCell::StorageCell(int64_t byte_capacity, int max_types,
     , max_types_(max_types)
     , bytes_per_type_(bytes_per_type) {}
 
-std::string StorageCell::display_name() const {
-    return "Storage Cell (" + std::to_string(byte_capacity_) + "B, "
-         + std::to_string(max_types_) + " types)";
+std::string StorageCell::title_key() const {
+    return "storage_cell." + std::to_string(byte_capacity_) + "." + std::to_string(max_types_);
 }
 
 int64_t StorageCell::bytes_for(const ResourceId& key, int64_t count) const {

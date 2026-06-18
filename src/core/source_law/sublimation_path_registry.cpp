@@ -56,7 +56,7 @@ void SublimationPathRegistry::register_builtin_paths() {
     auto& sand = g_paths[static_cast<int>(SublimationPath::SAND_ARMOR)];
     sand.path_id = SublimationPath::SAND_ARMOR;
     sand.id = "sand_armor";
-    sand.display_name = "Sand Armor";
+    sand.title_key = "path.sand_armor";
     sand.primary_element = magic::RuneElement::EARTH;
     sand.organ_stages = {
         {OrganSlot::BONE, "Sand Armor Rock Core", magic::RuneElement::EARTH, 1, 1},
@@ -74,7 +74,7 @@ void SublimationPathRegistry::register_builtin_paths() {
     auto& tidal = g_paths[static_cast<int>(SublimationPath::TIDAL)];
     tidal.path_id = SublimationPath::TIDAL;
     tidal.id = "tidal";
-    tidal.display_name = "Tidal";
+    tidal.title_key = "path.tidal";
     tidal.primary_element = magic::RuneElement::WATER;
     tidal.organ_stages = {
         {OrganSlot::LUNG, "Tidal Lung", magic::RuneElement::WATER, 1, 1},
@@ -84,7 +84,7 @@ void SublimationPathRegistry::register_builtin_paths() {
     auto& storm = g_paths[static_cast<int>(SublimationPath::STORM)];
     storm.path_id = SublimationPath::STORM;
     storm.id = "storm";
-    storm.display_name = "Storm";
+    storm.title_key = "path.storm";
     storm.primary_element = magic::RuneElement::AIR;
     storm.organ_stages = {
         {OrganSlot::NERVE, "Thunder Nerve", magic::RuneElement::AIR, 1, 1},
@@ -94,7 +94,7 @@ void SublimationPathRegistry::register_builtin_paths() {
     auto& furnace = g_paths[static_cast<int>(SublimationPath::FURNACE)];
     furnace.path_id = SublimationPath::FURNACE;
     furnace.id = "furnace";
-    furnace.display_name = "Furnace";
+    furnace.title_key = "path.furnace";
     furnace.primary_element = magic::RuneElement::FIRE;
     furnace.organ_stages = {
         {OrganSlot::HEART, "Blazing Heart", magic::RuneElement::FIRE, 1, 1},
@@ -104,7 +104,7 @@ void SublimationPathRegistry::register_builtin_paths() {
     auto& radiance = g_paths[static_cast<int>(SublimationPath::RADIANCE)];
     radiance.path_id = SublimationPath::RADIANCE;
     radiance.id = "radiance";
-    radiance.display_name = "Radiance";
+    radiance.title_key = "path.radiance";
     radiance.primary_element = magic::RuneElement::LIGHT;
     radiance.organ_stages = {
         {OrganSlot::EYE, "Radiance Eye", magic::RuneElement::LIGHT, 1, 1},

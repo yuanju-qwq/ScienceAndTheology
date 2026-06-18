@@ -504,7 +504,7 @@ func _register_item_from_db(item_db: ItemDatabase, item_id: int, cat: String,
 	e.id = eid
 	e.category = cat
 	e.icon = icon
-	e.title = item_def.display_name
+	e.title = tr(item_def.title_key)
 	e.subtitle = subtitle
 
 	var props: Array[Dictionary] = []

@@ -219,7 +219,7 @@ godot::Dictionary GDFluidNetwork::get_fluid_info(int fluid_id) {
     if (def == nullptr) return info;
 
     info["name"] = def->name;
-    info["display_name"] = def->display_name;
+    info["title_key"] = def->title_key;
     info["chemical_formula"] = def->chemical_formula;
     info["temperature"] = def->temperature;
     info["is_gas"] = def->is_gas;
@@ -234,7 +234,7 @@ godot::Dictionary GDFluidNetwork::get_fluid_by_name(
     if (def == nullptr) return info;
 
     info["name"] = def->name;
-    info["display_name"] = def->display_name;
+    info["title_key"] = def->title_key;
     info["chemical_formula"] = def->chemical_formula;
     info["temperature"] = def->temperature;
     info["is_gas"] = def->is_gas;

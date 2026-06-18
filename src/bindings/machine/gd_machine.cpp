@@ -295,7 +295,7 @@ godot::Dictionary GDMachine::get_installed_module_info(int index) const {
     const auto& inst = mods[index];
     if (inst.def == nullptr) return info;
     info["name"] = inst.def->name;
-    info["display_name"] = inst.def->display_name;
+    info["title_key"] = inst.def->title_key;
     info["category"] = static_cast<int>(inst.def->category);
     info["tier"] = static_cast<int>(inst.def->tier);
     return info;
@@ -377,7 +377,7 @@ godot::Dictionary GDMachine::get_module_definition(
         name.utf8().get_data());
     if (def == nullptr) return info;
     info["name"] = def->name;
-    info["display_name"] = def->display_name;
+    info["title_key"] = def->title_key;
     info["category"] = static_cast<int>(def->category);
     info["tier"] = static_cast<int>(def->tier);
     info["max_eu_per_tick"] = def->max_eu_per_tick;

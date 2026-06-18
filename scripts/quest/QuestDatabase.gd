@@ -167,7 +167,7 @@ func _register_stone_age_quests() -> void:
 		"Punch a tree. Get wood. This is where it all begins.\n\nMine a wood log to start your journey into industrial civilization.",
 		"log.oak", 0,
 		[],
-		[_cond(CT_MINE_BLOCK, "wood_log", 1)],
+		[_cond(CT_MINE_BLOCK, "oak_wood", 1)],
 		[_reward_item("rod.wood", 4)],
 	))
 

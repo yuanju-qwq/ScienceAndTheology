@@ -64,8 +64,8 @@ struct CreatureSpeciesDef {
     // Human-readable species key (e.g. "rock_lizard").
     std::string species_key;
 
-    // Display name (e.g. "Rock Lizard").
-    std::string display_name;
+    // Translation key (e.g. "creature.rock_lizard").
+    std::string title_key;
 
     // Behavioral role: determines AI state machine.
     CreatureRole role = CreatureRole::HERBIVORE;

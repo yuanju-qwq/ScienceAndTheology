@@ -103,7 +103,7 @@ size_t FuelRegistry::get_fuel_count() {
 
 void FuelRegistry::register_builtin_fuels() {
     auto reg_item = [](const char* mat_name, int form_id,
-                        const char* display, int64_t burn_ticks,
+                        const char* title_key, int64_t burn_ticks,
                         FuelCategory cat = FuelCategory::SOLID) {
         const Material* mat = get_material(mat_name);
         if (mat == nullptr) return;
@@ -112,21 +112,21 @@ void FuelRegistry::register_builtin_fuels() {
 
         FuelDefinition def;
         def.name = mat_name;
-        def.display_name = display;
+        def.title_key = title_key;
         def.category = cat;
         def.item_id = id;
         def.burn_ticks = burn_ticks;
         register_fuel(def);
     };
 
-    auto reg_fluid = [](const char* fluid_name, const char* display,
+    auto reg_fluid = [](const char* fluid_name, const char* title_key,
                          int64_t burn_ticks, FuelCategory cat) {
         FluidId id = FluidRegistry::get_fluid_id(fluid_name);
         if (id == kInvalidFluidId) return;
 
         FuelDefinition def;
         def.name = fluid_name;
-        def.display_name = display;
+        def.title_key = title_key;
         def.category = cat;
         def.fluid_id = id;
         def.burn_ticks = burn_ticks;
@@ -135,26 +135,26 @@ void FuelRegistry::register_builtin_fuels() {
 
     // --- Solid fuels ---
     // Coal gem = material "coal", form GEM (8)
-    reg_item("coal", 8, "Coal", 200, FuelCategory::SOLID);
+    reg_item("coal", 8, "fuel.coal", 200, FuelCategory::SOLID);
 
     // Charcoal would go here if added as a material.
 
     // Wood items = material "wood"
     // Log = DUST (0)
-    reg_item("wood", 0, "Wood Log", 120, FuelCategory::SOLID);
+    reg_item("wood", 0, "fuel.wood_log", 120, FuelCategory::SOLID);
     // Plank = PLATE (16)
-    reg_item("wood", 16, "Wood Plank", 60, FuelCategory::SOLID);
+    reg_item("wood", 16, "fuel.wood_plank", 60, FuelCategory::SOLID);
     // Stick = ROD (19)
-    reg_item("wood", 19, "Stick", 30, FuelCategory::SOLID);
+    reg_item("wood", 19, "fuel.stick", 30, FuelCategory::SOLID);
 
     // --- Liquid fuels ---
-    reg_fluid("lava", "Lava", 10000, FuelCategory::LIQUID);
-    reg_fluid("fuel_diesel", "Diesel Fuel", 5000, FuelCategory::LIQUID);
-    reg_fluid("oil", "Oil", 3000, FuelCategory::LIQUID);
+    reg_fluid("lava", "fuel.lava", 10000, FuelCategory::LIQUID);
+    reg_fluid("fuel_diesel", "fuel.diesel", 5000, FuelCategory::LIQUID);
+    reg_fluid("oil", "fuel.oil", 3000, FuelCategory::LIQUID);
 
     // --- Gaseous fuels ---
-    reg_fluid("natural_gas", "Natural Gas", 3000, FuelCategory::GAS);
-    reg_fluid("hydrogen", "Hydrogen", 1000, FuelCategory::GAS);
+    reg_fluid("natural_gas", "fuel.natural_gas", 3000, FuelCategory::GAS);
+    reg_fluid("hydrogen", "fuel.hydrogen", 1000, FuelCategory::GAS);
 }
 
 } // namespace science_and_theology::gt

@@ -165,67 +165,67 @@ constexpr const char* kNonMaterialItemKeys[] = {
 
 // Display names for non-material items.
 // Indexed by (item_id - kNonMaterialItemBase).
-constexpr const char* kNonMaterialItemNames[] = {
+constexpr const char* kNonMaterialItemTitleKeys[] = {
     // 0-8: Tools
-    "Hammer", "Wrench", "File", "Screwdriver", "Saw",
-    "Wire Cutter", "Crowbar", "Soft Mallet", "Hard Hammer",
+    "gt_hammer", "gt_wrench", "gt_file", "gt_screwdriver", "gt_saw",
+    "gt_wire_cutter", "gt_crowbar", "gt_soft_mallet", "gt_hard_hammer",
     // 9: unused
     nullptr,
     // 10-17: Machine Components
-    "Basic Machine Hull", "Advanced Machine Hull",
-    "LV Electric Motor", "LV Electric Piston", "LV Robot Arm",
-    "LV Conveyor Module", "LV Pump", "Empty Fluid Cell",
+    "machine_hull_basic", "machine_hull_advanced",
+    "electric_motor_lv", "electric_piston_lv", "robot_arm_lv",
+    "conveyor_module_lv", "pump_lv", "empty_fluid_cell",
     // 18-19: unused
     nullptr, nullptr,
     // 20-24: Circuits
-    "Vacuum Tube", "Primitive Circuit", "Basic Circuit",
-    "Good Circuit", "Advanced Circuit",
+    "vacuum_tube", "circuit_primitive", "circuit_basic",
+    "circuit_good", "circuit_advanced",
     // 25-29: unused
     nullptr, nullptr, nullptr, nullptr, nullptr,
     // 30-34: Misc
-    "Coal Block", "Coke Brick", "Firebrick", "Stone Plate", "Wood Plate",
+    "coal_block", "coke_brick", "firebrick", "stone_plate", "wood_plate",
     // 35: AE2 Pattern
-    "Blank Pattern",
+    "blank_pattern",
     // 36-39: Pickaxes
-    "Wooden Pickaxe", "Stone Pickaxe", "Iron Pickaxe", "Diamond Pickaxe",
+    "wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond_pickaxe",
     // 40-43: Axes
-    "Wooden Axe", "Stone Axe", "Iron Axe", "Diamond Axe",
+    "wooden_axe", "stone_axe", "iron_axe", "diamond_axe",
     // 44-47: Shovels
-    "Wooden Shovel", "Stone Shovel", "Iron Shovel", "Diamond Shovel",
+    "wooden_shovel", "stone_shovel", "iron_shovel", "diamond_shovel",
     // 48-51: Swords
-    "Wooden Sword", "Stone Sword", "Iron Sword", "Diamond Sword",
+    "wooden_sword", "stone_sword", "iron_sword", "diamond_sword",
     // 52: Survival
-    "Workbench",
+    "workbench",
     // 53-54: New placeable items
-    "Stone Furnace",
-    "Ladder",
+    "stone_furnace",
+    "ladder",
     // 55-59: unused
     nullptr, nullptr, nullptr, nullptr, nullptr,
     // 60-62: Oak
-    "Oak Log", "Oak Plank", "Oak Sapling",
+    "log.oak", "plank.oak", "sapling.oak",
     // 63-65: Birch
-    "Birch Log", "Birch Plank", "Birch Sapling",
+    "log.birch", "plank.birch", "sapling.birch",
     // 66-68: Spruce
-    "Spruce Log", "Spruce Plank", "Spruce Sapling",
+    "log.spruce", "plank.spruce", "sapling.spruce",
     // 69-71: Acacia
-    "Acacia Log", "Acacia Plank", "Acacia Sapling",
+    "log.acacia", "plank.acacia", "sapling.acacia",
     // 72-74: Maple
-    "Maple Log", "Maple Plank", "Maple Sapling",
+    "log.maple", "plank.maple", "sapling.maple",
     // 75-77: Sequoia
-    "Sequoia Log", "Sequoia Plank", "Sequoia Sapling",
+    "log.sequoia", "plank.sequoia", "sapling.sequoia",
     // 78-81: Cherry (with fruit)
-    "Cherry Log", "Cherry Plank", "Cherry Sapling", "Cherry",
+    "log.cherry", "plank.cherry", "sapling.cherry", "fruit.cherry",
     // 82-85: Olive (with fruit)
-    "Olive Log", "Olive Plank", "Olive Sapling", "Olive",
+    "log.olive", "plank.olive", "sapling.olive", "fruit.olive",
 };
 
 static_assert(sizeof(kNonMaterialItemKeys) / sizeof(kNonMaterialItemKeys[0]) ==
               kNonMaterialItemCount,
               "kNonMaterialItemKeys must have one entry per non-material item");
 
-static_assert(sizeof(kNonMaterialItemNames) / sizeof(kNonMaterialItemNames[0]) ==
+static_assert(sizeof(kNonMaterialItemTitleKeys) / sizeof(kNonMaterialItemTitleKeys[0]) ==
               kNonMaterialItemCount,
-              "kNonMaterialItemNames must have one entry per non-material item");
+              "kNonMaterialItemTitleKeys must have one entry per non-material item");
 
 // Look up the stable key of a non-material item.
 inline const char* get_non_material_item_key(ItemId item_id) {
@@ -238,7 +238,7 @@ inline const char* get_non_material_item_key(ItemId item_id) {
 }
 
 // Look up the display name of a non-material item.
-inline const char* get_non_material_item_name(ItemId item_id) {
+inline const char* get_non_material_item_title_key(ItemId item_id) {
     if (item_id >= ENCODED_PATTERN_BASE) {
         // Check PatternDataCache for encoded pattern names.
         // Forward-declared; the cache has its own name lookup.
@@ -249,7 +249,7 @@ inline const char* get_non_material_item_name(ItemId item_id) {
     }
     uint32_t idx = static_cast<uint32_t>(item_id - kNonMaterialItemBase);
     if (idx >= kNonMaterialItemCount) return nullptr;
-    return kNonMaterialItemNames[idx];
+    return kNonMaterialItemTitleKeys[idx];
 }
 
 // Look up a non-material item by stable key.
@@ -259,7 +259,7 @@ inline ItemId get_non_material_item_id_by_key(const char* key) {
         const char* item_key = kNonMaterialItemKeys[i];
         if (item_key != nullptr && std::strcmp(item_key, key) == 0) {
             ItemId item_id = kNonMaterialItemBase + i;
-            return get_non_material_item_name(item_id) != nullptr
+            return get_non_material_item_title_key(item_id) != nullptr
                 ? item_id
                 : kInvalidItemId;
         }

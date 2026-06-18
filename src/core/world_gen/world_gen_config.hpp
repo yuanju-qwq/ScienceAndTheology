@@ -24,7 +24,7 @@ struct TerrainDropDef {
 struct TerrainMaterialDef {
     TerrainMaterialId id = 0;
     std::string key;
-    std::string display_name;
+    std::string title_key;
     uint32_t flags = 0;
     float hardness = 1.0f;
     std::string required_tool_tag;

@@ -91,7 +91,7 @@ bool PatternDataCache::is_encoded_pattern(ItemId id) {
     return i.data_by_id.find(id) != i.data_by_id.end();
 }
 
-const char* PatternDataCache::get_pattern_name(ItemId id) {
+const char* PatternDataCache::get_pattern_title_key(ItemId id) {
     auto* data = get_pattern_data(id);
     if (data) {
         return data->name.c_str();

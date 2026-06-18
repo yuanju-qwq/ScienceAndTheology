@@ -13,7 +13,7 @@ enum ActivationMode {
 @export var mechanism_id: StringName = &""
 @export var dimension: StringName = OVERWORLD
 @export var cell_position: Vector3i = Vector3i.ZERO
-@export var display_name := "Mechanism"
+@export var title_key := "ui.mechanism"
 @export var action_label := "Use Mechanism"
 @export var flag_name: StringName = &""
 @export var activation_mode := ActivationMode.INTERACT

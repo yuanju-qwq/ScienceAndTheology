@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=23 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -16,6 +16,7 @@
 [ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
 [ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
 [ext_resource type="Script" path="res://scripts/world/UniverseManager.gd" id="17_universe_manager"]
+[ext_resource type="Script" uid="uid://d4i3onhuj2u0o" path="res://scripts/ui/QuestBookUI.gd" id="20_quest_book_ui"]
 [ext_resource type="Script" path="res://scripts/world/DayNightCycle.gd" id="18_day_night_cycle"]
 [ext_resource type="Script" path="res://scripts/ui/ProbePanel.gd" id="19_probe_panel"]
 
@@ -91,6 +92,8 @@ chunk_renderer_bridge_path = NodePath("../ChunkRendererBridge")
 tick_system_path = NodePath("../GDTickSystem")
 
 [node name="GDTickSystem" type="GDTickSystem" parent="."]
+
+[node name="GDQuestSystem" type="GDQuestSystem" parent="."]
 
 [node name="WorldObjectRenderer" type="Node3D" parent="."]
 script = ExtResource("8_object_renderer")
@@ -224,5 +227,10 @@ offset_right = -12.0
 offset_bottom = -12.0
 mouse_filter = 0
 script = ExtResource("16_console_ui")
+
+[node name="QuestBookUI" type="Control" parent="UI"]
+script = ExtResource("20_quest_book_ui")
+visible = false
+mouse_filter = 2
 
 [connection signal="terrain_cell_synced" from="GameCommandServer" to="ChunkRendererBridge" method="on_terrain_cell_synced"]

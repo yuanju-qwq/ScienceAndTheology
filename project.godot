@@ -19,6 +19,11 @@ run/main_scene="res://MainMenu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
+[internationalization]
+
+locale/translation_add="res://locale/en.csv"
+locale/translation_add="res://locale/zh.csv"
+
 [autoload]
 
 GameSession="*res://scripts/GameSession.gd"

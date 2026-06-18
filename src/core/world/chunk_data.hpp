@@ -89,7 +89,7 @@ struct MechanismPlacement {
     int cell_x = 0;
     int cell_y = 0;
     int cell_z = 0;
-    std::string display_name;
+    std::string title_key;
     std::string action_label;
     std::string flag_name;
     int activation_mode = 0;            // 0 = INTERACT, 1 = AUTO_ON_ENTER

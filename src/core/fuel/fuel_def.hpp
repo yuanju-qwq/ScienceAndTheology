@@ -17,7 +17,7 @@ enum class FuelCategory : uint8_t {
 
 struct FuelDefinition {
     const char* name = "";
-    const char* display_name = "";
+    const char* title_key = "";
     FuelCategory category = FuelCategory::SOLID;
 
     ItemId item_id = kInvalidItemId;

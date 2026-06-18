@@ -9,9 +9,7 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include "core/fuel/fuel_registry.hpp"
-#include "core/material/material.hpp"
-#include "core/material/material_form.hpp"
-#include "core/material/material_item.hpp"
+#include "core/machine/recipe.hpp"
 
 namespace science_and_theology {
 
@@ -26,12 +24,6 @@ double clamp01(double value) {
     if (value <= 0.0) return 0.0;
     if (value >= 1.0) return 1.0;
     return value;
-}
-
-int64_t material_item(uint16_t material_id, gt::MaterialForm form) {
-    const gt::Material* material = gt::get_material_by_id(material_id);
-    if (material == nullptr) return 0;
-    return static_cast<int64_t>(gt::ItemRegistry::get_item_id(material, form));
 }
 
 } // namespace
@@ -243,6 +235,7 @@ Dictionary GDFurnaceManager::get_recipe_for(int64_t item_id) const {
     }
 
     Dictionary recipe;
+    recipe["name"] = it->second.name.c_str();
     recipe["output_id"] = it->second.output_id;
     recipe["output_count"] = it->second.output_count;
     recipe["time"] = it->second.time;
@@ -319,33 +312,78 @@ Dictionary GDFurnaceManager::key_to_dictionary(const FurnaceKey& key) {
 
 void GDFurnaceManager::ensure_recipes() {
     if (recipes_initialized_) return;
-    recipes_initialized_ = true;
 
-    gt::ItemRegistry::initialize();
-    const int64_t copper_crushed =
-        material_item(gt::materials::COPPER, gt::MaterialForm::CRUSHED);
-    const int64_t iron_crushed =
-        material_item(gt::materials::IRON, gt::MaterialForm::CRUSHED);
-
-    const int64_t copper_ingot =
-        material_item(gt::materials::COPPER, gt::MaterialForm::INGOT);
-    const int64_t iron_ingot =
-        material_item(gt::materials::IRON, gt::MaterialForm::INGOT);
-
-    auto add_recipe = [this](int64_t input_id, int64_t output_id,
-                             int32_t output_count, double time) {
-        if (input_id <= 0 || output_id <= 0 || output_count <= 0 || time <= 0.0) {
+    const gt::RecipeMap* map = gt::RecipeDatabase::find_map("furnace");
+    if (map == nullptr || map->recipe_count() == 0) {
+        if (!missing_recipes_warned_) {
             UtilityFunctions::push_warning(
-                "GDFurnaceManager: skipped invalid furnace recipe input=",
-                input_id, " output=", output_id);
-            return;
+                "GDFurnaceManager: no furnace recipes registered in "
+                "GDRecipeDatabase machine_type='furnace'");
+            missing_recipes_warned_ = true;
         }
-        recipes_[input_id] = FurnaceRecipe{output_id, output_count, time};
-    };
+        return;
+    }
 
-    add_recipe(copper_crushed, copper_ingot, 1, 5.0);
-    add_recipe(iron_crushed, iron_ingot, 1, 5.0);
+    recipes_.clear();
+    int loaded = 0;
+    int skipped = 0;
+    String loaded_names;
+    for (const gt::Recipe& recipe : map->recipes()) {
+        const String recipe_name(recipe.name);
+        if (recipe.inputs.size() != 1 || recipe.outputs.size() != 1) {
+            UtilityFunctions::push_warning(
+                "GDFurnaceManager: skipped unsupported furnace recipe '",
+                recipe_name, "'; furnace recipes must have exactly one input and one output");
+            ++skipped;
+            continue;
+        }
 
+        const gt::ResourceStack& input = recipe.inputs[0];
+        const gt::RecipeOutput& output = recipe.outputs[0];
+        if (!input.is_item() || !output.stack.is_item() || !output.is_guaranteed()) {
+            UtilityFunctions::push_warning(
+                "GDFurnaceManager: skipped unsupported furnace recipe '",
+                recipe_name, "'; furnace only supports guaranteed item -> item recipes");
+            ++skipped;
+            continue;
+        }
+        if (recipe.duration_ticks <= 0 || output.stack.amount <= 0 ||
+                output.stack.amount > kMaxStackSize) {
+            UtilityFunctions::push_warning(
+                "GDFurnaceManager: skipped invalid furnace recipe '", recipe_name, "'");
+            ++skipped;
+            continue;
+        }
+
+        const int64_t input_id = static_cast<int64_t>(input.item_id());
+        if (recipes_.find(input_id) != recipes_.end()) {
+            UtilityFunctions::push_warning(
+                "GDFurnaceManager: skipped duplicate furnace input in recipe '",
+                recipe_name, "'");
+            ++skipped;
+            continue;
+        }
+
+        recipes_[input_id] = FurnaceRecipe{
+            std::string(recipe.name),
+            static_cast<int64_t>(output.stack.item_id()),
+            static_cast<int32_t>(output.stack.amount),
+            static_cast<double>(recipe.duration_ticks) / kFuelTicksPerSecond,
+        };
+        if (!loaded_names.is_empty()) {
+            loaded_names += ", ";
+        }
+        loaded_names += recipe_name;
+        ++loaded;
+    }
+
+    recipes_initialized_ = true;
+    missing_recipes_warned_ = false;
+    UtilityFunctions::print(
+        "GDFurnaceManager: loaded ", loaded,
+        " furnace recipes from GDRecipeDatabase machine_type='furnace'",
+        skipped > 0 ? String(" skipped=") + String::num_int64(skipped) : String(""),
+        loaded_names.is_empty() ? String("") : String(" recipes=[") + loaded_names + String("]"));
 }
 
 bool GDFurnaceManager::tick_furnace(

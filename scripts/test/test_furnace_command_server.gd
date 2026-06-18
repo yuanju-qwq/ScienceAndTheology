@@ -11,6 +11,12 @@ func _init() -> void:
 
 
 func _run() -> void:
+	var content_database: Node = root.get_node_or_null("ContentDatabase")
+	if content_database == null:
+		content_database = load("res://scripts/content/ContentDatabase.gd").new()
+		root.add_child(content_database)
+	content_database.call("load_content")
+
 	var furnace_manager := FurnaceManager.new()
 	var command_server := GameCommandServer.new()
 	root.add_child(furnace_manager)

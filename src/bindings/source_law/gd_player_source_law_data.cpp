@@ -400,7 +400,7 @@ Array GDPlayerSourceLawData::get_available_skills() const {
     for (const auto* skill : skills) {
         Dictionary dict;
         dict["id"] = skill->id;
-        dict["display_name"] = skill->display_name;
+        dict["title_key"] = skill->title_key;
         dict["required_slot"] = static_cast<int>(skill->required_slot);
         dict["required_path"] = static_cast<int>(skill->required_path);
         dict["min_organ_level"] = skill->min_organ_level;

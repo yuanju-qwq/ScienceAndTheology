@@ -92,7 +92,10 @@ func save_universe(save_dir: String) -> bool:
 	# 4. Save universe metadata (JSON, for debugging).
 	_save_universe_meta(save_dir)
 
-	# 5. Save any planet summaries for unloaded planets (binary).
+	# 5. Save quest progress.
+	_save_quest_progress(save_dir)
+
+	# 6. Save any planet summaries for unloaded planets (binary).
 	_save_all_summaries(save_dir)
 
 	save_completed.emit(save_dir)
@@ -121,7 +124,10 @@ func load_universe(save_dir: String) -> bool:
 	# 3. Load universe metadata (JSON).
 	_load_universe_meta(save_dir)
 
-	# 4. Load any saved summaries for virtual simulation (binary).
+	# 4. Load quest progress.
+	_load_quest_progress(save_dir)
+
+	# 5. Load any saved summaries for virtual simulation (binary).
 	_load_all_summaries(save_dir)
 
 	load_completed.emit(save_dir)
@@ -378,3 +384,49 @@ func delete_planet_save(save_dir: String, dimension_id: StringName) -> bool:
 		return true
 
 	return DirAccess.remove_absolute(planet_path) == OK
+
+
+# --- Quest progress persistence ---
+
+# Save quest progress to the save directory.
+# Quest data is stored at {save_dir}/quest_progress.bin.
+func _save_quest_progress(save_dir: String) -> void:
+	var quest_sys := _universe_manager._quest_system if _universe_manager else null
+	if quest_sys == null:
+		return
+
+	var data: PackedByteArray = quest_sys.serialize()
+	if data.is_empty():
+		return
+
+	var path := save_dir + "/quest_progress.bin"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		push_warning("UniverseSaveManager: failed to write quest progress")
+		return
+	file.store_buffer(data)
+	file.close()
+
+
+# Load quest progress from the save directory.
+func _load_quest_progress(save_dir: String) -> void:
+	var quest_sys := _universe_manager._quest_system if _universe_manager else null
+	if quest_sys == null:
+		return
+
+	var path := save_dir + "/quest_progress.bin"
+	if not FileAccess.file_exists(path):
+		return
+
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return
+
+	var data: PackedByteArray = file.get_buffer(file.get_length())
+	file.close()
+
+	if data.is_empty():
+		return
+
+	if not quest_sys.deserialize(data):
+		push_warning("UniverseSaveManager: failed to deserialize quest progress")

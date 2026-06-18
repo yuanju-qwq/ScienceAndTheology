@@ -391,7 +391,7 @@ void ChunkSerializer::write_mechanism(
     write_int32(buf, mechanism.cell_x);
     write_int32(buf, mechanism.cell_y);
     write_int32(buf, mechanism.cell_z);
-    write_string(buf, mechanism.display_name);
+    write_string(buf, mechanism.title_key);
     write_string(buf, mechanism.action_label);
     write_string(buf, mechanism.flag_name);
     write_uint8(buf, static_cast<uint8_t>(mechanism.activation_mode));
@@ -413,7 +413,7 @@ bool ChunkSerializer::read_mechanism(
     if (!read_int32(data, offset, mechanism.cell_x)) return false;
     if (!read_int32(data, offset, mechanism.cell_y)) return false;
     if (!read_int32(data, offset, mechanism.cell_z)) return false;
-    if (!read_string(data, offset, mechanism.display_name)) return false;
+    if (!read_string(data, offset, mechanism.title_key)) return false;
     if (!read_string(data, offset, mechanism.action_label)) return false;
     if (!read_string(data, offset, mechanism.flag_name)) return false;
 

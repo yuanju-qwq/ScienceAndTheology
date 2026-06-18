@@ -23,7 +23,7 @@ class IStorage {
 public:
     virtual ~IStorage() = default;
 
-    virtual std::string display_name() const = 0;
+    virtual std::string title_key() const = 0;
 
     virtual int64_t available(const ResourceId& key) const = 0;
     virtual int64_t insert(const ResourceId& key, int64_t amount) = 0;
@@ -49,7 +49,7 @@ public:
     StorageCell(int64_t byte_capacity, int max_types,
                 int64_t bytes_per_type = 8);
 
-    std::string display_name() const override;
+    std::string title_key() const override;
 
     // --- Query ---
 
@@ -110,7 +110,7 @@ public:
                     InsertCallback put,
                     TypesCallback types);
 
-    std::string display_name() const override { return label_; }
+    std::string title_key() const override { return label_; }
 
     int64_t available(const ResourceId& key) const override;
     int64_t insert(const ResourceId& key, int64_t amount) override;

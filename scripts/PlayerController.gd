@@ -49,6 +49,8 @@ var fly_speed := 20.0
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
 @export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
 @export var probe_panel_path: NodePath = ^"../UI/ProbePanel"
+@export var quest_ui_path: NodePath = ^"../UI/QuestBookUI"
+@export var quest_system_path: NodePath = ^"../GDQuestSystem"
 @export var head_path: NodePath = ^"Head"
 @export var camera_path: NodePath = ^"Head/Camera3D"
 @export var selection_path: NodePath = ^"../SelectionBox"
@@ -74,6 +76,8 @@ var selected_hotbar := 0
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
 @onready var probe_panel: ProbePanel = get_node_or_null(probe_panel_path) as ProbePanel
+@onready var quest_ui: QuestBookUI = get_node_or_null(quest_ui_path) as QuestBookUI
+@onready var quest_system: Node = get_node_or_null(quest_system_path)
 @onready var head: Node3D = get_node_or_null(head_path) as Node3D
 @onready var camera: Camera3D = get_node_or_null(camera_path) as Camera3D
 @onready var selection_box: Node3D = get_node_or_null(selection_path) as Node3D
@@ -135,6 +139,7 @@ func _ready() -> void:
 	_setup_inventory()
 	_ui_connector.connect_ui()
 	_connect_console()
+	_connect_quest_system()
 	_update_camera_rotation()
 	_select_hotbar(selected_hotbar)
 	_last_cell = get_current_cell()
@@ -215,6 +220,8 @@ func _handle_key(event: InputEventKey) -> void:
 	elif key == KEY_F3:
 		if probe_panel:
 			probe_panel.toggle_mode()
+	elif key == KEY_J:
+		_ui_connector.toggle_quest_book()
 
 
 # --- Movement and physics ---
@@ -697,3 +704,67 @@ func _update_status_label() -> void:
 	else:
 		var grav_text := "g=%.2f" % _gravity_multiplier
 		label.text = "3D Surface (%s, %s)" % [grav_text, atmo_short]
+
+
+# --- Quest system ---
+
+func _connect_quest_system() -> void:
+	if quest_system == null:
+		return
+
+	# Wire inventory query for HAS_ITEM conditions.
+	var inv_callable := Callable(self, "_quest_inventory_query")
+	quest_system.on_inventory_changed(inv_callable)
+
+	# Wire inventory changed signal to re-evaluate quest conditions.
+	if not inventory_changed.is_connected(_on_quest_inventory_changed):
+		inventory_changed.connect(_on_quest_inventory_changed)
+
+	# Wire crafting signal.
+	if crafting_ui and not crafting_ui.crafted.is_connected(_on_quest_item_crafted):
+		crafting_ui.crafted.connect(_on_quest_item_crafted)
+
+	# Wire mining signal via PlayerInteraction.
+	if _interaction and not _interaction.block_mined.is_connected(_on_quest_block_mined):
+		_interaction.block_mined.connect(_on_quest_block_mined)
+
+	# Wire machine placed signal via PlayerInteraction.
+	if _interaction and not _interaction.machine_placed.is_connected(_on_quest_machine_placed):
+		_interaction.machine_placed.connect(_on_quest_machine_placed)
+
+
+func _quest_inventory_query(item_key: String) -> int:
+	if inventory == null:
+		return 0
+	var item_id := ItemDatabase.get_item_id_by_key(item_key)
+	if item_id < 0:
+		return 0
+	return inventory.count_item(item_id)
+
+
+func _on_quest_inventory_changed() -> void:
+	if quest_system == null:
+		return
+	var inv_callable := Callable(self, "_quest_inventory_query")
+	quest_system.on_inventory_changed(inv_callable)
+
+
+func _on_quest_item_crafted(item_id: int, count: int) -> void:
+	if quest_system == null:
+		return
+	var key := ItemDatabase.get_item_key_by_id(item_id)
+	if key.is_empty():
+		return
+	quest_system.on_item_crafted(key, count)
+
+
+func _on_quest_block_mined(block_key: String) -> void:
+	if quest_system == null:
+		return
+	quest_system.on_block_mined(block_key, 1)
+
+
+func _on_quest_machine_placed(machine_type: String) -> void:
+	if quest_system == null:
+		return
+	quest_system.on_machine_placed(machine_type, 1)

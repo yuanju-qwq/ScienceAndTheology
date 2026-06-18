@@ -94,7 +94,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     for (const auto& material : config.materials) {
         hash_combine(hash, material.id);
         hash_combine(hash, string_hash(material.key));
-        hash_combine(hash, string_hash(material.display_name));
+        hash_combine(hash, string_hash(material.title_key));
         hash_combine(hash, material.flags);
         hash_combine(hash, static_cast<uint64_t>(material.hardness * 1000.0f));
         hash_combine(hash, string_hash(material.required_tool_tag));
@@ -243,7 +243,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
     }
     for (const auto& species : config.tree_species) {
         hash_combine(hash, string_hash(species.species_key));
-        hash_combine(hash, string_hash(species.display_name));
+        hash_combine(hash, string_hash(species.title_key));
         hash_combine(hash, static_cast<uint64_t>((species.temperature_min + 2.0f) * 100000.0f));
         hash_combine(hash, static_cast<uint64_t>((species.temperature_max + 2.0f) * 100000.0f));
         hash_combine(hash, static_cast<uint64_t>((species.humidity_min + 2.0f) * 100000.0f));

@@ -27,7 +27,7 @@ Dictionary material_to_dict(const TerrainMaterialDef& def) {
     Dictionary d;
     d["id"] = static_cast<int>(def.id);
     d["key"] = String(def.key.c_str());
-    d["display_name"] = String(def.display_name.c_str());
+    d["title_key"] = String(def.title_key.c_str());
     d["flags"] = static_cast<int64_t>(def.flags);
     d["hardness"] = def.hardness;
     d["required_tool_tag"] = String(def.required_tool_tag.c_str());

@@ -25,7 +25,7 @@ namespace science_and_theology::source_law {
 
 struct DroppedOrganDef {
     const char* id = "";
-    const char* display_name = "";
+    const char* title_key = "";
 
     // Which body slot this organ targets when devoured.
     OrganSlot target_slot = OrganSlot::HEART;

@@ -4,6 +4,9 @@
 class_name PlayerInteraction
 extends Node
 
+signal block_mined(block_key: String)
+signal machine_placed(machine_type: String)
+
 const REACH := 6.0
 const ATTACK_REACH := 5.0
 const BASE_ATTACK_DAMAGE := 0.1
@@ -164,6 +167,12 @@ func try_mine_target(target: Dictionary) -> bool:
 		var chunk: Vector3i = target.get("chunk", Vector3i.ZERO)
 		var local: Vector3i = target.get("local", Vector3i.ZERO)
 		world.refresh_cell(target.get("dimension", OVERWORLD), chunk, local)
+
+	# Emit block_mined signal for quest system.
+	var block_key := _resolve_block_key(material)
+	if not block_key.is_empty():
+		block_mined.emit(block_key)
+
 	_player.inventory_changed.emit()
 	return true
 
@@ -215,6 +224,11 @@ func try_place_world_object(target: Dictionary) -> bool:
 	if not bool(result.get("ok", false)):
 		_debug("place rejected: %s" % str(result.get("reason", "unknown")))
 		return false
+
+	# Emit machine_placed signal for quest system.
+	var machine_type := _resolve_machine_type(held_id)
+	if not machine_type.is_empty():
+		machine_placed.emit(machine_type)
 
 	_player.inventory_changed.emit()
 	return true
@@ -336,6 +350,41 @@ func get_nearby_station() -> String:
 		var material := int(data.get("material", 0))
 		if material == world.get_workbench_material_id():
 			return "workbench"
+	return ""
+
+
+# Resolve a block key from a material ID for quest conditions.
+# Strips the "snt:" prefix from material keys for cleaner matching.
+func _resolve_block_key(material_id: int) -> String:
+	if _player == null or _player.world == null:
+		return ""
+	var world_data := _player.world.get_world_data()
+	if world_data == null:
+		return ""
+	var def: Dictionary = world_data.get_terrain_material_def(material_id)
+	var key: String = def.get("key", "")
+	if key.is_empty():
+		return str(material_id)
+	# Strip "snt:" prefix for short key matching.
+	if key.begins_with("snt:"):
+		key = key.substr(4)
+	return key
+
+
+# Resolve a machine type string from an item ID for quest conditions.
+# Uses the item key from ItemDatabase, falling back to the object type.
+func _resolve_machine_type(item_id: int) -> String:
+	var key := ItemDatabase.get_item_key_by_id(item_id)
+	if not key.is_empty():
+		return key
+	# Fallback: match hold item to object type.
+	match item_id:
+		ItemDatabase.ITEM_WORKBENCH:
+			return "workbench"
+		ItemDatabase.ITEM_FURNACE:
+			return "stone_furnace"
+		ItemDatabase.ITEM_LADDER:
+			return "ladder"
 	return ""
 
 

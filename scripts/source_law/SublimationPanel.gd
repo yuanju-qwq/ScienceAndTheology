@@ -99,7 +99,7 @@ func refresh() -> void:
 	skill_list.clear()
 	var skills: Array = source_law_data.get_available_skills()
 	for skill_dict in skills:
-		var name: String = skill_dict.get("display_name", "?")
+		var name: String = tr(skill_dict.get("title_key", "ui.unknown"))
 		var cost: int = skill_dict.get("mana_cost", 0)
 		skill_list.add_item("%s (Mana: %d)" % [name, cost])
 

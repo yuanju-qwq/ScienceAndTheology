@@ -35,8 +35,8 @@ struct TreeSpeciesDef {
     // Unique species key, e.g. "oak", "birch", "spruce".
     std::string species_key;
 
-    // Display name, e.g. "Oak", "Birch".
-    std::string display_name;
+    // Translation key, e.g. "tree.oak", "tree.birch".
+    std::string title_key;
 
     // --- Biome constraints ---
 

@@ -27,6 +27,14 @@ func connect_ui() -> void:
 		if not furnace_ui.closed.is_connected(_on_furnace_ui_closed):
 			furnace_ui.closed.connect(_on_furnace_ui_closed)
 
+	# Wire quest book UI.
+	var quest_ui: QuestBookUI = _player.quest_ui
+	var quest_sys := _player.quest_system
+	if quest_sys and quest_ui:
+		quest_ui.set_quest_system(quest_sys)
+		if not quest_ui.quest_book_closed.is_connected(_on_quest_book_closed):
+			quest_ui.quest_book_closed.connect(_on_quest_book_closed)
+
 
 func toggle_inventory() -> void:
 	var crafting_ui = _player.crafting_ui
@@ -64,6 +72,20 @@ func toggle_crafting(station: String = "") -> void:
 	_player._set_input_locked(crafting_ui.visible)
 
 
+func toggle_quest_book() -> void:
+	var quest_ui: QuestBookUI = _player.quest_ui
+	if quest_ui == null:
+		return
+	var crafting_ui = _player.crafting_ui
+	var inventory_ui = _player.inventory_ui
+	if crafting_ui and crafting_ui.visible:
+		toggle_crafting()
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui.toggle()
+	quest_ui.toggle()
+	_player._set_input_locked(quest_ui.is_open())
+
+
 func close_furnace_if_open() -> bool:
 	var furnace_ui = _player.furnace_ui
 	if furnace_ui and furnace_ui.visible:
@@ -99,10 +121,14 @@ func update_connector_prompt() -> void:
 		if mechanism_manager != null:
 			var mechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 			if mechanism != null and mechanism.requires_interaction():
-				text = "E  %s" % (mechanism.action_label if mechanism.action_label != "" else mechanism.display_name)
+				text = "E  %s" % (mechanism.action_label if mechanism.action_label != "" else tr(mechanism.title_key))
 
 	connector_prompt.visible = text != "" and not _player._input_locked
 	connector_prompt_label.text = text
+
+
+func _on_quest_book_closed() -> void:
+	_player._set_input_locked(false)
 
 
 func _on_furnace_ui_closed() -> void:

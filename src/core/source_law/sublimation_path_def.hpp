@@ -26,7 +26,7 @@ struct PathOrganStage {
 // ============================================================
 struct OrganSkillDef {
     const char* id = "";
-    const char* display_name = "";
+    const char* title_key = "";
     OrganSlot required_slot = OrganSlot::BONE;
     SublimationPath required_path = SublimationPath::SAND_ARMOR;
     int min_organ_level = 0;
@@ -51,7 +51,7 @@ struct OrganSkillDef {
 struct SublimationPathDef {
     SublimationPath path_id = SublimationPath::NONE;
     const char* id = "";
-    const char* display_name = "";
+    const char* title_key = "";
     magic::RuneElement primary_element = magic::RuneElement::EARTH;
 
     // Organ stages in this path (ordered by sublimation level).

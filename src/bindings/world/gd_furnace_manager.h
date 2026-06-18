@@ -114,6 +114,7 @@ private:
     };
 
     struct FurnaceRecipe {
+        std::string name;
         int64_t output_id = 0;
         int32_t output_count = 0;
         double time = 0.0;
@@ -133,6 +134,7 @@ private:
     std::unordered_map<int64_t, FurnaceRecipe> recipes_;
     std::unordered_set<FurnaceKey, FurnaceKeyHash> dirty_furnaces_;
     bool recipes_initialized_ = false;
+    bool missing_recipes_warned_ = false;
 };
 
 } // namespace science_and_theology
