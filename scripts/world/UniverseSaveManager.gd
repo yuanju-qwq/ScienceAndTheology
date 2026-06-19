@@ -45,6 +45,13 @@ var _world_data: GDWorldData = null
 # Cached reference to the GDTickSystem (obtained from UniverseManager).
 var _tick_system: GDTickSystem = null
 
+# Save/load diagnostics are operation based rather than per-frame. They are
+# consumed by PrototypeBaselineMonitor and only printed when explicitly enabled.
+@export var debug_save_metrics := false
+var _io_operation_count := 0
+var _io_total_usec := 0
+var _last_io_metrics: Dictionary = {}
+
 
 func _ready() -> void:
 	pass
@@ -59,13 +66,22 @@ func setup(universe_manager: UniverseManager, world_data: GDWorldData) -> void:
 	_tick_system = universe_manager.tick_system
 
 
+func get_io_metrics() -> Dictionary:
+	var result := _last_io_metrics.duplicate()
+	result["operation_count"] = _io_operation_count
+	result["total_ms"] = float(_io_total_usec) / 1000.0
+	return result
+
+
 # --- Full universe save ---
 
 # Save the entire universe: universe header + all loaded planets + summaries.
 # This is the "save game" operation.
 func save_universe(save_dir: String) -> bool:
+	var started_usec := Time.get_ticks_usec()
 	if _universe_manager == null or _world_data == null:
 		push_warning("UniverseSaveManager: not initialized, call setup() first")
+		_record_io("save_universe", started_usec, -1, false)
 		return false
 
 	# 1. Write universe header (C++ binary).
@@ -73,6 +89,7 @@ func save_universe(save_dir: String) -> bool:
 		save_dir, _world_data.get_seed(), _universe_manager.universe_mode)
 	if not ok:
 		push_warning("UniverseSaveManager: failed to write universe header")
+		_record_io("save_universe", started_usec, -1, false)
 		return false
 
 	# 2. Sync ecosystem population data to ChunkData before serialization.
@@ -99,6 +116,7 @@ func save_universe(save_dir: String) -> bool:
 	_save_all_summaries(save_dir)
 
 	save_completed.emit(save_dir)
+	_record_io("save_universe", started_usec, -1, true)
 	return true
 
 
@@ -107,14 +125,17 @@ func save_universe(save_dir: String) -> bool:
 # Load the universe: header + metadata. Does NOT load any planet chunks;
 # planets are loaded on-demand when the player approaches them.
 func load_universe(save_dir: String) -> bool:
+	var started_usec := Time.get_ticks_usec()
 	if _universe_manager == null or _world_data == null:
 		push_warning("UniverseSaveManager: not initialized, call setup() first")
+		_record_io("load_universe", started_usec, -1, false)
 		return false
 
 	# 1. Read universe header.
 	var header := GDWorldData.read_universe_header(save_dir)
 	if not header.get("ok", false):
 		push_warning("UniverseSaveManager: failed to read universe header")
+		_record_io("load_universe", started_usec, -1, false)
 		return false
 
 	# 2. Apply universe mode and seed.
@@ -131,6 +152,7 @@ func load_universe(save_dir: String) -> bool:
 	_load_all_summaries(save_dir)
 
 	load_completed.emit(save_dir)
+	_record_io("load_universe", started_usec, -1, true)
 	return true
 
 
@@ -139,7 +161,9 @@ func load_universe(save_dir: String) -> bool:
 # Save a single planet's chunk data and summary.
 # Called by UniverseManager when unloading a planet.
 func save_planet(save_dir: String, dimension_id: StringName) -> int:
+	var started_usec := Time.get_ticks_usec()
 	if _world_data == null:
+		_record_io("save_planet", started_usec, -1, false, dimension_id)
 		return -1
 
 	# Sync ecosystem population data to ChunkData before serialization.
@@ -150,6 +174,7 @@ func save_planet(save_dir: String, dimension_id: StringName) -> int:
 	if count >= 0:
 		_save_planet_summary(save_dir, dimension_id)
 		planet_save_completed.emit(dimension_id)
+	_record_io("save_planet", started_usec, count, count >= 0, dimension_id)
 
 	return count
 
@@ -159,7 +184,9 @@ func save_planet(save_dir: String, dimension_id: StringName) -> int:
 # Load a single planet's chunk data from disk.
 # Called by UniverseManager when the player approaches a planet.
 func load_planet(save_dir: String, dimension_id: StringName) -> int:
+	var started_usec := Time.get_ticks_usec()
 	if _world_data == null:
+		_record_io("load_planet", started_usec, -1, false, dimension_id)
 		return -1
 
 	var count := _world_data.load_dimension(save_dir, String(dimension_id))
@@ -168,8 +195,28 @@ func load_planet(save_dir: String, dimension_id: StringName) -> int:
 		if _tick_system != null:
 			_tick_system.restore_ecosystem_from_chunks()
 		planet_load_completed.emit(dimension_id)
+	_record_io("load_planet", started_usec, count, count >= 0, dimension_id)
 
 	return count
+
+
+func _record_io(operation: String, started_usec: int, chunk_count: int,
+		succeeded: bool, dimension_id: StringName = &"") -> void:
+	var elapsed_usec := Time.get_ticks_usec() - started_usec
+	_io_operation_count += 1
+	_io_total_usec += elapsed_usec
+	_last_io_metrics = {
+		"operation": operation,
+		"dimension_id": String(dimension_id),
+		"elapsed_ms": float(elapsed_usec) / 1000.0,
+		"chunk_count": chunk_count,
+		"succeeded": succeeded,
+	}
+	if debug_save_metrics:
+		print("UniverseSaveManager: operation=%s dimension=%s chunks=%d "
+				+ "elapsed_ms=%.2f succeeded=%s" % [
+			operation, String(dimension_id), chunk_count,
+			float(elapsed_usec) / 1000.0, str(succeeded)])
 
 
 # --- Planet summary persistence (binary via planet_data.bin) ---

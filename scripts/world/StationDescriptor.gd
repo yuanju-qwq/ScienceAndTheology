@@ -1,10 +1,10 @@
-# StationDescriptor — data class describing a player-built space station.
+# StationDescriptor — migration-only dimension prototype for a space station.
 # A space station is a flat voxel dimension (planet_radius = 0) placed at
 # a universe-space position in orbit around a parent planet.
 # Unlike planets, stations use build-aware chunk loading: only chunks
 # that contain player-placed blocks are loaded and simulated.
 #
-# Lifecycle:
+# U0 compatibility lifecycle (do not extend with new formal gameplay):
 #   1. Player uses "Station Blueprint" item → opens setup UI.
 #   2. Player confirms parameters → UniverseManager creates the station.
 #   3. A MapConnector is generated linking the player's position to the
@@ -46,7 +46,6 @@ enum StationType {
 @export var station_type: StationType = StationType.OUTPOST
 
 # Per-station seed for deterministic generation (if needed).
-@warning_ignore("shadowing")
 @export var seed: int = 0
 
 # Gravity multiplier inside the station.

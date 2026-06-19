@@ -220,17 +220,26 @@ func _update_player_universe_position() -> void:
 
 func _apply_game_session_overrides() -> void:
 	var game_session := get_node_or_null(^"/root/GameSession")
-	if game_session == null:
-		return
-	var session_mode := str(game_session.get("universe_mode"))
-	var session_seed := int(str(game_session.get("universe_seed")).to_int())
-	var session_density := float(str(game_session.get("system_density")).to_float())
-	if session_mode != "":
-		universe_mode = session_mode
-	if session_seed != 0:
-		universe_seed = session_seed
-	if session_density > 0.0:
-		system_density = session_density
+	if game_session != null:
+		var session_mode := str(game_session.get("universe_mode"))
+		var session_seed := int(str(game_session.get("universe_seed")).to_int())
+		var session_density := float(str(game_session.get("system_density")).to_float())
+		var session_save_path := str(game_session.get("save_path"))
+		if session_mode != "":
+			universe_mode = session_mode
+		if session_seed != 0:
+			universe_seed = session_seed
+		if session_density > 0.0:
+			system_density = session_density
+		if session_save_path != "":
+			_save_dir = ProjectSettings.globalize_path(session_save_path)
+
+	# U0 captures use a deterministic world without affecting normal sessions.
+	if OS.get_environment("SNT_U0_BASELINE") == "1":
+		universe_mode = "solar_system"
+		var baseline_seed := OS.get_environment("SNT_U0_BASELINE_SEED")
+		universe_seed = (
+				baseline_seed.to_int() if baseline_seed.is_valid_int() else 20260619)
 
 
 # --- Universe generation ---
@@ -723,7 +732,7 @@ func _reconcile_virtual_production(dimension_id: StringName) -> void:
 # Set the save directory for per-planet chunk serialization.
 # Must be called before any planet is unloaded.
 func set_save_dir(path: String) -> void:
-	_save_dir = path
+	_save_dir = ProjectSettings.globalize_path(path)
 
 
 # Get the current save directory.
@@ -829,8 +838,9 @@ func find_nearest_planet(pos: Vector3) -> PlanetDescriptor:
 
 # --- Public API: multi-planet travel ---
 
-# 旅行到指定星球。
-# 这是多星球旅行的核心 API：切换活跃星球并将玩家传送到目标星球表面。
+# 迁移期调试传送到指定星球。
+# 该 API 切换活跃 dimension 并重定位玩家，只用于 U0 回归和调试；
+# 正式连续宇宙旅行不得依赖该入口。
 # 参数：
 #   planet          — 目标星球描述符（必须已实现，不能是恒星）。
 #   spawn_offset_y  — 玩家在目标星球表面的额外 Y 偏移（默认在地形高度上方 4 格）。
@@ -853,8 +863,8 @@ func travel_to_planet(planet: PlanetDescriptor, spawn_offset_y: float = 4.0) -> 
 				% planet.display_name)
 		return false
 
-	print("[UniverseManager] travel_to_planet: %s "
-			+ "(dim=%s, universe_pos=%s, radius=%.1f)" % [
+	print(("[UniverseManager] travel_to_planet: %s "
+			+ "(dim=%s, universe_pos=%s, radius=%.1f)") % [
 					planet.display_name, String(planet.dimension_id),
 					planet.universe_position, planet.planet_radius])
 
@@ -1139,6 +1149,26 @@ func get_virtual_simulator() -> VirtualPlanetSimulator:
 # Get the universe save manager (for external access).
 func get_save_manager() -> UniverseSaveManager:
 	return _save_manager
+
+
+# Read-only snapshot for low-frequency prototype baseline capture.
+func get_runtime_metrics() -> Dictionary:
+	return {
+		"universe_mode": universe_mode,
+		"universe_seed": universe_seed,
+		"system_count": systems.size(),
+		"realized_system_count": get_realized_system_count(),
+		"planet_count": all_planets.size(),
+		"station_count": stations.size(),
+		"loaded_planet_count": _loaded_planets.size(),
+		"loaded_station_count": _loaded_stations.size(),
+		"virtually_simulated_count": (
+				_virtual_sim.get_simulated_dimensions().size() if _virtual_sim else 0),
+		"active_planet": (
+				String(active_planet.dimension_id) if active_planet else ""),
+		"active_station": (
+				String(active_station.dimension_id) if active_station else ""),
+	}
 
 
 # --- Tick system integration ---

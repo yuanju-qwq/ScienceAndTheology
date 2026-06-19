@@ -15,8 +15,9 @@ int64_t GDPlanetLod::compute_lod_level(
         return 0;
     }
 
-    const float dist = player_position.distance_to(planet_center);
-    const float ratio = dist / planet_radius;
+    const float center_distance = player_position.distance_to(planet_center);
+    const float surface_distance = std::max(0.0f, center_distance - planet_radius);
+    const float ratio = surface_distance / planet_radius;
 
     if (ratio <= kLod0Ratio) {
         return 0;
@@ -33,11 +34,11 @@ int64_t GDPlanetLod::compute_lod_level(
 
 godot::Dictionary GDPlanetLod::compute_lod_distances(float planet_radius) {
     godot::Dictionary result;
-    result["lod0_max"] = planet_radius * kLod0Ratio;
-    result["lod1_max"] = planet_radius * kLod1Ratio;
-    result["lod2_max"] = planet_radius * kLod2Ratio;
-    result["lod3_max"] = planet_radius * kLod3Ratio;
-    result["lod4_max"] = planet_radius * kLod3Ratio * 10.0f;
+    result["lod0_max"] = planet_radius * (1.0f + kLod0Ratio);
+    result["lod1_max"] = planet_radius * (1.0f + kLod1Ratio);
+    result["lod2_max"] = planet_radius * (1.0f + kLod2Ratio);
+    result["lod3_max"] = planet_radius * (1.0f + kLod3Ratio);
+    result["lod4_max"] = planet_radius * (1.0f + kLod3Ratio * 10.0f);
     return result;
 }
 
@@ -50,8 +51,9 @@ float GDPlanetLod::compute_lod_fade_alpha(
         return 0.0f;
     }
 
-    const float dist = player_position.distance_to(planet_center);
-    const float ratio = dist / planet_radius;
+    const float center_distance = player_position.distance_to(planet_center);
+    const float surface_distance = std::max(0.0f, center_distance - planet_radius);
+    const float ratio = surface_distance / planet_radius;
 
     // Compute the band [lo, hi] for the current LOD level.
     float lo = 0.0f;

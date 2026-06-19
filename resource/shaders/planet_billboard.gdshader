@@ -7,7 +7,17 @@
 // quad edge. The planet disc radius in UV space is 1.0 / atmosphere_scale.
 shader_type spatial;
 
-render_mode cull_back, depth_draw_opaque, blend_mix, unshaded, billboard_enabled;
+render_mode cull_back, depth_draw_opaque, blend_mix, unshaded;
+
+void vertex() {
+	// Face the active camera while preserving the body's world position.
+	MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
+		INV_VIEW_MATRIX[0],
+		INV_VIEW_MATRIX[1],
+		INV_VIEW_MATRIX[2],
+		MODEL_MATRIX[3]
+	);
+}
 
 // Noise seed offset to vary the planet appearance per instance.
 uniform vec3 noise_offset = vec3(0.0);
@@ -92,8 +102,7 @@ void fragment() {
 		vec3 glow_color = atmosphere_color * atmosphere_intensity * glow;
 		ALBEDO = glow_color;
 		ALPHA = fade_alpha * glow;
-		return;
-	}
+	} else {
 
 	// --- Planet surface (inside the disc) ---
 	// Compute a fake sphere normal from the UV position.
@@ -146,4 +155,5 @@ void fragment() {
 
 	ALBEDO = color;
 	ALPHA = fade_alpha * edge_alpha;
+	}
 }

@@ -1,9 +1,16 @@
 #include "region_file.hpp"
 
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 
 namespace science_and_theology {
+
+namespace fs = std::filesystem;
+
+static fs::path utf8_path(const std::string& path) {
+    return fs::u8path(path);
+}
 
 static void write_uint8(std::ofstream& file, uint8_t value) {
     file.write(reinterpret_cast<const char*>(&value), sizeof(value));
@@ -59,7 +66,7 @@ bool RegionFile::write(const std::string& file_path,
     if (chunks.size() > static_cast<size_t>(kRegionSize * kRegionSize * kRegionSize))
         return false;
 
-    std::ofstream file(file_path, std::ios::binary);
+    std::ofstream file(utf8_path(file_path), std::ios::binary);
     if (!file.is_open()) return false;
 
     write_uint8(file, kVersion);
@@ -90,7 +97,7 @@ bool RegionFile::read(const std::string& file_path,
                       std::string& out_dimension_id,
                       int& out_region_x, int& out_region_y, int& out_region_z,
                       std::vector<RegionChunkEntry>& out_chunks) {
-    std::ifstream file(file_path, std::ios::binary);
+    std::ifstream file(utf8_path(file_path), std::ios::binary);
     if (!file.is_open()) return false;
 
     uint8_t version;
@@ -162,7 +169,7 @@ std::string RegionFile::region_file_name(const std::string& dimension_id,
 }
 
 uint8_t RegionFile::peek_version(const std::string& file_path) {
-    std::ifstream file(file_path, std::ios::binary);
+    std::ifstream file(utf8_path(file_path), std::ios::binary);
     if (!file.is_open()) return 0;
     uint8_t version = 0;
     file.read(reinterpret_cast<char*>(&version), sizeof(version));

@@ -683,7 +683,8 @@ var _station_setup_ui: StationSetupUI = null
 var _cached_blueprint_slot: int = -1
 
 
-# Try to use the Station Blueprint item from the player's main hand.
+# Migration-only connector station prototype. U5 replaces this flow with a
+# SpaceStation Sector; new formal station gameplay must not depend on it.
 # Opens the station setup UI. Returns true if the blueprint was used.
 func try_use_station_blueprint() -> bool:
 	var equipment: GDPlayerEquipment = _player.equipment

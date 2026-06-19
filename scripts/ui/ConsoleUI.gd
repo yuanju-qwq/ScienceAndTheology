@@ -139,7 +139,8 @@ func _register_default_commands() -> void:
 	register_command("help", _cmd_help, "List available commands")
 	register_command("speed", _cmd_speed, "Set fly speed (default 20, usage: /speed 40)")
 	register_command("planets", _cmd_planets, "List all travelable planets with distances")
-	register_command("travel", _cmd_travel, "Travel to a planet by name (usage: /travel Mars)")
+	register_command("travel", _cmd_travel,
+			"Debug teleport for dimension prototype (usage: /travel Mars)")
 	register_command("universe", _cmd_universe, "Show player's current universe position")
 
 
@@ -269,7 +270,7 @@ func _cmd_planets(_args: String) -> void:
 			planet.gravity_multiplier, dist, marker])
 
 
-# /travel <name> — 旅行到指定星球。
+# /travel <name> — 迁移期调试传送，不代表连续宇宙旅行。
 func _cmd_travel(args: String) -> void:
 	if _player == null:
 		print_line("[color=red]No player reference[/color]")
@@ -281,7 +282,8 @@ func _cmd_travel(args: String) -> void:
 		print_line("Use /planets to list available destinations")
 		return
 
-	print_line("[color=gray]Traveling to '%s'...[/color]" % target_name)
+	print_line("[color=yellow]Debug teleport: switching prototype dimension to '%s'...[/color]"
+			% target_name)
 	var ok := _player.travel_to_planet_by_name(target_name)
 	if ok:
 		print_line("[color=cyan]Travel complete — now on %s[/color]" % target_name)

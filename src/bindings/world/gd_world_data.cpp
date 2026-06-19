@@ -1,6 +1,7 @@
 #include "gd_world_data.h"
 
 #include <algorithm>
+#include <exception>
 
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/core/binder_common.hpp>
@@ -1025,7 +1026,20 @@ int64_t GDWorldData::save_dimension(const godot::String& save_dir,
 
     // Use the per-dimension save API which writes to a planet subdirectory.
     std::string pdir = SaveManager::planet_dir(dir_str, dim_str);
-    int count = SaveManager::save_dimension(pdir, seed_, dim_str, world_);
+    int count = -1;
+    try {
+        count = SaveManager::save_dimension(pdir, seed_, dim_str, world_);
+    } catch (const std::exception& error) {
+        UtilityFunctions::push_error(
+            "GDWorldData: save_dimension exception for '", dimension_id,
+            "': ", error.what());
+        return -1;
+    } catch (...) {
+        UtilityFunctions::push_error(
+            "GDWorldData: save_dimension unknown exception for '",
+            dimension_id, "'.");
+        return -1;
+    }
     if (count < 0) {
         UtilityFunctions::push_warning(
             "GDWorldData: save_dimension failed for dimension: ", dimension_id);
@@ -1041,7 +1055,21 @@ int64_t GDWorldData::load_dimension(const godot::String& save_dir,
     // Use the per-dimension load API which reads from a planet subdirectory.
     std::string pdir = SaveManager::planet_dir(dir_str, dim_str);
     int legacy_skipped = 0;
-    int count = SaveManager::load_dimension(pdir, dim_str, world_, &legacy_skipped);
+    int count = -1;
+    try {
+        count = SaveManager::load_dimension(
+            pdir, dim_str, world_, &legacy_skipped);
+    } catch (const std::exception& error) {
+        UtilityFunctions::push_error(
+            "GDWorldData: load_dimension exception for '", dimension_id,
+            "': ", error.what());
+        return -1;
+    } catch (...) {
+        UtilityFunctions::push_error(
+            "GDWorldData: load_dimension unknown exception for '",
+            dimension_id, "'.");
+        return -1;
+    }
     if (count < 0) {
         UtilityFunctions::push_warning(
             "GDWorldData: load_dimension failed for dimension: ", dimension_id);

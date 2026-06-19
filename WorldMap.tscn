@@ -1,4 +1,4 @@
-[gd_scene load_steps=23 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=24 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -19,6 +19,7 @@
 [ext_resource type="Script" path="res://scripts/ui/QuestBookUI.gd" id="20_quest_book_ui"]
 [ext_resource type="Script" path="res://scripts/world/DayNightCycle.gd" id="18_day_night_cycle"]
 [ext_resource type="Script" path="res://scripts/ui/ProbePanel.gd" id="19_probe_panel"]
+[ext_resource type="Script" path="res://scripts/world/PrototypeBaselineMonitor.gd" id="21_baseline_monitor"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -90,6 +91,9 @@ universe_seed = 0
 player_node_path = NodePath("../Player")
 chunk_renderer_bridge_path = NodePath("../ChunkRendererBridge")
 tick_system_path = NodePath("../GDTickSystem")
+
+[node name="PrototypeBaselineMonitor" type="Node" parent="."]
+script = ExtResource("21_baseline_monitor")
 
 [node name="GDTickSystem" type="GDTickSystem" parent="."]
 

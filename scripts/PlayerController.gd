@@ -58,7 +58,7 @@ var fly_speed := 20.0
 @export var head_path: NodePath = ^"Head"
 @export var camera_path: NodePath = ^"Head/Camera3D"
 @export var selection_path: NodePath = ^"../SelectionBox"
-@export var debuginteractions := true
+@export var debug_interactions := false
 @export var debug_interval := 0.7
 @export var give_debug_starting_items := true
 
@@ -118,7 +118,7 @@ var gravity_direction := Vector3.DOWN
 var planet_center := Vector3.ZERO
 
 # Per-planet gravity multiplier (1.0 = Earth-like, 0.38 = Mars-like).
-# Updated each frame by _updategravity_direction().
+# Updated each frame by _update_gravity_direction().
 var _gravity_multiplier := 1.0
 
 # --- Atmosphere hazard system ---
@@ -130,7 +130,7 @@ const _DEFAULT_CORROSIVE_DAMAGE_PER_SEC := 8.0
 const _DEFAULT_VACUUM_DAMAGE_PER_SEC := 3.0
 
 # Cached reference to the active planet descriptor.
-# Updated each frame by _updategravity_direction().
+# Updated each frame by _update_gravity_direction().
 var _active_planet: PlanetDescriptor = null
 
 # Current atmosphere type at the player's position.
@@ -153,7 +153,7 @@ func _ready() -> void:
 	_ui_connector.setup(self)
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_connectuniverse_manager()
+	_connect_universe_manager()
 	_setup_inventory()
 	_ui_connector.connect_ui()
 	_connect_console()
@@ -162,7 +162,7 @@ func _ready() -> void:
 	_update_camera_rotation()
 	_select_hotbar(selected_hotbar)
 	last_cell = get_current_cell()
-	_updategravity_direction()
+	_update_gravity_direction()
 	_create_loading_overlay()
 
 
@@ -189,7 +189,7 @@ func _create_loading_overlay() -> void:
 
 func _physics_process(delta: float) -> void:
 	interaction.process_cooldown(delta)
-	_updategravity_direction()
+	_update_gravity_direction()
 	_update_atmosphere_hazard(delta)
 	_update_target()
 	if _spawn_freeze:
@@ -259,9 +259,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 			# Try creature attack first; fall back to block mining.
 			if not interaction.try_attack_creature():
-				interaction.try_mine_target(_target)
+				interaction.try_mine_target(target)
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
-			interaction.try_place_or_interact(_target)
+			interaction.try_place_or_interact(target)
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_select_hotbar((selected_hotbar - 1 + 9) % 9)
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
@@ -292,11 +292,11 @@ func _handle_key(event: InputEventKey) -> void:
 			return
 		if wiki_ui and wiki_ui.visible:
 			wiki_ui.toggle()
-			_setinput_locked(false)
+			set_input_locked(false)
 			return
 		_ui_connector.toggle_inventory()
 	elif key == KEY_E or key == KEY_SPACE:
-		interaction.try_place_or_interact(_target)
+		interaction.try_place_or_interact(target)
 	elif key == KEY_F3:
 		if probe_panel:
 			probe_panel.toggle_mode()
@@ -452,6 +452,8 @@ func _check_climbing() -> void:
 # Low-frequency debug log to diagnose spawn falling issues.
 # Prints player position, gravity, velocity, and chunk readiness once per second.
 func _maybe_debug_spawn_fall(delta: float) -> void:
+	if not debug_interactions:
+		return
 	_spawn_debug_time += delta
 	if _spawn_debug_time < 1.0:
 		return
@@ -501,7 +503,7 @@ func _update_spawn_freeze() -> void:
 
 # --- Gravity system (delegates math to C++ GDPlayerHelper) ---
 
-func _updategravity_direction() -> void:
+func _update_gravity_direction() -> void:
 	if not use_planet_gravity or world == null:
 		gravity_direction = Vector3.DOWN
 		_gravity_multiplier = 1.0
@@ -509,7 +511,7 @@ func _updategravity_direction() -> void:
 
 	# Prefer multi-planet gravity from UniverseManager.
 	if universe_manager != null:
-		gravity_direction = universe_manager.computegravity_direction(global_position)
+		gravity_direction = universe_manager.compute_gravity_direction(global_position)
 		_gravity_multiplier = universe_manager.compute_gravity_multiplier(global_position)
 		# Cache the active planet descriptor for atmosphere hazard lookups.
 		_active_planet = universe_manager.active_planet
@@ -528,8 +530,8 @@ func _updategravity_direction() -> void:
 		_gravity_multiplier = 1.0
 		return
 
-	planet_center = _getplanet_center_from_config(world_data_node.worldgen_config)
-	gravity_direction = GDPlayerHelper.computegravity_direction(
+	planet_center = _get_planet_center_from_config(world_data_node.worldgen_config)
+	gravity_direction = GDPlayerHelper.compute_gravity_direction(
 		global_position, planet_center, planet_gravity_radius, use_planet_gravity)
 
 	# Single-planet fallback: derive multiplier from active planet descriptor.
@@ -542,7 +544,7 @@ func _updategravity_direction() -> void:
 		gravity_direction = Vector3.ZERO
 
 
-func _getplanet_center_from_config(_config: Resource) -> Vector3:
+func _get_planet_center_from_config(_config: Resource) -> Vector3:
 	# TODO: Expose planet_center through GDWorldGenConfig API.
 	return Vector3(0.0, -512.0, 0.0)
 
@@ -655,7 +657,7 @@ func _update_camera_rotation() -> void:
 
 
 func _update_target() -> void:
-	_target.clear()
+	target.clear()
 	if camera == null or world == null:
 		_set_selection_visible(false)
 		if probe_panel:
@@ -694,10 +696,10 @@ func _update_target() -> void:
 			probe_panel.clear_target()
 		return
 
-	_target = info
-	_target["normal"] = normal
-	_target["place_cell"] = world.world_position_to_cell(hit_position + normal * 0.55)
-	_target["position"] = hit_position
+	target = info
+	target["normal"] = normal
+	target["place_cell"] = world.world_position_to_cell(hit_position + normal * 0.55)
+	target["position"] = hit_position
 	_set_selection_visible(true)
 	if selection_box:
 		selection_box.global_position = world.cell_to_world_position(cell)
@@ -768,7 +770,7 @@ func get_selected_hotbar() -> int:
 	return selected_hotbar
 
 
-func setinput_locked(is_locked: bool) -> void:
+func set_input_locked(is_locked: bool) -> void:
 	input_locked = is_locked
 	if is_locked:
 		velocity = Vector3.ZERO
@@ -778,8 +780,8 @@ func setinput_locked(is_locked: bool) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _debuginteraction(message: String) -> void:
-	if not debuginteractions:
+func _debug_interaction(message: String) -> void:
+	if not debug_interactions:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
 	if now - last_debug_time < debug_interval:
@@ -790,7 +792,7 @@ func _debuginteraction(message: String) -> void:
 
 # --- Console integration ---
 
-func _connectuniverse_manager() -> void:
+func _connect_universe_manager() -> void:
 	universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
 
 
@@ -806,7 +808,7 @@ func travel_to_planet_by_name(planet_name: String) -> bool:
 	var ok := universe_manager.travel_to_planet_by_name(planet_name)
 	if ok:
 		# 旅行后立即刷新重力方向，避免一帧的旧重力。
-		_updategravity_direction()
+		_update_gravity_direction()
 		print("[PlayerController] traveled to '%s', pos=%s dim=%s" % [
 			planet_name, global_position, String(get_current_dimension())])
 	return ok
@@ -844,11 +846,11 @@ func _connect_console() -> void:
 
 
 func _on_console_opened() -> void:
-	_setinput_locked(true)
+	set_input_locked(true)
 
 
 func _on_console_closed() -> void:
-	_setinput_locked(false)
+	set_input_locked(false)
 	_mouse_captured = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -883,14 +885,14 @@ func _open_exit_menu() -> void:
 	if quest_ui and quest_ui.is_open():
 		_ui_connector.toggle_quest_book()
 	exit_menu.open()
-	_setinput_locked(true)
+	set_input_locked(true)
 
 
 func _close_exit_menu() -> void:
 	if exit_menu == null:
 		return
 	exit_menu.close()
-	_setinput_locked(false)
+	set_input_locked(false)
 	_mouse_captured = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 

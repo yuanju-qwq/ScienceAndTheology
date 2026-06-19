@@ -62,6 +62,10 @@ var _pending_view_queue: Array[Vector3i] = []
 var _tracked_chunks: Dictionary = {}
 var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
+var _mesh_build_count := 0
+var _mesh_build_total_usec := 0
+var _mesh_build_max_usec := 0
+var _mesh_build_last_usec := 0
 var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
 # Shared block texture atlas for the active dimension.
@@ -145,6 +149,29 @@ func initialize() -> void:
 
 func get_world_data() -> GDWorldData:
 	return world_data
+
+
+# Cumulative, read-only counters used by the opt-in U0 baseline monitor.
+# Keeping the counters here avoids adding timing logs to the chunk hot path.
+func get_streaming_metrics() -> Dictionary:
+	var average_mesh_ms := 0.0
+	if _mesh_build_count > 0:
+		average_mesh_ms = (
+				float(_mesh_build_total_usec) / float(_mesh_build_count) / 1000.0)
+	return {
+		"active_dimension": String(active_dimension),
+		"visible_chunks": _visible_chunks.size(),
+		"queued_chunk_views": _pending_view_queue.size(),
+		"tracked_chunks": _tracked_chunks.size(),
+		"async_generation_pending": (
+				world_data.get_async_pending_count() if world_data else 0),
+		"chunk_requests_this_frame": _chunk_request_count_this_frame,
+		"lod_level": _current_chunk_lod,
+		"mesh_build_count": _mesh_build_count,
+		"mesh_build_average_ms": average_mesh_ms,
+		"mesh_build_last_ms": float(_mesh_build_last_usec) / 1000.0,
+		"mesh_build_max_ms": float(_mesh_build_max_usec) / 1000.0,
+	}
 
 
 # Returns true when the chunk's view (mesh + collision) has been created.
@@ -457,14 +484,17 @@ func _process_visible_queue() -> void:
 
 @warning_ignore("unsafe_call_argument")
 func _create_chunk_view(chunk: Vector3i) -> void:
+	var build_started_usec := Time.get_ticks_usec()
 	var terrain := world_data.get_chunk_terrain(active_dimension, chunk.x, chunk.y, chunk.z)
 	if terrain.is_empty():
-		print("[ChunkBridge] _create_chunk_view %s: terrain empty, skipping" % chunk)
+		if debug_chunk_streaming:
+			print("[ChunkBridge] _create_chunk_view %s: terrain empty, skipping" % chunk)
 		return
 
 	var materials: PackedByteArray = terrain.get("materials", PackedByteArray())
 	if materials.is_empty():
-		print("[ChunkBridge] _create_chunk_view %s: materials empty, skipping" % chunk)
+		if debug_chunk_streaming:
+			print("[ChunkBridge] _create_chunk_view %s: materials empty, skipping" % chunk)
 		return
 
 	var size_x := int(terrain.get("size_x", CHUNK_SIZE))
@@ -523,7 +553,13 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 		"full": full_node,
 		"simplified": simplified_node,
 	}
-	print("[ChunkBridge] chunk view created: %s (visible count=%d)" % [chunk, _visible_chunks.size()])
+	_mesh_build_last_usec = Time.get_ticks_usec() - build_started_usec
+	_mesh_build_count += 1
+	_mesh_build_total_usec += _mesh_build_last_usec
+	_mesh_build_max_usec = maxi(_mesh_build_max_usec, _mesh_build_last_usec)
+	if debug_chunk_streaming:
+		print("[ChunkBridge] chunk view created: %s (visible=%d mesh_ms=%.2f)" % [
+			chunk, _visible_chunks.size(), float(_mesh_build_last_usec) / 1000.0])
 
 
 # Create a MeshInstance3D from greedy mesh data for a single material.
@@ -644,7 +680,6 @@ func _get_material(material_id: int) -> Material:
 	var roughness: float = visual.get("roughness", 0.92) if has_visual else 0.92
 	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0)) if has_visual else Color(0, 0, 0)
 	var is_transparent: bool = visual.get("transparent", false) if has_visual else false
-	var is_cull_disabled: bool = visual.get("cull_disabled", false) if has_visual else false
 
 	# Overlay layers (first overlay only for now).
 	var overlays: Array = visual.get("overlays", []) if has_visual else []
@@ -692,9 +727,7 @@ func _get_material(material_id: int) -> Material:
 	if is_transparent or albedo.a < 1.0:
 		# ShaderMaterial transparency must be set on the material resource.
 		shader_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	# cull_disabled is already in the shader render_mode; the per-material
-	# cull_disabled flag is honoured implicitly.
-	_ = is_cull_disabled
+	# cull_disabled is already in the shader render_mode.
 
 	var material: Material = shader_mat
 	_material_cache[material_id] = material
@@ -778,10 +811,14 @@ func _maybe_log_chunk_streaming(delta: float) -> void:
 	if _debug_elapsed < debug_chunk_streaming_interval:
 		return
 	_debug_elapsed = 0.0
-	print("ChunkRendererBridge3D: visible=%d queued=%d loaded=%d async=%d lod=%d" % [
-		_visible_chunks.size(),
-		_pending_view_queue.size(),
-		_tracked_chunks.size(),
-		world_data.get_async_pending_count() if world_data else 0,
-		_current_chunk_lod,
+	var metrics := get_streaming_metrics()
+	print("ChunkRendererBridge3D: visible=%d queued=%d loaded=%d async=%d "
+			+ "lod=%d mesh_avg_ms=%.2f mesh_max_ms=%.2f" % [
+		metrics["visible_chunks"],
+		metrics["queued_chunk_views"],
+		metrics["tracked_chunks"],
+		metrics["async_generation_pending"],
+		metrics["lod_level"],
+		metrics["mesh_build_average_ms"],
+		metrics["mesh_build_max_ms"],
 	])

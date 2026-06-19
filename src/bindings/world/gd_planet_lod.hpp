@@ -23,8 +23,8 @@ public:
     GDPlanetLod() = default;
     ~GDPlanetLod() override = default;
 
-    // Compute the current LOD level (0-4) based on player distance
-    // to the planet center. Distance thresholds are derived from
+    // Compute the current LOD level (0-4) based on player altitude
+    // above the planet surface. Distance thresholds are derived from
     // planet_radius using the ratios defined in the design doc §11.2.
     static int64_t compute_lod_level(
         const godot::Vector3& player_position,
@@ -33,7 +33,7 @@ public:
 
     // Return a Dictionary with the five LOD distance thresholds.
     // Keys: "lod0_max", "lod1_max", "lod2_max", "lod3_max", "lod4_max".
-    // Values: float distances from planet center.
+    // Values: float distances from planet center (radius + altitude threshold).
     static godot::Dictionary compute_lod_distances(float planet_radius);
 
     // Compute a fade alpha [0..1] for smooth transitions between LOD levels.

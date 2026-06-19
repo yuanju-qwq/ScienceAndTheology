@@ -3,6 +3,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
+#include <stdexcept>
 #include <map>
 
 #include "chunk_serializer.hpp"
@@ -11,24 +13,40 @@ namespace fs = std::filesystem;
 
 namespace science_and_theology {
 
+namespace {
+
+fs::path utf8_path(const std::string& path) {
+    return fs::u8path(path);
+}
+
+std::string path_to_utf8(const fs::path& path) {
+    const auto encoded = path.u8string();
+    return std::string(
+        reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+} // namespace
+
 std::vector<std::string> SaveManager::list_saves(
     const std::string& base_saves_dir) {
     std::vector<std::string> result;
 
-    if (!fs::exists(base_saves_dir) || !fs::is_directory(base_saves_dir)) {
+    const fs::path saves_path = utf8_path(base_saves_dir);
+    if (!fs::exists(saves_path) || !fs::is_directory(saves_path)) {
         return result;
     }
 
-    for (const auto& entry : fs::directory_iterator(base_saves_dir)) {
+    for (const auto& entry : fs::directory_iterator(saves_path)) {
         if (!entry.is_directory()) {
             continue;
         }
 
-        std::string save_path = entry.path().string();
+        std::string save_path = path_to_utf8(entry.path());
         std::string header_path = save_path + "/universe_header.bin";
 
-        if (fs::exists(header_path) && fs::is_regular_file(header_path)) {
-            result.push_back(entry.path().filename().string());
+        if (fs::exists(utf8_path(header_path)) &&
+            fs::is_regular_file(utf8_path(header_path))) {
+            result.push_back(path_to_utf8(entry.path().filename()));
         }
     }
 
@@ -36,12 +54,13 @@ std::vector<std::string> SaveManager::list_saves(
 }
 
 bool SaveManager::ensure_directory(const std::string& path) {
-    if (fs::exists(path)) {
-        return fs::is_directory(path);
+    const fs::path directory = utf8_path(path);
+    if (fs::exists(directory)) {
+        return fs::is_directory(directory);
     }
 
     std::error_code ec;
-    bool created = fs::create_directories(path, ec);
+    bool created = fs::create_directories(directory, ec);
     return created && !ec;
 }
 
@@ -61,56 +80,89 @@ int SaveManager::save_dimension(const std::string& planet_dir,
     }
 
     // Write planet_data.bin header (no summary during save_dimension).
-    if (!write_planet_data(planet_dir, seed, dimension_id, nullptr)) {
-        return -1;
+    try {
+        if (!write_planet_data(planet_dir, seed, dimension_id, nullptr)) {
+            return -1;
+        }
+    } catch (...) {
+        throw std::runtime_error(
+            "unknown exception while writing planet_data.bin");
     }
 
     // Group chunks for this dimension by region.
     std::map<std::string, std::vector<RegionChunkEntry>> region_chunks;
     std::map<std::string, std::tuple<int, int, int, std::string>> region_meta;
 
-    for (const auto& key : world.all_chunk_keys()) {
-        if (key.dimension_id != dimension_id) {
-            continue;
+    try {
+        for (const auto& key : world.all_chunk_keys()) {
+            if (key.dimension_id != dimension_id) {
+                continue;
+            }
+
+            const ChunkData* chunk = world.get_chunk(
+                key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+            if (chunk == nullptr) {
+                continue;
+            }
+
+            int rx = RegionFile::to_region(key.chunk_x);
+            int ry = RegionFile::to_region(key.chunk_y);
+            int rz = RegionFile::to_region(key.chunk_z);
+
+            std::string file_name = RegionFile::region_file_name(
+                key.dimension_id, rx, ry, rz);
+
+            std::vector<uint8_t> data;
+            try {
+                data = ChunkSerializer::serialize(key.dimension_id, *chunk);
+            } catch (const std::exception& error) {
+                std::ostringstream message;
+                message << "chunk serialization failed at " << key.dimension_id
+                        << " (" << key.chunk_x << "," << key.chunk_y << ","
+                        << key.chunk_z << "): " << error.what();
+                throw std::runtime_error(message.str());
+            } catch (...) {
+                std::ostringstream message;
+                message << "chunk serialization raised an unknown exception at "
+                        << key.dimension_id << " (" << key.chunk_x << ","
+                        << key.chunk_y << "," << key.chunk_z << ")";
+                throw std::runtime_error(message.str());
+            }
+
+            RegionChunkEntry entry;
+            entry.local_x = static_cast<uint8_t>(RegionFile::to_local(key.chunk_x));
+            entry.local_y = static_cast<uint8_t>(RegionFile::to_local(key.chunk_y));
+            entry.local_z = static_cast<uint8_t>(RegionFile::to_local(key.chunk_z));
+            entry.data = std::move(data);
+
+            region_chunks[file_name].push_back(std::move(entry));
+            region_meta[file_name] = std::make_tuple(rx, ry, rz, key.dimension_id);
         }
-
-        const ChunkData* chunk = world.get_chunk(
-            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
-        if (chunk == nullptr) {
-            continue;
-        }
-
-        int rx = RegionFile::to_region(key.chunk_x);
-        int ry = RegionFile::to_region(key.chunk_y);
-        int rz = RegionFile::to_region(key.chunk_z);
-
-        std::string file_name = RegionFile::region_file_name(
-            key.dimension_id, rx, ry, rz);
-
-        std::vector<uint8_t> data = ChunkSerializer::serialize(
-            key.dimension_id, *chunk);
-
-        RegionChunkEntry entry;
-        entry.local_x = static_cast<uint8_t>(RegionFile::to_local(key.chunk_x));
-        entry.local_y = static_cast<uint8_t>(RegionFile::to_local(key.chunk_y));
-        entry.local_z = static_cast<uint8_t>(RegionFile::to_local(key.chunk_z));
-        entry.data = std::move(data);
-
-        region_chunks[file_name].push_back(std::move(entry));
-        region_meta[file_name] = std::make_tuple(rx, ry, rz, key.dimension_id);
+    } catch (const std::exception&) {
+        throw;
+    } catch (...) {
+        throw std::runtime_error(
+            "unknown exception while grouping chunks into regions");
     }
 
     // Write each region file.
     int saved_count = 0;
-    for (auto& [file_name, chunks] : region_chunks) {
-        auto& [rx, ry, rz, dim] = region_meta[file_name];
-        std::string file_path = regions_dir + "/" + file_name;
+    try {
+        for (auto& [file_name, chunks] : region_chunks) {
+            auto& [rx, ry, rz, dim] = region_meta[file_name];
+            std::string file_path = regions_dir + "/" + file_name;
 
-        if (!RegionFile::write(file_path, rx, ry, rz, dim, chunks)) {
-            return -1;
+            if (!RegionFile::write(file_path, rx, ry, rz, dim, chunks)) {
+                return -1;
+            }
+
+            saved_count += static_cast<int>(chunks.size());
         }
-
-        saved_count += static_cast<int>(chunks.size());
+    } catch (const std::exception&) {
+        throw;
+    } catch (...) {
+        throw std::runtime_error(
+            "unknown exception while writing region files");
     }
 
     return saved_count;
@@ -134,18 +186,19 @@ int SaveManager::load_dimension(const std::string& planet_dir,
     }
 
     std::string regions_dir = planet_dir + "/regions";
-    if (!fs::exists(regions_dir) || !fs::is_directory(regions_dir)) {
+    const fs::path regions_path = utf8_path(regions_dir);
+    if (!fs::exists(regions_path) || !fs::is_directory(regions_path)) {
         return 0;
     }
 
     // Load each region file in this planet's directory.
     int loaded_count = 0;
-    for (const auto& entry : fs::directory_iterator(regions_dir)) {
+    for (const auto& entry : fs::directory_iterator(regions_path)) {
         if (!entry.is_regular_file()) {
             continue;
         }
 
-        std::string file_path = entry.path().string();
+        std::string file_path = path_to_utf8(entry.path());
 
         std::string file_dimension_id;
         int region_x, region_y, region_z;
@@ -228,7 +281,7 @@ bool SaveManager::write_planet_data(const std::string& planet_dir,
     }
 
     std::string path = planet_dir + "/planet_data.bin";
-    std::ofstream file(path, std::ios::binary);
+    std::ofstream file(utf8_path(path), std::ios::binary);
     if (!file.is_open()) {
         return false;
     }
@@ -318,7 +371,7 @@ bool SaveManager::read_planet_data(const std::string& planet_dir,
                                     bool& out_has_summary) {
     std::string path = planet_dir + "/planet_data.bin";
 
-    std::ifstream file(path, std::ios::binary);
+    std::ifstream file(utf8_path(path), std::ios::binary);
     if (!file.is_open()) {
         return false;
     }
@@ -447,7 +500,7 @@ bool SaveManager::write_universe_header(const std::string& save_dir,
     }
 
     std::string header_path = save_dir + "/universe_header.bin";
-    std::ofstream file(header_path, std::ios::binary);
+    std::ofstream file(utf8_path(header_path), std::ios::binary);
     if (!file.is_open()) {
         return false;
     }
@@ -465,7 +518,7 @@ std::tuple<bool, int64_t, std::string> SaveManager::read_universe_header(
         const std::string& save_dir) {
     std::string header_path = save_dir + "/universe_header.bin";
 
-    std::ifstream file(header_path, std::ios::binary);
+    std::ifstream file(utf8_path(header_path), std::ios::binary);
     if (!file.is_open()) {
         return {false, 0, ""};
     }
@@ -497,19 +550,22 @@ std::vector<std::string> SaveManager::list_planets(
     std::vector<std::string> result;
 
     std::string planets_dir = save_dir + "/planets";
-    if (!fs::exists(planets_dir) || !fs::is_directory(planets_dir)) {
+    const fs::path planets_path = utf8_path(planets_dir);
+    if (!fs::exists(planets_path) || !fs::is_directory(planets_path)) {
         return result;
     }
 
-    for (const auto& entry : fs::directory_iterator(planets_dir)) {
+    for (const auto& entry : fs::directory_iterator(planets_path)) {
         if (!entry.is_directory()) {
             continue;
         }
 
         // Only accept planet_data.bin (v2 format).
-        std::string data_path = entry.path().string() + "/planet_data.bin";
-        if (fs::exists(data_path) && fs::is_regular_file(data_path)) {
-            result.push_back(entry.path().filename().string());
+        std::string data_path =
+            path_to_utf8(entry.path()) + "/planet_data.bin";
+        if (fs::exists(utf8_path(data_path)) &&
+            fs::is_regular_file(utf8_path(data_path))) {
+            result.push_back(path_to_utf8(entry.path().filename()));
         }
     }
 
