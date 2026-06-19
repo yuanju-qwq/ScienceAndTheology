@@ -211,7 +211,10 @@ static func _planet_from_dict(data: Dictionary) -> PlanetDescriptor:
 	desc.star_spectral_type = int(data.get("star_spectral_type", 5))
 	desc.is_primary_star = data.get("is_primary_star", false)
 	desc.gravity_multiplier = data.get("gravity_multiplier", 1.0)
-	desc.atmosphere_type = int(data.get("atmosphere_type", PlanetDescriptor.AtmosphereType.BREATHABLE)) as PlanetDescriptor.AtmosphereType
+	desc.atmosphere_type = (
+			int(data.get("atmosphere_type",
+					PlanetDescriptor.AtmosphereType.BREATHABLE))
+			as PlanetDescriptor.AtmosphereType)
 	desc.toxic_damage_per_sec = data.get("toxic_damage_per_sec", 5.0)
 	desc.corrosive_damage_per_sec = data.get("corrosive_damage_per_sec", 8.0)
 	desc.vacuum_damage_per_sec = data.get("vacuum_damage_per_sec", 3.0)

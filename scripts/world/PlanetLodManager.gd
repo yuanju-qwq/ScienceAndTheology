@@ -204,7 +204,8 @@ func _create_lod_meshes() -> void:
 	lod2_sphere.rings = 32
 	var lod2_material := ShaderMaterial.new()
 	lod2_material.shader = PlanetSurfaceShader
-	lod2_material.set_shader_parameter("noise_offset", Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
+	lod2_material.set_shader_parameter("noise_offset",
+		Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
 	lod2_material.set_shader_parameter("sea_level", 0.35)
 	lod2_material.set_shader_parameter("snow_line", 0.85)
 	lod2_sphere.surface_set_material(0, lod2_material)
@@ -224,7 +225,8 @@ func _create_lod_meshes() -> void:
 	lod3_sphere.rings = 8
 	var lod3_material := ShaderMaterial.new()
 	lod3_material.shader = PlanetSurfaceShader
-	lod3_material.set_shader_parameter("noise_offset", Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
+	lod3_material.set_shader_parameter("noise_offset",
+		Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
 	lod3_material.set_shader_parameter("sea_level", 0.35)
 	lod3_material.set_shader_parameter("snow_line", 0.85)
 	lod3_sphere.surface_set_material(0, lod3_material)
@@ -244,10 +246,12 @@ func _create_lod_meshes() -> void:
 	billboard_quad.size = Vector2(billboard_size, billboard_size)
 	var billboard_material := ShaderMaterial.new()
 	billboard_material.shader = PlanetBillboardShader
-	billboard_material.set_shader_parameter("noise_offset", Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
+	billboard_material.set_shader_parameter("noise_offset",
+		Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
 	billboard_material.set_shader_parameter("sea_level", 0.35)
 	billboard_material.set_shader_parameter("snow_line", 0.85)
-	billboard_material.set_shader_parameter("atmosphere_color", Vector3(atmosphere_color.r, atmosphere_color.g, atmosphere_color.b))
+	billboard_material.set_shader_parameter("atmosphere_color",
+		Vector3(atmosphere_color.r, atmosphere_color.g, atmosphere_color.b))
 	billboard_material.set_shader_parameter("atmosphere_intensity", atmosphere_intensity)
 	# disc_radius = planet_radius / (planet_radius * atmosphere_scale) = 1.0 / atmosphere_scale
 	billboard_material.set_shader_parameter("disc_radius", 1.0 / atmosphere_scale)
@@ -274,7 +278,8 @@ func _create_lod_meshes() -> void:
 	atmo_sphere.rings = 32
 	var atmo_material := ShaderMaterial.new()
 	atmo_material.shader = PlanetAtmosphereShader
-	atmo_material.set_shader_parameter("atmosphere_color", Vector3(atmosphere_color.r, atmosphere_color.g, atmosphere_color.b))
+	atmo_material.set_shader_parameter("atmosphere_color",
+		Vector3(atmosphere_color.r, atmosphere_color.g, atmosphere_color.b))
 	atmo_material.set_shader_parameter("atmosphere_power", atmosphere_power)
 	atmo_material.set_shader_parameter("atmosphere_intensity", atmosphere_intensity)
 	atmo_material.set_shader_parameter("fade_alpha", 1.0)
@@ -295,10 +300,14 @@ func _create_lod_meshes() -> void:
 	cloud_sphere.rings = 32
 	var cloud_material := ShaderMaterial.new()
 	cloud_material.shader = PlanetCloudsShader
-	cloud_material.set_shader_parameter("noise_offset", Vector3(_world_seed_float() + 100.0, _world_seed_float() + 200.0, _world_seed_float() + 300.0))
+	cloud_material.set_shader_parameter("noise_offset",
+			Vector3(_world_seed_float() + 100.0,
+					_world_seed_float() + 200.0,
+					_world_seed_float() + 300.0))
 	cloud_material.set_shader_parameter("cloud_coverage", cloud_coverage)
 	cloud_material.set_shader_parameter("cloud_sharpness", cloud_sharpness)
-	cloud_material.set_shader_parameter("cloud_color", Vector3(cloud_color.r, cloud_color.g, cloud_color.b))
+	cloud_material.set_shader_parameter("cloud_color",
+		Vector3(cloud_color.r, cloud_color.g, cloud_color.b))
 	cloud_material.set_shader_parameter("time", 0.0)
 	cloud_material.set_shader_parameter("rotation_speed", cloud_rotation_speed)
 	cloud_material.set_shader_parameter("fade_alpha", 1.0)

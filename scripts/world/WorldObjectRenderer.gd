@@ -16,8 +16,10 @@ const BuiltinBlockModelsScript := preload("res://scripts/world/block_model/Built
 @export var universe_manager_path: NodePath = ^"../UniverseManager"
 
 @onready var _world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
-@onready var _furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
-@onready var _universe_manager: UniverseManager = get_node_or_null(universe_manager_path) as UniverseManager
+@onready var _furnace_manager: FurnaceManager = \
+	get_node_or_null(furnace_manager_path) as FurnaceManager
+@onready var _universe_manager: UniverseManager = \
+	get_node_or_null(universe_manager_path) as UniverseManager
 
 var _objects: Dictionary = {}
 # model_key (StringName) -> BlockModelResource.
@@ -59,7 +61,9 @@ func _on_active_planet_changed(planet: PlanetDescriptor) -> void:
 func _sync_existing_objects() -> void:
 	if _furnace_manager != null:
 		for entry in _furnace_manager.get_all_furnaces():
-			_on_furnace_placed(StringName(entry.get("dimension", "")), entry.get("cell", Vector3i.ZERO))
+			_on_furnace_placed(
+			StringName(entry.get("dimension", "")),
+			entry.get("cell", Vector3i.ZERO))
 
 
 func _on_furnace_placed(dimension: StringName, cell: Vector3i) -> void:
@@ -80,7 +84,9 @@ func _create_object(object_type: StringName, dimension: StringName, cell: Vector
 
 	var model: BlockModelResource = _model_registry.get(object_type, null)
 	if model == null:
-		push_warning("WorldObjectRenderer: no block model registered for '%s'" % String(object_type))
+		push_warning(
+			"WorldObjectRenderer: no block model registered for '%s'" %
+			String(object_type))
 		return
 
 	var root := Node3D.new()
@@ -157,9 +163,8 @@ func _add_custom_mesh(root: Node3D, mesh_def: Dictionary) -> void:
 			if color != Color.WHITE:
 				_apply_tint(scene_root, color)
 			return
-		else:
-			push_warning("WorldObjectRenderer: failed to instantiate scene '%s'" % mesh_path)
-			return
+		push_warning("WorldObjectRenderer: failed to instantiate scene '%s'" % mesh_path)
+		return
 	else:
 		push_warning("WorldObjectRenderer: unsupported mesh resource type for '%s'" % mesh_path)
 		return

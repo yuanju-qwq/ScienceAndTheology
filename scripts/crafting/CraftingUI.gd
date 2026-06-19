@@ -17,7 +17,9 @@ var _tab_container: HBoxContainer
 var _recipe_list: VBoxContainer
 var _scroll: ScrollContainer
 
-const CATEGORY_ORDER: Array = ["materials", "tools", "parts", "wires", "cables", "circuits", "machines", "misc"]
+const CATEGORY_ORDER: Array = [
+	"materials", "tools", "parts", "wires", "cables", "circuits", "machines", "misc",
+]
 const CATEGORY_LABELS: Dictionary = {
 	materials = "Materials",
 	tools = "Tools",

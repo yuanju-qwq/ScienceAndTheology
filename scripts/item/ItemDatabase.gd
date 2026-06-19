@@ -249,13 +249,16 @@ func _register_material_items() -> void:
 			64, null, "materials/stick_icon_32.png")
 	_register(mat_item(MATERIAL_STONE, FORM_DUST), "item.stone_dust", Color(0.50, 0.50, 0.50),
 			64, null, "materials/stone_dust_icon_32.png")
-	_register(mat_item(MATERIAL_STONE, FORM_TINY_DUST), "item.stone_tiny_dust", Color(0.42, 0.42, 0.42),
+	_register(mat_item(MATERIAL_STONE, FORM_TINY_DUST),
+			"item.stone_tiny_dust", Color(0.42, 0.42, 0.42),
 			64, null, "materials/stone_tiny_dust_icon_32.png")
 	_register(mat_item(MATERIAL_COAL, FORM_GEM), "item.coal", Color(0.10, 0.10, 0.10),
 			64, null, "materials/coal_icon_32.png")
-	_register(mat_item(MATERIAL_COPPER, FORM_CRUSHED), "item.crushed_copper", Color(0.80, 0.40, 0.10),
+	_register(mat_item(MATERIAL_COPPER, FORM_CRUSHED),
+			"item.crushed_copper", Color(0.80, 0.40, 0.10),
 			64, null, "materials/crushed_copper_icon_32.png")
-	_register(mat_item(MATERIAL_IRON, FORM_CRUSHED), "item.crushed_iron", Color(0.70, 0.55, 0.45),
+	_register(mat_item(MATERIAL_IRON, FORM_CRUSHED),
+			"item.crushed_iron", Color(0.70, 0.55, 0.45),
 			64, null, "materials/crushed_iron_icon_32.png")
 	_register(mat_item(MATERIAL_COPPER, FORM_DUST), "item.copper_dust", Color(0.80, 0.50, 0.15),
 			64, null, "materials/copper_dust_icon_32.png")
@@ -263,40 +266,42 @@ func _register_material_items() -> void:
 			64, null, "materials/iron_dust_icon_32.png")
 
 	# --- Planetary rock dusts ---
-	_register(mat_item(MATERIAL_GRANITE, FORM_DUST), "item.granite_dust", Color(0.63, 0.60, 0.56),
-			64, null, "")
-	_register(mat_item(MATERIAL_GRANITE, FORM_TINY_DUST), "item.granite_tiny_dust", Color(0.53, 0.50, 0.46),
-			64, null, "")
-	_register(mat_item(MATERIAL_BASALT, FORM_DUST), "item.basalt_dust", Color(0.31, 0.31, 0.31),
-			64, null, "")
-	_register(mat_item(MATERIAL_BASALT, FORM_TINY_DUST), "item.basalt_tiny_dust", Color(0.26, 0.26, 0.26),
-			64, null, "")
-	_register(mat_item(MATERIAL_MARBLE, FORM_DUST), "item.marble_dust", Color(0.91, 0.88, 0.85),
-			64, null, "")
-	_register(mat_item(MATERIAL_MARBLE, FORM_TINY_DUST), "item.marble_tiny_dust", Color(0.81, 0.78, 0.75),
-			64, null, "")
-	_register(mat_item(MATERIAL_SANDSTONE, FORM_DUST), "item.sandstone_dust", Color(0.78, 0.66, 0.44),
-			64, null, "")
-	_register(mat_item(MATERIAL_SANDSTONE, FORM_TINY_DUST), "item.sandstone_tiny_dust", Color(0.68, 0.56, 0.34),
-			64, null, "")
-	_register(mat_item(MATERIAL_SHALE, FORM_DUST), "item.shale_dust", Color(0.35, 0.38, 0.31),
-			64, null, "")
-	_register(mat_item(MATERIAL_SHALE, FORM_TINY_DUST), "item.shale_tiny_dust", Color(0.28, 0.30, 0.24),
-			64, null, "")
-	_register(mat_item(MATERIAL_KOMATIITE, FORM_DUST), "item.komatiite_dust", Color(0.23, 0.31, 0.19),
-			64, null, "")
-	_register(mat_item(MATERIAL_KOMATIITE, FORM_TINY_DUST), "item.komatiite_tiny_dust", Color(0.18, 0.24, 0.14),
-			64, null, "")
-	_register(mat_item(MATERIAL_REGOLITH, FORM_DUST), "item.regolith_dust", Color(0.63, 0.38, 0.25),
-			64, null, "")
-	_register(mat_item(MATERIAL_REGOLITH, FORM_TINY_DUST), "item.regolith_tiny_dust", Color(0.53, 0.30, 0.18),
-			64, null, "")
-	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_DUST), "item.anorthosite_dust", Color(0.75, 0.75, 0.78),
-			64, null, "")
-	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_TINY_DUST), "item.anorthosite_tiny_dust", Color(0.65, 0.65, 0.68),
-			64, null, "")
+	_register(mat_item(MATERIAL_GRANITE, FORM_DUST),
+			"item.granite_dust", Color(0.63, 0.60, 0.56), 64, null, "")
+	_register(mat_item(MATERIAL_GRANITE, FORM_TINY_DUST),
+			"item.granite_tiny_dust", Color(0.53, 0.50, 0.46), 64, null, "")
+	_register(mat_item(MATERIAL_BASALT, FORM_DUST),
+			"item.basalt_dust", Color(0.31, 0.31, 0.31), 64, null, "")
+	_register(mat_item(MATERIAL_BASALT, FORM_TINY_DUST),
+			"item.basalt_tiny_dust", Color(0.26, 0.26, 0.26), 64, null, "")
+	_register(mat_item(MATERIAL_MARBLE, FORM_DUST),
+			"item.marble_dust", Color(0.91, 0.88, 0.85), 64, null, "")
+	_register(mat_item(MATERIAL_MARBLE, FORM_TINY_DUST),
+			"item.marble_tiny_dust", Color(0.81, 0.78, 0.75), 64, null, "")
+	_register(mat_item(MATERIAL_SANDSTONE, FORM_DUST),
+			"item.sandstone_dust", Color(0.78, 0.66, 0.44), 64, null, "")
+	_register(mat_item(MATERIAL_SANDSTONE, FORM_TINY_DUST),
+			"item.sandstone_tiny_dust", Color(0.68, 0.56, 0.34), 64, null, "")
+	_register(mat_item(MATERIAL_SHALE, FORM_DUST),
+			"item.shale_dust", Color(0.35, 0.38, 0.31), 64, null, "")
+	_register(mat_item(MATERIAL_SHALE, FORM_TINY_DUST),
+			"item.shale_tiny_dust", Color(0.28, 0.30, 0.24), 64, null, "")
+	_register(mat_item(MATERIAL_KOMATIITE, FORM_DUST),
+			"item.komatiite_dust", Color(0.23, 0.31, 0.19), 64, null, "")
+	_register(mat_item(MATERIAL_KOMATIITE, FORM_TINY_DUST),
+			"item.komatiite_tiny_dust", Color(0.18, 0.24, 0.14), 64, null, "")
+	_register(mat_item(MATERIAL_REGOLITH, FORM_DUST),
+			"item.regolith_dust", Color(0.63, 0.38, 0.25), 64, null, "")
+	_register(mat_item(MATERIAL_REGOLITH, FORM_TINY_DUST),
+			"item.regolith_tiny_dust", Color(0.53, 0.30, 0.18), 64, null, "")
+	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_DUST),
+			"item.anorthosite_dust", Color(0.75, 0.75, 0.78), 64, null, "")
+	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_TINY_DUST),
+			"item.anorthosite_tiny_dust", Color(0.65, 0.65, 0.68), 64, null, "")
 
-func _make_tool_def(tool_type: int, tier: int, mining_level: int, speed: float, durability: int, attack: float) -> ToolDef:
+func _make_tool_def(
+		tool_type: int, tier: int, mining_level: int,
+		speed: float, durability: int, attack: float) -> ToolDef:
 	var t := ToolDef.new()
 	t.tool_type = tool_type
 	t.tier = tier
@@ -307,74 +312,87 @@ func _make_tool_def(tool_type: int, tier: int, mining_level: int, speed: float, 
 	return t
 
 func _register_tool_items() -> void:
-	var PICK := ToolDef.ToolType.PICKAXE
-	var AXE := ToolDef.ToolType.AXE
-	var SHOVEL := ToolDef.ToolType.SHOVEL
-	var SWORD := ToolDef.ToolType.SWORD
-	var W := ToolDef.Tier.WOOD
-	var S := ToolDef.Tier.STONE
-	var I := ToolDef.Tier.IRON
+	var pick := ToolDef.ToolType.PICKAXE
+	var axe := ToolDef.ToolType.AXE
+	var shovel := ToolDef.ToolType.SHOVEL
+	var sword := ToolDef.ToolType.SWORD
+	var w := ToolDef.Tier.WOOD
+	var s := ToolDef.Tier.STONE
+	var i := ToolDef.Tier.IRON
 
 	var brown := Color(0.55, 0.35, 0.15)
 	var gray := Color(0.60, 0.60, 0.60)
 	var silver := Color(0.75, 0.75, 0.80)
 
 	_register(ITEM_WOODEN_PICKAXE, "wooden_pickaxe", brown, 1,
-			_make_tool_def(PICK, W, 0, 1.5, 60, 2.0), "tools/wooden_pickaxe_icon_32.png")
+			_make_tool_def(pick, w, 0, 1.5, 60, 2.0), "tools/wooden_pickaxe_icon_32.png")
 	_register(ITEM_STONE_PICKAXE, "stone_pickaxe", gray, 1,
-			_make_tool_def(PICK, S, 1, 2.0, 130, 3.0), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, s, 1, 2.0, 130, 3.0), "tools/stone_pickaxe_icon_32.png")
 	_register(ITEM_IRON_PICKAXE, "iron_pickaxe", silver, 1,
-			_make_tool_def(PICK, I, 2, 3.0, 250, 4.0), "tools/iron_pickaxe_icon_32.png")
+			_make_tool_def(pick, i, 2, 3.0, 250, 4.0), "tools/iron_pickaxe_icon_32.png")
 	_register(ITEM_WOODEN_AXE, "wooden_axe", brown, 1,
-			_make_tool_def(AXE, W, 0, 1.5, 60, 3.0), "tools/wooden_axe_icon_32.png")
+			_make_tool_def(axe, w, 0, 1.5, 60, 3.0), "tools/wooden_axe_icon_32.png")
 	_register(ITEM_STONE_AXE, "stone_axe", gray, 1,
-			_make_tool_def(AXE, S, 1, 2.0, 130, 4.0), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, s, 1, 2.0, 130, 4.0), "tools/stone_axe_icon_32.png")
 	_register(ITEM_IRON_AXE, "iron_axe", silver, 1,
-			_make_tool_def(AXE, I, 2, 3.0, 250, 5.0), "tools/iron_axe_icon_32.png")
+			_make_tool_def(axe, i, 2, 3.0, 250, 5.0), "tools/iron_axe_icon_32.png")
 	_register(ITEM_WOODEN_SHOVEL, "wooden_shovel", brown, 1,
-			_make_tool_def(SHOVEL, W, 0, 1.5, 60, 1.5), "tools/wooden_shovel_icon_32.png")
+			_make_tool_def(shovel, w, 0, 1.5, 60, 1.5), "tools/wooden_shovel_icon_32.png")
 	_register(ITEM_STONE_SHOVEL, "stone_shovel", gray, 1,
-			_make_tool_def(SHOVEL, S, 1, 2.0, 130, 2.5), "tools/stone_shovel_icon_32.png")
+			_make_tool_def(shovel, s, 1, 2.0, 130, 2.5), "tools/stone_shovel_icon_32.png")
 	_register(ITEM_IRON_SHOVEL, "iron_shovel", silver, 1,
-			_make_tool_def(SHOVEL, I, 2, 3.0, 250, 3.5), "tools/iron_shovel_icon_32.png")
+			_make_tool_def(shovel, i, 2, 3.0, 250, 3.5), "tools/iron_shovel_icon_32.png")
 	_register(ITEM_WOODEN_SWORD, "wooden_sword", brown, 1,
-			_make_tool_def(SWORD, W, 0, 1.0, 60, 4.0), "tools/wooden_sword_icon_32.png")
+			_make_tool_def(sword, w, 0, 1.0, 60, 4.0), "tools/wooden_sword_icon_32.png")
 	_register(ITEM_STONE_SWORD, "stone_sword", gray, 1,
-			_make_tool_def(SWORD, S, 1, 1.0, 130, 5.0), "tools/stone_sword_icon_32.png")
+			_make_tool_def(sword, s, 1, 1.0, 130, 5.0), "tools/stone_sword_icon_32.png")
 	_register(ITEM_IRON_SWORD, "iron_sword", silver, 1,
-			_make_tool_def(SWORD, I, 2, 1.0, 250, 6.0), "tools/iron_sword_icon_32.png")
+			_make_tool_def(sword, i, 2, 1.0, 250, 6.0), "tools/iron_sword_icon_32.png")
 
 
 func _register_component_items() -> void:
-	_register(ITEM_GT_HAMMER, "gt_hammer", Color(0.62, 0.62, 0.65), 1, null, "tools/gt_hammer_icon_32.png")
-	_register(ITEM_GT_WRENCH, "gt_wrench", Color(0.58, 0.60, 0.62), 1, null, "tools/gt_wrench_icon_32.png")
-	_register(ITEM_GT_FILE, "gt_file", Color(0.52, 0.52, 0.54), 1, null, "tools/gt_file_icon_32.png")
+	_register(ITEM_GT_HAMMER, "gt_hammer", Color(0.62, 0.62, 0.65),
+			1, null, "tools/gt_hammer_icon_32.png")
+	_register(ITEM_GT_WRENCH, "gt_wrench", Color(0.58, 0.60, 0.62),
+			1, null, "tools/gt_wrench_icon_32.png")
+	_register(ITEM_GT_FILE, "gt_file", Color(0.52, 0.52, 0.54),
+			1, null, "tools/gt_file_icon_32.png")
 	_register(ITEM_GT_SCREWDRIVER, "gt_screwdriver", Color(0.62, 0.42, 0.20),
 			1, null, "tools/gt_screwdriver_icon_32.png")
-	_register(ITEM_GT_SAW, "gt_saw", Color(0.60, 0.58, 0.54), 1, null, "tools/gt_saw_icon_32.png")
+	_register(ITEM_GT_SAW, "gt_saw", Color(0.60, 0.58, 0.54),
+			1, null, "tools/gt_saw_icon_32.png")
 	_register(ITEM_GT_WIRE_CUTTER, "gt_wire_cutter", Color(0.52, 0.54, 0.56),
 			1, null, "tools/gt_wire_cutter_icon_32.png")
-	_register(ITEM_GT_CROWBAR, "gt_crowbar", Color(0.45, 0.20, 0.15), 1, null, "tools/gt_crowbar_icon_32.png")
+	_register(ITEM_GT_CROWBAR, "gt_crowbar", Color(0.45, 0.20, 0.15),
+			1, null, "tools/gt_crowbar_icon_32.png")
 	_register(ITEM_GT_SOFT_MALLET, "gt_soft_mallet", Color(0.18, 0.18, 0.18),
 			1, null, "tools/gt_soft_mallet_icon_32.png")
 	_register(ITEM_GT_HARD_HAMMER, "gt_hard_hammer", Color(0.56, 0.56, 0.60),
 			1, null, "tools/gt_hard_hammer_icon_32.png")
 
-	_register(ITEM_MACHINE_HULL_BASIC, "machine_hull_basic", Color(0.34, 0.36, 0.38),
-			64, null, "components/basic_machine_hull_icon_32.png")
-	_register(ITEM_MACHINE_HULL_ADVANCED, "machine_hull_advanced", Color(0.30, 0.42, 0.46),
-			64, null, "components/advanced_machine_hull_icon_32.png")
-	_register(ITEM_ELECTRIC_MOTOR_LV, "electric_motor_lv", Color(0.55, 0.38, 0.20),
-			64, null, "components/lv_electric_motor_icon_32.png")
-	_register(ITEM_ELECTRIC_PISTON_LV, "electric_piston_lv", Color(0.48, 0.48, 0.50),
-			64, null, "components/lv_electric_piston_icon_32.png")
-	_register(ITEM_ROBOT_ARM_LV, "robot_arm_lv", Color(0.48, 0.42, 0.34),
-			64, null, "components/lv_robot_arm_icon_32.png")
-	_register(ITEM_CONVEYOR_MODULE_LV, "conveyor_module_lv", Color(0.22, 0.24, 0.24),
-			64, null, "components/lv_conveyor_module_icon_32.png")
-	_register(ITEM_PUMP_LV, "pump_lv", Color(0.38, 0.44, 0.46), 64, null, "components/lv_pump_icon_32.png")
-	_register(ITEM_EMPTY_FLUID_CELL, "empty_fluid_cell", Color(0.62, 0.64, 0.68),
-			64, null, "components/empty_fluid_cell_icon_32.png")
+	_register(ITEM_MACHINE_HULL_BASIC, "machine_hull_basic",
+			Color(0.34, 0.36, 0.38), 64, null,
+			"components/basic_machine_hull_icon_32.png")
+	_register(ITEM_MACHINE_HULL_ADVANCED, "machine_hull_advanced",
+			Color(0.30, 0.42, 0.46), 64, null,
+			"components/advanced_machine_hull_icon_32.png")
+	_register(ITEM_ELECTRIC_MOTOR_LV, "electric_motor_lv",
+			Color(0.55, 0.38, 0.20), 64, null,
+			"components/lv_electric_motor_icon_32.png")
+	_register(ITEM_ELECTRIC_PISTON_LV, "electric_piston_lv",
+			Color(0.48, 0.48, 0.50), 64, null,
+			"components/lv_electric_piston_icon_32.png")
+	_register(ITEM_ROBOT_ARM_LV, "robot_arm_lv",
+			Color(0.48, 0.42, 0.34), 64, null,
+			"components/lv_robot_arm_icon_32.png")
+	_register(ITEM_CONVEYOR_MODULE_LV, "conveyor_module_lv",
+			Color(0.22, 0.24, 0.24), 64, null,
+			"components/lv_conveyor_module_icon_32.png")
+	_register(ITEM_PUMP_LV, "pump_lv", Color(0.38, 0.44, 0.46),
+			64, null, "components/lv_pump_icon_32.png")
+	_register(ITEM_EMPTY_FLUID_CELL, "empty_fluid_cell",
+			Color(0.62, 0.64, 0.68), 64, null,
+			"components/empty_fluid_cell_icon_32.png")
 
 	_register(ITEM_VACUUM_TUBE, "vacuum_tube", Color(0.72, 0.45, 0.18),
 			64, null, "circuits/vacuum_tube_icon_32.png")
@@ -415,120 +433,198 @@ func _register_survival_items() -> void:
 
 func _register_tree_species_items() -> void:
 	# Oak: brown wood, green leaves.
-	_register(ITEM_OAK_LOG, "log.oak", Color(0.45, 0.27, 0.12), 64, null, "trees/log_oak_icon_64.png")
-	_register(ITEM_OAK_PLANK, "plank.oak", Color(0.60, 0.40, 0.18), 64, null, "trees/plank_oak_icon_64.png")
-	_register(ITEM_OAK_SAPLING, "sapling.oak", Color(0.30, 0.55, 0.15), 64, null, "trees/sapling_oak_icon_64.png")
+	_register(ITEM_OAK_LOG, "log.oak", Color(0.45, 0.27, 0.12),
+			64, null, "trees/log_oak_icon_64.png")
+	_register(ITEM_OAK_PLANK, "plank.oak", Color(0.60, 0.40, 0.18),
+			64, null, "trees/plank_oak_icon_64.png")
+	_register(ITEM_OAK_SAPLING, "sapling.oak", Color(0.30, 0.55, 0.15),
+			64, null, "trees/sapling_oak_icon_64.png")
 
 	# Birch: white wood, light green leaves.
-	_register(ITEM_BIRCH_LOG, "log.birch", Color(0.80, 0.78, 0.70), 64, null, "trees/log_birch_icon_64.png")
-	_register(ITEM_BIRCH_PLANK, "plank.birch", Color(0.85, 0.82, 0.72), 64, null, "trees/plank_birch_icon_64.png")
-	_register(ITEM_BIRCH_SAPLING, "sapling.birch", Color(0.35, 0.60, 0.20), 64, null, "trees/sapling_birch_icon_64.png")
+	_register(ITEM_BIRCH_LOG, "log.birch", Color(0.80, 0.78, 0.70),
+			64, null, "trees/log_birch_icon_64.png")
+	_register(ITEM_BIRCH_PLANK, "plank.birch", Color(0.85, 0.82, 0.72),
+			64, null, "trees/plank_birch_icon_64.png")
+	_register(ITEM_BIRCH_SAPLING, "sapling.birch", Color(0.35, 0.60, 0.20),
+			64, null, "trees/sapling_birch_icon_64.png")
 
 	# Spruce: dark brown wood, dark green leaves.
-	_register(ITEM_SPRUCE_LOG, "log.spruce", Color(0.35, 0.22, 0.10), 64, null, "trees/log_spruce_icon_64.png")
-	_register(ITEM_SPRUCE_PLANK, "plank.spruce", Color(0.45, 0.30, 0.15), 64, null, "trees/plank_spruce_icon_64.png")
-	_register(ITEM_SPRUCE_SAPLING, "sapling.spruce", Color(0.12, 0.35, 0.15), 64, null, "trees/sapling_spruce_icon_64.png")
+	_register(ITEM_SPRUCE_LOG, "log.spruce", Color(0.35, 0.22, 0.10),
+			64, null, "trees/log_spruce_icon_64.png")
+	_register(ITEM_SPRUCE_PLANK, "plank.spruce", Color(0.45, 0.30, 0.15),
+			64, null, "trees/plank_spruce_icon_64.png")
+	_register(ITEM_SPRUCE_SAPLING, "sapling.spruce", Color(0.12, 0.35, 0.15),
+			64, null, "trees/sapling_spruce_icon_64.png")
 
 	# Acacia: warm brown wood, olive green leaves.
-	_register(ITEM_ACACIA_LOG, "log.acacia", Color(0.55, 0.35, 0.15), 64, null, "trees/log_acacia_icon_64.png")
-	_register(ITEM_ACACIA_PLANK, "plank.acacia", Color(0.65, 0.42, 0.18), 64, null, "trees/plank_acacia_icon_64.png")
-	_register(ITEM_ACACIA_SAPLING, "sapling.acacia", Color(0.35, 0.55, 0.15), 64, null, "trees/sapling_acacia_icon_64.png")
+	_register(ITEM_ACACIA_LOG, "log.acacia", Color(0.55, 0.35, 0.15),
+			64, null, "trees/log_acacia_icon_64.png")
+	_register(ITEM_ACACIA_PLANK, "plank.acacia", Color(0.65, 0.42, 0.18),
+			64, null, "trees/plank_acacia_icon_64.png")
+	_register(ITEM_ACACIA_SAPLING, "sapling.acacia", Color(0.35, 0.55, 0.15),
+			64, null, "trees/sapling_acacia_icon_64.png")
 
 	# Maple: reddish brown wood, bright green leaves.
-	_register(ITEM_MAPLE_LOG, "log.maple", Color(0.42, 0.25, 0.10), 64, null, "trees/log_maple_icon_64.png")
-	_register(ITEM_MAPLE_PLANK, "plank.maple", Color(0.55, 0.32, 0.14), 64, null, "trees/plank_maple_icon_64.png")
-	_register(ITEM_MAPLE_SAPLING, "sapling.maple", Color(0.28, 0.52, 0.18), 64, null, "trees/sapling_maple_icon_64.png")
+	_register(ITEM_MAPLE_LOG, "log.maple", Color(0.42, 0.25, 0.10),
+			64, null, "trees/log_maple_icon_64.png")
+	_register(ITEM_MAPLE_PLANK, "plank.maple", Color(0.55, 0.32, 0.14),
+			64, null, "trees/plank_maple_icon_64.png")
+	_register(ITEM_MAPLE_SAPLING, "sapling.maple", Color(0.28, 0.52, 0.18),
+			64, null, "trees/sapling_maple_icon_64.png")
 
 	# Sequoia: deep red-brown wood, dark green leaves.
-	_register(ITEM_SEQUOIA_LOG, "log.sequoia", Color(0.40, 0.23, 0.10), 64, null, "trees/log_sequoia_icon_64.png")
-	_register(ITEM_SEQUOIA_PLANK, "plank.sequoia", Color(0.50, 0.28, 0.12), 64, null, "trees/plank_sequoia_icon_64.png")
-	_register(ITEM_SEQUOIA_SAPLING, "sapling.sequoia", Color(0.15, 0.38, 0.12), 64, null, "trees/sapling_sequoia_icon_64.png")
+	_register(ITEM_SEQUOIA_LOG, "log.sequoia", Color(0.40, 0.23, 0.10),
+			64, null, "trees/log_sequoia_icon_64.png")
+	_register(ITEM_SEQUOIA_PLANK, "plank.sequoia", Color(0.50, 0.28, 0.12),
+			64, null, "trees/plank_sequoia_icon_64.png")
+	_register(ITEM_SEQUOIA_SAPLING, "sapling.sequoia", Color(0.15, 0.38, 0.12),
+			64, null, "trees/sapling_sequoia_icon_64.png")
 
 	# Cherry: pinkish wood, pink leaves, fruit-bearing.
-	_register(ITEM_CHERRY_LOG, "log.cherry", Color(0.50, 0.28, 0.22), 64, null, "trees/log_cherry_icon_64.png")
-	_register(ITEM_CHERRY_PLANK, "plank.cherry", Color(0.60, 0.35, 0.28), 64, null, "trees/plank_cherry_icon_64.png")
-	_register(ITEM_CHERRY_SAPLING, "sapling.cherry", Color(0.65, 0.30, 0.45), 64, null, "trees/sapling_cherry_icon_64.png")
-	_register(ITEM_CHERRY_FRUIT, "fruit.cherry", Color(0.85, 0.15, 0.25), 64, null, "trees/fruit_cherry_icon_64.png")
+	_register(ITEM_CHERRY_LOG, "log.cherry", Color(0.50, 0.28, 0.22),
+			64, null, "trees/log_cherry_icon_64.png")
+	_register(ITEM_CHERRY_PLANK, "plank.cherry", Color(0.60, 0.35, 0.28),
+			64, null, "trees/plank_cherry_icon_64.png")
+	_register(ITEM_CHERRY_SAPLING, "sapling.cherry", Color(0.65, 0.30, 0.45),
+			64, null, "trees/sapling_cherry_icon_64.png")
+	_register(ITEM_CHERRY_FRUIT, "fruit.cherry", Color(0.85, 0.15, 0.25),
+			64, null, "trees/fruit_cherry_icon_64.png")
 
 	# Olive: grey-brown wood, silvery green leaves, fruit-bearing.
-	_register(ITEM_OLIVE_LOG, "log.olive", Color(0.52, 0.40, 0.22), 64, null, "trees/log_olive_icon_64.png")
-	_register(ITEM_OLIVE_PLANK, "plank.olive", Color(0.60, 0.48, 0.28), 64, null, "trees/plank_olive_icon_64.png")
-	_register(ITEM_OLIVE_SAPLING, "sapling.olive", Color(0.28, 0.42, 0.18), 64, null, "trees/sapling_olive_icon_64.png")
-	_register(ITEM_OLIVE_FRUIT, "fruit.olive", Color(0.55, 0.58, 0.20), 64, null, "trees/fruit_olive_icon_64.png")
+	_register(ITEM_OLIVE_LOG, "log.olive", Color(0.52, 0.40, 0.22),
+			64, null, "trees/log_olive_icon_64.png")
+	_register(ITEM_OLIVE_PLANK, "plank.olive", Color(0.60, 0.48, 0.28),
+			64, null, "trees/plank_olive_icon_64.png")
+	_register(ITEM_OLIVE_SAPLING, "sapling.olive", Color(0.28, 0.42, 0.18),
+			64, null, "trees/sapling_olive_icon_64.png")
+	_register(ITEM_OLIVE_FRUIT, "fruit.olive", Color(0.55, 0.58, 0.20),
+			64, null, "trees/fruit_olive_icon_64.png")
 
 
 # --- Source law creature drop items ---
 
 func _register_source_law_drops() -> void:
 	# Helper to register a drop item and map its item_key.
-	var _register_drop := func(item_id: int, item_key: String, title_key: String, color: Color, max_stack: int = 64) -> void:
+	var _register_drop := func(
+			item_id: int, item_key: String, title_key: String,
+			color: Color, max_stack: int = 64) -> void:
 		_register(item_id, title_key, color, max_stack)
 		_key_to_id[item_key] = item_id
 		_id_to_key[item_id] = item_key
 
 	# Glow Deer drops (Radiance path).
-	_register_drop.call(ITEM_GLOW_DEER_ANTLER, "snt:glow_deer_antler", "snt:glow_deer_antler", Color(0.90, 0.85, 0.60))
-	_register_drop.call(ITEM_PURIFYING_POLLEN, "snt:purifying_pollen", "snt:purifying_pollen", Color(0.70, 0.95, 0.70))
+	_register_drop.call(ITEM_GLOW_DEER_ANTLER,
+			"snt:glow_deer_antler", "snt:glow_deer_antler",
+			Color(0.90, 0.85, 0.60))
+	_register_drop.call(ITEM_PURIFYING_POLLEN,
+			"snt:purifying_pollen", "snt:purifying_pollen",
+			Color(0.70, 0.95, 0.70))
 
 	# Rock Lizard drops (Sand Armor path).
-	_register_drop.call(ITEM_ROCK_LIZARD_SCALE, "snt:rock_lizard_scale", "snt:rock_lizard_scale", Color(0.60, 0.55, 0.45))
-	_register_drop.call(ITEM_CRYSTALLIZED_BONE_POWDER, "snt:crystallized_bone_powder", "snt:crystallized_bone_powder", Color(0.85, 0.82, 0.78))
+	_register_drop.call(ITEM_ROCK_LIZARD_SCALE,
+			"snt:rock_lizard_scale", "snt:rock_lizard_scale",
+			Color(0.60, 0.55, 0.45))
+	_register_drop.call(ITEM_CRYSTALLIZED_BONE_POWDER,
+			"snt:crystallized_bone_powder",
+			"snt:crystallized_bone_powder",
+			Color(0.85, 0.82, 0.78))
 
 	# Thunderbird drops (Storm path).
-	_register_drop.call(ITEM_THUNDERBIRD_FEATHER, "snt:thunderbird_feather", "snt:thunderbird_feather", Color(0.50, 0.60, 0.90))
-	_register_drop.call(ITEM_MAGNETIC_CRYSTAL_SHARD, "snt:magnetic_crystal_shard", "snt:magnetic_crystal_shard", Color(0.40, 0.50, 0.80))
+	_register_drop.call(ITEM_THUNDERBIRD_FEATHER,
+			"snt:thunderbird_feather", "snt:thunderbird_feather",
+			Color(0.50, 0.60, 0.90))
+	_register_drop.call(ITEM_MAGNETIC_CRYSTAL_SHARD,
+			"snt:magnetic_crystal_shard",
+			"snt:magnetic_crystal_shard",
+			Color(0.40, 0.50, 0.80))
 
 	# Sea Serpent drops (Tidal path).
-	_register_drop.call(ITEM_SEA_SERPENT_SCALE, "snt:sea_serpent_scale", "snt:sea_serpent_scale", Color(0.30, 0.60, 0.70))
-	_register_drop.call(ITEM_TIDAL_GLAND, "snt:tidal_gland", "snt:tidal_gland", Color(0.25, 0.55, 0.75))
+	_register_drop.call(ITEM_SEA_SERPENT_SCALE,
+			"snt:sea_serpent_scale", "snt:sea_serpent_scale",
+			Color(0.30, 0.60, 0.70))
+	_register_drop.call(ITEM_TIDAL_GLAND,
+			"snt:tidal_gland", "snt:tidal_gland",
+			Color(0.25, 0.55, 0.75))
 
 	# Blaze Beast drops (Furnace path).
-	_register_drop.call(ITEM_BLAZING_CORE, "snt:blazing_core", "snt:blazing_core", Color(0.95, 0.50, 0.15))
-	_register_drop.call(ITEM_MOLTEN_BLOOD_SAMPLE, "snt:molten_blood_sample", "snt:molten_blood_sample", Color(0.85, 0.30, 0.10))
+	_register_drop.call(ITEM_BLAZING_CORE,
+			"snt:blazing_core", "snt:blazing_core",
+			Color(0.95, 0.50, 0.15))
+	_register_drop.call(ITEM_MOLTEN_BLOOD_SAMPLE,
+			"snt:molten_blood_sample", "snt:molten_blood_sample",
+			Color(0.85, 0.30, 0.10))
 
 	# Aether Wraith drops (Ruin guardian).
-	_register_drop.call(ITEM_AETHER_FRAGMENT, "snt:aether_fragment", "snt:aether_fragment", Color(0.70, 0.60, 0.90))
-	_register_drop.call(ITEM_BLUEPRINT_SHARD, "snt:blueprint_shard", "snt:blueprint_shard", Color(0.50, 0.70, 0.80))
+	_register_drop.call(ITEM_AETHER_FRAGMENT,
+			"snt:aether_fragment", "snt:aether_fragment",
+			Color(0.70, 0.60, 0.90))
+	_register_drop.call(ITEM_BLUEPRINT_SHARD,
+			"snt:blueprint_shard", "snt:blueprint_shard",
+			Color(0.50, 0.70, 0.80))
 
 	# Aberrant Ascended drops (High-risk enemy).
-	_register_drop.call(ITEM_ABERRANT_ORGAN, "snt:aberrant_organ", "snt:aberrant_organ", Color(0.60, 0.20, 0.50))
-	_register_drop.call(ITEM_POLLUTED_SOURCE_ESSENCE, "snt:polluted_source_essence", "snt:polluted_source_essence", Color(0.40, 0.15, 0.35))
+	_register_drop.call(ITEM_ABERRANT_ORGAN,
+			"snt:aberrant_organ", "snt:aberrant_organ",
+			Color(0.60, 0.20, 0.50))
+	_register_drop.call(ITEM_POLLUTED_SOURCE_ESSENCE,
+			"snt:polluted_source_essence",
+			"snt:polluted_source_essence",
+			Color(0.40, 0.15, 0.35))
 
 
 # --- Crop items (Tier 1 planting system) ---
 
 func _register_crop_items() -> void:
 	# Helper to register a crop item and map its item_key.
-	var _register_crop := func(item_id: int, item_key: String, title_key: String, color: Color, max_stack: int = 64) -> void:
+	var _register_crop := func(
+			item_id: int, item_key: String, title_key: String,
+			color: Color, max_stack: int = 64) -> void:
 		_register(item_id, title_key, color, max_stack)
 		_key_to_id[item_key] = item_id
 		_id_to_key[item_id] = item_key
 
 	# Wheat: seed + crop.
-	_register_crop.call(ITEM_WHEAT_SEED, "seed.wheat", "item.wheat_seed", Color(0.75, 0.65, 0.20))
-	_register_crop.call(ITEM_WHEAT_CROP, "crop.wheat", "item.wheat_crop", Color(0.85, 0.75, 0.25))
+	_register_crop.call(ITEM_WHEAT_SEED, "seed.wheat",
+			"item.wheat_seed", Color(0.75, 0.65, 0.20))
+	_register_crop.call(ITEM_WHEAT_CROP, "crop.wheat",
+			"item.wheat_crop", Color(0.85, 0.75, 0.25))
 	# Carrot: seed + crop.
-	_register_crop.call(ITEM_CARROT_SEED, "seed.carrot", "item.carrot_seed", Color(0.55, 0.35, 0.10))
-	_register_crop.call(ITEM_CARROT_CROP, "crop.carrot", "item.carrot_crop", Color(0.75, 0.45, 0.15))
+	_register_crop.call(ITEM_CARROT_SEED, "seed.carrot",
+			"item.carrot_seed", Color(0.55, 0.35, 0.10))
+	_register_crop.call(ITEM_CARROT_CROP, "crop.carrot",
+			"item.carrot_crop", Color(0.75, 0.45, 0.15))
 	# Potato: seed + crop.
-	_register_crop.call(ITEM_POTATO_SEED, "seed.potato", "item.potato_seed", Color(0.45, 0.35, 0.15))
-	_register_crop.call(ITEM_POTATO_CROP, "crop.potato", "item.potato_crop", Color(0.55, 0.45, 0.20))
+	_register_crop.call(ITEM_POTATO_SEED, "seed.potato",
+			"item.potato_seed", Color(0.45, 0.35, 0.15))
+	_register_crop.call(ITEM_POTATO_CROP, "crop.potato",
+			"item.potato_crop", Color(0.55, 0.45, 0.20))
 	# Cotton: seed + crop.
-	_register_crop.call(ITEM_COTTON_SEED, "seed.cotton", "item.cotton_seed", Color(0.60, 0.55, 0.30))
-	_register_crop.call(ITEM_COTTON_CROP, "crop.cotton", "item.cotton_crop", Color(0.92, 0.90, 0.85))
+	_register_crop.call(ITEM_COTTON_SEED, "seed.cotton",
+			"item.cotton_seed", Color(0.60, 0.55, 0.30))
+	_register_crop.call(ITEM_COTTON_CROP, "crop.cotton",
+			"item.cotton_crop", Color(0.92, 0.90, 0.85))
 	# Herb: seed + crop.
-	_register_crop.call(ITEM_HERB_SEED, "seed.herb", "item.herb_seed", Color(0.30, 0.50, 0.20))
-	_register_crop.call(ITEM_HERB_CROP, "crop.herb", "item.herb_crop", Color(0.40, 0.55, 0.25))
+	_register_crop.call(ITEM_HERB_SEED, "seed.herb",
+			"item.herb_seed", Color(0.30, 0.50, 0.20))
+	_register_crop.call(ITEM_HERB_CROP, "crop.herb",
+			"item.herb_crop", Color(0.40, 0.55, 0.25))
 	# Pumpkin: seed + crop.
-	_register_crop.call(ITEM_PUMPKIN_SEED, "seed.pumpkin", "item.pumpkin_seed", Color(0.70, 0.45, 0.10))
-	_register_crop.call(ITEM_PUMPKIN_CROP, "crop.pumpkin", "item.pumpkin_crop", Color(0.90, 0.55, 0.15))
+	_register_crop.call(ITEM_PUMPKIN_SEED, "seed.pumpkin",
+			"item.pumpkin_seed", Color(0.70, 0.45, 0.10))
+	_register_crop.call(ITEM_PUMPKIN_CROP, "crop.pumpkin",
+			"item.pumpkin_crop", Color(0.90, 0.55, 0.15))
 	# Bone meal: fertilizer (accelerates crop growth by 1 stage).
-	_register_crop.call(ITEM_BONE_MEAL, "bone_meal", "item.bone_meal", Color(0.92, 0.92, 0.88))
+	_register_crop.call(ITEM_BONE_MEAL, "bone_meal",
+			"item.bone_meal", Color(0.92, 0.92, 0.88))
 	# Processed products.
-	_register_crop.call(ITEM_FLOUR, "flour", "item.flour", Color(0.95, 0.93, 0.85))
-	_register_crop.call(ITEM_BREAD, "bread", "item.bread", Color(0.80, 0.60, 0.30))
-	_register_crop.call(ITEM_COTTON_FIBER, "fiber.cotton", "item.cotton_fiber", Color(0.90, 0.88, 0.82))
-	_register_crop.call(ITEM_CLOTH, "cloth", "item.cloth", Color(0.75, 0.70, 0.65))
+	_register_crop.call(ITEM_FLOUR, "flour",
+			"item.flour", Color(0.95, 0.93, 0.85))
+	_register_crop.call(ITEM_BREAD, "bread",
+			"item.bread", Color(0.80, 0.60, 0.30))
+	_register_crop.call(ITEM_COTTON_FIBER, "fiber.cotton",
+			"item.cotton_fiber", Color(0.90, 0.88, 0.82))
+	_register_crop.call(ITEM_CLOTH, "cloth",
+			"item.cloth", Color(0.75, 0.70, 0.65))
 
 
 # Register reverse mappings for non-material items (tools, components, etc.)

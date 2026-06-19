@@ -57,7 +57,7 @@ var fly_speed := 20.0
 @export var head_path: NodePath = ^"Head"
 @export var camera_path: NodePath = ^"Head/Camera3D"
 @export var selection_path: NodePath = ^"../SelectionBox"
-@export var debug_interactions := true
+@export var debuginteractions := true
 @export var debug_interval := 0.7
 @export var give_debug_starting_items := true
 
@@ -66,10 +66,14 @@ var equipment: GDPlayerEquipment
 var selected_hotbar := 0
 
 @onready var world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
-@onready var command_server: GameCommandServer = get_node_or_null(command_server_path) as GameCommandServer
-@onready var connector_manager: ConnectorManager = get_node_or_null(connector_manager_path) as ConnectorManager
-@onready var mechanism_manager: MechanismManager = get_node_or_null(mechanism_manager_path) as MechanismManager
-@onready var furnace_manager: FurnaceManager = get_node_or_null(furnace_manager_path) as FurnaceManager
+@onready var command_server: GameCommandServer = (
+		get_node_or_null(command_server_path) as GameCommandServer)
+@onready var connector_manager: ConnectorManager = (
+	get_node_or_null(connector_manager_path) as ConnectorManager)
+@onready var mechanism_manager: MechanismManager = (
+	get_node_or_null(mechanism_manager_path) as MechanismManager)
+@onready var furnace_manager: FurnaceManager = (
+	get_node_or_null(furnace_manager_path) as FurnaceManager)
 @onready var hotbar_ui: HotbarUI = get_node_or_null(hotbar_ui_path) as HotbarUI
 @onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
 @onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
@@ -89,30 +93,31 @@ var selected_hotbar := 0
 var exit_menu: ExitMenu = null
 
 # Sub-modules for separated concerns.
-var _interaction: PlayerInteraction
+var interaction: PlayerInteraction
 var _ui_connector: PlayerUIConnector
 
 # UniverseManager reference for multi-planet gravity.
-var _universe_manager: UniverseManager = null
+var universe_manager: UniverseManager = null
 
-var _input_locked := false
+var input_locked := false
 var _mouse_captured := true
 var _pitch := deg_to_rad(-18.0)
-var _last_cell := Vector3i.ZERO
-var _last_debug_time := -100.0
+var last_cell := Vector3i.ZERO
+var last_debug_time := -100.0
 var _spawn_debug_time := 0.0
 # Spawn freeze: keep the player immobile until the chunk it stands on has
 # its collision body built. Otherwise the player falls through the surface
 # while chunk *data* is ready but the *collider* is still queued.
 var _spawn_freeze := true
 var _spawn_freeze_logged := false
-var _target := {}
+var _loading_overlay: LoadingOverlay
+var target := {}
 var _is_climbing := false
-var _gravity_direction := Vector3.DOWN
-var _planet_center := Vector3.ZERO
+var gravity_direction := Vector3.DOWN
+var planet_center := Vector3.ZERO
 
 # Per-planet gravity multiplier (1.0 = Earth-like, 0.38 = Mars-like).
-# Updated each frame by _update_gravity_direction().
+# Updated each frame by _updategravity_direction().
 var _gravity_multiplier := 1.0
 
 # --- Atmosphere hazard system ---
@@ -124,7 +129,7 @@ const _DEFAULT_CORROSIVE_DAMAGE_PER_SEC := 8.0
 const _DEFAULT_VACUUM_DAMAGE_PER_SEC := 3.0
 
 # Cached reference to the active planet descriptor.
-# Updated each frame by _update_gravity_direction().
+# Updated each frame by _updategravity_direction().
 var _active_planet: PlanetDescriptor = null
 
 # Current atmosphere type at the player's position.
@@ -136,10 +141,10 @@ var _atmo_damage_timer := 0.0
 
 
 func _ready() -> void:
-	_interaction = PlayerInteraction.new()
-	_interaction.name = "PlayerInteraction"
-	add_child(_interaction)
-	_interaction.setup(self)
+	interaction = PlayerInteraction.new()
+	interaction.name = "PlayerInteraction"
+	add_child(interaction)
+	interaction.setup(self)
 
 	_ui_connector = PlayerUIConnector.new()
 	_ui_connector.name = "PlayerUIConnector"
@@ -147,7 +152,7 @@ func _ready() -> void:
 	_ui_connector.setup(self)
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_connect_universe_manager()
+	_connectuniverse_manager()
 	_setup_inventory()
 	_ui_connector.connect_ui()
 	_connect_console()
@@ -155,13 +160,35 @@ func _ready() -> void:
 	_setup_exit_menu()
 	_update_camera_rotation()
 	_select_hotbar(selected_hotbar)
-	_last_cell = get_current_cell()
-	_update_gravity_direction()
+	last_cell = get_current_cell()
+	_updategravity_direction()
+	_create_loading_overlay()
+
+
+func _create_loading_overlay() -> void:
+	if world == null:
+		return
+	# Build the list of initial chunks (y=0 layer, start_chunk_radius ring)
+	# to track loading progress on the overlay.
+	var radius := world.start_chunk_radius
+	var initial_chunks: Array[Vector3i] = []
+	for cz in range(-radius, radius + 1):
+		for cx in range(-radius, radius + 1):
+			initial_chunks.append(Vector3i(cx, 0, cz))
+
+	_loading_overlay = LoadingOverlay.new()
+	_loading_overlay.setup(world, initial_chunks)
+	var ui_layer := get_node_or_null(^"../UI")
+	if ui_layer != null:
+		ui_layer.add_child(_loading_overlay)
+	else:
+		add_child(_loading_overlay)
+	print("[Player] loading overlay created, tracking %d initial chunks" % initial_chunks.size())
 
 
 func _physics_process(delta: float) -> void:
-	_interaction.process_cooldown(delta)
-	_update_gravity_direction()
+	interaction.process_cooldown(delta)
+	_updategravity_direction()
 	_update_atmosphere_hazard(delta)
 	_update_target()
 	if _spawn_freeze:
@@ -173,7 +200,7 @@ func _physics_process(delta: float) -> void:
 			_maybe_debug_spawn_fall(delta)
 			return
 	_handle_movement(delta)
-	_interaction.try_auto_cell_events()
+	interaction.try_auto_cell_events()
 	_ui_connector.update_connector_prompt()
 	_update_status_label()
 	_maybe_debug_spawn_fall(delta)
@@ -185,16 +212,19 @@ func _input(event: InputEvent) -> void:
 	# Handle mouse look in _input() (called BEFORE the GUI system) so that
 	# visible Control nodes don't swallow mouse motion events before they
 	# can reach _unhandled_input().
-	if event is InputEventMouseMotion and _mouse_captured and not _input_locked:
+	if event is InputEventMouseMotion and _mouse_captured and not input_locked:
 		var motion: InputEventMouseMotion = event
 		rotate_y(-motion.relative.x * MOUSE_SENSITIVITY)
-		_pitch = clampf(_pitch - motion.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
+		_pitch = clampf(
+			_pitch - motion.relative.y * MOUSE_SENSITIVITY,
+			deg_to_rad(-82.0), deg_to_rad(76.0))
 		_update_camera_rotation()
 		get_viewport().set_input_as_handled()
 		return
 	# Click-to-capture: if mouse is free (e.g. after window focus loss),
 	# re-capture on left click instead of mining.
-	if event is InputEventMouseButton and event.pressed and not _mouse_captured and not _input_locked:
+	if event is InputEventMouseButton and event.pressed and not _mouse_captured \
+			and not input_locked:
 		var mb: InputEventMouseButton = event
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			_mouse_captured = true
@@ -214,23 +244,23 @@ func _unhandled_input(event: InputEvent) -> void:
 			if exit_menu and exit_menu.is_open():
 				_close_exit_menu()
 				return
-			if not _input_locked:
+			if not input_locked:
 				_open_exit_menu()
 				return
 
-	if event is InputEventKey and event.pressed and not event.echo and not _input_locked:
+	if event is InputEventKey and event.pressed and not event.echo and not input_locked:
 		var key_event: InputEventKey = event
 		_handle_key(key_event)
 		return
 
-	if event is InputEventMouseButton and event.pressed and not _input_locked:
+	if event is InputEventMouseButton and event.pressed and not input_locked:
 		var mouse_event: InputEventMouseButton = event
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 			# Try creature attack first; fall back to block mining.
-			if not _interaction.try_attack_creature():
-				_interaction.try_mine_target(_target)
+			if not interaction.try_attack_creature():
+				interaction.try_mine_target(_target)
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
-			_interaction.try_place_or_interact(_target)
+			interaction.try_place_or_interact(_target)
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_select_hotbar((selected_hotbar - 1 + 9) % 9)
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
@@ -245,7 +275,9 @@ func _handle_key(event: InputEventKey) -> void:
 
 	if key == KEY_TAB:
 		_mouse_captured = not _mouse_captured
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _mouse_captured else Input.MOUSE_MODE_VISIBLE
+		Input.mouse_mode = (
+			Input.MOUSE_MODE_CAPTURED if _mouse_captured
+			else Input.MOUSE_MODE_VISIBLE)
 		return
 
 	if key == KEY_C:
@@ -259,11 +291,11 @@ func _handle_key(event: InputEventKey) -> void:
 			return
 		if wiki_ui and wiki_ui.visible:
 			wiki_ui.toggle()
-			_set_input_locked(false)
+			_setinput_locked(false)
 			return
 		_ui_connector.toggle_inventory()
 	elif key == KEY_E or key == KEY_SPACE:
-		_interaction.try_place_or_interact(_target)
+		interaction.try_place_or_interact(_target)
 	elif key == KEY_F3:
 		if probe_panel:
 			probe_panel.toggle_mode()
@@ -280,10 +312,10 @@ func _handle_movement(delta: float) -> void:
 	# is inversely proportional to gravity (physically consistent).
 	var effective_jump := JUMP_VELOCITY * sqrt(_gravity_multiplier)
 
-	if _input_locked:
+	if input_locked:
 		velocity.x = move_toward(velocity.x, 0.0, move_speed)
 		velocity.z = move_toward(velocity.z, 0.0, move_speed)
-		velocity += _gravity_direction * effective_gravity * delta
+		velocity += gravity_direction * effective_gravity * delta
 		move_and_slide()
 		return
 
@@ -305,13 +337,13 @@ func _handle_movement(delta: float) -> void:
 		input_vector.y += 1.0
 
 	# Zero-G in space: no gravity, free camera-relative movement.
-	var is_zero_g := _gravity_direction == Vector3.ZERO
+	var is_zero_g := gravity_direction == Vector3.ZERO
 
 	if is_zero_g:
 		_handle_zero_g_movement(delta, input_vector)
 		return
 
-	var up := -_gravity_direction
+	var up := -gravity_direction
 	var xform_basis := global_transform.basis
 	var forward := -xform_basis.z
 	forward = (forward - up * forward.dot(up)).normalized()
@@ -321,7 +353,7 @@ func _handle_movement(delta: float) -> void:
 	var direction := (right * input_vector.x + forward * -input_vector.y).normalized()
 	var speed := move_speed * (sprint_multiplier if Input.is_key_pressed(KEY_SHIFT) else 1.0)
 
-	var vertical_vel := _gravity_direction * velocity.dot(_gravity_direction)
+	var vertical_vel := gravity_direction * velocity.dot(gravity_direction)
 	var horizontal_vel := velocity - vertical_vel
 	horizontal_vel = horizontal_vel.move_toward(direction * speed, speed * 10.0 * delta)
 	velocity = horizontal_vel + vertical_vel
@@ -329,17 +361,17 @@ func _handle_movement(delta: float) -> void:
 	if _is_climbing:
 		velocity.x *= 0.5
 		velocity.z *= 0.5
-		var climb_vel := _gravity_direction * velocity.dot(_gravity_direction)
+		var climb_vel := gravity_direction * velocity.dot(gravity_direction)
 		velocity -= climb_vel
 		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_SPACE):
-			velocity -= _gravity_direction * CLIMB_SPEED
+			velocity -= gravity_direction * CLIMB_SPEED
 		elif Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_SHIFT):
-			velocity += _gravity_direction * CLIMB_SPEED
+			velocity += gravity_direction * CLIMB_SPEED
 	elif is_on_floor():
 		if Input.is_key_pressed(KEY_SPACE):
-			velocity -= _gravity_direction * effective_jump
+			velocity -= gravity_direction * effective_jump
 	else:
-		velocity += _gravity_direction * effective_gravity * delta
+		velocity += gravity_direction * effective_gravity * delta
 
 	move_and_slide()
 	_align_body_to_gravity(delta)
@@ -433,12 +465,15 @@ func _maybe_debug_spawn_fall(delta: float) -> void:
 		var dim := world.active_dimension
 		chunk_ready = world.world_data.has_chunk(dim, cx, cy, cz)
 		chunk_visible = world.is_chunk_visible(Vector3i(cx, cy, cz))
-		chunk_str = "dim=%s chunk=(%d,%d,%d) ready=%s visible=%s" % [dim, cx, cy, cz, chunk_ready, chunk_visible]
+		chunk_str = (
+			"dim=%s chunk=(%d,%d,%d) ready=%s visible=%s"
+			% [dim, cx, cy, cz, chunk_ready, chunk_visible])
 	var ap_name := "null"
 	if _active_planet != null:
 		ap_name = _active_planet.display_name
-	print("[Player] pos=%s vel=%s grav_dir=%s grav_mult=%.2f active=%s freeze=%s | %s" % [
-		global_position, velocity, _gravity_direction, _gravity_multiplier, ap_name, _spawn_freeze, chunk_str])
+	print("[Player] pos=%s vel=%s grav_dir=%s grav_mult=%.2f active=%s freeze=%s | %s"
+		% [global_position, velocity, gravity_direction, _gravity_multiplier,
+			ap_name, _spawn_freeze, chunk_str])
 
 
 # Spawn freeze check: release the player only when the chunk it stands in
@@ -457,66 +492,69 @@ func _update_spawn_freeze() -> void:
 		_spawn_freeze = false
 		if not _spawn_freeze_logged:
 			_spawn_freeze_logged = true
-			print("[Player] spawn freeze released at %s (chunk %s visible)" % [global_position, here])
+			print("[Player] spawn freeze released at %s (chunk %s visible)"
+				% [global_position, here])
+			if _loading_overlay != null:
+				_loading_overlay.fade_out_and_free()
 
 
 # --- Gravity system (delegates math to C++ GDPlayerHelper) ---
 
-func _update_gravity_direction() -> void:
+func _updategravity_direction() -> void:
 	if not use_planet_gravity or world == null:
-		_gravity_direction = Vector3.DOWN
+		gravity_direction = Vector3.DOWN
 		_gravity_multiplier = 1.0
 		return
 
 	# Prefer multi-planet gravity from UniverseManager.
-	if _universe_manager != null:
-		_gravity_direction = _universe_manager.compute_gravity_direction(global_position)
-		_gravity_multiplier = _universe_manager.compute_gravity_multiplier(global_position)
+	if universe_manager != null:
+		gravity_direction = universe_manager.computegravity_direction(global_position)
+		_gravity_multiplier = universe_manager.compute_gravity_multiplier(global_position)
 		# Cache the active planet descriptor for atmosphere hazard lookups.
-		_active_planet = _universe_manager.active_planet
+		_active_planet = universe_manager.active_planet
 		if _active_planet != null:
 			_atmosphere_type = _active_planet.atmosphere_type
 		else:
 			_atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
 		if fly_mode:
-			_gravity_direction = Vector3.ZERO
+			gravity_direction = Vector3.ZERO
 		return
 
 	# Fallback: single-planet gravity (backward compatible).
 	var world_data_node := world.get_world_data()
 	if world_data_node == null:
-		_gravity_direction = Vector3.DOWN
+		gravity_direction = Vector3.DOWN
 		_gravity_multiplier = 1.0
 		return
 
-	_planet_center = _get_planet_center_from_config(world_data_node.worldgen_config)
-	_gravity_direction = GDPlayerHelper.compute_gravity_direction(
-		global_position, _planet_center, planet_gravity_radius, use_planet_gravity)
+	planet_center = _getplanet_center_from_config(world_data_node.worldgen_config)
+	gravity_direction = GDPlayerHelper.computegravity_direction(
+		global_position, planet_center, planet_gravity_radius, use_planet_gravity)
 
 	# Single-planet fallback: derive multiplier from active planet descriptor.
 	_gravity_multiplier = 1.0
-	if _universe_manager != null and _universe_manager.active_planet != null:
-		_gravity_multiplier = _universe_manager.active_planet.gravity_multiplier
+	if universe_manager != null and universe_manager.active_planet != null:
+		_gravity_multiplier = universe_manager.active_planet.gravity_multiplier
 
 	# In fly mode, override gravity to zero so player has full 6DoF control.
 	if fly_mode:
-		_gravity_direction = Vector3.ZERO
+		gravity_direction = Vector3.ZERO
 
 
-func _get_planet_center_from_config(_config: Resource) -> Vector3:
+func _getplanet_center_from_config(_config: Resource) -> Vector3:
 	# TODO: Expose planet_center through GDWorldGenConfig API.
 	return Vector3(0.0, -512.0, 0.0)
 
 
 func _align_body_to_gravity(delta: float) -> void:
 	# Skip alignment in zero-G (space or fly mode).
-	if _gravity_direction == Vector3.ZERO:
+	if gravity_direction == Vector3.ZERO:
 		return
 
 	if not use_planet_gravity:
 		return
 
-	var target_up := -_gravity_direction
+	var target_up := -gravity_direction
 	var new_basis := GDPlayerHelper.align_body_to_gravity(
 		global_transform.basis, target_up, 8.0, delta)
 	global_transform.basis = new_basis
@@ -536,7 +574,7 @@ func _update_atmosphere_hazard(delta: float) -> void:
 		return
 
 	# No hazard in space (zero-G, no active planet).
-	if _gravity_direction == Vector3.ZERO:
+	if gravity_direction == Vector3.ZERO:
 		return
 
 	var damage_rate := 0.0
@@ -544,11 +582,20 @@ func _update_atmosphere_hazard(delta: float) -> void:
 	match _atmosphere_type:
 		PlanetDescriptor.AtmosphereType.NONE, \
 		PlanetDescriptor.AtmosphereType.THIN:
-			damage_rate = _active_planet.vacuum_damage_per_sec if _active_planet != null else _DEFAULT_VACUUM_DAMAGE_PER_SEC
+			damage_rate = (
+				_active_planet.vacuum_damage_per_sec
+				if _active_planet != null
+				else _DEFAULT_VACUUM_DAMAGE_PER_SEC)
 		PlanetDescriptor.AtmosphereType.TOXIC:
-			damage_rate = _active_planet.toxic_damage_per_sec if _active_planet != null else _DEFAULT_TOXIC_DAMAGE_PER_SEC
+			damage_rate = (
+				_active_planet.toxic_damage_per_sec
+				if _active_planet != null
+				else _DEFAULT_TOXIC_DAMAGE_PER_SEC)
 		PlanetDescriptor.AtmosphereType.CORROSIVE:
-			damage_rate = _active_planet.corrosive_damage_per_sec if _active_planet != null else _DEFAULT_CORROSIVE_DAMAGE_PER_SEC
+			damage_rate = (
+				_active_planet.corrosive_damage_per_sec
+				if _active_planet != null
+				else _DEFAULT_CORROSIVE_DAMAGE_PER_SEC)
 		PlanetDescriptor.AtmosphereType.BREATHABLE, _:
 			damage_rate = 0.0
 
@@ -654,7 +701,9 @@ func _update_target() -> void:
 	if selection_box:
 		selection_box.global_position = world.cell_to_world_position(cell)
 	if probe_panel:
-		var mat_def: Dictionary = world.get_world_data().get_terrain_material_def(material) if world.get_world_data() else {}
+		var mat_def: Dictionary = (
+			world.get_world_data().get_terrain_material_def(material)
+			if world.get_world_data() else {})
 		var tool_def: ToolDef = _get_equipped_tool_def()
 		probe_panel.update_target(mat_def, tool_def)
 
@@ -691,8 +740,8 @@ func _select_hotbar(index: int) -> void:
 # --- Public queries ---
 
 func get_current_dimension() -> StringName:
-	if _universe_manager != null and _universe_manager.active_planet != null:
-		return _universe_manager.active_planet.dimension_id
+	if universe_manager != null and universe_manager.active_planet != null:
+		return universe_manager.active_planet.dimension_id
 	if world != null:
 		return world.active_dimension
 	return OVERWORLD
@@ -718,8 +767,8 @@ func get_selected_hotbar() -> int:
 	return selected_hotbar
 
 
-func _set_input_locked(is_locked: bool) -> void:
-	_input_locked = is_locked
+func setinput_locked(is_locked: bool) -> void:
+	input_locked = is_locked
 	if is_locked:
 		velocity = Vector3.ZERO
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -728,20 +777,20 @@ func _set_input_locked(is_locked: bool) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _debug_interaction(message: String) -> void:
-	if not debug_interactions:
+func _debuginteraction(message: String) -> void:
+	if not debuginteractions:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
-	if now - _last_debug_time < debug_interval:
+	if now - last_debug_time < debug_interval:
 		return
-	_last_debug_time = now
+	last_debug_time = now
 	print("PlayerController3D: ", message)
 
 
 # --- Console integration ---
 
-func _connect_universe_manager() -> void:
-	_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+func _connectuniverse_manager() -> void:
+	universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
 
 
 # --- Multi-planet travel ---
@@ -750,13 +799,13 @@ func _connect_universe_manager() -> void:
 # 名称匹配不区分大小写，支持部分匹配（如 "mars" 匹配 "Mars"）。
 # 返回 true 表示旅行成功。
 func travel_to_planet_by_name(planet_name: String) -> bool:
-	if _universe_manager == null:
+	if universe_manager == null:
 		push_warning("PlayerController: travel_to_planet_by_name — UniverseManager not connected")
 		return false
-	var ok := _universe_manager.travel_to_planet_by_name(planet_name)
+	var ok := universe_manager.travel_to_planet_by_name(planet_name)
 	if ok:
 		# 旅行后立即刷新重力方向，避免一帧的旧重力。
-		_update_gravity_direction()
+		_updategravity_direction()
 		print("[PlayerController] traveled to '%s', pos=%s dim=%s" % [
 			planet_name, global_position, String(get_current_dimension())])
 	return ok
@@ -765,23 +814,23 @@ func travel_to_planet_by_name(planet_name: String) -> bool:
 # 获取所有可旅行星球列表（委托给 UniverseManager）。
 # 返回数组，每个元素是 { "name": String, "dimension": StringName, "planet": PlanetDescriptor }。
 func get_travelable_planets() -> Array:
-	if _universe_manager == null:
+	if universe_manager == null:
 		return []
-	return _universe_manager.get_travelable_planets()
+	return universe_manager.get_travelable_planets()
 
 
 # 获取玩家当前的宇宙坐标（double 精度，通过 FloatingOrigin）。
 func get_player_universe_position() -> Vector3:
-	if _universe_manager == null:
+	if universe_manager == null:
 		return Vector3.ZERO
-	return _universe_manager.get_player_universe_position()
+	return universe_manager.get_player_universe_position()
 
 
 # 获取玩家到指定星球的宇宙距离。
 func get_distance_to_planet(planet: PlanetDescriptor) -> float:
-	if _universe_manager == null or planet == null:
+	if universe_manager == null or planet == null:
 		return INF
-	return _universe_manager.get_distance_to_planet(planet)
+	return universe_manager.get_distance_to_planet(planet)
 
 
 func _connect_console() -> void:
@@ -794,11 +843,11 @@ func _connect_console() -> void:
 
 
 func _on_console_opened() -> void:
-	_set_input_locked(true)
+	_setinput_locked(true)
 
 
 func _on_console_closed() -> void:
-	_set_input_locked(false)
+	_setinput_locked(false)
 	_mouse_captured = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -833,14 +882,14 @@ func _open_exit_menu() -> void:
 	if quest_ui and quest_ui.is_open():
 		_ui_connector.toggle_quest_book()
 	exit_menu.open()
-	_set_input_locked(true)
+	_setinput_locked(true)
 
 
 func _close_exit_menu() -> void:
 	if exit_menu == null:
 		return
 	exit_menu.close()
-	_set_input_locked(false)
+	_setinput_locked(false)
 	_mouse_captured = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -880,10 +929,10 @@ func _update_status_label() -> void:
 
 	if fly_mode:
 		label.text = "Fly (creative)"
-	elif _gravity_direction == Vector3.ZERO:
+	elif gravity_direction == Vector3.ZERO:
 		label.text = "Space (zero-G)"
-	elif _universe_manager != null and _universe_manager.active_planet != null:
-		var planet := _universe_manager.active_planet
+	elif universe_manager != null and universe_manager.active_planet != null:
+		var planet := universe_manager.active_planet
 		var grav_text := "g=%.2f" % _gravity_multiplier
 		# 显示当前星球名 + 重力 + 大气 + 宇宙坐标（double 精度）。
 		var upos := get_player_universe_position()
@@ -913,20 +962,20 @@ func _connect_quest_system() -> void:
 		crafting_ui.crafted.connect(_on_quest_item_crafted)
 
 	# Wire mining signal via PlayerInteraction.
-	if _interaction and not _interaction.block_mined.is_connected(_on_quest_block_mined):
-		_interaction.block_mined.connect(_on_quest_block_mined)
+	if interaction and not interaction.block_mined.is_connected(_on_quest_block_mined):
+		interaction.block_mined.connect(_on_quest_block_mined)
 
 	# Wire machine placed signal via PlayerInteraction.
-	if _interaction and not _interaction.machine_placed.is_connected(_on_quest_machine_placed):
-		_interaction.machine_placed.connect(_on_quest_machine_placed)
+	if interaction and not interaction.machine_placed.is_connected(_on_quest_machine_placed):
+		interaction.machine_placed.connect(_on_quest_machine_placed)
 
 	# Wire crop planted signal via PlayerInteraction (tracked as block_mined event).
-	if _interaction and not _interaction.crop_planted.is_connected(_on_quest_crop_planted):
-		_interaction.crop_planted.connect(_on_quest_crop_planted)
+	if interaction and not interaction.crop_planted.is_connected(_on_quest_crop_planted):
+		interaction.crop_planted.connect(_on_quest_crop_planted)
 
 	# Wire crop fertilized signal via PlayerInteraction (tracked as block_mined event).
-	if _interaction and not _interaction.crop_fertilized.is_connected(_on_quest_crop_fertilized):
-		_interaction.crop_fertilized.connect(_on_quest_crop_fertilized)
+	if interaction and not interaction.crop_fertilized.is_connected(_on_quest_crop_fertilized):
+		interaction.crop_fertilized.connect(_on_quest_crop_fertilized)
 
 
 func _quest_inventory_query(item_key: String) -> int:

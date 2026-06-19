@@ -183,7 +183,7 @@ struct CreatureBlockEntityState {
 // `machine_type` is a short string key (e.g. "furnace", "coke_oven")
 // that the bindings layer uses to look up the corresponding
 // MachineDefinition (recipe set, GUI, ports, block model) AND the
-// MultiblockPattern used for formation validation.
+// StructureDefinition used for formation validation.
 //
 // `facing` uses the same convention as machine ports:
 //   0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z, 5 = -Z.
@@ -193,7 +193,7 @@ struct CreatureBlockEntityState {
 //
 // Multiblock formation (GT-style):
 //   - `formed` is true when the surrounding structure matches the
-//     machine's MultiblockPattern. Only formed machines run recipes.
+//     machine's StructureDefinition. Only formed machines run recipes.
 //   - `claimed_cells` lists the non-controller cells claimed by the
 //     structure when formed (casing, hatches, interior). These are
 //     indexed in the BlockEntityRegistry's spatial index so that

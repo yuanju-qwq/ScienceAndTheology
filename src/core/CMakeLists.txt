@@ -67,10 +67,18 @@ target_sources(snt_core PRIVATE
     world/block_entity_registry.cpp
 )
 
-# Multiblock pattern system (GT-style controller formation, V28)
+# Multiblock system (GT V3 architecture: element → template → definition → runtime → controller)
 target_sources(snt_core PRIVATE
-    multiblock/multiblock_pattern.hpp
-    multiblock/multiblock_pattern.cpp
+    multiblock/structure_element.hpp
+    multiblock/structure_element.cpp
+    multiblock/piece_template.hpp
+    multiblock/piece_template.cpp
+    multiblock/structure_definition.hpp
+    multiblock/structure_definition.cpp
+    multiblock/structure_runtime.hpp
+    multiblock/structure_runtime.cpp
+    multiblock/multiblock_controller.hpp
+    multiblock/multiblock_controller.cpp
 )
 
 # World generation system

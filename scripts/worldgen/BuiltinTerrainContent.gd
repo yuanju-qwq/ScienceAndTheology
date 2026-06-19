@@ -197,7 +197,8 @@ static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]
 #   - sea_level_fraction: affects water-related biomes
 #   - atmosphere_type: affects special biome/rock rules
 #   - cave_threshold: affects cave density in base terrain
-static func _register_planet_generation_rules(registry: GDTerrainContentRegistry, planet: PlanetDescriptor) -> void:
+static func _register_planet_generation_rules(
+		registry: GDTerrainContentRegistry, planet: PlanetDescriptor) -> void:
 	var dim := String(planet.dimension_id)
 	var radius := planet.planet_radius
 	var gravity := planet.gravity_multiplier
@@ -1291,28 +1292,34 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 	# Uses a data-driven loop to avoid 24 repetitive register_material calls.
 	var _crop_stage_names := ["seed", "sprout", "growing", "mature"]
 	var _crop_species_mats := [
-		{ "name": "wheat",   "base_id": MAT_WHEAT_SEED,   "seed_key": "seed.wheat",   "crop_key": "crop.wheat" },
-		{ "name": "carrot",  "base_id": MAT_CARROT_SEED,  "seed_key": "seed.carrot",  "crop_key": "crop.carrot" },
-		{ "name": "potato",  "base_id": MAT_POTATO_SEED,  "seed_key": "seed.potato",  "crop_key": "crop.potato" },
-		{ "name": "cotton",  "base_id": MAT_COTTON_SEED,  "seed_key": "seed.cotton",  "crop_key": "crop.cotton" },
-		{ "name": "herb",    "base_id": MAT_HERB_SEED,    "seed_key": "seed.herb",    "crop_key": "crop.herb" },
-		{ "name": "pumpkin", "base_id": MAT_PUMPKIN_SEED, "seed_key": "seed.pumpkin", "crop_key": "crop.pumpkin" },
+		{"name": "wheat", "base_id": MAT_WHEAT_SEED,
+				"seed_key": "seed.wheat", "crop_key": "crop.wheat"},
+		{"name": "carrot", "base_id": MAT_CARROT_SEED,
+				"seed_key": "seed.carrot", "crop_key": "crop.carrot"},
+		{"name": "potato", "base_id": MAT_POTATO_SEED,
+				"seed_key": "seed.potato", "crop_key": "crop.potato"},
+		{"name": "cotton", "base_id": MAT_COTTON_SEED,
+				"seed_key": "seed.cotton", "crop_key": "crop.cotton"},
+		{"name": "herb", "base_id": MAT_HERB_SEED,
+				"seed_key": "seed.herb", "crop_key": "crop.herb"},
+		{"name": "pumpkin", "base_id": MAT_PUMPKIN_SEED,
+				"seed_key": "seed.pumpkin", "crop_key": "crop.pumpkin"},
 	]
-	for _sp in _crop_species_mats:
-		for _i in range(4):
-			var _stage: String = _crop_stage_names[_i]
+	for sp in _crop_species_mats:
+		for idx in range(4):
+			var _stage: String = _crop_stage_names[idx]
 			var _drops: Array = []
-			if _i < 3:
-				_drops = [{ "item_key": _sp["seed_key"], "count": 1 }]
+			if idx < 3:
+				_drops = [{"item_key": sp["seed_key"], "count": 1}]
 			else:
 				_drops = [
-					{ "item_key": _sp["crop_key"], "count": 1 },
-					{ "item_key": _sp["seed_key"], "count": 1 },
+					{"item_key": sp["crop_key"], "count": 1},
+					{"item_key": sp["seed_key"], "count": 1},
 				]
 			registry.register_material({
-				"id": _sp["base_id"] + _i,
-				"key": "snt:%s_%s" % [_sp["name"], _stage],
-				"title_key": "terrain.%s_%s" % [_sp["name"], _stage],
+				"id": sp["base_id"] + idx,
+				"key": "snt:%s_%s" % [sp["name"], _stage],
+				"title_key": "terrain.%s_%s" % [sp["name"], _stage],
 				"flags": FLAG_WALKABLE | FLAG_MINEABLE,
 				"hardness": 0.0,
 				"required_mining_level": 0,

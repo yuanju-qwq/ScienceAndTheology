@@ -195,7 +195,7 @@ func _cmd_gravity(_args: String) -> void:
 		print_line("[color=red]No player reference[/color]")
 		return
 
-	var dir := _player._gravity_direction
+	var dir := _player.gravity_direction
 	var zone := "surface"
 	if dir == Vector3.ZERO:
 		zone = "space (zero-G)"
@@ -208,7 +208,7 @@ func _cmd_gravity(_args: String) -> void:
 	print_line("Gravity direction: (%.2f, %.2f, %.2f)" % [dir.x, dir.y, dir.z])
 	print_line("Planet gravity radius: %.0f" % _player.planet_gravity_radius)
 	if _player.use_planet_gravity:
-		var dist := _player.global_position.distance_to(_player._planet_center)
+		var dist := _player.global_position.distance_to(_player.planet_center)
 		print_line("Distance to planet center: %.1f" % dist)
 
 
@@ -251,11 +251,13 @@ func _cmd_planets(_args: String) -> void:
 		return
 
 	var upos := _player.get_player_universe_position()
-	print_line("[color=cyan]Travelable planets (player @U %.0f,%.0f,%.0f):[/color]" % [upos.x, upos.y, upos.z])
+	print_line("[color=cyan]Travelable planets (player @U "
+			+ "%.0f,%.0f,%.0f):[/color]" % [upos.x, upos.y, upos.z])
 
 	var active_name := ""
-	if _player._universe_manager != null and _player._universe_manager.active_planet != null:
-		active_name = _player._universe_manager.active_planet.display_name
+	if _player.universe_manager != null \
+			and _player.universe_manager.active_planet != null:
+		active_name = _player.universe_manager.active_planet.display_name
 
 	for entry in planets:
 		var pname: String = entry["name"]
@@ -295,12 +297,16 @@ func _cmd_universe(_args: String) -> void:
 		return
 
 	var upos := _player.get_player_universe_position()
-	print_line("[color=cyan]Universe position: (%.2f, %.2f, %.2f)[/color]" % [upos.x, upos.y, upos.z])
+	print_line("[color=cyan]Universe position: "
+			+ "(%.2f, %.2f, %.2f)[/color]" % [upos.x, upos.y, upos.z])
 	print_line("Scene position: %s" % _player.global_position)
 
-	if _player._universe_manager != null and _player._universe_manager.active_planet != null:
-		var planet := _player._universe_manager.active_planet
-		print_line("Active planet: %s (dim=%s)" % [planet.display_name, String(planet.dimension_id)])
+	if _player.universe_manager != null \
+			and _player.universe_manager.active_planet != null:
+		var planet := _player.universe_manager.active_planet
+		print_line("Active planet: %s (dim=%s)" % [
+				planet.display_name, String(planet.dimension_id)])
 		print_line("  universe_position: %s" % planet.universe_position)
 		print_line("  local_center: %s" % planet.local_center)
-		print_line("  radius: %.1f, gravity: %.2f" % [planet.planet_radius, planet.gravity_multiplier])
+		print_line("  radius: %.1f, gravity: %.2f" % [
+				planet.planet_radius, planet.gravity_multiplier])

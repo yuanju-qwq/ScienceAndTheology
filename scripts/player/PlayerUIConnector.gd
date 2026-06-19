@@ -55,7 +55,7 @@ func toggle_wiki() -> void:
 		inventory_ui.toggle()
 	if wiki_ui:
 		wiki_ui.toggle()
-		_player._set_input_locked(wiki_ui.visible)
+		_player.set_input_locked(wiki_ui.visible)
 
 
 func toggle_crafting(station: String = "") -> void:
@@ -66,10 +66,10 @@ func toggle_crafting(station: String = "") -> void:
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui.toggle()
 	if station == "":
-		station = _player._interaction.get_nearby_station()
+		station = _player.interaction.get_nearby_station()
 	crafting_ui.set_station(station)
 	crafting_ui.toggle()
-	_player._set_input_locked(crafting_ui.visible)
+	_player.set_input_locked(crafting_ui.visible)
 
 
 func toggle_quest_book() -> void:
@@ -83,14 +83,14 @@ func toggle_quest_book() -> void:
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui.toggle()
 	quest_ui.toggle()
-	_player._set_input_locked(quest_ui.is_open())
+	_player.set_input_locked(quest_ui.is_open())
 
 
 func close_furnace_if_open() -> bool:
 	var furnace_ui: FurnaceUI = _player.furnace_ui
 	if furnace_ui and furnace_ui.visible:
 		furnace_ui.close()
-		_player._set_input_locked(false)
+		_player.set_input_locked(false)
 		return true
 	return false
 
@@ -121,15 +121,18 @@ func update_connector_prompt() -> void:
 		if mechanism_manager != null:
 			var mechanism: MapMechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 			if mechanism != null and mechanism.requires_interaction():
-				text = "E  %s" % (mechanism.action_label if mechanism.action_label != "" else tr(mechanism.title_key))
+				text = "E  %s" % (
+						mechanism.action_label
+						if mechanism.action_label != ""
+						else tr(mechanism.title_key))
 
-	connector_prompt.visible = text != "" and not _player._input_locked
+	connector_prompt.visible = text != "" and not _player.input_locked
 	connector_prompt_label.text = text
 
 
 func _on_quest_book_closed() -> void:
-	_player._set_input_locked(false)
+	_player.set_input_locked(false)
 
 
 func _on_furnace_ui_closed() -> void:
-	_player._set_input_locked(false)
+	_player.set_input_locked(false)

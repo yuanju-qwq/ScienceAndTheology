@@ -91,7 +91,7 @@ func toggle() -> void:
 	_is_open = not _is_open
 	visible = _is_open
 	if player:
-		player._set_input_locked(_is_open)
+		player.set_input_locked(_is_open)
 	if _is_open:
 		_update_all_slots()
 
@@ -101,11 +101,11 @@ func _on_player_inventory_changed() -> void:
 		_update_all_slots()
 
 
-func _on_inv_slot_clicked(index: int, button: int) -> void:
+func _on_inv_slot_clicked(_index: int, _button: int) -> void:
 	pass
 
 
-func _on_equip_slot_clicked(index: int, button: int) -> void:
+func _on_equip_slot_clicked(_index: int, _button: int) -> void:
 	pass
 
 

@@ -332,7 +332,8 @@ func _add_machine_recipes(recipes: Array) -> void:
 	_add_recipe_if_valid(recipes, _bench(
 			"craft_pump_lv",
 			"machines",
-			[_mat("plate", "iron", 2), _mat("plate", "rubber", 1), _item_key("electric_motor_lv", 1)],
+			[_mat("plate", "iron", 2), _mat("plate", "rubber", 1),
+					_item_key("electric_motor_lv", 1)],
 			_item_key("pump_lv", 1)), false)
 	_add_recipe_if_valid(recipes, _bench(
 			"craft_fluid_cell",

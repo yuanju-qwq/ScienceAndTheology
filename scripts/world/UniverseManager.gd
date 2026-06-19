@@ -109,7 +109,7 @@ var active_planet: PlanetDescriptor = null
 var stations: Array[StationDescriptor] = []
 
 # Auto-incrementing counter for station dimension IDs.
-var _station_counter: int = 0
+var station_counter: int = 0
 
 # The station the player is currently inside (null if on a planet).
 var active_station: StationDescriptor = null
@@ -134,10 +134,10 @@ var _save_dir: String = ""
 
 var _player: Node3D = null
 var _chunk_bridge: ChunkRendererBridge = null
-var _tick_system: GDTickSystem = null
-var _tick_system_initialized := false
-var _quest_system: GDQuestSystem = null
-var _quest_system_initialized := false
+var tick_system: GDTickSystem = null
+var tick_system_initialized := false
+var quest_system: GDQuestSystem = null
+var quest_system_initialized := false
 var _debug_elapsed := 0.0
 var _bridge_initialized := false
 
@@ -177,7 +177,7 @@ func _process(delta: float) -> void:
 		_update_active_planet()
 	_update_planet_loading()
 	_update_station_loading()
-	_drive_tick_system(delta)
+	_drivetick_system(delta)
 	_maybe_debug_log(delta)
 
 
@@ -267,8 +267,8 @@ func _realize_initial_system() -> void:
 func _find_references() -> void:
 	_player = get_node_or_null(player_node_path) as Node3D
 	_chunk_bridge = get_node_or_null(chunk_renderer_bridge_path) as ChunkRendererBridge
-	_tick_system = get_node_or_null(tick_system_path) as GDTickSystem
-	_quest_system = get_node_or_null(quest_system_path)
+	tick_system = get_node_or_null(tick_system_path) as GDTickSystem
+	quest_system = get_node_or_null(quest_system_path)
 
 
 # --- Virtual simulator ---
@@ -524,7 +524,7 @@ func _set_active_station(station: StationDescriptor) -> void:
 			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
 			_chunk_bridge.initialize_for_universe(config, station.dimension_id)
 			_bridge_initialized = true
-			_initialize_tick_system()
+			_initializetick_system()
 		else:
 			_chunk_bridge.set_active_dimension(station.dimension_id)
 
@@ -540,7 +540,7 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
 			_chunk_bridge.initialize_for_universe(config, planet.dimension_id)
 			_bridge_initialized = true
-			_initialize_tick_system()
+			_initializetick_system()
 		else:
 			_chunk_bridge.set_active_dimension(planet.dimension_id)
 
@@ -1101,8 +1101,8 @@ func get_save_manager() -> UniverseSaveManager:
 
 # Initialize the GDTickSystem with the world data and register all subsystems.
 # Called once after ChunkRendererBridge is initialized and GDWorldData is available.
-func _initialize_tick_system() -> void:
-	if _tick_system == null or _tick_system_initialized:
+func _initializetick_system() -> void:
+	if tick_system == null or tick_system_initialized:
 		return
 
 	var world_data: GDWorldData = _chunk_bridge.get_world_data() if _chunk_bridge else null
@@ -1110,42 +1110,42 @@ func _initialize_tick_system() -> void:
 		push_warning("UniverseManager: cannot initialize tick system — no world data")
 		return
 
-	_tick_system.set_world_data(world_data)
+	tick_system.set_world_data(world_data)
 
 	# Register subsystems in priority order.
 	# DayNight must be first (priority 0) so other systems can read is_daytime.
-	_tick_system.register_day_night_system()
-	_tick_system.register_block_physics_system()
-	_tick_system.register_machine_system()
-	_tick_system.register_region_system()
-	_tick_system.register_tree_growth_system()
-	_tick_system.register_season_system()
-	_tick_system.register_ecosystem_system()
+	tick_system.register_day_night_system()
+	tick_system.register_block_physics_system()
+	tick_system.register_machine_system()
+	tick_system.register_region_system()
+	tick_system.register_tree_growth_system()
+	tick_system.register_season_system()
+	tick_system.register_ecosystem_system()
 
-	_tick_system_initialized = true
+	tick_system_initialized = true
 
 	# Initialize quest system after tick system is ready.
-	_initialize_quest_system()
+	_initializequest_system()
 
 
 # Initialize the GDQuestSystem with quest content and tick counter.
-func _initialize_quest_system() -> void:
-	if _quest_system == null or _quest_system_initialized:
+func _initializequest_system() -> void:
+	if quest_system == null or quest_system_initialized:
 		return
 
 	# Load quest content from QuestDatabase.
 	var quest_db := preload("res://scripts/quest/QuestDatabase.gd").new()
 	quest_db.name = "QuestDatabase"
 	add_child(quest_db)
-	quest_db.load_content(_quest_system)
+	quest_db.load_content(quest_system)
 
-	_quest_system_initialized = true
+	quest_system_initialized = true
 
 
 # Drive the simulation tick each frame.
 # Updates the player chunk position and advances the simulation.
-func _drive_tick_system(delta: float) -> void:
-	if _tick_system == null or not _tick_system_initialized:
+func _drivetick_system(delta: float) -> void:
+	if tick_system == null or not tick_system_initialized:
 		return
 
 	# Determine the active dimension: station or planet.
@@ -1159,12 +1159,12 @@ func _drive_tick_system(delta: float) -> void:
 
 	var player_chunk := _compute_player_chunk()
 
-	_tick_system.set_player_chunk(dimension, player_chunk.x, player_chunk.y, player_chunk.z)
-	_tick_system.tick(delta)
+	tick_system.set_player_chunk(dimension, player_chunk.x, player_chunk.y, player_chunk.z)
+	tick_system.tick(delta)
 
 	# Sync tick counter to quest system for REACH_TICK conditions.
-	if _quest_system != null and _quest_system_initialized:
-		_quest_system.set_tick_counter(_tick_system.get_tick_count())
+	if quest_system != null and quest_system_initialized:
+		quest_system.set_tick_counter(tick_system.get_tick_count())
 
 
 # Compute the player's current chunk coordinates.
@@ -1229,7 +1229,7 @@ func create_station(
 		return null
 
 	var station := StationDescriptor.new()
-	station.dimension_id = StringName(&"station_%d" % _station_counter)
+	station.dimension_id = StringName(&"station_%d" % station_counter)
 	station.display_name = display_name
 	station.parent_planet_id = parent_planet.dimension_id
 	station.orbit_height = orbit_height
@@ -1252,7 +1252,7 @@ func create_station(
 
 	# Register the station.
 	stations.append(station)
-	_station_counter += 1
+	station_counter += 1
 
 	station_created.emit(station)
 	return station

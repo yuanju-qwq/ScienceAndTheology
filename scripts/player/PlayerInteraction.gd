@@ -52,14 +52,14 @@ func process_cooldown(delta: float) -> void:
 # Returns true if an attack was attempted (hit or miss).
 @warning_ignore("unsafe_call_argument")
 func try_attack_creature() -> bool:
-	if _player._input_locked or _attack_cooldown_remaining > 0.0:
+	if _player.input_locked or _attack_cooldown_remaining > 0.0:
 		return false
 
-	var um: UniverseManager = _player._universe_manager
-	if um == null or um._tick_system == null:
+	var um: UniverseManager = _player.universe_manager
+	if um == null or um.tick_system == null:
 		return false
 
-	var tick_system: GDTickSystem = um._tick_system
+	var tick_system: GDTickSystem = um.tick_system
 	var camera: Camera3D = _player.camera
 	if camera == null:
 		return false
@@ -116,10 +116,10 @@ func _on_creature_killed(result: Dictionary) -> void:
 	var species_id := int(result.get("species_id", 0))
 	_debug("creature killed! species_id=%d" % species_id)
 
-	var um: UniverseManager = _player._universe_manager
-	if um == null or um._tick_system == null:
+	var um: UniverseManager = _player.universe_manager
+	if um == null or um.tick_system == null:
 		return
-	var tick_system: GDTickSystem = um._tick_system
+	var tick_system: GDTickSystem = um.tick_system
 
 	# Query the species' drop table from C++ side.
 	var drops: Array = tick_system.get_species_drops(species_id)
@@ -234,11 +234,11 @@ func try_feed_creature() -> bool:
 	if held_id != ItemDatabase.ITEM_CHERRY_FRUIT and held_id != ItemDatabase.ITEM_OLIVE_FRUIT:
 		return false
 
-	var um: UniverseManager = _player._universe_manager
-	if um == null or um._tick_system == null:
+	var um: UniverseManager = _player.universe_manager
+	if um == null or um.tick_system == null:
 		return false
 
-	var tick_system: GDTickSystem = um._tick_system
+	var tick_system: GDTickSystem = um.tick_system
 	var camera: Camera3D = _player.camera
 	if camera == null:
 		return false
@@ -296,7 +296,8 @@ func try_place_world_object(target: Dictionary) -> bool:
 
 	var place_cell: Vector3i = target.get("place_cell", _player.get_current_cell())
 	var world: ChunkRendererBridge = _player.world
-	if world and _player.global_position.distance_to(world.cell_to_world_position(place_cell)) > REACH:
+	if world and _player.global_position.distance_to(
+			world.cell_to_world_position(place_cell)) > REACH:
 		return false
 
 	var result: Dictionary = command_server.submit_command({
@@ -482,7 +483,7 @@ func _is_crop_material(material: int) -> bool:
 # Signal handler for crop_harvested — grants crop + byproduct items to inventory.
 # C++ emits this signal because it doesn't own the item_id <-> item_key mapping.
 @warning_ignore("unsafe_call_argument")
-func _on_crop_harvested(_dimension, _cell: Vector3i, species_key: String,
+func _on_crop_harvested(_dimension, _cell: Vector3i, _species_key: String,
 		crop_count: int, crop_item_key: String,
 		byproduct_item_key: String, byproduct_count: int) -> void:
 	if _player == null or _player.inventory == null:
@@ -508,9 +509,9 @@ func _on_crop_harvested(_dimension, _cell: Vector3i, species_key: String,
 
 func try_auto_cell_events() -> void:
 	var cell := _player.get_current_cell()
-	if cell == _player._last_cell:
+	if cell == _player.last_cell:
 		return
-	_player._last_cell = cell
+	_player.last_cell = cell
 	if _cooldown_remaining <= 0.0:
 		if try_use_connector(true):
 			return
@@ -518,7 +519,7 @@ func try_auto_cell_events() -> void:
 
 
 func try_use_connector(auto_only: bool) -> bool:
-	if _player._input_locked or _cooldown_remaining > 0.0:
+	if _player.input_locked or _cooldown_remaining > 0.0:
 		return false
 	var connector_manager: ConnectorManager = _player.connector_manager
 	if connector_manager == null:
@@ -545,7 +546,7 @@ func try_use_connector(auto_only: bool) -> bool:
 
 
 func try_activate_mechanism(auto_only: bool) -> bool:
-	if _player._input_locked:
+	if _player.input_locked:
 		return false
 	var mechanism_manager: MechanismManager = _player.mechanism_manager
 	if mechanism_manager == null:
@@ -579,7 +580,7 @@ func try_open_furnace(auto_only: bool) -> bool:
 	var cell := _player.get_current_cell()
 	var dimension := _player.get_current_dimension()
 	var candidates := [cell]
-	var target := _player._target
+	var target := _player.target
 	if not target.is_empty():
 		candidates.append(target.get("cell", cell))
 		candidates.append(target.get("place_cell", cell))
@@ -597,7 +598,7 @@ func try_open_furnace(auto_only: bool) -> bool:
 			continue
 		var data: GDFurnaceData = furnace_manager.get_furnace(dimension, candidate)
 		furnace_ui.open(data, dimension, candidate, furnace_manager)
-		_player._set_input_locked(true)
+		_player.set_input_locked(true)
 		_cooldown_remaining = _player.connector_cooldown
 		return true
 	return false
@@ -667,9 +668,9 @@ func _debug(message: String) -> void:
 	if not _player.debug_interactions:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
-	if now - _player._last_debug_time < _player.debug_interval:
+	if now - _player.last_debug_time < _player.debug_interval:
 		return
-	_player._last_debug_time = now
+	_player.last_debug_time = now
 	print("PlayerInteraction: ", message)
 
 
@@ -705,17 +706,17 @@ func try_use_station_blueprint() -> bool:
 
 	_station_setup_ui.open()
 	_cached_blueprint_slot = _player.selected_hotbar
-	_player._set_input_locked(true)
+	_player.set_input_locked(true)
 	return true
 
 
 # Called when the player confirms station creation in the setup UI.
 @warning_ignore("unsafe_call_argument")
 func _on_station_confirmed(params: Dictionary) -> void:
-	_player._set_input_locked(false)
+	_player.set_input_locked(false)
 
 	# Find the UniverseManager.
-	var um: UniverseManager = _player._universe_manager
+	var um: UniverseManager = _player.universe_manager
 	if um == null:
 		push_warning("PlayerInteraction: cannot create station — no UniverseManager")
 		return

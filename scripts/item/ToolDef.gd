@@ -12,8 +12,11 @@ enum Tier { WOOD = 0, STONE, IRON, DIAMOND }
 
 
 # Check whether the given tool matches the block's required tool tag and mining level.
-# Returns true if no tool is required, or if the tool's type and mining level satisfy the requirement.
-static func check_tool_match(tool: ToolDef, required_tag: String, required_level: int) -> bool:
+# Returns true if no tool is required, or if the tool's type and mining level
+# satisfy the requirement.
+static func check_tool_match(
+		tool: ToolDef, required_tag: String,
+		required_level: int) -> bool:
 	if required_tag == "":
 		return true
 	if tool == null:

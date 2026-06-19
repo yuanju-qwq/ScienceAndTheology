@@ -78,7 +78,7 @@ public:
     // Register a machine block entity. Returns its assigned EntityId.
     // machine_type: short key (e.g. "furnace", "coke_oven") used by bindings
     //               to look up the MachineDefinition (recipes, GUI, ports,
-    //               model) and the MultiblockPattern for formation check.
+    //               model) and the StructureDefinition for formation check.
     // facing: 0..5 (0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z).
     // The machine starts unformed (formed=false, no claimed cells). Call
     // check_machine_formation() after registration (and whenever a nearby

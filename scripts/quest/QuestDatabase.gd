@@ -167,7 +167,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.first_steps", chapter,
 		"First Steps",
-		"Punch a tree. Get wood. This is where it all begins.\n\nMine a wood log to start your journey into industrial civilization.",
+		"Punch a tree. Get wood. This is where it all begins.\n\n" +
+		"Mine a wood log to start your journey into industrial civilization.",
 		"log.oak", 0,
 		[],
 		[_cond(CT_MINE_BLOCK, "oak_wood", 1)],
@@ -189,7 +190,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.crafting_table", chapter,
 		"Crafting Table",
-		"Place a workbench to unlock more complex crafting recipes.\n\nThe workbench is your gateway to the GT tool system.",
+		"Place a workbench to unlock more complex crafting recipes.\n\n" +
+		"The workbench is your gateway to the GT tool system.",
 		"workbench", 2,
 		["stone_age.getting_stone"],
 		[
@@ -203,7 +205,9 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.stone_furnace", chapter,
 		"Stone Furnace",
-		"Smelt your first metal. Place a stone furnace to begin ore processing.\n\nThe stone furnace is slow but reliable — it will serve you until the Bronze Age.",
+		"Smelt your first metal. Place a stone furnace to begin ore processing.\n\n" +
+		"The stone furnace is slow but reliable — it will serve you " +
+		"until the Bronze Age.",
 		"stone_furnace", 3,
 		["stone_age.crafting_table"],
 		[
@@ -217,7 +221,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.first_ingot", chapter,
 		"First Ingot",
-		"Smelt an iron ingot in your furnace.\n\nIron is the backbone of the industrial age. Every machine starts here.",
+		"Smelt an iron ingot in your furnace.\n\n" +
+		"Iron is the backbone of the industrial age. Every machine starts here.",
 		"ingot.iron", 4,
 		["stone_age.stone_furnace"],
 		[_cond(CT_CRAFT_ITEM, "ingot.iron", 1)],
@@ -228,7 +233,9 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.gt_hammer", chapter,
 		"The GT Hammer",
-		"Craft a GT Hammer — the most essential tool in GregTech.\n\nThe hammer is used for plate crafting, machine assembly, and many other operations.",
+		"Craft a GT Hammer — the most essential tool in GregTech.\n\n" +
+		"The hammer is used for plate crafting, machine assembly, " +
+		"and many other operations.",
 		"gt_hammer", 5,
 		["stone_age.crafting_table"],
 		[_cond(CT_CRAFT_ITEM, "gt_hammer", 1)],
@@ -239,7 +246,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.wrench", chapter,
 		"Wrench",
-		"Craft a wrench to rotate and disassemble machines.\n\nWithout a wrench, you cannot properly interact with GT machines.",
+		"Craft a wrench to rotate and disassemble machines.\n\n" +
+		"Without a wrench, you cannot properly interact with GT machines.",
 		"gt_wrench", 6,
 		["stone_age.gt_hammer"],
 		[_cond(CT_CRAFT_ITEM, "gt_wrench", 1)],
@@ -250,7 +258,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.machine_hull", chapter,
 		"Basic Machine Hull",
-		"Craft a basic machine hull — the shell of every LV machine.\n\nThis is your first step toward electrification.",
+		"Craft a basic machine hull — the shell of every LV machine.\n\n" +
+		"This is your first step toward electrification.",
 		"machine_hull_basic", 10,
 		["stone_age.first_ingot", "stone_age.gt_hammer"],
 		[_cond(CT_CRAFT_ITEM, "machine_hull_basic", 1)],
@@ -265,7 +274,9 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.macerator_hint", chapter,
 		"The Macerator Awaits",
-		"You now have a machine hull and a motor. The macerator doubles your ore output!\n\nCraft a macerator to enter the world of ore multiplication.",
+		"You now have a machine hull and a motor. " +
+		"The macerator doubles your ore output!\n\n" +
+		"Craft a macerator to enter the world of ore multiplication.",
 		"machine_hull_basic", 11,
 		["stone_age.machine_hull"],
 		[_cond(CT_CRAFT_ITEM, "macerator", 1)],
@@ -277,7 +288,9 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.wild_foraging", chapter,
 		"Wild Foraging",
-		"You found a wild crop! Mine it to collect seeds.\n\nWild crops drop seeds at any growth stage — mature crops also drop the crop itself.",
+		"You found a wild crop! Mine it to collect seeds.\n\n" +
+		"Wild crops drop seeds at any growth stage — " +
+		"mature crops also drop the crop itself.",
 		"crop.wheat", 12,
 		[],
 		[_cond(CT_MINE_BLOCK, "wheat_mature", 1)],
@@ -289,7 +302,10 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.first_farm", chapter,
 		"First Farm",
-		"Till a dirt block with a shovel to create farmland, then plant seeds on top.\n\nRight-click dirt with a shovel to till. Right-click farmland with seeds to plant.",
+		"Till a dirt block with a shovel to create farmland, " +
+		"then plant seeds on top.\n\n" +
+		"Right-click dirt with a shovel to till. " +
+		"Right-click farmland with seeds to plant.",
 		"terrain.farmland", 13,
 		["stone_age.wild_foraging"],
 		[_cond(CT_MINE_BLOCK, "crop_planted", 1)],
@@ -300,7 +316,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.bone_meal", chapter,
 		"Bone Meal Fertilizer",
-		"Use bone meal on a crop to instantly advance it one growth stage.\n\nRight-click a crop with bone meal to fertilize it.",
+		"Use bone meal on a crop to instantly advance it one growth stage.\n\n" +
+		"Right-click a crop with bone meal to fertilize it.",
 		"item.bone_meal", 14,
 		["stone_age.first_farm"],
 		[_cond(CT_MINE_BLOCK, "crop_fertilized", 1)],
@@ -311,7 +328,9 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.first_harvest", chapter,
 		"First Harvest",
-		"Wait for your crop to mature, then right-click it to harvest.\n\nCrops grow through four stages: seed → sprout → growing → mature. Only mature crops can be harvested.",
+		"Wait for your crop to mature, then right-click it to harvest.\n\n" +
+		"Crops grow through four stages: seed → sprout → growing → mature. " +
+		"Only mature crops can be harvested.",
 		"crop.wheat", 15,
 		["stone_age.first_farm"],
 		[_cond(CT_HAS_ITEM, "crop.wheat", 1)],
@@ -322,7 +341,8 @@ func _register_stone_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"stone_age.bread_making", chapter,
 		"Bread Making",
-		"Mill wheat into flour at a workbench, then bake bread in a furnace.\n\nBread is a reliable food source for your adventures.",
+		"Mill wheat into flour at a workbench, then bake bread in a furnace.\n\n" +
+		"Bread is a reliable food source for your adventures.",
 		"item.bread", 16,
 		["stone_age.first_harvest"],
 		[_cond(CT_CRAFT_ITEM, "bread", 1)],
@@ -342,7 +362,9 @@ func _register_bronze_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"bronze_age.bronze_smelting", chapter,
 		"Bronze Smelting",
-		"Alloy copper and tin to create bronze — the metal that defines an age.\n\nBronze machines are more efficient than their stone counterparts.",
+		"Alloy copper and tin to create bronze — " +
+		"the metal that defines an age.\n\n" +
+		"Bronze machines are more efficient than their stone counterparts.",
 		"ingot.bronze", 0,
 		["stone_age.first_ingot"],
 		[_cond(CT_CRAFT_ITEM, "ingot.bronze", 4)],
@@ -373,7 +395,8 @@ func _register_steam_age_quests() -> void:
 	_quest_system.register_quest(_quest(
 		"steam_age.steel", chapter,
 		"Steel Production",
-		"Produce steel — the bridge between steam and electricity.\n\nSteel is required for LV machines and beyond.",
+		"Produce steel — the bridge between steam and electricity.\n\n" +
+		"Steel is required for LV machines and beyond.",
 		"ingot.steel", 0,
 		["bronze_age.bronze_smelting"],
 		[_cond(CT_CRAFT_ITEM, "ingot.steel", 4)],
