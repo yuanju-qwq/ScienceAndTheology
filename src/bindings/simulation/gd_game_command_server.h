@@ -45,6 +45,7 @@ private:
     godot::Dictionary cmd_remove_inventory_item(const godot::Dictionary& command);
     godot::Dictionary cmd_craft_recipe(const godot::Dictionary& command);
     godot::Dictionary cmd_place_object(const godot::Dictionary& command);
+    godot::Dictionary cmd_remove_object(const godot::Dictionary& command);
     godot::Dictionary cmd_till_farmland(const godot::Dictionary& command);
     godot::Dictionary cmd_plant_crop(const godot::Dictionary& command);
     godot::Dictionary cmd_harvest_crop(const godot::Dictionary& command);

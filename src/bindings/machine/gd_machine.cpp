@@ -39,7 +39,7 @@ void GDMachine::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_footprint_height"),
                          &GDMachine::get_footprint_height);
 
-    ClassDB::bind_method(D_METHOD("add_port", "rel_x", "rel_y",
+    ClassDB::bind_method(D_METHOD("add_port", "rel_x", "rel_y", "rel_z",
                                    "port_type", "direction", "locked"),
                          &GDMachine::add_port, DEFVAL(false));
     ClassDB::bind_method(D_METHOD("get_port_info", "index"),
@@ -186,11 +186,12 @@ int GDMachine::get_footprint_height() const {
 
 // --- Ports ---
 
-void GDMachine::add_port(int rel_x, int rel_y, int port_type,
+void GDMachine::add_port(int rel_x, int rel_y, int rel_z, int port_type,
                           int direction, bool locked) {
     MachinePort port;
     port.rel_x = rel_x;
     port.rel_y = rel_y;
+    port.rel_z = rel_z;
     port.type = static_cast<PortType>(port_type);
     port.direction = static_cast<PortDirection>(direction);
     port.direction_locked = locked;
@@ -209,6 +210,7 @@ godot::Dictionary GDMachine::get_port_info(int index) const {
     }
     info["rel_x"] = port.rel_x;
     info["rel_y"] = port.rel_y;
+    info["rel_z"] = port.rel_z;
     info["type"] = static_cast<int>(port.type);
     info["direction"] = static_cast<int>(effective_dir);
     info["locked"] = port.direction_locked;

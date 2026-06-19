@@ -7,6 +7,7 @@ extends Node
 signal block_mined(block_key: String)
 signal machine_placed(machine_type: String)
 signal crop_planted(species_key: String)
+signal crop_fertilized(species_key: String)
 signal crop_harvested_interaction(species_key: String, count: int)
 
 const REACH := 6.0
@@ -316,6 +317,193 @@ func try_place_world_object(target: Dictionary) -> bool:
 
 	_player.inventory_changed.emit()
 	return true
+
+
+# --- Farming interactions (Tier 1 planting system) ---
+# Three tick strategies are used for different plant types:
+#   - Normal plants: random ticks (not implemented yet)
+#   - Crops / industrial plants: scheduled ticks via CropGrowthSystem (priority 9)
+#   - Special plants: entity ticks (Tier 5, future)
+# Tier 1 only uses the scheduled-tick crop path. Player interactions here
+# cover tilling, planting, fertilizing, and harvesting.
+
+# Till a dirt block into farmland using a shovel.
+@warning_ignore("unsafe_call_argument")
+func try_till_farmland(target: Dictionary) -> bool:
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment == null or target.is_empty():
+		return false
+	# Require a shovel in the main hand.
+	var stats: Dictionary = equipment.get_tool_stats()
+	if int(stats.get("type", 0)) != ToolDef.ToolType.SHOVEL:
+		return false
+	# Target must be a dirt block.
+	var data: Dictionary = target.get("data", {})
+	var material := int(data.get("material", 0))
+	if material != BuiltinTerrainContent.MAT_DIRT:
+		return false
+
+	var command_server := _player.get_command_server()
+	if command_server == null:
+		return false
+	var dimension = target.get("dimension", OVERWORLD)
+	var cell: Vector3i = target.get("cell", Vector3i.ZERO)
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_TILL_FARMLAND,
+		"dimension": dimension,
+		"cell": cell,
+	})
+	if not bool(result.get("ok", false)):
+		_debug("till rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+	# terrain_cell_synced auto-refreshes the chunk via ChunkRendererBridge.
+	_debug("tilled farmland at %s" % str(cell))
+	return true
+
+
+# Plant a seed on farmland. The crop occupies the air cell above the farmland.
+@warning_ignore("unsafe_call_argument")
+func try_plant_crop(target: Dictionary) -> bool:
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment == null or target.is_empty():
+		return false
+	# Held item must be a seed.
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id <= 0:
+		return false
+	var item_key := ItemDatabase.get_item_key_by_id(held_id)
+	if not item_key.begins_with("seed."):
+		return false
+	# Target must be farmland.
+	var data: Dictionary = target.get("data", {})
+	var material := int(data.get("material", 0))
+	if material != BuiltinTerrainContent.MAT_FARMLAND:
+		return false
+
+	var command_server := _player.get_command_server()
+	if command_server == null:
+		return false
+	var dimension = target.get("dimension", OVERWORLD)
+	# The crop goes in the air cell above the farmland.
+	var crop_cell: Vector3i = target.get("cell", Vector3i.ZERO) + Vector3i.UP
+	# species_key is the seed key without the "seed." prefix.
+	var species_key := item_key.substr(5)
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLANT_CROP,
+		"dimension": dimension,
+		"cell": crop_cell,
+		"item_id": held_id,
+		"species_key": species_key,
+	})
+	if not bool(result.get("ok", false)):
+		_debug("plant rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+	crop_planted.emit(species_key)
+	_player.inventory_changed.emit()
+	_debug("planted %s at %s" % [species_key, str(crop_cell)])
+	return true
+
+
+# Fertilize a crop with bone meal to advance one growth stage.
+@warning_ignore("unsafe_call_argument")
+func try_fertilize_crop(target: Dictionary) -> bool:
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment == null or target.is_empty():
+		return false
+	# Held item must be bone meal.
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id != ItemDatabase.ITEM_BONE_MEAL:
+		return false
+	# Target must be a crop block (material in crop stage range).
+	var data: Dictionary = target.get("data", {})
+	var material := int(data.get("material", 0))
+	if not _is_crop_material(material):
+		return false
+
+	var command_server := _player.get_command_server()
+	if command_server == null:
+		return false
+	var dimension = target.get("dimension", OVERWORLD)
+	var cell: Vector3i = target.get("cell", Vector3i.ZERO)
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_FERTILIZE,
+		"dimension": dimension,
+		"cell": cell,
+		"item_id": held_id,
+	})
+	if not bool(result.get("ok", false)):
+		_debug("fertilize rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+	crop_fertilized.emit("")  # species_key not returned by command; empty for generic tracking
+	_player.inventory_changed.emit()
+	_debug("fertilized crop at %s" % str(cell))
+	return true
+
+
+# Harvest a mature crop. Works with any held item (or empty hand).
+@warning_ignore("unsafe_call_argument")
+func try_harvest_crop(target: Dictionary) -> bool:
+	if target.is_empty():
+		return false
+	# Target must be a crop block.
+	var data: Dictionary = target.get("data", {})
+	var material := int(data.get("material", 0))
+	if not _is_crop_material(material):
+		return false
+	# Ensure the crop_harvested signal is connected before submitting.
+	_connect_crop_harvest_signal()
+
+	var command_server := _player.get_command_server()
+	if command_server == null:
+		return false
+	var dimension = target.get("dimension", OVERWORLD)
+	var cell: Vector3i = target.get("cell", Vector3i.ZERO)
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_HARVEST_CROP,
+		"dimension": dimension,
+		"cell": cell,
+	})
+	if not bool(result.get("ok", false)):
+		_debug("harvest rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+	# Items are granted in _on_crop_harvested via the crop_harvested signal.
+	var species_key: String = result.get("species_key", "")
+	crop_harvested_interaction.emit(species_key, int(result.get("crop_count", 0)))
+	_debug("harvested crop at %s" % str(cell))
+	return true
+
+
+# Check if a material ID is within the crop stage range (79-102).
+func _is_crop_material(material: int) -> bool:
+	return material >= BuiltinTerrainContent.MAT_WHEAT_SEED \
+		and material <= BuiltinTerrainContent.MAT_PUMPKIN_MATURE
+
+
+# Signal handler for crop_harvested — grants crop + byproduct items to inventory.
+# C++ emits this signal because it doesn't own the item_id <-> item_key mapping.
+@warning_ignore("unsafe_call_argument")
+func _on_crop_harvested(_dimension, _cell: Vector3i, species_key: String,
+		crop_count: int, crop_item_key: String,
+		byproduct_item_key: String, byproduct_count: int) -> void:
+	if _player == null or _player.inventory == null:
+		return
+	# Grant main crop product.
+	if not crop_item_key.is_empty() and crop_count > 0:
+		var crop_id := ItemDatabase.get_item_id_by_key(crop_item_key)
+		if crop_id >= 0:
+			_player.inventory.add_item(crop_id, crop_count)
+			_debug("harvest granted %s x%d" % [crop_item_key, crop_count])
+		else:
+			push_warning("PlayerInteraction: unknown crop item key '%s'" % crop_item_key)
+	# Grant byproduct (usually seeds).
+	if not byproduct_item_key.is_empty() and byproduct_count > 0:
+		var byp_id := ItemDatabase.get_item_id_by_key(byproduct_item_key)
+		if byp_id >= 0:
+			_player.inventory.add_item(byp_id, byproduct_count)
+			_debug("harvest byproduct %s x%d" % [byproduct_item_key, byproduct_count])
+		else:
+			push_warning("PlayerInteraction: unknown byproduct item key '%s'" % byproduct_item_key)
+	_player.inventory_changed.emit()
 
 
 func try_auto_cell_events() -> void:

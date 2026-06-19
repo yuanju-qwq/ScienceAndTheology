@@ -93,7 +93,7 @@ void GDFluidNetwork::_bind_methods() {
 
 // --- Node lifecycle ---
 
-int64_t GDFluidNetwork::add_node(godot::Vector2i position, int pipe_type) {
+int64_t GDFluidNetwork::add_node(godot::Vector3i position, int pipe_type) {
     FluidNodeId id = network_.add_node(_from_godot(position),
                                         static_cast<gt::PipeType>(pipe_type));
     return static_cast<int64_t>(id);
@@ -265,12 +265,12 @@ int GDFluidNetwork::get_fluid_count() {
 
 // --- Conversion helpers ---
 
-gt::MapPosition GDFluidNetwork::_from_godot(godot::Vector2i pos) {
-    return gt::MapPosition{pos.x, pos.y};
+gt::MapPosition GDFluidNetwork::_from_godot(godot::Vector3i pos) {
+    return gt::MapPosition{pos.x, pos.y, pos.z};
 }
 
-godot::Vector2i GDFluidNetwork::_to_godot(const gt::MapPosition& pos) {
-    return godot::Vector2i(pos.x, pos.y);
+godot::Vector3i GDFluidNetwork::_to_godot(const gt::MapPosition& pos) {
+    return godot::Vector3i(pos.x, pos.y, pos.z);
 }
 
 } // namespace science_and_theology

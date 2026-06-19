@@ -29,6 +29,7 @@ StringName command_add_inventory_item() { return StringName("add_inventory_item"
 StringName command_remove_inventory_item() { return StringName("remove_inventory_item"); }
 StringName command_craft_recipe() { return StringName("craft_recipe"); }
 StringName command_place_object() { return StringName("place_object"); }
+StringName command_remove_object() { return StringName("remove_object"); }
 StringName command_furnace_take_output() { return StringName("furnace_take_output"); }
 StringName command_furnace_insert_input() { return StringName("furnace_insert_input"); }
 StringName command_furnace_insert_fuel() { return StringName("furnace_insert_fuel"); }
@@ -157,6 +158,7 @@ Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
     if (type == command_remove_inventory_item()) return cmd_remove_inventory_item(command);
     if (type == command_craft_recipe()) return cmd_craft_recipe(command);
     if (type == command_place_object()) return cmd_place_object(command);
+    if (type == command_remove_object()) return cmd_remove_object(command);
     if (type == command_furnace_take_output()) return cmd_furnace_take_output(command);
     if (type == command_furnace_insert_input()) return cmd_furnace_insert_input(command);
     if (type == command_furnace_insert_fuel()) return cmd_furnace_insert_fuel(command);
@@ -446,6 +448,16 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
             return reject(command_place_object(), "C++ furnace manager is not available");
         }
         placed = furnace_manager_cpp_->place_furnace(dimension, cell);
+        // Register furnace as a MACHINE block entity in the voxel grid
+        // so the network/multiblock/render systems can query it.
+        if (placed && world_data_ != nullptr &&
+            world_data_->get_world_ptr() != nullptr) {
+            world_data_->get_world_ptr()->block_entity_registry()
+                .register_machine_entity(
+                    std::string(String(dimension).utf8().get_data()),
+                    cell.x, cell.y, cell.z,
+                    "furnace", /*facing=*/0);
+        }
     } else if (object_type == object_ladder()) {
         // Ladders are placed as terrain cells (snt:ladder material).
         if (world_data_ == nullptr) {
@@ -584,6 +596,78 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     result["type"] = command_place_object();
     result["object_type"] = object_type;
     return accept(result);
+}
+
+Dictionary GDGameCommandServer::cmd_remove_object(const Dictionary& command) {
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+    const StringName object_type = command.get("object_type", StringName());
+
+    if (object_type == object_furnace()) {
+        if (furnace_manager_cpp_ == nullptr) {
+            return reject(command_remove_object(),
+                          "C++ furnace manager is not available");
+        }
+        if (!furnace_manager_cpp_->has_furnace(dimension, cell)) {
+            return reject(command_remove_object(), "no furnace at this cell");
+        }
+
+        // Recover furnace contents before removing.
+        const Dictionary snapshot =
+            furnace_manager_cpp_->get_furnace_snapshot(dimension, cell);
+        const int64_t input_item =
+            static_cast<int64_t>(snapshot.get("input_item_id", 0));
+        const int32_t input_count = static_cast<int32_t>(
+            static_cast<int64_t>(snapshot.get("input_count", 0)));
+        const int64_t fuel_item =
+            static_cast<int64_t>(snapshot.get("fuel_item_id", 0));
+        const double fuel_remaining =
+            static_cast<double>(snapshot.get("fuel_burn_remaining", 0.0));
+        const int64_t output_item =
+            static_cast<int64_t>(snapshot.get("output_item_id", 0));
+        const int32_t output_count = static_cast<int32_t>(
+            static_cast<int64_t>(snapshot.get("output_count", 0)));
+
+        // Remove furnace from FurnaceManager.
+        furnace_manager_cpp_->remove_furnace(dimension, cell);
+
+        // Remove MACHINE block entity from BlockEntityRegistry.
+        if (world_data_ != nullptr && world_data_->get_world_ptr() != nullptr) {
+            auto& registry =
+                world_data_->get_world_ptr()->block_entity_registry();
+            const EntityId owner =
+                registry.find_owner_at(cell.x, cell.y, cell.z);
+            if (owner.is_valid()) {
+                const auto* state = registry.get_machine_state(owner);
+                if (state != nullptr && state->machine_type == "furnace") {
+                    registry.remove_entity(owner);
+                }
+            }
+        }
+
+        // Return recovered items to player inventory.
+        if (input_item > 0 && input_count > 0) {
+            add_inventory_item(input_item, input_count);
+        }
+        if (fuel_item > 0 && fuel_remaining > 0.0) {
+            add_inventory_item(fuel_item, 1);
+        }
+        if (output_item > 0 && output_count > 0) {
+            add_inventory_item(output_item, output_count);
+        }
+
+        emit_signal("inventory_synced");
+        emit_signal("world_object_synced", object_type,
+                    StringName("removed"), dimension, cell);
+
+        Dictionary result;
+        result["type"] = command_remove_object();
+        result["object_type"] = object_type;
+        return accept(result);
+    }
+
+    return reject(command_remove_object(),
+                  "unsupported object type for removal");
 }
 
 // ============================================================
@@ -1481,6 +1565,14 @@ void GDGameCommandServer::_bind_methods() {
     ADD_SIGNAL(MethodInfo("command_rejected",
         PropertyInfo(Variant::STRING_NAME, "command_type"),
         PropertyInfo(Variant::STRING, "reason")));
+    ADD_SIGNAL(MethodInfo("crop_harvested",
+        PropertyInfo(Variant::STRING_NAME, "dimension"),
+        PropertyInfo(Variant::VECTOR3I, "cell"),
+        PropertyInfo(Variant::STRING, "species_key"),
+        PropertyInfo(Variant::INT, "crop_count"),
+        PropertyInfo(Variant::STRING, "crop_item_key"),
+        PropertyInfo(Variant::STRING, "byproduct_item_key"),
+        PropertyInfo(Variant::INT, "byproduct_count")));
 }
 
 } // namespace science_and_theology

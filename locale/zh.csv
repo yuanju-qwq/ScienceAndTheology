@@ -49,6 +49,7 @@ diamond_sword,钻石剑
 workbench,工作台
 stone_furnace,石炉
 ladder,梯子
+fence,围栏
 # Tree species items
 log.oak,橡木原木
 plank.oak,橡木板
@@ -504,3 +505,73 @@ item.anorthosite_tiny_dust,小撮斜长岩粉
 station.crafting_table,合成台
 station.furnace,熔炉
 station.workbench,工作台
+
+# ============================================================
+# Planting system - Farmland & crop species (种植系统 - 农田与作物)
+# ============================================================
+terrain.farmland,农田
+crop.wheat,小麦
+crop.carrot,胡萝卜
+crop.potato,马铃薯
+crop.cotton,棉花
+crop.herb,草药
+crop.pumpkin,南瓜
+terrain.wheat_seed,小麦种子
+terrain.wheat_sprout,小麦幼苗
+terrain.wheat_growing,生长中小麦
+terrain.wheat_mature,成熟小麦
+terrain.carrot_seed,胡萝卜种子
+terrain.carrot_sprout,胡萝卜幼苗
+terrain.carrot_growing,生长中胡萝卜
+terrain.carrot_mature,成熟胡萝卜
+terrain.potato_seed,马铃薯种子
+terrain.potato_sprout,马铃薯幼苗
+terrain.potato_growing,生长中马铃薯
+terrain.potato_mature,成熟马铃薯
+terrain.cotton_seed,棉花种子
+terrain.cotton_sprout,棉花幼苗
+terrain.cotton_growing,生长中棉花
+terrain.cotton_mature,成熟棉花
+terrain.herb_seed,草药种子
+terrain.herb_sprout,草药幼苗
+terrain.herb_growing,生长中草药
+terrain.herb_mature,成熟草药
+terrain.pumpkin_seed,南瓜种子
+terrain.pumpkin_sprout,南瓜幼苗
+terrain.pumpkin_growing,生长中南瓜
+terrain.pumpkin_mature,成熟南瓜
+
+# ============================================================
+# Planting system - Crop items (种植系统 - 作物物品)
+# ============================================================
+item.wheat_seed,小麦种子
+item.wheat_crop,小麦
+item.carrot_seed,胡萝卜种子
+item.carrot_crop,胡萝卜
+item.potato_seed,马铃薯种子
+item.potato_crop,马铃薯
+item.cotton_seed,棉花种子
+item.cotton_crop,棉花
+item.herb_seed,草药种子
+item.herb_crop,草药
+item.pumpkin_seed,南瓜种子
+item.pumpkin_crop,南瓜
+item.bone_meal,骨粉
+item.flour,面粉
+item.bread,面包
+item.cotton_fiber,棉纤维
+item.cloth,布料
+
+# ============================================================
+# Captive breeding system (圈养繁殖系统)
+# ============================================================
+husbandry.captured,捕获成功！生物已被圈养
+husbandry.taming,正在驯化…继续投喂
+husbandry.tamed,驯化完成！
+husbandry.bred,繁殖成功！幼崽已出生
+husbandry.fed,已投喂
+husbandry.no_enclosure,该位置不在封闭围栏内
+husbandry.pen_full,圈栏内生物已满
+husbandry.miss,未找到可投喂的生物
+husbandry.baby,幼崽
+husbandry.adult,成年

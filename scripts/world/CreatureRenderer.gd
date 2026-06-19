@@ -29,6 +29,17 @@ var _creature_species: Dictionary = {}
 # creature_id (int) -> flash timer (float)
 var _flash_timers: Dictionary = {}
 
+# --- Captive creature state ---
+# creature_id (int) -> Node3D (captive render root)
+var _captive_creatures: Dictionary = {}
+# creature_id (int) -> Dictionary {species_key, age_stage, is_tamed}
+var _captive_state: Dictionary = {}
+
+# Baby body scale relative to adult.
+const BABY_SCALE := 0.5
+# Vertical offset for the taming/tamed status marker above the body.
+const STATUS_MARKER_HEIGHT := 0.75
+
 # Pre-built species color table.
 # Herbivores: green/blue tones. Predators: red/orange tones.
 var _color_table: Dictionary = {
@@ -71,6 +82,18 @@ func _connect_signals() -> void:
 	if not _tick_system.creature_killed.is_connected(_on_creature_killed):
 		_tick_system.creature_killed.connect(_on_creature_killed)
 
+	# Captive creature lifecycle signals.
+	if not _tick_system.captive_creature_added.is_connected(_on_captive_creature_added):
+		_tick_system.captive_creature_added.connect(_on_captive_creature_added)
+	if not _tick_system.captive_creature_removed.is_connected(_on_captive_creature_removed):
+		_tick_system.captive_creature_removed.connect(_on_captive_creature_removed)
+	if not _tick_system.captive_creature_moved.is_connected(_on_captive_creature_moved):
+		_tick_system.captive_creature_moved.connect(_on_captive_creature_moved)
+	if not _tick_system.creature_grown.is_connected(_on_creature_grown):
+		_tick_system.creature_grown.connect(_on_creature_grown)
+	if not _tick_system.creature_tamed.is_connected(_on_creature_tamed):
+		_tick_system.creature_tamed.connect(_on_creature_tamed)
+
 
 # --- Signal handlers ---
 
@@ -104,6 +127,56 @@ func _on_creature_killed(creature_id: int, _species_id: int,
 	_spawn_kill_particles(creature_id)
 	# The creature node will be removed by the creature_despawned signal
 	# which fires shortly after creature_killed.
+
+
+# --- Captive creature signal handlers ---
+
+func _on_captive_creature_added(creature_id: int, species_key: String,
+		_species_id: int, age_stage: int, is_tamed: int,
+		pos_x: float, pos_y: float, pos_z: float,
+		_dimension: String, _cx: int, _cy: int, _cz: int) -> void:
+	if _captive_creatures.has(creature_id):
+		# Already tracked — update position only.
+		var existing := _captive_creatures.get(creature_id) as Node3D
+		if existing != null:
+			existing.position = Vector3(pos_x, pos_y, pos_z)
+		return
+	_spawn_captive_node(creature_id, species_key, age_stage,
+		bool(is_tamed), Vector3(pos_x, pos_y, pos_z))
+
+
+func _on_captive_creature_removed(creature_id: int,
+		_dimension: String, _cx: int, _cy: int, _cz: int) -> void:
+	_despawn_captive_node(creature_id)
+
+
+func _on_captive_creature_moved(creature_id: int, _species_key: String,
+		pos_x: float, pos_y: float, pos_z: float) -> void:
+	var node := _captive_creatures.get(creature_id) as Node3D
+	if node != null:
+		node.position = Vector3(pos_x, pos_y, pos_z)
+
+
+func _on_creature_grown(creature_id: int, _species_id: int,
+		_dimension: String, _cx: int, _cy: int, _cz: int) -> void:
+	# Baby → adult transition for captive creatures.
+	if not _captive_creatures.has(creature_id):
+		return
+	var state: Dictionary = _captive_state.get(creature_id, {})
+	state["age_stage"] = 1 # ADULT
+	_captive_state[creature_id] = state
+	_apply_captive_scale(creature_id, 1.0)
+
+
+func _on_creature_tamed(creature_id: int, _species_id: int,
+		_dimension: String, _cx: int, _cy: int, _cz: int) -> void:
+	# Taming completed — refresh the status marker to green.
+	if not _captive_creatures.has(creature_id):
+		return
+	var state: Dictionary = _captive_state.get(creature_id, {})
+	state["is_tamed"] = true
+	_captive_state[creature_id] = state
+	_refresh_status_marker(creature_id)
 
 
 # --- Hit flash effect ---
@@ -226,6 +299,109 @@ func _despawn_creature_node(creature_id: int) -> void:
 	_creature_species.erase(creature_id)
 	_flash_timers.erase(creature_id)
 	node.queue_free()
+
+
+# --- Captive creature node management ---
+
+func _spawn_captive_node(creature_id: int, species_key: String,
+		age_stage: int, is_tamed: bool,
+		pos: Vector3) -> void:
+	var color := _get_species_color(species_key)
+	var scale := 1.0 if age_stage == 1 else BABY_SCALE
+
+	var root := Node3D.new()
+	root.name = "Captive_%d" % creature_id
+	root.position = pos
+
+	# Body: colored box, same style as wild creatures.
+	var body := MeshInstance3D.new()
+	body.name = "Body"
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(0.4, 0.4, 0.6) * scale
+	body.mesh = mesh
+	body.material_override = _make_creature_material(color, species_key)
+	body.position = Vector3(0.0, 0.3 * scale, 0.0)
+	root.add_child(body)
+
+	# Eye indicator.
+	var eye := MeshInstance3D.new()
+	eye.name = "Eye"
+	var eye_mesh := BoxMesh.new()
+	eye_mesh.size = Vector3(0.08, 0.08, 0.02) * scale
+	eye.mesh = eye_mesh
+	eye.material_override = _make_eye_material()
+	eye.position = Vector3(0.0, 0.38 * scale, -0.31 * scale)
+	root.add_child(eye)
+
+	# Status marker: small cube above the body.
+	# Green = tamed, Yellow = taming in progress (captive but not yet tamed).
+	var marker := MeshInstance3D.new()
+	marker.name = "StatusMarker"
+	var marker_mesh := BoxMesh.new()
+	marker_mesh.size = Vector3(0.12, 0.12, 0.12)
+	marker.mesh = marker_mesh
+	marker.material_override = _make_status_marker_material(is_tamed)
+	marker.position = Vector3(0.0, STATUS_MARKER_HEIGHT, 0.0)
+	root.add_child(marker)
+
+	add_child(root)
+	_captive_creatures[creature_id] = root
+	_captive_state[creature_id] = {
+		"species_key": species_key,
+		"age_stage": age_stage,
+		"is_tamed": is_tamed,
+	}
+
+
+func _despawn_captive_node(creature_id: int) -> void:
+	var node := _captive_creatures.get(creature_id) as Node3D
+	if node == null:
+		return
+	_captive_creatures.erase(creature_id)
+	_captive_state.erase(creature_id)
+	node.queue_free()
+
+
+func _apply_captive_scale(creature_id: int, scale: float) -> void:
+	var node := _captive_creatures.get(creature_id) as Node3D
+	if node == null:
+		return
+	var body := node.get_node_or_null("Body") as MeshInstance3D
+	if body != null:
+		var mesh := body.mesh as BoxMesh
+		if mesh != null:
+			mesh.size = Vector3(0.4, 0.4, 0.6) * scale
+		body.position = Vector3(0.0, 0.3 * scale, 0.0)
+	var eye := node.get_node_or_null("Eye") as MeshInstance3D
+	if eye != null:
+		var eye_mesh := eye.mesh as BoxMesh
+		if eye_mesh != null:
+			eye_mesh.size = Vector3(0.08, 0.08, 0.02) * scale
+		eye.position = Vector3(0.0, 0.38 * scale, -0.31 * scale)
+
+
+func _refresh_status_marker(creature_id: int) -> void:
+	var node := _captive_creatures.get(creature_id) as Node3D
+	if node == null:
+		return
+	var state: Dictionary = _captive_state.get(creature_id, {})
+	var is_tamed: bool = bool(state.get("is_tamed", false))
+	var marker := node.get_node_or_null("StatusMarker") as MeshInstance3D
+	if marker != null:
+		marker.material_override = _make_status_marker_material(is_tamed)
+
+
+func _make_status_marker_material(is_tamed: bool) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	if is_tamed:
+		material.albedo_color = Color(0.2, 0.95, 0.3)  # green
+	else:
+		material.albedo_color = Color(0.95, 0.85, 0.2)  # yellow
+	material.roughness = 0.4
+	material.emission_enabled = true
+	material.emission = material.albedo_color * 0.5
+	material.emission_energy = 0.8
+	return material
 
 
 # --- Material helpers ---

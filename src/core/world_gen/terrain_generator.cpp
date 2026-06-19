@@ -987,6 +987,128 @@ void TerrainGenerator::pass_surface_objects(
             block_entities.push_back(std::move(be));
         }
     }
+
+    // --- Wild crop placement (Tier 1 wild foraging) ---
+    // Places mature wild crops on dirt surfaces for players to mine for seeds.
+    // Wild crops are terrain-only (no BlockEntity) — they don't grow and are
+    // mined rather than harvested. This gives players a seed source to start
+    // farming. Uses the "random tick" conceptual category (static placement).
+    place_wild_crops(dimension_id, chunk_x, chunk_y, chunk_z, terrain);
+}
+
+
+void TerrainGenerator::place_wild_crops(
+    const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
+    TerrainData& terrain) {
+    // Collect wild crop species from the config.
+    auto wild_crops = config_->wild_crop_species();
+    if (wild_crops.empty()) {
+        return;
+    }
+
+    const auto mat = materials();
+
+    // Dedicated noise for wild crop density (distinct seed offset from trees).
+    NoiseGenerator crop_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 10,
+        chunk_x, chunk_y, chunk_z));
+
+    // Reuse biome noise (same seeds as pass_biome / tree pass) for species
+    // selection consistency.
+    NoiseGenerator temp_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME), chunk_x, chunk_y, chunk_z));
+    NoiseGenerator humidity_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME) + 1, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator species_noise(world_seed_.chunk_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 11,
+        chunk_x, chunk_y, chunk_z));
+
+    for (int z = 0; z < terrain.size_z; ++z) {
+        for (int x = 0; x < terrain.size_x; ++x) {
+            // Find the topmost dirt block exposed to air.
+            int ground_y = -1;
+            for (int y = terrain.size_y - 1; y >= 0; --y) {
+                const TerrainCell& cell = terrain.cell_at(x, y, z);
+                if (is_material(cell, mat.dirt) &&
+                    is_exposed_to_air(terrain, x, y, z, mat.air)) {
+                    ground_y = y;
+                    break;
+                }
+            }
+            if (ground_y < 0) {
+                continue;
+            }
+
+            // The air cell above the dirt is where the crop would go.
+            const int crop_y = ground_y + 1;
+            if (crop_y >= terrain.size_y) {
+                continue;
+            }
+            if (!is_material(terrain.cell_at(x, crop_y, z), mat.air)) {
+                continue;  // Already occupied (e.g. by a tree trunk).
+            }
+
+            const int global_x = global_coord(chunk_x, x);
+            const int global_y = global_coord(chunk_y, ground_y);
+            const int global_z = global_coord(chunk_z, z);
+
+            // Wild crop density: rarer than trees (threshold 0.78 vs 0.54).
+            const float crop_density = crop_noise.noise_3d_scaled(
+                static_cast<float>(global_x),
+                static_cast<float>(global_y),
+                static_cast<float>(global_z),
+                0.15f, 3);
+            if (crop_density < 0.78f) {
+                continue;
+            }
+
+            // Compute biome conditions.
+            const float temperature = temp_noise.noise_3d_scaled(
+                static_cast<float>(global_x),
+                static_cast<float>(global_y),
+                static_cast<float>(global_z),
+                0.015f, 3);
+            const float humidity = humidity_noise.noise_3d_scaled(
+                static_cast<float>(global_x + 2000),
+                static_cast<float>(global_y + 2000),
+                static_cast<float>(global_z + 2000),
+                0.02f, 3);
+
+            // Find matching wild crop species for this biome.
+            std::vector<const CropSpeciesDef*> matching;
+            for (const auto* species : wild_crops) {
+                if (temperature >= species->temperature_min &&
+                    temperature <= species->temperature_max &&
+                    humidity >= species->humidity_min &&
+                    humidity <= species->humidity_max) {
+                    matching.push_back(species);
+                }
+            }
+            if (matching.empty()) {
+                continue;
+            }
+
+            // Deterministic species selection.
+            const float sel = species_noise.noise_3d_scaled(
+                static_cast<float>(global_x),
+                static_cast<float>(global_y),
+                static_cast<float>(global_z),
+                1.0f, 3);
+            const size_t idx = static_cast<size_t>(
+                sel * static_cast<float>(matching.size())) % matching.size();
+            const CropSpeciesDef* selected = matching[idx];
+
+            // Resolve the mature-stage material.
+            const TerrainMaterialId mature_mat = config_->material_id_or(
+                selected->stage_material_keys[3], 0);
+            if (mature_mat <= 0) {
+                continue;
+            }
+
+            // Place the wild crop (mature stage) in the air cell above dirt.
+            set_cell_id(terrain, x, crop_y, z, mature_mat);
+        }
+    }
 }
 
 // --- Pass 5: Gameplay ---

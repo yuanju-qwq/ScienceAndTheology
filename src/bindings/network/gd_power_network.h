@@ -5,7 +5,7 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/string.hpp>
-#include <godot_cpp/variant/vector2i.hpp>
+#include <godot_cpp/variant/vector3i.hpp>
 
 #include "core/network/power_network.hpp"
 
@@ -16,7 +16,7 @@ namespace science_and_theology {
 //
 // Usage in GDScript:
 //   var net = GDPowerNetwork.new()
-//   var node_id = net.add_node(GDPowerNetwork.TIER_LV, Vector2i(10, 5))
+//   var node_id = net.add_node(GDPowerNetwork.TIER_LV, Vector3i(10, 5, 0))
 //   net.connect_nodes(a, b, "copper")
 //   net.update_network()
 //   if net.is_overloaded(node_id):
@@ -29,10 +29,10 @@ public:
     ~GDPowerNetwork() override;
 
     // --- Node lifecycle ---
-    int64_t add_node(int tier, godot::Vector2i position);
+    int64_t add_node(int tier, godot::Vector3i position);
     bool remove_node(int64_t node_id);
     godot::Dictionary get_node_info(int64_t node_id) const;
-    int64_t get_node_at(godot::Vector2i position) const;
+    int64_t get_node_at(godot::Vector3i position) const;
     int64_t get_node_count() const;
 
     // --- Edge lifecycle ---
@@ -64,7 +64,7 @@ public:
     static godot::PackedStringArray get_all_cable_materials();
     static int64_t get_voltage_for_tier(int tier);
     static godot::String get_tier_name(int tier);
-    static int64_t manhattan_dist(godot::Vector2i a, godot::Vector2i b);
+    static int64_t manhattan_dist(godot::Vector3i a, godot::Vector3i b);
     static int64_t get_transformer_loss_per_step();
 
     // --- Voltage tier constants for GDScript ---
@@ -103,8 +103,8 @@ private:
     void _on_overload(gt::PowerNodeId node_id, const gt::OverloadInfo& info);
 
     // Convert C++ types to Godot variants.
-    static godot::Vector2i _to_godot(const gt::MapPosition& pos);
-    static gt::MapPosition _from_godot(godot::Vector2i pos);
+    static godot::Vector3i _to_godot(const gt::MapPosition& pos);
+    static gt::MapPosition _from_godot(godot::Vector3i pos);
     static godot::Dictionary _to_godot(const gt::OverloadInfo& info);
     static const gt::CableProperties* _find_cable(const godot::String& name);
 };

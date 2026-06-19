@@ -102,6 +102,12 @@ private:
                    TerrainData& terrain,
                    std::vector<BlockEntityPlacement>& block_entities);
 
+    // Place wild crops on dirt surfaces for Tier 1 wild foraging.
+    // Wild crops are terrain-only (no BlockEntity) — mined for seeds.
+    void place_wild_crops(const std::string& dimension_id,
+                   int chunk_x, int chunk_y, int chunk_z,
+                   TerrainData& terrain);
+
     // Pass 5: Place gameplay elements.
     void pass_gameplay(const std::string& dimension_id,
                        int chunk_x, int chunk_y, int chunk_z,

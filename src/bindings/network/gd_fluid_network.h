@@ -5,7 +5,7 @@
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
-#include <godot_cpp/variant/vector2i.hpp>
+#include <godot_cpp/variant/vector3i.hpp>
 
 #include "core/network/fluid_network.hpp"
 
@@ -25,7 +25,7 @@ public:
     ~GDFluidNetwork() override;
 
     // --- Node lifecycle ---
-    int64_t add_node(godot::Vector2i position, int pipe_type = PIPE_LIQUID);
+    int64_t add_node(godot::Vector3i position, int pipe_type = PIPE_LIQUID);
     bool remove_node(int64_t node_id);
     godot::Dictionary get_node_info(int64_t node_id) const;
     int64_t get_node_count() const;
@@ -72,8 +72,8 @@ protected:
 private:
     gt::FluidNetwork network_;
 
-    static gt::MapPosition _from_godot(godot::Vector2i pos);
-    static godot::Vector2i _to_godot(const gt::MapPosition& pos);
+    static gt::MapPosition _from_godot(godot::Vector3i pos);
+    static godot::Vector3i _to_godot(const gt::MapPosition& pos);
 };
 
 } // namespace science_and_theology

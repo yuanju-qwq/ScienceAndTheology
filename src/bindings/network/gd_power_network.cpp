@@ -131,7 +131,7 @@ void GDPowerNetwork::_bind_methods() {
 
 // --- Node lifecycle ---
 
-int64_t GDPowerNetwork::add_node(int tier, godot::Vector2i position) {
+int64_t GDPowerNetwork::add_node(int tier, godot::Vector3i position) {
     auto t = static_cast<VoltageTier>(tier);
     PowerNodeId id = network_.add_node(t, _from_godot(position));
     return static_cast<int64_t>(id);
@@ -159,7 +159,7 @@ godot::Dictionary GDPowerNetwork::get_node_info(int64_t node_id) const {
     return info;
 }
 
-int64_t GDPowerNetwork::get_node_at(godot::Vector2i position) const {
+int64_t GDPowerNetwork::get_node_at(godot::Vector3i position) const {
     return static_cast<int64_t>(network_.get_node_at(_from_godot(position)));
 }
 
@@ -310,9 +310,8 @@ godot::String GDPowerNetwork::get_tier_name(int tier) {
     return get_voltage_name(static_cast<VoltageTier>(tier));
 }
 
-int64_t GDPowerNetwork::manhattan_dist(godot::Vector2i a, godot::Vector2i b) {
-    // Bindings still use 2D; z=0 until v28-5 migrates to Vector3i.
-    return manhattan_distance(a.x, a.y, 0, b.x, b.y, 0);
+int64_t GDPowerNetwork::manhattan_dist(godot::Vector3i a, godot::Vector3i b) {
+    return manhattan_distance(a.x, a.y, a.z, b.x, b.y, b.z);
 }
 
 int64_t GDPowerNetwork::get_transformer_loss_per_step() {
@@ -333,12 +332,12 @@ void GDPowerNetwork::_on_overload(PowerNodeId node_id, const OverloadInfo& info)
 
 // --- Type conversion helpers ---
 
-godot::Vector2i GDPowerNetwork::_to_godot(const MapPosition& pos) {
-    return godot::Vector2i(pos.x, pos.y);
+godot::Vector3i GDPowerNetwork::_to_godot(const MapPosition& pos) {
+    return godot::Vector3i(pos.x, pos.y, pos.z);
 }
 
-MapPosition GDPowerNetwork::_from_godot(godot::Vector2i pos) {
-    return MapPosition{pos.x, pos.y};
+MapPosition GDPowerNetwork::_from_godot(godot::Vector3i pos) {
+    return MapPosition{pos.x, pos.y, pos.z};
 }
 
 godot::Dictionary GDPowerNetwork::_to_godot(const OverloadInfo& info) {

@@ -40,10 +40,10 @@ public:
     int get_footprint_height() const;
 
     // Port API.
-    // add_port: rel_x/rel_y relative to machine origin, port_type (0=ENERGY, 1=UNIVERSAL),
+    // add_port: rel_x/rel_y/rel_z relative to machine origin, port_type (0=ENERGY, 1=UNIVERSAL),
     //           direction (0=IN, 1=OUT), locked (player cannot flip).
-    void add_port(int rel_x, int rel_y, int port_type, int direction,
-                  bool locked = false);
+    void add_port(int rel_x, int rel_y, int rel_z, int port_type,
+                  int direction, bool locked = false);
     godot::Dictionary get_port_info(int index) const;
     int get_port_count() const;
 

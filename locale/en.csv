@@ -49,6 +49,7 @@ diamond_sword,Diamond Sword
 workbench,Workbench
 stone_furnace,Stone Furnace
 ladder,Ladder
+fence,Fence
 # Tree species items
 log.oak,Oak Log
 plank.oak,Oak Plank
@@ -508,3 +509,73 @@ item.anorthosite_tiny_dust,Anorthosite Tiny Dust
 station.crafting_table,Crafting Table
 station.furnace,Furnace
 station.workbench,Workbench
+
+# ============================================================
+# Planting system - Farmland & crop species
+# ============================================================
+terrain.farmland,Farmland
+crop.wheat,Wheat
+crop.carrot,Carrot
+crop.potato,Potato
+crop.cotton,Cotton
+crop.herb,Herb
+crop.pumpkin,Pumpkin
+terrain.wheat_seed,Wheat Seeds
+terrain.wheat_sprout,Wheat Sprout
+terrain.wheat_growing,Growing Wheat
+terrain.wheat_mature,Mature Wheat
+terrain.carrot_seed,Carrot Seeds
+terrain.carrot_sprout,Carrot Sprout
+terrain.carrot_growing,Growing Carrot
+terrain.carrot_mature,Mature Carrot
+terrain.potato_seed,Potato Seeds
+terrain.potato_sprout,Potato Sprout
+terrain.potato_growing,Growing Potato
+terrain.potato_mature,Mature Potato
+terrain.cotton_seed,Cotton Seeds
+terrain.cotton_sprout,Cotton Sprout
+terrain.cotton_growing,Growing Cotton
+terrain.cotton_mature,Mature Cotton
+terrain.herb_seed,Herb Seeds
+terrain.herb_sprout,Herb Sprout
+terrain.herb_growing,Growing Herb
+terrain.herb_mature,Mature Herb
+terrain.pumpkin_seed,Pumpkin Seeds
+terrain.pumpkin_sprout,Pumpkin Sprout
+terrain.pumpkin_growing,Growing Pumpkin
+terrain.pumpkin_mature,Mature Pumpkin
+
+# ============================================================
+# Planting system - Crop items
+# ============================================================
+item.wheat_seed,Wheat Seeds
+item.wheat_crop,Wheat
+item.carrot_seed,Carrot Seeds
+item.carrot_crop,Carrot
+item.potato_seed,Potato Seeds
+item.potato_crop,Potato
+item.cotton_seed,Cotton Seeds
+item.cotton_crop,Cotton
+item.herb_seed,Herb Seeds
+item.herb_crop,Herb
+item.pumpkin_seed,Pumpkin Seeds
+item.pumpkin_crop,Pumpkin
+item.bone_meal,Bone Meal
+item.flour,Flour
+item.bread,Bread
+item.cotton_fiber,Cotton Fiber
+item.cloth,Cloth
+
+# ============================================================
+# Captive breeding system
+# ============================================================
+husbandry.captured,Captured! The creature is now penned
+husbandry.taming,Taming in progress... keep feeding
+husbandry.tamed,Taming complete!
+husbandry.bred,Bred successfully! A baby was born
+husbandry.fed,Fed
+husbandry.no_enclosure,That spot is not inside a closed fence
+husbandry.pen_full,The pen is full
+husbandry.miss,No creature found to feed
+husbandry.baby,Baby
+husbandry.adult,Adult
