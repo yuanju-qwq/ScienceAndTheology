@@ -49,6 +49,11 @@ public:
                      int& out_region_x, int& out_region_y, int& out_region_z,
                      std::vector<RegionChunkEntry>& out_chunks);
 
+    // Reads only the version byte from a region file without full parsing.
+    // Returns 0 if the file cannot be opened or is too short.
+    // Used to detect legacy (pre-v2) region files for migration logging.
+    static uint8_t peek_version(const std::string& file_path);
+
     static inline int to_region(int chunk_coord) {
         if (chunk_coord >= 0) return chunk_coord / kRegionSize;
         return (chunk_coord + 1) / kRegionSize - 1;

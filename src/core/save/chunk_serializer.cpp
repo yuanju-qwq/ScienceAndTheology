@@ -81,6 +81,15 @@ std::vector<uint8_t> ChunkSerializer::serialize(
         write_population_cell(buf, chunk.population_cell);
     }
 
+    // Captive creatures (husbandry data, version 8+).
+    write_uint8(buf, chunk.has_captive_creatures ? 1 : 0);
+    if (chunk.has_captive_creatures) {
+        write_uint32(buf, static_cast<uint32_t>(chunk.captive_creatures.size()));
+        for (const auto& cc : chunk.captive_creatures) {
+            write_captive_creature(buf, cc);
+        }
+    }
+
     return buf;
 }
 
@@ -226,6 +235,28 @@ bool ChunkSerializer::deserialize(
         chunk.has_population_cell = false;
     }
 
+    // Captive creatures (v8+).
+    if (version >= 8) {
+        uint8_t has_captive;
+        if (!read_uint8(data, offset, has_captive)) return false;
+        chunk.has_captive_creatures = (has_captive != 0);
+        if (chunk.has_captive_creatures) {
+            uint32_t captive_count;
+            if (!read_uint32(data, offset, captive_count)) return false;
+            // Sanity cap to avoid corrupt data causing huge allocations.
+            if (captive_count > 4096) return false;
+            chunk.captive_creatures.resize(captive_count);
+            for (uint32_t i = 0; i < captive_count; ++i) {
+                if (!read_captive_creature(data, offset,
+                        chunk.captive_creatures[i])) {
+                    return false;
+                }
+            }
+        }
+    } else {
+        chunk.has_captive_creatures = false;
+    }
+
     return true;
 }
 
@@ -240,12 +271,22 @@ void ChunkSerializer::write_uint8(std::vector<uint8_t>& buf, uint8_t value) {
     buf.push_back(value);
 }
 
+void ChunkSerializer::write_uint16(std::vector<uint8_t>& buf, uint16_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    buf.insert(buf.end(), bytes, bytes + sizeof(value));
+}
+
 void ChunkSerializer::write_int32(std::vector<uint8_t>& buf, int32_t value) {
     const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
     buf.insert(buf.end(), bytes, bytes + sizeof(value));
 }
 
 void ChunkSerializer::write_uint32(std::vector<uint8_t>& buf, uint32_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    buf.insert(buf.end(), bytes, bytes + sizeof(value));
+}
+
+void ChunkSerializer::write_int64(std::vector<uint8_t>& buf, int64_t value) {
     const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
     buf.insert(buf.end(), bytes, bytes + sizeof(value));
 }
@@ -284,6 +325,14 @@ bool ChunkSerializer::read_uint8(const std::vector<uint8_t>& data,
     return true;
 }
 
+bool ChunkSerializer::read_uint16(const std::vector<uint8_t>& data,
+                                  size_t& offset, uint16_t& out) {
+    if (offset + sizeof(out) > data.size()) return false;
+    std::memcpy(&out, &data[offset], sizeof(out));
+    offset += sizeof(out);
+    return true;
+}
+
 bool ChunkSerializer::read_int32(const std::vector<uint8_t>& data,
                                  size_t& offset, int32_t& out) {
     if (offset + sizeof(out) > data.size()) return false;
@@ -294,6 +343,14 @@ bool ChunkSerializer::read_int32(const std::vector<uint8_t>& data,
 
 bool ChunkSerializer::read_uint32(const std::vector<uint8_t>& data,
                                   size_t& offset, uint32_t& out) {
+    if (offset + sizeof(out) > data.size()) return false;
+    std::memcpy(&out, &data[offset], sizeof(out));
+    offset += sizeof(out);
+    return true;
+}
+
+bool ChunkSerializer::read_int64(const std::vector<uint8_t>& data,
+                                 size_t& offset, int64_t& out) {
     if (offset + sizeof(out) > data.size()) return false;
     std::memcpy(&out, &data[offset], sizeof(out));
     offset += sizeof(out);
@@ -544,6 +601,85 @@ bool ChunkSerializer::read_population_cell(
         cell.hunting_pressure_pred = 0.0f;
         return true;
     }
+    return true;
+}
+
+// --- Captive creature helpers (v8) ---
+
+void ChunkSerializer::write_captive_creature(
+    std::vector<uint8_t>& buf,
+    const CaptiveCreature& cc) {
+    // runtime_id is not persisted (reassigned on load).
+    write_uint16(buf, cc.species_id);
+    write_uint8(buf, static_cast<uint8_t>(cc.role));
+    write_uint8(buf, static_cast<uint8_t>(cc.age_stage));
+    write_float(buf, cc.pos_x);
+    write_float(buf, cc.pos_y);
+    write_float(buf, cc.pos_z);
+    write_float(buf, cc.wander_target_x);
+    write_float(buf, cc.wander_target_y);
+    write_float(buf, cc.wander_target_z);
+    write_int64(buf, cc.next_wander_tick);
+    write_int32(buf, cc.bounds_min_x);
+    write_int32(buf, cc.bounds_min_y);
+    write_int32(buf, cc.bounds_min_z);
+    write_int32(buf, cc.bounds_max_x);
+    write_int32(buf, cc.bounds_max_y);
+    write_int32(buf, cc.bounds_max_z);
+    write_float(buf, cc.health);
+    write_float(buf, cc.tame_progress);
+    write_uint8(buf, cc.is_tamed ? 1 : 0);
+    write_int64(buf, cc.capture_tick);
+    write_int64(buf, cc.birth_tick);
+    write_int64(buf, cc.grow_up_tick);
+    write_int64(buf, cc.breed_cooldown_until);
+    write_int64(buf, cc.gestation_end_tick);
+    write_uint8(buf, cc.is_pregnant ? 1 : 0);
+    write_uint16(buf, cc.partner_species_id);
+}
+
+bool ChunkSerializer::read_captive_creature(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    CaptiveCreature& cc) {
+    uint16_t species;
+    if (!read_uint16(data, offset, species)) return false;
+    cc.species_id = species;
+    uint8_t role;
+    if (!read_uint8(data, offset, role)) return false;
+    cc.role = static_cast<CreatureRole>(role);
+    uint8_t age;
+    if (!read_uint8(data, offset, age)) return false;
+    cc.age_stage = static_cast<CreatureAgeStage>(age);
+    if (!read_float(data, offset, cc.pos_x)) return false;
+    if (!read_float(data, offset, cc.pos_y)) return false;
+    if (!read_float(data, offset, cc.pos_z)) return false;
+    if (!read_float(data, offset, cc.wander_target_x)) return false;
+    if (!read_float(data, offset, cc.wander_target_y)) return false;
+    if (!read_float(data, offset, cc.wander_target_z)) return false;
+    if (!read_int64(data, offset, cc.next_wander_tick)) return false;
+    if (!read_int32(data, offset, cc.bounds_min_x)) return false;
+    if (!read_int32(data, offset, cc.bounds_min_y)) return false;
+    if (!read_int32(data, offset, cc.bounds_min_z)) return false;
+    if (!read_int32(data, offset, cc.bounds_max_x)) return false;
+    if (!read_int32(data, offset, cc.bounds_max_y)) return false;
+    if (!read_int32(data, offset, cc.bounds_max_z)) return false;
+    if (!read_float(data, offset, cc.health)) return false;
+    if (!read_float(data, offset, cc.tame_progress)) return false;
+    uint8_t tamed;
+    if (!read_uint8(data, offset, tamed)) return false;
+    cc.is_tamed = (tamed != 0);
+    if (!read_int64(data, offset, cc.capture_tick)) return false;
+    if (!read_int64(data, offset, cc.birth_tick)) return false;
+    if (!read_int64(data, offset, cc.grow_up_tick)) return false;
+    if (!read_int64(data, offset, cc.breed_cooldown_until)) return false;
+    if (!read_int64(data, offset, cc.gestation_end_tick)) return false;
+    uint8_t pregnant;
+    if (!read_uint8(data, offset, pregnant)) return false;
+    cc.is_pregnant = (pregnant != 0);
+    uint16_t partner;
+    if (!read_uint16(data, offset, partner)) return false;
+    cc.partner_species_id = partner;
     return true;
 }
 

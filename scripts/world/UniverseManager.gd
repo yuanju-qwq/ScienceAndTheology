@@ -141,6 +141,14 @@ var _quest_system_initialized := false
 var _debug_elapsed := 0.0
 var _bridge_initialized := false
 
+# 浮动原点：跟踪玩家的 double 精度宇宙坐标。
+# 解决多星球大尺度距离下的 float 精度问题。
+var floating_origin: FloatingOrigin = null
+
+# 旅行进行中标志：为 true 时跳过 _update_active_planet 的自动切换，
+# 避免 travel_to_planet 设置活跃星球后被同一帧的逻辑覆盖。
+var _is_traveling := false
+
 
 func _ready() -> void:
 	_apply_game_session_overrides()
@@ -150,6 +158,7 @@ func _ready() -> void:
 	_create_virtual_simulator()
 	_create_save_manager()
 	_create_lod_managers_for_realized()
+	_create_floating_origin()
 	_set_initial_active_planet()
 
 
@@ -157,14 +166,42 @@ func _process(delta: float) -> void:
 	if _player == null:
 		return
 
+	# 先更新玩家的宇宙坐标（double 精度），后续距离/LOD/重力计算依赖此值。
+	_update_player_universe_position()
+
 	_update_system_streaming()
 	_update_system_distances()
 	_update_system_realization()
-	_update_active_planet()
+	# 旅行进行中时跳过自动活跃星球切换，避免覆盖 travel_to_planet 的设置。
+	if not _is_traveling:
+		_update_active_planet()
 	_update_planet_loading()
 	_update_station_loading()
 	_drive_tick_system(delta)
 	_maybe_debug_log(delta)
+
+
+# 创建 FloatingOrigin 实例，用于跟踪玩家的 double 精度宇宙坐标。
+func _create_floating_origin() -> void:
+	if floating_origin == null:
+		floating_origin = FloatingOrigin.new()
+	# 初始化渲染原点到初始活跃星球的宇宙位置（若有）。
+	if active_planet != null:
+		floating_origin.set_origin_vec3(active_planet.universe_position)
+		floating_origin.set_universe_position_vec3(active_planet.universe_position)
+
+
+# 每帧更新玩家的宇宙坐标。
+# 玩家宇宙坐标 = 活跃星球宇宙坐标 + (玩家场景坐标 - 活跃星球 local_center)。
+# 这样玩家在星球表面移动时，宇宙坐标同步更新，远景距离计算保持精度。
+func _update_player_universe_position() -> void:
+	if floating_origin == null or active_planet == null or _player == null:
+		return
+	var local_offset := _player.global_position - active_planet.local_center
+	var ux: float = active_planet.universe_position.x + local_offset.x
+	var uy: float = active_planet.universe_position.y + local_offset.y
+	var uz: float = active_planet.universe_position.z + local_offset.z
+	floating_origin.set_universe_position(ux, uy, uz)
 
 
 # --- Game session overrides ---
@@ -260,10 +297,12 @@ func _update_system_streaming() -> void:
 	if _grid == null or _player == null:
 		return
 
-	var player_pos := _player.global_position
+	# 使用 FloatingOrigin 的 double 精度宇宙坐标计算距离，
+	# 避免大尺度下 float 精度损失导致系统流式加载错误。
+	var player_upos: Vector3 = floating_origin.get_universe_position() if floating_origin != null else _player.global_position
 
 	# Generate new placeholders around the player.
-	var cells := _grid.get_cells_around(player_pos, system_stream_radius)
+	var cells := _grid.get_cells_around(player_upos, system_stream_radius)
 	var existing_ids: Dictionary = {}
 	for sys in systems:
 		existing_ids[sys.system_id] = true
@@ -282,7 +321,7 @@ func _update_system_streaming() -> void:
 		var sys := systems[i]
 		if sys.is_realized():
 			continue
-		var dist := player_pos.distance_to(sys.universe_position)
+		var dist: float = floating_origin.distance_to_player_vec3(sys.universe_position) if floating_origin != null else player_upos.distance_to(sys.universe_position)
 		if dist > system_stream_radius * 1.2:
 			to_remove.append(i)
 
@@ -295,12 +334,15 @@ func _update_system_streaming() -> void:
 # --- System distance and realization ---
 
 # Update the distance from each system to the player.
+# 使用 FloatingOrigin 的 double 精度宇宙距离，避免大尺度 float 误差。
 func _update_system_distances() -> void:
 	if _player == null:
 		return
-	var player_pos := _player.global_position
 	for sys in systems:
-		sys.distance_to_player = player_pos.distance_to(sys.universe_position)
+		if floating_origin != null:
+			sys.distance_to_player = floating_origin.distance_to_player_vec3(sys.universe_position)
+		else:
+			sys.distance_to_player = _player.global_position.distance_to(sys.universe_position)
 
 
 # Realize placeholder systems that are close enough to the player.
@@ -386,6 +428,7 @@ func _create_star_lod(planet: PlanetDescriptor) -> void:
 func _set_initial_active_planet() -> void:
 	if _player == null:
 		active_planet = _find_first_landable_planet()
+		print("[UniverseManager] _set_initial_active_planet: no player, active_planet=%s" % [active_planet.display_name if active_planet else "null"])
 		return
 
 	# Choose a spawn planet: prefer breathable atmosphere (e.g., Earth).
@@ -397,10 +440,13 @@ func _set_initial_active_planet() -> void:
 		# highest possible terrain (terrain_height_scale) to avoid clipping.
 		var spawn_y := spawn_planet.terrain_height_scale + 4.0
 		_player.global_position = Vector3(0.5, spawn_y, 0.5)
+		print("[UniverseManager] _set_initial_active_planet: spawn_planet=%s radius=%.1f local_center=%s spawn_pos=%s" % [spawn_planet.display_name, spawn_planet.planet_radius, spawn_planet.local_center, _player.global_position])
 		_set_active_planet(spawn_planet)
+		print("[UniverseManager] _set_initial_active_planet: after set_active, active_planet=%s bridge_initialized=%s" % [active_planet.display_name if active_planet else "null", _bridge_initialized])
 		return
 
 	var nearest := find_nearest_planet(_player.global_position)
+	print("[UniverseManager] _set_initial_active_planet: no spawn_planet, nearest=%s player_pos=%s" % [nearest.display_name if nearest else "null", _player.global_position])
 	if nearest != null:
 		_set_active_planet(nearest)
 
@@ -425,6 +471,7 @@ func _update_active_planet() -> void:
 		return
 
 	# Check if the player is inside a station first.
+	# 空间站使用局部坐标判断（空间站通常在玩家附近）。
 	var nearest_station := find_nearest_station(_player.global_position)
 	if nearest_station != null and nearest_station.is_in_gravity_range(_player.global_position):
 		if active_station == null or nearest_station.dimension_id != active_station.dimension_id:
@@ -440,12 +487,32 @@ func _update_active_planet() -> void:
 			return
 
 	# Otherwise, find the nearest planet by universe distance.
-	var nearest := find_nearest_planet(_player.global_position)
+	# 使用 FloatingOrigin 的 double 精度距离，避免大尺度浮点误差。
+	var nearest := _find_nearest_planet_by_universe_distance()
 	if nearest == null:
 		return
 
 	if active_planet == null or nearest.dimension_id != active_planet.dimension_id:
 		_set_active_planet(nearest)
+
+
+# 使用 FloatingOrigin 的 double 精度距离查找最近的非恒星星球。
+func _find_nearest_planet_by_universe_distance() -> PlanetDescriptor:
+	if floating_origin == null:
+		return null
+	var best: PlanetDescriptor = null
+	var best_dist: float = INF
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
+			var dist := floating_origin.distance_to_player_vec3(planet.universe_position)
+			if dist < best_dist:
+				best_dist = dist
+				best = planet
+	return best
 
 
 func _set_active_station(station: StationDescriptor) -> void:
@@ -477,6 +544,40 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 		else:
 			_chunk_bridge.set_active_dimension(planet.dimension_id)
 
+	# 更新所有 LOD 管理器的场景中心坐标。
+	# 活跃星球使用 local_center，远景星球使用相对宇宙偏移。
+	_update_all_lod_centers()
+
+	# 重新居中浮动原点到新活跃星球的宇宙位置。
+	if floating_origin != null:
+		floating_origin.recenter_to_vec3(planet.universe_position)
+
+
+# 更新所有 LOD 管理器的场景中心。
+# 活跃星球：planet_center = local_center（局部体素坐标）。
+# 远景星球：distant_scene_center = (distant.universe_position - active.universe_position) + active.local_center。
+# 这样玩家（在活跃星球局部坐标系中）与所有星球之间的相对距离正确。
+func _update_all_lod_centers() -> void:
+	if active_planet == null:
+		return
+	var active_up := active_planet.universe_position
+	var active_lc := active_planet.local_center
+	for dim_id in _lod_managers.keys():
+		var lod: PlanetLodManager = _lod_managers[dim_id]
+		if lod == null:
+			continue
+		if dim_id == active_planet.dimension_id:
+			# 活跃星球：使用 local_center 作为场景中心。
+			lod.set_scene_center(active_lc, true)
+		else:
+			# 远景星球：相对活跃星球的宇宙偏移 + 活跃星球的 local_center。
+			var planet := get_planet_by_dimension(dim_id)
+			if planet == null:
+				continue
+			var relative := planet.universe_position - active_up
+			var scene_center := relative + active_lc
+			lod.set_scene_center(scene_center, false)
+
 
 # --- Planet loading / unloading with serialization ---
 
@@ -493,7 +594,15 @@ func _update_planet_loading() -> void:
 			if planet.is_star:
 				continue
 
-			var dist := player_pos.distance_to(planet.universe_position)
+			# 活跃星球使用局部坐标距离（player_pos 即局部坐标）。
+			# 远景星球使用 FloatingOrigin 的 double 精度宇宙距离。
+			var dist: float
+			if active_planet != null and planet.dimension_id == active_planet.dimension_id:
+				dist = player_pos.distance_to(planet.local_center)
+			elif floating_origin != null:
+				dist = floating_origin.distance_to_player_vec3(planet.universe_position)
+			else:
+				dist = player_pos.distance_to(planet.universe_position)
 			var load_dist := planet.planet_radius * load_distance_multiplier
 			var unload_dist := planet.planet_radius * unload_distance_multiplier
 			var is_loaded := _loaded_planets.has(planet.dimension_id)
@@ -684,6 +793,128 @@ func find_nearest_planet(pos: Vector3) -> PlanetDescriptor:
 	return best
 
 
+# --- Public API: multi-planet travel ---
+
+# 旅行到指定星球。
+# 这是多星球旅行的核心 API：切换活跃星球并将玩家传送到目标星球表面。
+# 参数：
+#   planet          — 目标星球描述符（必须已实现，不能是恒星）。
+#   spawn_offset_y  — 玩家在目标星球表面的额外 Y 偏移（默认在地形高度上方 4 格）。
+# 返回 true 表示旅行成功。
+func travel_to_planet(planet: PlanetDescriptor, spawn_offset_y: float = 4.0) -> bool:
+	if planet == null:
+		push_warning("UniverseManager: travel_to_planet — planet is null")
+		return false
+	if planet.is_star:
+		push_warning("UniverseManager: travel_to_planet — cannot travel to a star (%s)" % planet.display_name)
+		return false
+
+	# 确保目标星球所在的星系已实现。
+	var sys := get_system_for_planet(planet.dimension_id)
+	if sys == null or not sys.is_realized():
+		push_warning("UniverseManager: travel_to_planet — system not realized for %s" % planet.display_name)
+		return false
+
+	print("[UniverseManager] travel_to_planet: %s (dim=%s, universe_pos=%s, radius=%.1f)" % [
+		planet.display_name, String(planet.dimension_id), planet.universe_position, planet.planet_radius])
+
+	_is_traveling = true
+
+	# 切换活跃星球（会触发 _update_all_lod_centers 和 floating_origin recenter）。
+	_set_active_planet(planet)
+
+	# 将玩家传送到目标星球的表面。
+	# 局部坐标系约定：local_center = (0, -radius, 0)，地表在 y≈0。
+	# 玩家生成在 (0.5, terrain_height_scale + spawn_offset_y, 0.5)。
+	if _player != null:
+		var spawn_y := planet.terrain_height_scale + spawn_offset_y
+		_player.global_position = Vector3(0.5, spawn_y, 0.5)
+		# 重置玩家速度，避免残留的飞行惯性。
+		if _player is CharacterBody3D:
+			(_player as CharacterBody3D).velocity = Vector3.ZERO
+		print("[UniverseManager] travel_to_planet: player repositioned to %s" % _player.global_position)
+
+	# 更新玩家宇宙坐标。
+	_update_player_universe_position()
+
+	_is_traveling = false
+
+	# 确保目标星球的 chunk 开始加载。
+	if not _loaded_planets.has(planet.dimension_id):
+		_load_planet(planet)
+
+	print("[UniverseManager] travel_to_planet: complete, active=%s" % (
+		active_planet.display_name if active_planet else "null"))
+	return true
+
+
+# 通过星球显示名称旅行（用于控制台命令）。
+# 名称匹配不区分大小写，支持部分匹配（如 "mars" 匹配 "Mars"）。
+# 返回 true 表示旅行成功。
+func travel_to_planet_by_name(name: String) -> bool:
+	var target := find_planet_by_name(name)
+	if target == null:
+		push_warning("UniverseManager: no planet found matching '%s'" % name)
+		return false
+	return travel_to_planet(target)
+
+
+# 通过名称查找星球（不区分大小写，支持部分匹配）。
+# 只在已实现的星系中查找，排除恒星。
+func find_planet_by_name(name: String) -> PlanetDescriptor:
+	var name_lower := name.to_lower()
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
+			if planet.display_name.to_lower() == name_lower:
+				return planet
+	# 部分匹配。
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
+			if planet.display_name.to_lower().contains(name_lower):
+				return planet
+	return null
+
+
+# 获取所有可旅行的星球（已实现星系中的非恒星星球）。
+# 返回数组，每个元素是 { "name": String, "dimension": StringName, "planet": PlanetDescriptor }。
+func get_travelable_planets() -> Array:
+	var result: Array = []
+	for sys in systems:
+		if not sys.is_realized():
+			continue
+		for planet in sys.planets:
+			if planet.is_star:
+				continue
+			result.append({
+				"name": planet.display_name,
+				"dimension": planet.dimension_id,
+				"planet": planet,
+			})
+	return result
+
+
+# 获取玩家当前的宇宙坐标（double 精度，通过 FloatingOrigin）。
+func get_player_universe_position() -> Vector3:
+	if floating_origin == null:
+		return Vector3.ZERO
+	return floating_origin.get_universe_position()
+
+
+# 获取玩家到指定星球的宇宙距离（double 精度计算）。
+func get_distance_to_planet(planet: PlanetDescriptor) -> float:
+	if floating_origin == null or planet == null:
+		return INF
+	return floating_origin.distance_to_player_vec3(planet.universe_position)
+
+
 # Find the nearest space station to a given universe-space position.
 # Returns null if no stations exist.
 func find_nearest_station(pos: Vector3) -> StationDescriptor:
@@ -699,9 +930,15 @@ func find_nearest_station(pos: Vector3) -> StationDescriptor:
 	return best
 
 
-# Compute the combined gravity direction at a given universe-space position.
+# Compute the combined gravity direction at a given position.
 # Considers gravity from planets, stars, and space stations.
 # Station gravity always points downward (artificial gravity).
+#
+# 坐标系说明：
+# - pos 是玩家的局部坐标（active planet 的局部体素坐标系）。
+# - 活跃星球和空间站使用局部坐标计算重力（正确）。
+# - 远景星球/恒星使用 FloatingOrigin 的 double 精度宇宙距离计算（避免 float 误差）。
+#   但重力方向仍需转换回局部坐标系，以便玩家控制器使用。
 func compute_gravity_direction(pos: Vector3) -> Vector3:
 	# Check stations first — they have the strongest local gravity.
 	for station in stations:
@@ -718,26 +955,37 @@ func compute_gravity_direction(pos: Vector3) -> Vector3:
 		if local_dist > 0.001 and local_dist <= active_planet.gravity_radius():
 			return (active_planet.local_center - pos).normalized()
 
-	var nearest_sys := find_nearest_system(pos)
-	if nearest_sys == null or not nearest_sys.is_realized():
+	# 远景星球/恒星：使用 FloatingOrigin 的 double 精度距离判断。
+	# 玩家在太空中（已离开活跃星球引力范围）时，由最近的恒星/星球提供重力。
+	if floating_origin == null:
 		return Vector3.ZERO
+
+	# 场景坐标系：活跃星球的 local_center 对应其 universe_position。
+	# 远景星球的场景位置 = (body.universe_position - active.universe_position) + active.local_center。
+	var active_lc := active_planet.local_center if active_planet != null else Vector3.ZERO
 
 	var best_dir := Vector3.ZERO
 	var best_influence := 0.0
 
-	for body in nearest_sys.all_bodies():
-		var dist := pos.distance_to(body.universe_position)
-		var gravity_radius := body.gravity_radius()
-		if dist > gravity_radius or dist < 0.001:
+	for sys in systems:
+		if not sys.is_realized():
 			continue
+		for body in sys.all_bodies():
+			# double 精度距离计算。
+			var dist := floating_origin.distance_to_player_vec3(body.universe_position)
+			var gravity_radius := body.gravity_radius()
+			if dist > gravity_radius or dist < 0.001:
+				continue
 
-		var dir := (body.universe_position - pos).normalized()
-		var t := 1.0 - (dist / gravity_radius)
-		var influence := body.gravity_multiplier * t * t
+			# 重力方向：从玩家场景位置指向星球场景位置。
+			var body_scene := floating_origin.universe_to_render_vec3(body.universe_position) + active_lc
+			var dir := (body_scene - pos).normalized()
+			var t := 1.0 - (dist / gravity_radius)
+			var influence := body.gravity_multiplier * t * t
 
-		if influence > best_influence:
-			best_influence = influence
-			best_dir = dir
+			if influence > best_influence:
+				best_influence = influence
+				best_dir = dir
 
 	return best_dir
 
@@ -757,23 +1005,26 @@ func compute_gravity_multiplier(pos: Vector3) -> float:
 		if local_dist <= active_planet.gravity_radius():
 			return active_planet.gravity_multiplier
 
-	var nearest_sys := find_nearest_system(pos)
-	if nearest_sys == null or not nearest_sys.is_realized():
+	# 远景星球/恒星：使用 FloatingOrigin 的 double 精度距离。
+	if floating_origin == null:
 		return 0.0
 
 	var best_mult := 0.0
 
-	for body in nearest_sys.all_bodies():
-		var dist := pos.distance_to(body.universe_position)
-		var gravity_radius := body.gravity_radius()
-		if dist > gravity_radius:
+	for sys in systems:
+		if not sys.is_realized():
 			continue
+		for body in sys.all_bodies():
+			var dist := floating_origin.distance_to_player_vec3(body.universe_position)
+			var gravity_radius := body.gravity_radius()
+			if dist > gravity_radius:
+				continue
 
-		var t := 1.0 - (dist / gravity_radius)
-		var influence := body.gravity_multiplier * t * t
+			var t := 1.0 - (dist / gravity_radius)
+			var influence := body.gravity_multiplier * t * t
 
-		if influence > best_mult:
-			best_mult = influence
+			if influence > best_mult:
+				best_mult = influence
 
 	return best_mult
 

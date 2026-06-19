@@ -161,4 +161,13 @@ std::string RegionFile::region_file_name(const std::string& dimension_id,
     return oss.str();
 }
 
+uint8_t RegionFile::peek_version(const std::string& file_path) {
+    std::ifstream file(file_path, std::ios::binary);
+    if (!file.is_open()) return 0;
+    uint8_t version = 0;
+    file.read(reinterpret_cast<char*>(&version), sizeof(version));
+    if (!file.good()) return 0;
+    return version;
+}
+
 } // namespace science_and_theology

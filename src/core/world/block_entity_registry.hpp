@@ -35,6 +35,9 @@ public:
         // Only one variant is active at a time, determined by entity_type.
         TreeBlockEntityState tree_state;
         CreatureBlockEntityState creature_state;
+        MachineBlockEntityState machine_state;
+        PipeBlockEntityState pipe_state;
+        CableBlockEntityState cable_state;
     };
 
     BlockEntityRegistry() = default;
@@ -70,6 +73,37 @@ public:
         CreatureRole role,
         int64_t spawn_tick);
 
+    // Register a machine block entity. Returns its assigned EntityId.
+    // machine_type: short key (e.g. "furnace") used by bindings to look up
+    //               the MachineDefinition (recipes, GUI, ports, model).
+    // facing: 0..5 (0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z).
+    // owned_cells: additional cells claimed by a multi-block machine
+    //              (beyond the root cell). May be empty for 1x1x1 machines.
+    EntityId register_machine_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        const std::string& machine_type,
+        uint8_t facing,
+        const std::vector<OwnedCell>& owned_cells);
+
+    // Register a pipe block entity. Returns its assigned EntityId.
+    // pipe_type: LIQUID / GAS / ITEM — selects which network owns the segment.
+    // connections: 6-face bitmask (BlockEntityConnectionMask).
+    EntityId register_pipe_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        gt::PipeType pipe_type,
+        uint8_t connections);
+
+    // Register a cable block entity. Returns its assigned EntityId.
+    // cable_tier: VoltageTier the cable is rated for.
+    // connections: 6-face bitmask (BlockEntityConnectionMask).
+    EntityId register_cable_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        gt::VoltageTier cable_tier,
+        uint8_t connections);
+
     // Remove a block entity by ID. Also removes its spatial index entries.
     void remove_entity(EntityId id);
 
@@ -90,6 +124,18 @@ public:
     // Returns the creature state for a given entity, or nullptr if not a creature.
     const CreatureBlockEntityState* get_creature_state(EntityId id) const;
     CreatureBlockEntityState* get_creature_state_mut(EntityId id);
+
+    // Returns the machine state for a given entity, or nullptr if not a machine.
+    const MachineBlockEntityState* get_machine_state(EntityId id) const;
+    MachineBlockEntityState* get_machine_state_mut(EntityId id);
+
+    // Returns the pipe state for a given entity, or nullptr if not a pipe.
+    const PipeBlockEntityState* get_pipe_state(EntityId id) const;
+    PipeBlockEntityState* get_pipe_state_mut(EntityId id);
+
+    // Returns the cable state for a given entity, or nullptr if not a cable.
+    const CableBlockEntityState* get_cable_state(EntityId id) const;
+    CableBlockEntityState* get_cable_state_mut(EntityId id);
 
     // Returns the placement data for a given entity.
     const BlockEntityPlacement* get_placement(EntityId id) const;
@@ -117,11 +163,33 @@ public:
     void update_tree_owned_cells(
         EntityId id, const std::vector<OwnedCell>& new_cells);
 
+    // Update the owned cells for a machine entity (multi-block machines).
+    void update_machine_owned_cells(
+        EntityId id, const std::vector<OwnedCell>& new_cells);
+
+    // Update the connection bitmask for a pipe entity.
+    void update_pipe_connections(EntityId id, uint8_t connections);
+
+    // Update the connection bitmask for a cable entity.
+    void update_cable_connections(EntityId id, uint8_t connections);
+
     // --- Iteration ---
 
     // Iterate over all tree entities. Callback receives (EntityId, TreeBlockEntityState).
     void for_each_tree(
         std::function<void(EntityId, const TreeBlockEntityState&)> fn) const;
+
+    // Iterate over all machine entities.
+    void for_each_machine(
+        std::function<void(EntityId, const MachineBlockEntityState&)> fn) const;
+
+    // Iterate over all pipe entities.
+    void for_each_pipe(
+        std::function<void(EntityId, const PipeBlockEntityState&)> fn) const;
+
+    // Iterate over all cable entities.
+    void for_each_cable(
+        std::function<void(EntityId, const CableBlockEntityState&)> fn) const;
 
     // Returns the total number of registered entities.
     size_t size() const { return entities_.size(); }

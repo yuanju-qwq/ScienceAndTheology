@@ -24,8 +24,10 @@ int64_t GDPlanetLod::compute_lod_level(
         return 1;
     } else if (ratio <= kLod2Ratio) {
         return 2;
-    } else {
+    } else if (ratio <= kLod3Ratio) {
         return 3;
+    } else {
+        return 4;
     }
 }
 
@@ -34,7 +36,8 @@ godot::Dictionary GDPlanetLod::compute_lod_distances(float planet_radius) {
     result["lod0_max"] = planet_radius * kLod0Ratio;
     result["lod1_max"] = planet_radius * kLod1Ratio;
     result["lod2_max"] = planet_radius * kLod2Ratio;
-    result["lod3_max"] = planet_radius * kLod2Ratio * 10.0f;
+    result["lod3_max"] = planet_radius * kLod3Ratio;
+    result["lod4_max"] = planet_radius * kLod3Ratio * 10.0f;
     return result;
 }
 
@@ -58,7 +61,8 @@ float GDPlanetLod::compute_lod_fade_alpha(
         case 0: lo = 0.0f; hi = kLod0Ratio; break;
         case 1: lo = kLod0Ratio; hi = kLod1Ratio; break;
         case 2: lo = kLod1Ratio; hi = kLod2Ratio; break;
-        case 3: lo = kLod2Ratio; hi = kLod2Ratio * 10.0f; break;
+        case 3: lo = kLod2Ratio; hi = kLod3Ratio; break;
+        case 4: lo = kLod3Ratio; hi = kLod3Ratio * 10.0f; break;
         default: return 0.0f;
     }
 

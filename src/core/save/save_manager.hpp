@@ -119,9 +119,13 @@ public:
     // Loads only chunks belonging to a specific dimension from a planet
     // subdirectory. Does NOT clear existing chunks in WorldData.
     // Returns the number of chunks loaded, or -1 on error.
+    // If legacy_skipped is non-null, it is set to the number of legacy
+    // (pre-v2) region files that were detected and skipped. The caller
+    // should log a one-time warning when this is non-zero.
     static int load_dimension(const std::string& planet_dir,
                               const std::string& dimension_id,
-                              WorldData& world);
+                              WorldData& world,
+                              int* legacy_skipped = nullptr);
 
     // --- Planet data (header + summary) ---
 

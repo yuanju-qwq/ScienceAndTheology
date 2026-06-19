@@ -8,6 +8,7 @@
 #include "ecosystem_params.hpp"
 #include "season_def.hpp"
 #include "creature_species.hpp"
+#include "captive_creature.hpp"
 
 namespace science_and_theology {
 
@@ -193,6 +194,59 @@ public:
     // Returns true if the chunk had a population cell.
     bool feed_creatures(const ChunkKey& key, CreatureRole role, float amount);
 
+    // --- Captive / husbandry ---
+
+    // Result of feeding a specific creature (targeted by view cone).
+    struct FeedResult {
+        // Whether a creature was hit by the feed attempt.
+        bool hit = false;
+        // Runtime id of the targeted creature (proxy entity or captive).
+        uint64_t creature_id = 0;
+        // Species id of the targeted creature.
+        uint16_t species_id = 0;
+        // Outcome of the feed action:
+        //   "miss"        — no creature targeted.
+        //   "captured"    — a wild creature was captured into a pen.
+        //   "taming"      — fed an untamed captive (taming boosted).
+        //   "bred"        — fed a tamed adult, breeding started.
+        //   "fed"         — fed a tamed adult with no partner / on cooldown.
+        //   "no_enclosure"— wild creature not inside an enclosure.
+        //   "pen_full"    — pen at capacity, cannot capture.
+        std::string outcome = "miss";
+        // Chunk where the targeted creature resides.
+        ChunkKey chunk_key;
+    };
+
+    // Attempt to feed / interact with a creature the player is aiming at.
+    // If the target is a wild proxy inside a fence enclosure, it is
+    // captured (detached from the wild population). If the target is a
+    // captive creature, feeding boosts taming or triggers breeding.
+    // Returns a FeedResult describing the outcome.
+    FeedResult feed_creature_at(
+        const std::string& dimension,
+        float player_x, float player_y, float player_z,
+        float look_dir_x, float look_dir_y, float look_dir_z,
+        float reach);
+
+    // Returns the total number of captive creatures across all chunks.
+    size_t total_captive_count() const;
+
+    // Returns captive creature data for a chunk as an Array-like vector.
+    // Each entry: { runtime_id, species_id, age_stage, is_tamed,
+    //               is_pregnant, pos_x/y/z }
+    struct CaptiveInfo {
+        uint64_t runtime_id = 0;
+        uint16_t species_id = 0;
+        uint8_t age_stage = 0;   // 0=BABY, 1=ADULT
+        bool is_tamed = false;
+        bool is_pregnant = false;
+        float pos_x = 0.0f;
+        float pos_y = 0.0f;
+        float pos_z = 0.0f;
+    };
+    std::vector<CaptiveInfo> get_captive_data(
+        const ChunkKey& key) const;
+
     // --- Diagnostics ---
 
     // Returns the total vegetation density across all tracked chunks.
@@ -216,6 +270,15 @@ public:
     // Restore population cells from ChunkData that have persisted
     // ecosystem data. Called after world load.
     void restore_populations_from_chunks();
+
+    // Sync captive creatures for a chunk to its ChunkData for save.
+    void sync_captive_to_chunk(const ChunkKey& key);
+
+    // Sync all captive creatures to their ChunkData.
+    void sync_all_captive_to_chunks();
+
+    // Restore captive creatures from ChunkData on load.
+    void restore_captive_from_chunks();
 
 private:
     // Advance the population equations for a single cell by dt ticks.
@@ -296,6 +359,71 @@ private:
     // for each ecosystem_biome constant.
     void register_default_biome_overrides();
 
+    // --- Captive creature private helpers ---
+
+    // Check whether the world cell at (bx, by, bz) is solid (blocks
+    // flood-fill / acts as a fence/wall). Returns true if solid.
+    bool is_cell_solid(const std::string& dimension,
+                       int32_t bx, int32_t by, int32_t bz) const;
+
+    // Bounded flood-fill from (start_x, start_y, start_z) treating
+    // solid cells as boundaries. Returns true if the region is fully
+    // enclosed (flood-fill did not exceed the max bounding box or
+    // cell count). On success, out_min/out_max are filled with the
+    // interior bounding box.
+    bool detect_enclosure(
+        const std::string& dimension,
+        int32_t start_x, int32_t start_y, int32_t start_z,
+        int32_t& out_min_x, int32_t& out_min_y, int32_t& out_min_z,
+        int32_t& out_max_x, int32_t& out_max_y, int32_t& out_max_z) const;
+
+    // Capture a wild proxy creature into a pen. Removes it from the
+    // wild proxy group, reduces wild density, creates a CaptiveCreature
+    // in the chunk's captive list, assigns a runtime id, and emits
+    // capture + captive_added events.
+    // Returns the runtime id of the new captive, or 0 on failure.
+    uint64_t capture_wild_creature(
+        EntityId proxy_id, const ChunkKey& chunk,
+        int32_t bounds_min_x, int32_t bounds_min_y, int32_t bounds_min_z,
+        int32_t bounds_max_x, int32_t bounds_max_y, int32_t bounds_max_z,
+        int64_t tick);
+
+    // Spawn render nodes (emit captive_creature_added) for all captive
+    // creatures in a chunk. Called when a chunk becomes active.
+    void spawn_captive_for_chunk(const ChunkKey& chunk);
+
+    // Despawn render nodes (emit captive_creature_removed) for all
+    // captive creatures in a chunk. Called when a chunk goes to sleep.
+    void despawn_captive_for_chunk(const ChunkKey& chunk);
+
+    // Tick captive creatures in a chunk: taming, growth, gestation,
+    // and wander AI. Emits move events when positions change.
+    void tick_captive(const ChunkKey& chunk, int64_t tick, float delta);
+
+    // Pick a wander target clamped to the captive's pen bounds.
+    void pick_captive_wander_target(CaptiveCreature& cc, int64_t tick) const;
+
+    // Move a captive creature toward its wander target, clamped to bounds.
+    void move_captive(CaptiveCreature& cc, float speed, float dt) const;
+
+    // Attempt to start breeding for a tamed adult captive creature.
+    // Searches for a partner in the same chunk within
+    // breed_partner_distance. If found, marks both as pregnant and
+    // sets gestation/cooldown timers. Returns true if breeding started.
+    bool try_start_breeding(
+        const ChunkKey& chunk,
+        std::vector<CaptiveCreature>& creatures,
+        size_t feeder_index, int64_t tick);
+
+    // Complete gestation: spawn a baby captive creature.
+    void birth_baby(
+        const ChunkKey& chunk,
+        std::vector<CaptiveCreature>& creatures,
+        size_t mother_index, int64_t tick);
+
+    // Assign a fresh runtime id for a captive creature.
+    uint64_t next_captive_runtime_id();
+
     // Ecosystem parameters (tunable at runtime).
     EcosystemParams params_;
 
@@ -308,6 +436,11 @@ private:
     // Per-chunk proxy creature tracking. Only populated for active chunks.
     std::unordered_map<ChunkKey, ProxyGroup> active_proxies_;
 
+    // Per-chunk captive creatures (persistent individuals detached from
+    // the wild population). Populated for all chunks that have captive
+    // data (active or sleeping); keyed by chunk.
+    std::unordered_map<ChunkKey, std::vector<CaptiveCreature>> captive_;
+
     // Cached season state, updated each tick.
     Season current_season_ = Season::SPRING;
 
@@ -319,6 +452,10 @@ private:
 
     // Diffusion budget: tracks how many pairs processed in current pass.
     int diffusion_pairs_processed_ = 0;
+
+    // Monotonic runtime id counter for captive creatures.
+    // Starts high to avoid collisions with proxy EntityId values.
+    uint64_t captive_runtime_id_counter_ = 0x100000000ULL;
 };
 
 } // namespace science_and_theology

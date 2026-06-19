@@ -118,7 +118,12 @@ int SaveManager::save_dimension(const std::string& planet_dir,
 
 int SaveManager::load_dimension(const std::string& planet_dir,
                                 const std::string& dimension_id,
-                                WorldData& world) {
+                                WorldData& world,
+                                int* legacy_skipped) {
+    if (legacy_skipped != nullptr) {
+        *legacy_skipped = 0;
+    }
+
     // Read planet_data.bin to validate.
     int64_t seed = 0;
     std::string dim_id;
@@ -148,6 +153,17 @@ int SaveManager::load_dimension(const std::string& planet_dir,
 
         if (!RegionFile::read(file_path, file_dimension_id,
                               region_x, region_y, region_z, entries)) {
+            // Detect legacy (pre-v2) region files and count them so the
+            // caller can emit a one-time migration warning. Old 2D layer
+            // saves used version 1 with a "{layer}~{rx}~{ry}.region" name
+            // and 2D TerrainData; the reader was removed during the 2D→3D
+            // refactor. We skip them gracefully instead of failing.
+            uint8_t ver = RegionFile::peek_version(file_path);
+            if (ver != 0 && ver != RegionFile::kVersion) {
+                if (legacy_skipped != nullptr) {
+                    ++(*legacy_skipped);
+                }
+            }
             continue;
         }
 

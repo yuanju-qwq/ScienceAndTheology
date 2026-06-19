@@ -30,6 +30,7 @@ void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
     // This is important after a world load where chunks are already
     // in WorldData but EcosystemSystem's populations_ map is empty.
     restore_populations_from_chunks();
+    restore_captive_from_chunks();
 }
 
 void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
@@ -71,6 +72,8 @@ void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
     bool is_new_active = (active_proxies_.find(chunk) == active_proxies_.end());
     if (is_new_active) {
         spawn_proxies_for_chunk(chunk, tick);
+        // Spawn render nodes for captive creatures in this chunk.
+        spawn_captive_for_chunk(chunk);
     } else if (params_.proxy_rebalance_interval_ticks > 0 &&
                tick % params_.proxy_rebalance_interval_ticks == 0) {
         rebalance_proxies(chunk, tick);
@@ -78,6 +81,9 @@ void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
 
     // Update proxy creature AI (wandering, fleeing).
     tick_proxies(chunk, tick, delta);
+
+    // Tick captive creatures (taming, growth, gestation, wander).
+    tick_captive(chunk, tick, delta);
 
     // Run diffusion at the configured interval.
     if (params_.diffusion_interval_ticks > 0 &&
@@ -92,6 +98,7 @@ void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
     if (params_.diffusion_interval_ticks > 0 &&
         tick % params_.diffusion_interval_ticks == 0) {
         sync_population_to_chunk(chunk);
+        sync_captive_to_chunk(chunk);
     }
 }
 
@@ -107,6 +114,8 @@ void EcosystemSystem::tick_sleeping(const ChunkKey& chunk, float delta,
     // This is safe to call every sleeping tick because despawn_proxies
     // is idempotent (no-ops if no proxies exist).
     despawn_proxies_for_chunk(chunk);
+    // Despawn captive render nodes too (data persists, rendering stops).
+    despawn_captive_for_chunk(chunk);
 
     // Same-speed low-frequency: same equations, just called less often.
     // Delta is already scaled by the sleep interval, so we convert
@@ -121,6 +130,8 @@ void EcosystemSystem::tick_sleeping(const ChunkKey& chunk, float delta,
 
 void EcosystemSystem::shutdown() {
     populations_.clear();
+    captive_.clear();
+    active_proxies_.clear();
 }
 
 // --- Population cell access ---
@@ -463,6 +474,173 @@ void EcosystemSystem::restore_populations_from_chunks() {
 
         populations_.emplace(key, chunk->population_cell);
     }
+}
+
+// --- Captive persistence ---
+
+void EcosystemSystem::sync_captive_to_chunk(const ChunkKey& key) {
+    if (!world_) return;
+
+    auto it = captive_.find(key);
+    ChunkData* chunk = world_->get_chunk(
+        key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    if (!chunk) return;
+
+    if (it == captive_.end() || it->second.empty()) {
+        chunk->has_captive_creatures = false;
+        chunk->captive_creatures.clear();
+        return;
+    }
+
+    chunk->has_captive_creatures = true;
+    chunk->captive_creatures = it->second;
+}
+
+void EcosystemSystem::sync_all_captive_to_chunks() {
+    if (!world_) return;
+
+    for (const auto& [key, creatures] : captive_) {
+        ChunkData* chunk = world_->get_chunk(
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+        if (!chunk) continue;
+        if (creatures.empty()) {
+            chunk->has_captive_creatures = false;
+            chunk->captive_creatures.clear();
+        } else {
+            chunk->has_captive_creatures = true;
+            chunk->captive_creatures = creatures;
+        }
+    }
+}
+
+void EcosystemSystem::restore_captive_from_chunks() {
+    if (!world_) return;
+
+    for (const auto& key : world_->all_chunk_keys()) {
+        const ChunkData* chunk = world_->get_chunk(
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+        if (!chunk || !chunk->has_captive_creatures) continue;
+        if (chunk->captive_creatures.empty()) continue;
+
+        // Only restore if not already present.
+        auto it = captive_.find(key);
+        if (it != captive_.end()) continue;
+
+        // Assign fresh runtime ids for rendering.
+        std::vector<CaptiveCreature> list = chunk->captive_creatures;
+        for (auto& cc : list) {
+            cc.runtime_id = next_captive_runtime_id();
+        }
+        captive_.emplace(key, std::move(list));
+    }
+}
+
+uint64_t EcosystemSystem::next_captive_runtime_id() {
+    return captive_runtime_id_counter_++;
+}
+
+// --- Captive creature terrain queries ---
+
+bool EcosystemSystem::is_cell_solid(const std::string& dimension,
+                                    int32_t bx, int32_t by, int32_t bz) const {
+    if (!world_) return false;
+    constexpr int kChunkSize = ChunkData::kChunkSize;
+    int cx = bx >= 0 ? bx / kChunkSize : (bx - kChunkSize + 1) / kChunkSize;
+    int cy = by >= 0 ? by / kChunkSize : (by - kChunkSize + 1) / kChunkSize;
+    int cz = bz >= 0 ? bz / kChunkSize : (bz - kChunkSize + 1) / kChunkSize;
+    const ChunkData* chunk = world_->get_chunk(dimension, cx, cy, cz);
+    if (!chunk) return false;
+    int lx = bx - cx * kChunkSize;
+    int ly = by - cy * kChunkSize;
+    int lz = bz - cz * kChunkSize;
+    if (!chunk->terrain.is_valid_cell(lx, ly, lz)) return false;
+    return chunk->terrain.cell_at(lx, ly, lz).is_solid();
+}
+
+bool EcosystemSystem::detect_enclosure(
+    const std::string& dimension,
+    int32_t start_x, int32_t start_y, int32_t start_z,
+    int32_t& out_min_x, int32_t& out_min_y, int32_t& out_min_z,
+    int32_t& out_max_x, int32_t& out_max_y, int32_t& out_max_z) const {
+    // Bounded BFS flood-fill. Solid cells are walls; air/non-solid cells
+    // are interior. If the flood stays within the max bounding box and
+    // visits <= enclosure_max_cells, the region is enclosed.
+    const int extent = params_.enclosure_max_extent;
+    const size_t max_cells = static_cast<size_t>(params_.enclosure_max_cells);
+
+    int32_t min_x = start_x - extent, max_x = start_x + extent;
+    int32_t min_y = start_y - extent, max_y = start_y + extent;
+    int32_t min_z = start_z - extent, max_z = start_z + extent;
+
+    // If the start cell itself is solid, it's not a valid interior point.
+    if (is_cell_solid(dimension, start_x, start_y, start_z)) {
+        return false;
+    }
+
+    struct Cell3 { int32_t x, y, z; };
+    std::vector<Cell3> frontier;
+    frontier.push_back({start_x, start_y, start_z});
+
+    // Visited set keyed by packed int64 (x<<40 | y<<20 | z) — but coords
+    // can be negative, so use a hash set of tuples via a string-free key.
+    auto pack = [](int32_t x, int32_t y, int32_t z) -> int64_t {
+        // Offset to non-negative within ±extent (extent <= 24 → +32 safe).
+        return (int64_t(x + 32768) << 40)
+             | (int64_t(y + 32768) << 20)
+             | (int64_t(z + 32768));
+    };
+    std::unordered_map<int64_t, bool> visited;
+    visited.reserve(1024);
+    visited[pack(start_x, start_y, start_z)] = true;
+
+    int32_t bb_min_x = start_x, bb_max_x = start_x;
+    int32_t bb_min_y = start_y, bb_max_y = start_y;
+    int32_t bb_min_z = start_z, bb_max_z = start_z;
+
+    size_t visited_count = 1;
+    static const int kDx[6] = {1, -1, 0, 0, 0, 0};
+    static const int kDy[6] = {0, 0, 1, -1, 0, 0};
+    static const int kDz[6] = {0, 0, 0, 0, 1, -1};
+
+    while (!frontier.empty()) {
+        Cell3 cur = frontier.back();
+        frontier.pop_back();
+
+        for (int i = 0; i < 6; ++i) {
+            int32_t nx = cur.x + kDx[i];
+            int32_t ny = cur.y + kDy[i];
+            int32_t nz = cur.z + kDz[i];
+
+            // Exceeded bounding box → not enclosed (open to the outside).
+            if (nx < min_x || nx > max_x ||
+                ny < min_y || ny > max_y ||
+                nz < min_z || nz > max_z) {
+                return false;
+            }
+
+            // Solid wall — boundary, do not cross.
+            if (is_cell_solid(dimension, nx, ny, nz)) continue;
+
+            int64_t key = pack(nx, ny, nz);
+            if (visited.count(key)) continue;
+            visited[key] = true;
+            ++visited_count;
+            if (visited_count > max_cells) return false;
+
+            if (nx < bb_min_x) bb_min_x = nx;
+            if (nx > bb_max_x) bb_max_x = nx;
+            if (ny < bb_min_y) bb_min_y = ny;
+            if (ny > bb_max_y) bb_max_y = ny;
+            if (nz < bb_min_z) bb_min_z = nz;
+            if (nz > bb_max_z) bb_max_z = nz;
+
+            frontier.push_back({nx, ny, nz});
+        }
+    }
+
+    out_min_x = bb_min_x; out_min_y = bb_min_y; out_min_z = bb_min_z;
+    out_max_x = bb_max_x; out_max_y = bb_max_y; out_max_z = bb_max_z;
+    return true;
 }
 
 // --- Proxy creature management ---

@@ -452,4 +452,110 @@ GameEvent GameEvent::creature_moved(
     return ev;
 }
 
+// --- Captive / husbandry event factories ---
+
+GameEvent GameEvent::creature_captured(
+    uint64_t creature_id, uint16_t species_id,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_CAPTURED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx; ev.chunk_y = cy; ev.chunk_z = cz;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_tamed(
+    uint64_t creature_id, uint16_t species_id,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_TAMED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx; ev.chunk_y = cy; ev.chunk_z = cz;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_bred(
+    uint64_t creature_id, uint16_t species_id,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_BRED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx; ev.chunk_y = cy; ev.chunk_z = cz;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::creature_grown(
+    uint64_t creature_id, uint16_t species_id,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CREATURE_GROWN;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx; ev.chunk_y = cy; ev.chunk_z = cz;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::captive_creature_added(
+    uint64_t creature_id, const std::string& species_key,
+    uint16_t species_id, uint8_t age_stage, bool is_tamed,
+    float pos_x, float pos_y, float pos_z,
+    const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CAPTIVE_CREATURE_ADDED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx; ev.chunk_y = cy; ev.chunk_z = cz;
+    ev.string_data["species_key"] = species_key;
+    ev.int_data["species_id"] = static_cast<int64_t>(species_id);
+    ev.int_data["age_stage"] = static_cast<int64_t>(age_stage);
+    ev.int_data["is_tamed"] = is_tamed ? 1 : 0;
+    ev.float_data["pos_x"] = static_cast<double>(pos_x);
+    ev.float_data["pos_y"] = static_cast<double>(pos_y);
+    ev.float_data["pos_z"] = static_cast<double>(pos_z);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::captive_creature_removed(
+    uint64_t creature_id, const std::string& dimension,
+    int cx, int cy, int cz) {
+    GameEvent ev;
+    ev.type = GameEventType::CAPTIVE_CREATURE_REMOVED;
+    ev.source_id = creature_id;
+    ev.source_dimension = dimension;
+    ev.chunk_x = cx; ev.chunk_y = cy; ev.chunk_z = cz;
+    ev.timestamp = now_ms();
+    return ev;
+}
+
+GameEvent GameEvent::captive_creature_moved(
+    uint64_t creature_id, const std::string& species_key,
+    float pos_x, float pos_y, float pos_z) {
+    GameEvent ev;
+    ev.type = GameEventType::CAPTIVE_CREATURE_MOVED;
+    ev.source_id = creature_id;
+    ev.string_data["species_key"] = species_key;
+    ev.float_data["pos_x"] = static_cast<double>(pos_x);
+    ev.float_data["pos_y"] = static_cast<double>(pos_y);
+    ev.float_data["pos_z"] = static_cast<double>(pos_z);
+    ev.timestamp = now_ms();
+    return ev;
+}
+
 } // namespace science_and_theology

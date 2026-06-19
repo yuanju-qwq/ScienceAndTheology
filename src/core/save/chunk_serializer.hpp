@@ -18,7 +18,8 @@ public:
     // Current binary format version.
     // v7: adds hunting_pressure_herb/pred to PopulationCell.
     // v6: adds PopulationCell (ecosystem) after block_entities.
-    static constexpr uint8_t kCurrentVersion = 7;
+    // v8: adds captive_creatures (husbandry) after population_cell.
+    static constexpr uint8_t kCurrentVersion = 8;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
     // The chunk's dimension_id is embedded as part of the serialized data.
@@ -39,8 +40,10 @@ private:
     // --- Write helpers ---
 
     static void write_uint8(std::vector<uint8_t>& buf, uint8_t value);
+    static void write_uint16(std::vector<uint8_t>& buf, uint16_t value);
     static void write_int32(std::vector<uint8_t>& buf, int32_t value);
     static void write_uint32(std::vector<uint8_t>& buf, uint32_t value);
+    static void write_int64(std::vector<uint8_t>& buf, int64_t value);
     static void write_uint64(std::vector<uint8_t>& buf, uint64_t value);
     static void write_float(std::vector<uint8_t>& buf, float value);
     static void write_string(std::vector<uint8_t>& buf,
@@ -52,10 +55,14 @@ private:
 
     static bool read_uint8(const std::vector<uint8_t>& data,
                            size_t& offset, uint8_t& out);
+    static bool read_uint16(const std::vector<uint8_t>& data,
+                            size_t& offset, uint16_t& out);
     static bool read_int32(const std::vector<uint8_t>& data,
                            size_t& offset, int32_t& out);
     static bool read_uint32(const std::vector<uint8_t>& data,
                             size_t& offset, uint32_t& out);
+    static bool read_int64(const std::vector<uint8_t>& data,
+                           size_t& offset, int64_t& out);
     static bool read_uint64(const std::vector<uint8_t>& data,
                             size_t& offset, uint64_t& out);
     static bool read_float(const std::vector<uint8_t>& data,
@@ -101,6 +108,14 @@ private:
     static bool read_population_cell(const std::vector<uint8_t>& data,
                                      size_t& offset,
                                      PopulationCell& cell);
+
+    // --- Captive creature serialization (v8) ---
+
+    static void write_captive_creature(std::vector<uint8_t>& buf,
+                                       const CaptiveCreature& cc);
+    static bool read_captive_creature(const std::vector<uint8_t>& data,
+                                      size_t& offset,
+                                      CaptiveCreature& cc);
 };
 
 } // namespace science_and_theology

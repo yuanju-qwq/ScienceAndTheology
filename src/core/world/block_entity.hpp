@@ -6,6 +6,8 @@
 
 #include "entity_data.hpp"
 #include "simulation/creature_species.hpp"
+#include "../network/pipe_types.hpp"
+#include "../config/gt_values.hpp"
 
 namespace science_and_theology {
 
@@ -47,11 +49,27 @@ enum class BlockEntityType : uint8_t {
     TREE        = 1,
     MACHINE     = 2,
     CREATURE    = 3,
-    COUNT       = 4,
+    PIPE        = 4,
+    CABLE       = 5,
+    COUNT       = 6,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
-    "None", "Tree", "Machine", "Creature",
+    "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
+};
+
+// 6-face connection bitmask used by PIPE and CABLE entities.
+// Convention: bit 0 = +X, bit 1 = -X, bit 2 = +Y, bit 3 = -Y,
+//             bit 4 = +Z, bit 5 = -Z.
+// A set bit means the entity connects to the neighbor on that face.
+// (Mirrors the FaceMask ordering used by greedy mesh face culling.)
+enum BlockEntityConnectionMask : uint8_t {
+    CONN_POS_X = 1u << 0,
+    CONN_NEG_X = 1u << 1,
+    CONN_POS_Y = 1u << 2,
+    CONN_NEG_Y = 1u << 3,
+    CONN_POS_Z = 1u << 4,
+    CONN_NEG_Z = 1u << 5,
 };
 
 // A cell coordinate owned by a BlockEntity.
@@ -77,6 +95,8 @@ struct BlockEntityPlacement {
     // Type-specific data encoded as key-value pairs.
     // TREE:     { "species_key": str, "growth_stage": uint8, "planted_tick": int64 }
     // MACHINE:  { "machine_type": str, "facing": uint8, ... }
+    // PIPE:     { "pipe_type": uint8, "connections": uint8 }
+    // CABLE:    { "cable_tier": uint8, "connections": uint8 }
     // This keeps the placement struct generic and extensible.
     std::string type_data_json;
 
@@ -147,6 +167,75 @@ struct CreatureBlockEntityState {
     float flee_from_y = 0.0f;
     float flee_from_z = 0.0f;
     int64_t flee_end_tick = 0;
+};
+
+// ============================================================
+// MachineBlockEntityState — voxel-anchored machine (V28)
+// ============================================================
+//
+// Machines (furnace, workbench, generator, ...) occupy one or more
+// voxel cells. The root cell is the anchor; owned_cells lists any
+// additional cells claimed by a multi-block machine.
+//
+// `machine_type` is a short string key (e.g. "furnace", "generator_lv")
+// that the bindings layer uses to look up the corresponding
+// MachineDefinition (recipe set, GUI, ports, block model).
+//
+// `facing` uses the same convention as machine ports:
+//   0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z, 5 = -Z.
+// It indicates the machine's "front" direction for rendering and
+// port layout. The bindings layer is responsible for rotating the
+// block model and port offsets accordingly.
+//
+// Runtime state (inventory, progress, energy buffer) is NOT stored
+// here. It lives in the dedicated manager (e.g. FurnaceManager) keyed
+// by the EntityId, so this struct stays cheap to serialize and
+// reconstruct. The BlockEntity placement acts as the spatial anchor
+// and the bridge to the runtime manager.
+
+struct MachineBlockEntityState {
+    std::string machine_type;        // e.g. "furnace", "generator_lv"
+    uint8_t facing = 0;              // 0..5, see comment above
+    std::vector<OwnedCell> owned_cells;
+};
+
+// ============================================================
+// PipeBlockEntityState — voxel-anchored pipe segment (V28)
+// ============================================================
+//
+// A pipe segment occupies a single voxel cell. `pipe_type` selects
+// the network kind (LIQUID / GAS / ITEM). `connections` is a 6-face
+// bitmask (BlockEntityConnectionMask) describing which neighbors the
+// segment connects to; the network systems recompute this when a
+// neighboring block changes.
+//
+// Runtime flow state is held by FluidNetwork / ItemPipeNetwork keyed
+// by the connector id (derived from EntityId). This struct only
+// stores the spatial + topological data needed for serialization
+// and rendering.
+
+struct PipeBlockEntityState {
+    gt::PipeType pipe_type = gt::PipeType::LIQUID;
+    uint8_t connections = 0;          // BlockEntityConnectionMask bitmask
+    std::vector<OwnedCell> owned_cells;  // usually empty (single cell)
+};
+
+// ============================================================
+// CableBlockEntityState — voxel-anchored cable segment (V28)
+// ============================================================
+//
+// A cable segment occupies a single voxel cell. `cable_tier` is the
+// VoltageTier the cable is rated for; the actual material is chosen
+// by the player at placement time and stored implicitly via the tier
+// (the bindings layer maps tier → material for rendering).
+//
+// `connections` follows the same bitmask convention as pipes.
+// Runtime power flow is held by PowerNetwork keyed by connector id.
+
+struct CableBlockEntityState {
+    gt::VoltageTier cable_tier = gt::VoltageTier::ULV;
+    uint8_t connections = 0;          // BlockEntityConnectionMask bitmask
+    std::vector<OwnedCell> owned_cells;  // usually empty (single cell)
 };
 
 } // namespace science_and_theology

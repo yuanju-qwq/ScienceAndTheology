@@ -3,14 +3,12 @@
 class_name ConnectorManager
 extends Node
 
-const MapConnectorResource := preload("res://scripts/MapConnector.gd")
-
 signal connectors_changed
 
-@export var connectors: Array[MapConnectorResource] = []
+@export var connectors: Array[MapConnector] = []
 
 
-func add_connector(connector: MapConnectorResource) -> void:
+func add_connector(connector: MapConnector) -> void:
 	if connector == null:
 		return
 
@@ -46,7 +44,7 @@ func remove_connector(connector_id: int) -> void:
 			connectors_changed.emit()
 
 
-func get_connector_at(dimension: StringName, cell_position: Vector3i) -> MapConnectorResource:
+func get_connector_at(dimension: StringName, cell_position: Vector3i) -> MapConnector:
 	for connector in connectors:
 		if connector != null and connector.is_enterable_from(dimension, cell_position):
 			return connector
@@ -78,8 +76,8 @@ func is_connector_locked(connector_id: int) -> bool:
 	return false
 
 
-func get_connectors_for_dimension(dimension: StringName) -> Array[MapConnectorResource]:
-	var dim_connectors: Array[MapConnectorResource] = []
+func get_connectors_for_dimension(dimension: StringName) -> Array[MapConnector]:
+	var dim_connectors: Array[MapConnector] = []
 
 	for connector in connectors:
 		if connector == null:
@@ -152,8 +150,8 @@ func _has_connector_id(connector_id: int) -> bool:
 
 
 @warning_ignore("unsafe_call_argument", "int_as_enum_without_cast")
-func _make_connector_from_dict(data: Dictionary) -> MapConnectorResource:
-	var connector := MapConnectorResource.new()
+func _make_connector_from_dict(data: Dictionary) -> MapConnector:
+	var connector := MapConnector.new()
 	connector.connector_id = int(data.get("connector_id", 0))
 	connector.from_dimension = StringName(str(data.get("from_dimension", "")))
 	connector.from_cell = Vector3i(
@@ -168,7 +166,7 @@ func _make_connector_from_dict(data: Dictionary) -> MapConnectorResource:
 	connector.one_way = bool(data.get("one_way", false))
 	connector.locked = bool(data.get("locked", false))
 	connector.connector_type = StringName(str(data.get("connector_type", "")))
-	connector.activation_mode = int(data.get("activation_mode", MapConnectorResource.ActivationMode.INTERACT)) as MapConnectorResource.ActivationMode
+	connector.activation_mode = int(data.get("activation_mode", MapConnector.ActivationMode.INTERACT)) as MapConnector.ActivationMode
 
 	if not connector.has_valid_route():
 		return null

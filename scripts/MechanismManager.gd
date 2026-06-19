@@ -3,13 +3,11 @@
 class_name MechanismManager
 extends Node
 
-const MapMechanismResource := preload("res://scripts/MapMechanism.gd")
-
 signal mechanism_activated(mechanism_id: StringName, dimension: StringName, cell_position: Vector3i)
 signal mechanisms_changed
 signal world_flags_changed
 
-@export var mechanisms: Array[MapMechanismResource] = []
+@export var mechanisms: Array[MapMechanism] = []
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 
 @onready var connector_manager: ConnectorManager = get_node_or_null(connector_manager_path) as ConnectorManager
@@ -21,7 +19,7 @@ func _ready() -> void:
 	_apply_world_state()
 
 
-func add_mechanism(mechanism: MapMechanismResource) -> void:
+func add_mechanism(mechanism: MapMechanism) -> void:
 	if mechanism == null:
 		return
 
@@ -50,7 +48,7 @@ func add_generated_mechanisms(mechanism_data: Array) -> int:
 	return added
 
 
-func get_mechanism_at(dimension: StringName, cell_position: Vector3i) -> MapMechanismResource:
+func get_mechanism_at(dimension: StringName, cell_position: Vector3i) -> MapMechanism:
 	for mechanism in mechanisms:
 		if mechanism == null:
 			continue
@@ -65,8 +63,8 @@ func has_mechanism_at(dimension: StringName, cell_position: Vector3i) -> bool:
 	return get_mechanism_at(dimension, cell_position) != null
 
 
-func get_mechanisms_for_dimension(dimension: StringName) -> Array[MapMechanismResource]:
-	var dim_mechanisms: Array[MapMechanismResource] = []
+func get_mechanisms_for_dimension(dimension: StringName) -> Array[MapMechanism]:
+	var dim_mechanisms: Array[MapMechanism] = []
 
 	for mechanism in mechanisms:
 		if mechanism != null and mechanism.dimension == dimension:
@@ -99,7 +97,7 @@ func activate_mechanism(mechanism_id: StringName) -> bool:
 	return true
 
 
-func get_mechanism(mechanism_id: StringName) -> MapMechanismResource:
+func get_mechanism(mechanism_id: StringName) -> MapMechanism:
 	for mechanism in mechanisms:
 		if mechanism != null and mechanism.mechanism_id == mechanism_id:
 			return mechanism
@@ -154,7 +152,7 @@ func _apply_world_state() -> void:
 		_apply_effects_for_mechanism(mechanism, is_world_flag_active(mechanism.flag_name))
 
 
-func _apply_effects_for_mechanism(mechanism: MapMechanismResource, is_active: bool) -> void:
+func _apply_effects_for_mechanism(mechanism: MapMechanism, is_active: bool) -> void:
 	for effect in mechanism.effects:
 		_apply_effect(effect, _get_effect_value(effect, is_active))
 
@@ -236,8 +234,8 @@ func _has_mechanism_id(mechanism_id: StringName) -> bool:
 
 
 @warning_ignore("unsafe_call_argument", "int_as_enum_without_cast")
-func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
-	var mechanism := MapMechanismResource.new()
+func _make_mechanism_from_dict(data: Dictionary) -> MapMechanism:
+	var mechanism := MapMechanism.new()
 	mechanism.mechanism_id = StringName(str(data.get("mechanism_id", "")))
 	mechanism.dimension = StringName(str(data.get("dimension", "")))
 	mechanism.cell_position = Vector3i(
@@ -247,7 +245,7 @@ func _make_mechanism_from_dict(data: Dictionary) -> MapMechanismResource:
 	mechanism.title_key = str(data.get("title_key", "ui.mechanism"))
 	mechanism.action_label = str(data.get("action_label", "Use Mechanism"))
 	mechanism.flag_name = StringName(str(data.get("flag_name", "")))
-	mechanism.activation_mode = int(data.get("activation_mode", MapMechanismResource.ActivationMode.INTERACT)) as MapMechanismResource.ActivationMode
+	mechanism.activation_mode = int(data.get("activation_mode", MapMechanism.ActivationMode.INTERACT)) as MapMechanism.ActivationMode
 	mechanism.one_shot = bool(data.get("one_shot", true))
 	mechanism.required_flag = StringName(str(data.get("required_flag", "")))
 

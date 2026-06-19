@@ -100,6 +100,9 @@ var _mouse_captured := true
 var _pitch := deg_to_rad(-18.0)
 var _last_cell := Vector3i.ZERO
 var _last_debug_time := -100.0
+var _last_mouse_debug_time := -100.0
+var _spawn_debug_time := 0.0
+var _last_mouse_unhandled_time := -100.0
 var _target := {}
 var _is_climbing := false
 var _gravity_direction := Vector3.DOWN
@@ -151,6 +154,20 @@ func _ready() -> void:
 	_select_hotbar(selected_hotbar)
 	_last_cell = get_current_cell()
 	_update_gravity_direction()
+	print("[MouseLook] _ready done — captured=%s locked=%s mode=%d" % [_mouse_captured, _input_locked, Input.mouse_mode])
+	_debug_log_ui_controls()
+
+
+func _debug_log_ui_controls() -> void:
+	var ui_layer := get_node_or_null(^"../UI")
+	if ui_layer == null:
+		print("[MouseLook] No UI layer found")
+		return
+	print("[MouseLook] UI children:")
+	for child in ui_layer.get_children():
+		if child is Control:
+			var c: Control = child
+			print("  %s — visible=%s mouse_filter=%d rect=%s" % [c.name, c.visible, c.mouse_filter, c.get_global_rect()])
 
 
 func _physics_process(delta: float) -> void:
@@ -162,9 +179,19 @@ func _physics_process(delta: float) -> void:
 	_interaction.try_auto_cell_events()
 	_ui_connector.update_connector_prompt()
 	_update_status_label()
+	_maybe_debug_spawn_fall(delta)
 
 
 # --- Input handling ---
+
+func _input(event: InputEvent) -> void:
+	# Throttled diagnostic: confirm mouse motion events reach this node at all.
+	if event is InputEventMouseMotion:
+		var now := Time.get_ticks_msec() / 1000.0
+		if now - _last_mouse_debug_time >= 2.0:
+			_last_mouse_debug_time = now
+			print("[MouseLook] _input received motion — captured=%s locked=%s mode=%d" % [_mouse_captured, _input_locked, Input.mouse_mode])
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if console_ui and console_ui.is_open():
@@ -187,26 +214,30 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - motion.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
 		_update_camera_rotation()
 		return
+	elif event is InputEventMouseMotion:
+		# Throttled diagnostic: why is mouse motion not rotating the view?
+		var now := Time.get_ticks_msec() / 1000.0
+		if now - _last_mouse_unhandled_time >= 2.0:
+			_last_mouse_unhandled_time = now
+			print("[MouseLook] unhandled motion blocked — captured=%s locked=%s mode=%d" % [_mouse_captured, _input_locked, Input.mouse_mode])
 
-	if event is InputEventKey:
+	if event is InputEventKey and event.pressed and not event.echo and not _input_locked:
 		var key_event: InputEventKey = event
-		if key_event.pressed and not key_event.echo and not _input_locked:
-			_handle_key(key_event)
-			return
+		_handle_key(key_event)
+		return
 
-	if event is InputEventMouseButton:
+	if event is InputEventMouseButton and event.pressed and not _input_locked:
 		var mouse_event: InputEventMouseButton = event
-		if mouse_event.pressed and not _input_locked:
-			if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-				# Try creature attack first; fall back to block mining.
-				if not _interaction.try_attack_creature():
-					_interaction.try_mine_target(_target)
-			elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
-				_interaction.try_place_or_interact(_target)
-			elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
-				_select_hotbar((selected_hotbar - 1 + 9) % 9)
-			elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				_select_hotbar((selected_hotbar + 1) % 9)
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
+			# Try creature attack first; fall back to block mining.
+			if not _interaction.try_attack_creature():
+				_interaction.try_mine_target(_target)
+		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
+			_interaction.try_place_or_interact(_target)
+		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_select_hotbar((selected_hotbar - 1 + 9) % 9)
+		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_select_hotbar((selected_hotbar + 1) % 9)
 
 
 func _handle_key(event: InputEventKey) -> void:
@@ -378,7 +409,7 @@ func _check_climbing() -> void:
 	var dimension := get_current_dimension()
 
 	var candidates := [cell, cell + Vector3i.UP]
-	for candidate: Vector3i in candidates:
+	for candidate in candidates:
 		var info := world.get_cell_info(candidate, dimension)
 		var data: Dictionary = info.get("data", {})
 		if data.get("is_climbable", false):
@@ -386,6 +417,29 @@ func _check_climbing() -> void:
 			return
 
 	_is_climbing = false
+
+
+# Low-frequency debug log to diagnose spawn falling issues.
+# Prints player position, gravity, velocity, and chunk readiness once per second.
+func _maybe_debug_spawn_fall(delta: float) -> void:
+	_spawn_debug_time += delta
+	if _spawn_debug_time < 1.0:
+		return
+	_spawn_debug_time = 0.0
+	var chunk_ready := false
+	var chunk_str := "no_world"
+	if world != null and world.world_data != null:
+		var cx := int(floor(global_position.x / 32.0))
+		var cy := int(floor(global_position.y / 32.0))
+		var cz := int(floor(global_position.z / 32.0))
+		var dim := world.active_dimension
+		chunk_ready = world.world_data.has_chunk(dim, cx, cy, cz)
+		chunk_str = "dim=%s chunk=(%d,%d,%d) ready=%s" % [dim, cx, cy, cz, chunk_ready]
+	var ap_name := "null"
+	if _active_planet != null:
+		ap_name = _active_planet.display_name
+	print("[Player] pos=%s vel=%s grav_dir=%s grav_mult=%.2f active=%s | %s" % [
+		global_position, velocity, _gravity_direction, _gravity_multiplier, ap_name, chunk_str])
 
 
 # --- Gravity system (delegates math to C++ GDPlayerHelper) ---
@@ -534,7 +588,6 @@ func _update_camera_rotation() -> void:
 		head.rotation.x = _pitch
 
 
-@warning_ignore("unsafe_call_argument")
 func _update_target() -> void:
 	_target.clear()
 	if camera == null or world == null:
@@ -607,7 +660,6 @@ func _get_equipped_tool_def() -> ToolDef:
 
 # --- Hotbar ---
 
-@warning_ignore("unsafe_call_argument")
 func _select_hotbar(index: int) -> void:
 	selected_hotbar = clampi(index, 0, 8)
 	var slot: Dictionary = inventory.get_slot(selected_hotbar) if inventory else {}
@@ -672,6 +724,46 @@ func _debug_interaction(message: String) -> void:
 
 func _connect_universe_manager() -> void:
 	_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+
+
+# --- Multi-planet travel ---
+
+# 旅行到指定名称的星球。委托给 UniverseManager.travel_to_planet_by_name。
+# 名称匹配不区分大小写，支持部分匹配（如 "mars" 匹配 "Mars"）。
+# 返回 true 表示旅行成功。
+func travel_to_planet_by_name(planet_name: String) -> bool:
+	if _universe_manager == null:
+		push_warning("PlayerController: travel_to_planet_by_name — UniverseManager not connected")
+		return false
+	var ok := _universe_manager.travel_to_planet_by_name(planet_name)
+	if ok:
+		# 旅行后立即刷新重力方向，避免一帧的旧重力。
+		_update_gravity_direction()
+		print("[PlayerController] traveled to '%s', pos=%s dim=%s" % [
+			planet_name, global_position, String(get_current_dimension())])
+	return ok
+
+
+# 获取所有可旅行星球列表（委托给 UniverseManager）。
+# 返回数组，每个元素是 { "name": String, "dimension": StringName, "planet": PlanetDescriptor }。
+func get_travelable_planets() -> Array:
+	if _universe_manager == null:
+		return []
+	return _universe_manager.get_travelable_planets()
+
+
+# 获取玩家当前的宇宙坐标（double 精度，通过 FloatingOrigin）。
+func get_player_universe_position() -> Vector3:
+	if _universe_manager == null:
+		return Vector3.ZERO
+	return _universe_manager.get_player_universe_position()
+
+
+# 获取玩家到指定星球的宇宙距离。
+func get_distance_to_planet(planet: PlanetDescriptor) -> float:
+	if _universe_manager == null or planet == null:
+		return INF
+	return _universe_manager.get_distance_to_planet(planet)
 
 
 func _connect_console() -> void:
@@ -775,7 +867,10 @@ func _update_status_label() -> void:
 	elif _universe_manager != null and _universe_manager.active_planet != null:
 		var planet := _universe_manager.active_planet
 		var grav_text := "g=%.2f" % _gravity_multiplier
-		label.text = "%s (%s, %s)" % [planet.display_name, grav_text, atmo_short]
+		# 显示当前星球名 + 重力 + 大气 + 宇宙坐标（double 精度）。
+		var upos := get_player_universe_position()
+		label.text = "%s (%s, %s) @U(%.0f,%.0f,%.0f)" % [
+			planet.display_name, grav_text, atmo_short, upos.x, upos.y, upos.z]
 	else:
 		var grav_text := "g=%.2f" % _gravity_multiplier
 		label.text = "3D Surface (%s, %s)" % [grav_text, atmo_short]
@@ -783,7 +878,6 @@ func _update_status_label() -> void:
 
 # --- Quest system ---
 
-@warning_ignore("unsafe_method_access")
 func _connect_quest_system() -> void:
 	if quest_system == null:
 		return
@@ -818,7 +912,6 @@ func _quest_inventory_query(item_key: String) -> int:
 	return inventory.count_item(item_id)
 
 
-@warning_ignore("unsafe_method_access")
 func _on_quest_inventory_changed() -> void:
 	if quest_system == null:
 		return
@@ -826,7 +919,6 @@ func _on_quest_inventory_changed() -> void:
 	quest_system.on_inventory_changed(inv_callable)
 
 
-@warning_ignore("unsafe_method_access")
 func _on_quest_item_crafted(item_id: int, count: int) -> void:
 	if quest_system == null:
 		return
@@ -836,14 +928,12 @@ func _on_quest_item_crafted(item_id: int, count: int) -> void:
 	quest_system.on_item_crafted(key, count)
 
 
-@warning_ignore("unsafe_method_access")
 func _on_quest_block_mined(block_key: String) -> void:
 	if quest_system == null:
 		return
 	quest_system.on_block_mined(block_key, 1)
 
 
-@warning_ignore("unsafe_method_access")
 func _on_quest_machine_placed(machine_type: String) -> void:
 	if quest_system == null:
 		return

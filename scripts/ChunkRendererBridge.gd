@@ -8,6 +8,7 @@ extends Node3D
 signal chunk_bridge_ready
 
 const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
+const BlockAtlasBuilderScript := preload("res://scripts/world/BlockAtlasBuilder.gd")
 const CHUNK_SIZE := 32
 const BLOCK_SIZE := 1.0
 
@@ -63,6 +64,10 @@ var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
 var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
+# Shared block texture atlas for the active dimension.
+# Built by BlockAtlasBuilder from the worldgen material visuals.
+# Keys: "texture" (ImageTexture), "grid" (Vector2i), "tiles" (Dictionary).
+var _block_atlas: Dictionary = {}
 var _planet_lod_manager: PlanetLodManager = null
 var _current_chunk_lod := 0
 var _universe_manager: UniverseManager = null
@@ -603,6 +608,7 @@ func _clear_all_chunk_views() -> void:
 func _build_materials() -> void:
 	_materials.clear()
 	_material_cache.clear()
+	_block_atlas.clear()
 	if worldgen_config == null:
 		return
 	var visuals: Array = worldgen_config.get_material_visuals()
@@ -611,6 +617,8 @@ func _build_materials() -> void:
 		if mid < 0:
 			continue
 		_materials[mid] = visual
+	# Build the shared block texture atlas for this dimension's visuals.
+	_block_atlas = BlockAtlasBuilderScript.build_atlas(visuals)
 
 
 const TERRAIN_BLOCK_SHADER := preload("res://resource/shaders/terrain_block.gdshader")
@@ -622,115 +630,77 @@ func _get_material(material_id: int) -> Material:
 		return _material_cache[material_id]
 
 	var visual: Dictionary = _materials.get(material_id, {})
-	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85)) if not visual.is_empty() else Color(0.85, 0.20, 0.85)
-	var roughness: float = visual.get("roughness", 0.92) if not visual.is_empty() else 0.92
-	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0)) if not visual.is_empty() else Color(0, 0, 0)
-	var is_transparent: bool = visual.get("transparent", false) if not visual.is_empty() else false
-	var is_cull_disabled: bool = visual.get("cull_disabled", false) if not visual.is_empty() else false
-
-	# Check if any per-face texture is defined.
-	var top_tex_path: String = visual.get("top", {}).get("texture_path", "") if not visual.is_empty() else ""
-	var bottom_tex_path: String = visual.get("bottom", {}).get("texture_path", "") if not visual.is_empty() else ""
-	var sides_tex_path: String = visual.get("sides", {}).get("texture_path", "") if not visual.is_empty() else ""
-	var has_per_face_tex: bool = top_tex_path != "" or bottom_tex_path != "" or sides_tex_path != ""
+	var has_visual: bool = not visual.is_empty()
+	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85)) if has_visual else Color(0.85, 0.20, 0.85)
+	var roughness: float = visual.get("roughness", 0.92) if has_visual else 0.92
+	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0)) if has_visual else Color(0, 0, 0)
+	var is_transparent: bool = visual.get("transparent", false) if has_visual else false
+	var is_cull_disabled: bool = visual.get("cull_disabled", false) if has_visual else false
 
 	# Overlay layers (first overlay only for now).
-	var overlays: Array = visual.get("overlays", []) if not visual.is_empty() else []
+	var overlays: Array = visual.get("overlays", []) if has_visual else []
 	var overlay_path: String = overlays[0].get("texture_path", "") if overlays.size() > 0 else ""
 
-	var material: Material
+	# Per-material atlas tile lookup. Falls back to "no texture" when the
+	# material has no tile in the atlas (the shader then uses albedo_color).
+	var tiles: Dictionary = _block_atlas.get("tiles", {})
+	var tile_entry: Dictionary = tiles.get(material_id, {})
+	var top_tile: Dictionary = tile_entry.get("top", {})
+	var bottom_tile: Dictionary = tile_entry.get("bottom", {})
+	var sides_tile: Dictionary = tile_entry.get("sides", {})
 
-	if has_per_face_tex:
-		# Use ShaderMaterial with per-face texture selection via UV2.
-		var shader_mat := ShaderMaterial.new()
-		shader_mat.shader = TERRAIN_BLOCK_SHADER
-		shader_mat.set_shader_parameter("albedo_color", albedo)
-		shader_mat.set_shader_parameter("roughness", roughness)
-		shader_mat.set_shader_parameter("emissive_color", emissive)
+	var shader_mat := ShaderMaterial.new()
+	shader_mat.shader = TERRAIN_BLOCK_SHADER
+	shader_mat.set_shader_parameter("albedo_color", albedo)
+	shader_mat.set_shader_parameter("roughness", roughness)
+	shader_mat.set_shader_parameter("emissive_color", emissive)
 
-		# Per-face textures and variant counts.
-		var top_variant: int = visual.get("top", {}).get("variant_count", 1) if not visual.is_empty() else 1
-		var bottom_variant: int = visual.get("bottom", {}).get("variant_count", 1) if not visual.is_empty() else 1
-		var sides_variant: int = visual.get("sides", {}).get("variant_count", 1) if not visual.is_empty() else 1
-		shader_mat.set_shader_parameter("top_variant_count", top_variant)
-		shader_mat.set_shader_parameter("bottom_variant_count", bottom_variant)
-		shader_mat.set_shader_parameter("sides_variant_count", sides_variant)
+	# Shared atlas texture + grid (same for every material in this dimension).
+	var atlas_tex: Texture2D = _block_atlas.get("texture", null)
+	var atlas_grid: Vector2i = _block_atlas.get("grid", Vector2i(1, 1))
+	if atlas_tex != null:
+		shader_mat.set_shader_parameter("atlas_texture", atlas_tex)
+	shader_mat.set_shader_parameter("atlas_grid", Vector2(float(atlas_grid.x), float(atlas_grid.y)))
 
-		if top_tex_path != "":
-			var tex := load(top_tex_path) as Texture2D
-			if tex != null:
-				shader_mat.set_shader_parameter("top_texture", tex)
-				shader_mat.set_shader_parameter("has_top_texture", true)
-			else:
-				push_warning("ChunkRendererBridge: failed to load top texture '%s' for material %d" % [top_tex_path, material_id])
+	# Per-face tile base + variant count + has flag.
+	_set_face_tile_uniforms(shader_mat, "top", top_tile)
+	_set_face_tile_uniforms(shader_mat, "bottom", bottom_tile)
+	_set_face_tile_uniforms(shader_mat, "sides", sides_tile)
 
-		if bottom_tex_path != "":
-			var tex := load(bottom_tex_path) as Texture2D
-			if tex != null:
-				shader_mat.set_shader_parameter("bottom_texture", tex)
-				shader_mat.set_shader_parameter("has_bottom_texture", true)
-			else:
-				push_warning("ChunkRendererBridge: failed to load bottom texture '%s' for material %d" % [bottom_tex_path, material_id])
+	# Overlay layer (standalone repeating texture, not part of the atlas).
+	if overlay_path != "":
+		var overlay_tex := load(overlay_path) as Texture2D
+		if overlay_tex != null:
+			shader_mat.set_shader_parameter("overlay_texture", overlay_tex)
+			var overlay_blend_val: float = overlays[0].get("blend", 0.5) if overlays.size() > 0 else 0.5
+			shader_mat.set_shader_parameter("overlay_blend", overlay_blend_val)
+			shader_mat.set_shader_parameter("has_overlay", true)
+		else:
+			push_warning("ChunkRendererBridge: failed to load overlay texture '%s' for material %d" % [overlay_path, material_id])
 
-		if sides_tex_path != "":
-			var tex := load(sides_tex_path) as Texture2D
-			if tex != null:
-				shader_mat.set_shader_parameter("sides_texture", tex)
-				shader_mat.set_shader_parameter("has_sides_texture", true)
-			else:
-				push_warning("ChunkRendererBridge: failed to load sides texture '%s' for material %d" % [sides_tex_path, material_id])
+	# Transparency / cull flags (shader uses cull_disabled render_mode always,
+	# but alpha transparency is driven by ALPHA and the visual flags).
+	if is_transparent or albedo.a < 1.0:
+		# ShaderMaterial transparency must be set on the material resource.
+		shader_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	# cull_disabled is already in the shader render_mode; the per-material
+	# cull_disabled flag is honoured implicitly.
+	_ = is_cull_disabled
 
-		# Overlay layer.
-		if overlay_path != "":
-			var overlay_tex := load(overlay_path) as Texture2D
-			if overlay_tex != null:
-				shader_mat.set_shader_parameter("overlay_texture", overlay_tex)
-				var overlay_blend_val: float = overlays[0].get("blend", 0.5) if overlays.size() > 0 else 0.5
-				shader_mat.set_shader_parameter("overlay_blend", overlay_blend_val)
-				shader_mat.set_shader_parameter("has_overlay", true)
-			else:
-				push_warning("ChunkRendererBridge: failed to load overlay texture '%s' for material %d" % [overlay_path, material_id])
-
-		material = shader_mat
-	else:
-		# Fallback to StandardMaterial3D when no per-face textures.
-		var std_mat := StandardMaterial3D.new()
-		std_mat.albedo_color = albedo
-		std_mat.roughness = roughness
-		std_mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-
-		if emissive != Color(0, 0, 0):
-			std_mat.emission_enabled = true
-			std_mat.emission = emissive
-
-		if is_transparent or albedo.a < 1.0:
-			std_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		if is_cull_disabled or albedo.a < 1.0:
-			std_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-
-		# Single texture fallback: pick the best available.
-		var chosen_path := sides_tex_path if sides_tex_path != "" else top_tex_path
-		if chosen_path == "":
-			chosen_path = bottom_tex_path
-		if chosen_path != "":
-			var tex := load(chosen_path) as Texture2D
-			if tex != null:
-				std_mat.albedo_texture = tex
-			else:
-				push_warning("ChunkRendererBridge: failed to load texture '%s' for material %d" % [chosen_path, material_id])
-
-		# Overlay as detail map.
-		if overlay_path != "":
-			var overlay_tex := load(overlay_path) as Texture2D
-			if overlay_tex != null:
-				std_mat.detail_enabled = true
-				std_mat.detail_albedo = overlay_tex
-				std_mat.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
-
-		material = std_mat
-
+	var material: Material = shader_mat
 	_material_cache[material_id] = material
 	return material
+
+
+# Helper: set the per-face atlas tile uniforms on a ShaderMaterial.
+@warning_ignore("unsafe_method_access")
+func _set_face_tile_uniforms(shader_mat: ShaderMaterial, face_key: String, tile: Dictionary) -> void:
+	var base: Vector2i = tile.get("base", Vector2i(0, 0))
+	var vcount: int = int(tile.get("variant_count", 1))
+	var has_tex: bool = bool(tile.get("has", false))
+	shader_mat.set_shader_parameter(face_key + "_tile_base", Vector2(float(base.x), float(base.y)))
+	shader_mat.set_shader_parameter(face_key + "_variant_count", max(1, vcount))
+	shader_mat.set_shader_parameter("has_" + face_key + "_texture", has_tex)
 
 
 # --- Planet LOD integration ---

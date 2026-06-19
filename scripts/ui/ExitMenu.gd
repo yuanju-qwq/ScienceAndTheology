@@ -31,7 +31,8 @@ var _vbox: VBoxContainer
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	# Use IGNORE by default so the menu never blocks input when closed.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_ui()
 	visible = false
 
@@ -118,10 +119,12 @@ func _add_button(text: String, callback: Callable) -> void:
 
 func open() -> void:
 	visible = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
 
 
 func close() -> void:
 	visible = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func is_open() -> bool:

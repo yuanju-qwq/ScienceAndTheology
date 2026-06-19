@@ -1040,11 +1040,22 @@ int64_t GDWorldData::load_dimension(const godot::String& save_dir,
 
     // Use the per-dimension load API which reads from a planet subdirectory.
     std::string pdir = SaveManager::planet_dir(dir_str, dim_str);
-    int count = SaveManager::load_dimension(pdir, dim_str, world_);
+    int legacy_skipped = 0;
+    int count = SaveManager::load_dimension(pdir, dim_str, world_, &legacy_skipped);
     if (count < 0) {
         UtilityFunctions::push_warning(
             "GDWorldData: load_dimension failed for dimension: ", dimension_id);
         return -1;
+    }
+
+    // One-time warning for legacy (pre-v2 2D layer) region files that were
+    // detected and skipped. The old format reader was removed during the
+    // 2D→3D refactor; these saves cannot be migrated automatically.
+    if (legacy_skipped > 0) {
+        UtilityFunctions::push_warning(
+            "GDWorldData: skipped ", legacy_skipped,
+            " legacy region file(s) in dimension '", dimension_id,
+            "' — old 2D layer saves are no longer supported and were not loaded.");
     }
 
     return static_cast<int64_t>(count);

@@ -421,7 +421,7 @@ func try_use_station_blueprint() -> bool:
 	if equipment == null:
 		return false
 
-	var held_id: int = equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
 	if held_id != ItemDatabase.ITEM_STATION_BLUEPRINT:
 		return false
 
@@ -472,7 +472,7 @@ func _on_station_confirmed(params: Dictionary) -> void:
 	# Consume the blueprint item.
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment != null:
-		var held_id: int = equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+		var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
 		if held_id == ItemDatabase.ITEM_STATION_BLUEPRINT and _cached_blueprint_slot >= 0:
 			_player.inventory.set_slot(_cached_blueprint_slot, 0, 0, -1)
 			_cached_blueprint_slot = -1

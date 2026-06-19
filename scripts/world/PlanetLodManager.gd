@@ -10,6 +10,7 @@ signal lod_level_changed(new_level: int, old_level: int)
 const PlanetSurfaceShader := preload("res://resource/shaders/planet_surface.gdshader")
 const PlanetAtmosphereShader := preload("res://resource/shaders/planet_atmosphere.gdshader")
 const PlanetCloudsShader := preload("res://resource/shaders/planet_clouds.gdshader")
+const PlanetBillboardShader := preload("res://resource/shaders/planet_billboard.gdshader")
 const SpaceSkyShader := preload("res://resource/shaders/space_sky.gdshader")
 
 # LOD level constants matching the C++ GDPlanetLod definitions.
@@ -17,6 +18,7 @@ const LOD_REAL_CHUNKS := 0
 const LOD_SIMPLIFIED_MESH := 1
 const LOD_PROXY_SPHERE := 2
 const LOD_LOW_POLY := 3
+const LOD_BILLBOARD := 4
 
 @export var planet_center := Vector3(0.0, -512.0, 0.0):
 	set(value):
@@ -27,6 +29,19 @@ const LOD_LOW_POLY := 3
 	set(value):
 		planet_radius = maxf(value, 1.0)
 		_invalidate_lod_state()
+
+# 是否为当前活跃星球。
+# 活跃星球使用局部体素坐标（player.global_position 即局部坐标）。
+# 远景星球使用相对宇宙坐标（相对于活跃星球的偏移）。
+var is_active_planet := false:
+	set(value):
+		if is_active_planet == value:
+			return
+		is_active_planet = value
+
+# 远景星球在场景中的渲染中心（由 UniverseManager 计算）。
+# 活跃星球忽略此值，直接使用 planet_center（= local_center）。
+var distant_scene_center := Vector3.ZERO
 
 @export var world_seed := 0:
 	set(value):
@@ -92,6 +107,12 @@ func _ready() -> void:
 	_current_lod_level = _compute_current_lod()
 	_previous_lod_level = _current_lod_level
 	_apply_lod_visibility()
+	# UniverseManager._update_all_lod_centers() may have updated
+	# distant_scene_center / planet_center before _ready() ran.
+	# Reposition meshes to the effective center so distant planets
+	# (e.g. the Sun) are placed at their correct scene offset instead
+	# of the creation-time planet_center (= universe_position).
+	_reposition_meshes(get_effective_center())
 	_is_initialized = true
 
 
@@ -104,8 +125,9 @@ func _process(delta: float) -> void:
 		_apply_lod_visibility()
 		lod_level_changed.emit(new_level, _previous_lod_level)
 
+	var effective_center := get_effective_center()
 	_fade_alpha = GDPlanetLod.compute_lod_fade_alpha(
-		_get_player_position(), planet_center, planet_radius, _current_lod_level)
+		_get_player_position(), effective_center, planet_radius, _current_lod_level)
 	_apply_fade_alpha()
 	_update_cloud_time(delta)
 	_update_horizon_fog()
@@ -127,11 +149,45 @@ func get_fade_alpha() -> float:
 
 func get_surface_distance() -> float:
 	return GDPlanetLod.compute_surface_distance(
-		_get_player_position(), planet_center, planet_radius)
+		_get_player_position(), get_effective_center(), planet_radius)
 
 
 func get_lod_distances() -> Dictionary:
 	return _distances_cache.duplicate()
+
+
+# 返回当前生效的星球中心。
+# 活跃星球使用 planet_center（局部坐标），远景星球使用 distant_scene_center。
+func get_effective_center() -> Vector3:
+	return distant_scene_center if not is_active_planet else planet_center
+
+
+# 轻量更新场景中心位置（不重建 mesh，仅重新定位）。
+# 用于活跃星球切换时更新远景星球的相对位置。
+func set_scene_center(center: Vector3, active: bool) -> void:
+	is_active_planet = active
+	if active:
+		# 活跃星球：center = local_center，需要重建以对齐 mesh。
+		if planet_center != center:
+			planet_center = center  # 触发 setter 重建
+		else:
+			_reposition_meshes(center)
+	else:
+		# 远景星球：center = 相对宇宙位置，仅重新定位 mesh。
+		distant_scene_center = center
+		_reposition_meshes(center)
+
+
+# 重新定位所有 LOD mesh 到指定中心（不重建）。
+func _reposition_meshes(center: Vector3) -> void:
+	for level in _lod_meshes.keys():
+		var mesh_instance: MeshInstance3D = _lod_meshes[level]
+		if mesh_instance:
+			mesh_instance.global_position = center
+	if _atmosphere_mesh:
+		_atmosphere_mesh.global_position = center
+	if _cloud_mesh:
+		_cloud_mesh.global_position = center
 
 
 # --- LOD mesh creation ---
@@ -179,6 +235,35 @@ func _create_lod_meshes() -> void:
 	lod3.global_position = planet_center
 	lod3.visible = false
 	_lod_meshes[LOD_LOW_POLY] = lod3
+
+	# LOD 4: billboard — extreme distance / deep space.
+	# Camera-facing quad with procedural planet disc + atmosphere glow.
+	# Sized to match the atmosphere shell so the glow ring is visible.
+	var billboard_size := planet_radius * atmosphere_scale * 2.0
+	var billboard_quad := QuadMesh.new()
+	billboard_quad.size = Vector2(billboard_size, billboard_size)
+	var billboard_material := ShaderMaterial.new()
+	billboard_material.shader = PlanetBillboardShader
+	billboard_material.set_shader_parameter("noise_offset", Vector3(_world_seed_float(), _world_seed_float(), _world_seed_float()))
+	billboard_material.set_shader_parameter("sea_level", 0.35)
+	billboard_material.set_shader_parameter("snow_line", 0.85)
+	billboard_material.set_shader_parameter("atmosphere_color", Vector3(atmosphere_color.r, atmosphere_color.g, atmosphere_color.b))
+	billboard_material.set_shader_parameter("atmosphere_intensity", atmosphere_intensity)
+	# disc_radius = planet_radius / (planet_radius * atmosphere_scale) = 1.0 / atmosphere_scale
+	billboard_material.set_shader_parameter("disc_radius", 1.0 / atmosphere_scale)
+	billboard_material.set_shader_parameter("fade_alpha", 1.0)
+	billboard_quad.surface_set_material(0, billboard_material)
+	var lod4 := MeshInstance3D.new()
+	lod4.name = "LOD4_Billboard"
+	lod4.mesh = billboard_quad
+	# Disable frustum culling for the billboard — at extreme distances the
+	# bounding sphere can be imprecise and cause flickering. The quad is
+	# cheap to render so over-drawing is acceptable.
+	lod4.extra_cull_margin = 16384.0
+	add_child(lod4)
+	lod4.global_position = planet_center
+	lod4.visible = false
+	_lod_meshes[LOD_BILLBOARD] = lod4
 
 	# Atmosphere shell — slightly larger sphere with Fresnel glow.
 	var atmo_radius := planet_radius * atmosphere_scale
@@ -230,7 +315,7 @@ func _create_lod_meshes() -> void:
 
 func _compute_current_lod() -> int:
 	return GDPlanetLod.compute_lod_level(
-		_get_player_position(), planet_center, planet_radius)
+		_get_player_position(), get_effective_center(), planet_radius)
 
 
 func _get_player_position() -> Vector3:
@@ -244,18 +329,22 @@ func _get_player_position() -> Vector3:
 
 func _apply_lod_visibility() -> void:
 	# LOD 0 and LOD 1 are managed by ChunkRendererBridge.
-	# Only toggle visibility for LOD 2 and LOD 3 meshes here.
+	# Only toggle visibility for LOD 2, LOD 3 and LOD 4 meshes here.
 	for level in _lod_meshes.keys():
 		var mesh_instance: MeshInstance3D = _lod_meshes[level]
 		mesh_instance.visible = (level == _current_lod_level)
 
-	# Atmosphere is visible at LOD 2 and LOD 3 (far / space view).
+	# Atmosphere shell is visible at LOD 2 and LOD 3.
+	# At LOD 4 the billboard shader includes its own atmosphere glow.
 	if _atmosphere_mesh:
-		_atmosphere_mesh.visible = _current_lod_level >= LOD_PROXY_SPHERE
+		_atmosphere_mesh.visible = _current_lod_level >= LOD_PROXY_SPHERE \
+			and _current_lod_level < LOD_BILLBOARD
 
 	# Clouds are visible at LOD 2 and LOD 3 (same as atmosphere).
+	# At LOD 4 the planet is too far for clouds to be distinguishable.
 	if _cloud_mesh:
-		_cloud_mesh.visible = _current_lod_level >= LOD_PROXY_SPHERE
+		_cloud_mesh.visible = _current_lod_level >= LOD_PROXY_SPHERE \
+			and _current_lod_level < LOD_BILLBOARD
 
 
 func _apply_fade_alpha() -> void:
@@ -495,7 +584,8 @@ func _maybe_log_debug(delta: float) -> void:
 	_debug_elapsed = 0.0
 
 	var player_pos := _get_player_position()
-	var dist := player_pos.distance_to(planet_center)
+	var effective_center := get_effective_center()
+	var dist := player_pos.distance_to(effective_center)
 	var surface_dist := get_surface_distance()
-	print("PlanetLodManager: lod=%d fade=%.2f dist=%.1f surface_dist=%.1f" % [
-		_current_lod_level, _fade_alpha, dist, surface_dist])
+	print("PlanetLodManager: lod=%d fade=%.2f dist=%.1f surface_dist=%.1f active=%s" % [
+		_current_lod_level, _fade_alpha, dist, surface_dist, is_active_planet])

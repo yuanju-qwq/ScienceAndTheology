@@ -138,6 +138,9 @@ func _register_default_commands() -> void:
 	register_command("gravity", _cmd_gravity, "Show current gravity direction and zone")
 	register_command("help", _cmd_help, "List available commands")
 	register_command("speed", _cmd_speed, "Set fly speed (default 20, usage: /speed 40)")
+	register_command("planets", _cmd_planets, "List all travelable planets with distances")
+	register_command("travel", _cmd_travel, "Travel to a planet by name (usage: /travel Mars)")
+	register_command("universe", _cmd_universe, "Show player's current universe position")
 
 
 # --- Command execution ---
@@ -232,3 +235,72 @@ func _cmd_speed(args: String) -> void:
 
 	_player.fly_speed = value
 	print_line("[color=cyan]Fly speed set to %.1f[/color]" % value)
+
+
+# --- Multi-planet travel commands ---
+
+# /planets — 列出所有可旅行星球及距离。
+func _cmd_planets(_args: String) -> void:
+	if _player == null:
+		print_line("[color=red]No player reference[/color]")
+		return
+
+	var planets: Array = _player.get_travelable_planets()
+	if planets.is_empty():
+		print_line("[color=yellow]No travelable planets available[/color]")
+		return
+
+	var upos := _player.get_player_universe_position()
+	print_line("[color=cyan]Travelable planets (player @U %.0f,%.0f,%.0f):[/color]" % [upos.x, upos.y, upos.z])
+
+	var active_name := ""
+	if _player._universe_manager != null and _player._universe_manager.active_planet != null:
+		active_name = _player._universe_manager.active_planet.display_name
+
+	for entry in planets:
+		var pname: String = entry["name"]
+		var planet: PlanetDescriptor = entry["planet"]
+		var dist := _player.get_distance_to_planet(planet)
+		var marker := " *" if pname == active_name else ""
+		print_line("  %s (dim=%s, radius=%.0f, g=%.2f) dist=%.0f%s" % [
+			pname, String(entry["dimension"]), planet.planet_radius,
+			planet.gravity_multiplier, dist, marker])
+
+
+# /travel <name> — 旅行到指定星球。
+func _cmd_travel(args: String) -> void:
+	if _player == null:
+		print_line("[color=red]No player reference[/color]")
+		return
+
+	var target_name := args.strip_edges()
+	if target_name == "":
+		print_line("[color=red]Usage: /travel <planet name>[/color]")
+		print_line("Use /planets to list available destinations")
+		return
+
+	print_line("[color=gray]Traveling to '%s'...[/color]" % target_name)
+	var ok := _player.travel_to_planet_by_name(target_name)
+	if ok:
+		print_line("[color=cyan]Travel complete — now on %s[/color]" % target_name)
+	else:
+		print_line("[color=red]Travel failed — no planet matching '%s'[/color]" % target_name)
+		print_line("Use /planets to list available destinations")
+
+
+# /universe — 显示玩家当前宇宙坐标。
+func _cmd_universe(_args: String) -> void:
+	if _player == null:
+		print_line("[color=red]No player reference[/color]")
+		return
+
+	var upos := _player.get_player_universe_position()
+	print_line("[color=cyan]Universe position: (%.2f, %.2f, %.2f)[/color]" % [upos.x, upos.y, upos.z])
+	print_line("Scene position: %s" % _player.global_position)
+
+	if _player._universe_manager != null and _player._universe_manager.active_planet != null:
+		var planet := _player._universe_manager.active_planet
+		print_line("Active planet: %s (dim=%s)" % [planet.display_name, String(planet.dimension_id)])
+		print_line("  universe_position: %s" % planet.universe_position)
+		print_line("  local_center: %s" % planet.local_center)
+		print_line("  radius: %.1f, gravity: %.2f" % [planet.planet_radius, planet.gravity_multiplier])

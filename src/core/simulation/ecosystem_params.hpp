@@ -167,6 +167,47 @@ struct EcosystemParams {
     // At 20 TPS, half-life ≈ 69 ticks ≈ 3.5 seconds.
     float hunting_pressure_decay = 0.99f;
 
+    // --- Captive / husbandry parameters ---
+
+    // Taming progress gained per tick for a captive creature.
+    // At 20 TPS, tame_duration_ticks ≈ 1 / tame_rate_per_tick.
+    // 0.000083f ≈ 12000 ticks ≈ 1 game day (day_length_seconds=600 * 20).
+    float tame_rate_per_tick = 0.000083f;
+
+    // Taming progress boost per feeding (added to tame_progress).
+    float feed_tame_boost = 0.05f;
+
+    // Gestation duration in ticks (from breeding trigger to baby birth).
+    // 6000 ticks ≈ 0.5 game day.
+    int64_t gestation_ticks = 6000;
+
+    // Baby growth duration in ticks (from birth to adult).
+    // 12000 ticks ≈ 1 game day.
+    int64_t baby_growth_ticks = 12000;
+
+    // Breed cooldown in ticks after a successful breeding.
+    // 24000 ticks ≈ 2 game days.
+    int64_t breed_cooldown_ticks = 24000;
+
+    // Maximum captive creatures allowed per chunk (pen capacity cap).
+    int max_captive_per_chunk = 24;
+
+    // Maximum interior cells scanned during enclosure flood-fill.
+    // Prevents expensive searches on open terrain.
+    int enclosure_max_cells = 4096;
+
+    // Maximum half-extent of enclosure flood-fill bounding box.
+    // The search box is [center - extent, center + extent] per axis.
+    int enclosure_max_extent = 24;
+
+    // Distance within which two captive creatures are considered
+    // "same pen" partners for breeding.
+    float breed_partner_distance = 24.0f;
+
+    // Density reduction applied to the wild PopulationCell when a
+    // creature is captured (it leaves the wild population).
+    float capture_density_reduction = 0.05f;
+
     // --- Per-biome overrides ---
 
     // Per-biome parameter overrides. If a biome has an entry,
