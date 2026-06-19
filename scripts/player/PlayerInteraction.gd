@@ -6,6 +6,8 @@ extends Node
 
 signal block_mined(block_key: String)
 signal machine_placed(machine_type: String)
+signal crop_planted(species_key: String)
+signal crop_harvested_interaction(species_key: String, count: int)
 
 const REACH := 6.0
 const ATTACK_REACH := 5.0
@@ -15,10 +17,23 @@ const OVERWORLD: StringName = &"overworld"
 var _player: PlayerController = null
 var _cooldown_remaining := 0.0
 var _attack_cooldown_remaining := 0.0
+var _crop_signal_connected := false
 
 
 func setup(player: PlayerController) -> void:
 	_player = player
+	_connect_crop_harvest_signal()
+
+
+func _connect_crop_harvest_signal() -> void:
+	if _crop_signal_connected:
+		return
+	var command_server := _player.get_command_server()
+	if command_server == null:
+		return
+	if not command_server.crop_harvested.is_connected(_on_crop_harvested):
+		command_server.crop_harvested.connect(_on_crop_harvested)
+	_crop_signal_connected = true
 
 
 func process_cooldown(delta: float) -> void:
@@ -189,9 +204,72 @@ func try_place_or_interact(target: Dictionary) -> bool:
 		return true
 	if try_use_station_blueprint():
 		return true
+	if try_till_farmland(target):
+		return true
+	if try_plant_crop(target):
+		return true
+	if try_fertilize_crop(target):
+		return true
+	if try_harvest_crop(target):
+		return true
+	if try_feed_creature():
+		return true
 	if try_place_world_object(target):
 		return true
 	return false
+
+
+# Feed a creature the player is aiming at. If the target is a wild proxy
+# inside a fence enclosure, it is captured. If it is a captive creature,
+# feeding boosts taming or triggers breeding. Feed items are fruits.
+@warning_ignore("unsafe_call_argument")
+func try_feed_creature() -> bool:
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment == null:
+		return false
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	# Only fruit items can be used as creature feed.
+	if held_id != ItemDatabase.ITEM_CHERRY_FRUIT and held_id != ItemDatabase.ITEM_OLIVE_FRUIT:
+		return false
+
+	var um: UniverseManager = _player._universe_manager
+	if um == null or um._tick_system == null:
+		return false
+
+	var tick_system: GDTickSystem = um._tick_system
+	var camera: Camera3D = _player.camera
+	if camera == null:
+		return false
+
+	var player_pos := _player.global_position
+	var look_dir := -camera.global_transform.basis.z.normalized()
+	var dimension := _player.get_current_dimension()
+
+	var result: Dictionary = tick_system.feed_creature_at(
+		dimension, player_pos, look_dir, ATTACK_REACH)
+
+	if not bool(result.get("hit", false)):
+		return false
+
+	var outcome := String(result.get("outcome", "miss"))
+	_debug("feed outcome: %s (creature %d, species %d)" % [
+		outcome,
+		int(result.get("creature_id", 0)),
+		int(result.get("species_id", 0)),
+	])
+
+	# Consume one feed item on a successful interaction
+	# (capture, taming, bred, or fed — but not on "no_enclosure" / "pen_full").
+	if outcome == "captured" or outcome == "taming" \
+			or outcome == "bred" or outcome == "fed":
+		if _player.inventory != null:
+			var slot := _player.inventory.find_item(held_id)
+			if slot >= 0:
+				_player.inventory.remove_from_slot(slot, 1)
+				_player.inventory_changed.emit()
+
+	return true
 
 
 @warning_ignore("unsafe_call_argument")
@@ -210,6 +288,8 @@ func try_place_world_object(target: Dictionary) -> bool:
 			object_type = GameCommandServer.OBJECT_FURNACE
 		ItemDatabase.ITEM_LADDER:
 			object_type = GameCommandServer.OBJECT_LADDER
+		ItemDatabase.ITEM_FENCE:
+			object_type = GameCommandServer.OBJECT_FENCE
 		_:
 			return false
 

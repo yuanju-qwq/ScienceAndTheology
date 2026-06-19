@@ -612,6 +612,7 @@ bool GDTerrainContentRegistry::set_runtime_material_ids(const Dictionary& def) {
     }
     assign_role_from_dict(runtime_ids_.ladder, def, "ladder", material_ids_by_key_);
     assign_role_from_dict(runtime_ids_.workbench, def, "workbench", material_ids_by_key_);
+    assign_role_from_dict(runtime_ids_.fence, def, "fence", material_ids_by_key_);
     return true;
 }
 
@@ -843,6 +844,98 @@ bool GDTerrainContentRegistry::register_tree_species(const Dictionary& def) {
     return true;
 }
 
+bool GDTerrainContentRegistry::register_crop_species(const Dictionary& def) {
+    if (!check_mutable("register crop species")) {
+        return false;
+    }
+
+    CropSpeciesDef crop;
+    crop.species_key = to_std_string(def.get("species_key", ""));
+    crop.title_key = to_std_string(def.get("title_key", ""));
+
+    if (crop.species_key.empty()) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: crop species requires species_key.");
+        return false;
+    }
+
+    // Category.
+    int category_int = static_cast<int>(def.get("category", 0));
+    if (category_int >= 0 && category_int < static_cast<int>(CropCategory::COUNT)) {
+        crop.category = static_cast<CropCategory>(category_int);
+    }
+
+    // Biome constraints.
+    crop.temperature_min = static_cast<float>(def.get("temperature_min", -1.0));
+    crop.temperature_max = static_cast<float>(def.get("temperature_max", 1.0));
+    crop.humidity_min = static_cast<float>(def.get("humidity_min", -1.0));
+    crop.humidity_max = static_cast<float>(def.get("humidity_max", 1.0));
+
+    // Season constraints (-1 = any).
+    crop.plant_season = static_cast<int>(def.get("plant_season", -1));
+    crop.grow_season = static_cast<int>(def.get("grow_season", -1));
+    crop.harvest_season = static_cast<int>(def.get("harvest_season", -1));
+
+    // Growth ticks.
+    crop.ticks_seed_to_sprout =
+        static_cast<int64_t>(def.get("ticks_seed_to_sprout", 3000));
+    crop.ticks_sprout_to_growing =
+        static_cast<int64_t>(def.get("ticks_sprout_to_growing", 6000));
+    crop.ticks_growing_to_mature =
+        static_cast<int64_t>(def.get("ticks_growing_to_mature", 9000));
+
+    // Item production.
+    crop.seed_item_key = to_std_string(def.get("seed_item_key", ""));
+    crop.crop_item_key = to_std_string(def.get("crop_item_key", ""));
+    crop.byproduct_item_key = to_std_string(def.get("byproduct_item_key", ""));
+    crop.crop_min = static_cast<int>(def.get("crop_min", 1));
+    crop.crop_max = static_cast<int>(def.get("crop_max", 2));
+    crop.byproduct_count = static_cast<int>(def.get("byproduct_count", 1));
+    crop.repeat_harvest = static_cast<bool>(def.get("repeat_harvest", false));
+    crop.regrow_ticks = static_cast<int64_t>(def.get("regrow_ticks", 6000));
+
+    // Stage material keys (array of 4 strings).
+    Array stage_keys = def.get("stage_material_keys", Array());
+    for (int i = 0; i < 4 && i < stage_keys.size(); ++i) {
+        crop.stage_material_keys[i] = to_std_string(stage_keys[i]);
+    }
+
+    // Sensitivity.
+    crop.fertility_sensitivity =
+        static_cast<float>(def.get("fertility_sensitivity", 0.7));
+    crop.water_sensitivity =
+        static_cast<float>(def.get("water_sensitivity", 0.7));
+
+    // Wild generation.
+    crop.wild_spawn = static_cast<bool>(def.get("wild_spawn", false));
+    crop.wild_density_weight =
+        static_cast<float>(def.get("wild_density_weight", 1.0));
+
+    // Visual color.
+    if (def.has("crop_color")) {
+        Color c = def.get("crop_color", Color(0.85f, 0.75f, 0.25f));
+        crop.crop_color_r = c.r;
+        crop.crop_color_g = c.g;
+        crop.crop_color_b = c.b;
+    } else {
+        crop.crop_color_r = static_cast<float>(def.get("crop_color_r", 0.85f));
+        crop.crop_color_g = static_cast<float>(def.get("crop_color_g", 0.75f));
+        crop.crop_color_b = static_cast<float>(def.get("crop_color_b", 0.25f));
+    }
+
+    // Check for duplicate.
+    auto existing = std::find_if(crop_species_.begin(), crop_species_.end(),
+        [&crop](const CropSpeciesDef& item) {
+            return item.species_key == crop.species_key;
+        });
+    if (existing != crop_species_.end()) {
+        *existing = std::move(crop);
+    } else {
+        crop_species_.push_back(std::move(crop));
+    }
+    return true;
+}
+
 std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot() const {
     auto snapshot = std::make_shared<WorldGenConfigSnapshot>();
     snapshot->materials = materials_;
@@ -855,6 +948,7 @@ std::shared_ptr<WorldGenConfigSnapshot> GDTerrainContentRegistry::build_snapshot
     snapshot->rock_layer_rules = rock_layer_rules_;
     snapshot->planet_configs = planet_configs_;
     snapshot->tree_species = tree_species_;
+    snapshot->crop_species = crop_species_;
     snapshot->material_ids_by_key = material_ids_by_key_;
     snapshot->material_keys_by_id = material_keys_by_id_;
     snapshot->content_hash = hash_world_gen_config(*snapshot);
@@ -983,6 +1077,7 @@ void GDTerrainContentRegistry::clear() {
     rock_layer_rules_.clear();
     planet_configs_.clear();
     tree_species_.clear();
+    crop_species_.clear();
     material_ids_by_key_.clear();
     material_keys_by_id_.clear();
 }
@@ -1037,6 +1132,8 @@ void GDTerrainContentRegistry::_bind_methods() {
                          &GDTerrainContentRegistry::register_planet_config);
     ClassDB::bind_method(D_METHOD("register_tree_species", "def"),
                          &GDTerrainContentRegistry::register_tree_species);
+    ClassDB::bind_method(D_METHOD("register_crop_species", "def"),
+                         &GDTerrainContentRegistry::register_crop_species);
     ClassDB::bind_method(D_METHOD("freeze"),
                          &GDTerrainContentRegistry::freeze);
     ClassDB::bind_method(D_METHOD("validate"),

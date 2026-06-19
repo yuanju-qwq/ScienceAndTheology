@@ -93,7 +93,7 @@ var _is_initialized := false
 # Space sky state.
 var _space_sky_material: ShaderMaterial = null
 var _surface_sky: Sky = null
-var _surface_bg_mode: int = Environment.BG_CLEAR_COLOR
+var _surface_bg_mode: Environment.BGMode = Environment.BG_CLEAR_COLOR
 var _surface_ambient_color: Color = Color.WHITE
 var _surface_ambient_energy: float = 0.62
 var _is_space_env_active := false
@@ -180,7 +180,7 @@ func set_scene_center(center: Vector3, active: bool) -> void:
 
 # 重新定位所有 LOD mesh 到指定中心（不重建）。
 func _reposition_meshes(center: Vector3) -> void:
-	for level in _lod_meshes.keys():
+	for level: int in _lod_meshes.keys():
 		var mesh_instance: MeshInstance3D = _lod_meshes[level]
 		if mesh_instance:
 			mesh_instance.global_position = center
@@ -330,7 +330,7 @@ func _get_player_position() -> Vector3:
 func _apply_lod_visibility() -> void:
 	# LOD 0 and LOD 1 are managed by ChunkRendererBridge.
 	# Only toggle visibility for LOD 2, LOD 3 and LOD 4 meshes here.
-	for level in _lod_meshes.keys():
+	for level: int in _lod_meshes.keys():
 		var mesh_instance: MeshInstance3D = _lod_meshes[level]
 		mesh_instance.visible = (level == _current_lod_level)
 
@@ -410,7 +410,7 @@ func _update_lod_distances_cache() -> void:
 
 
 func _rebuild_lod_meshes() -> void:
-	for level in _lod_meshes.keys():
+	for level: int in _lod_meshes.keys():
 		var node: Node = _lod_meshes[level]
 		node.queue_free()
 	_lod_meshes.clear()

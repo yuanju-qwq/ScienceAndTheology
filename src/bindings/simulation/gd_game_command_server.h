@@ -45,6 +45,10 @@ private:
     godot::Dictionary cmd_remove_inventory_item(const godot::Dictionary& command);
     godot::Dictionary cmd_craft_recipe(const godot::Dictionary& command);
     godot::Dictionary cmd_place_object(const godot::Dictionary& command);
+    godot::Dictionary cmd_till_farmland(const godot::Dictionary& command);
+    godot::Dictionary cmd_plant_crop(const godot::Dictionary& command);
+    godot::Dictionary cmd_harvest_crop(const godot::Dictionary& command);
+    godot::Dictionary cmd_fertilize(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_take_output(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_insert_input(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_insert_fuel(const godot::Dictionary& command);
@@ -71,6 +75,10 @@ private:
     int32_t get_air_material_id() const;
     int32_t get_ladder_material_id() const;
     int32_t get_workbench_material_id() const;
+    int32_t get_fence_material_id() const;
+    int32_t get_farmland_material_id() const;
+    int32_t get_material_id_by_key(const godot::String& key) const;
+    int32_t get_dirt_material_id() const;
 
     godot::Array get_terrain_drops(int32_t terrain_material) const;
     static bool get_tool_stats_for_item(int64_t item_id, gt::ToolStats& out_stats);

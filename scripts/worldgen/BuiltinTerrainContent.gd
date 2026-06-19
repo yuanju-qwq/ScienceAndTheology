@@ -87,6 +87,52 @@ const MAT_KOMATIITE   := 74
 const MAT_REGOLITH    := 75
 const MAT_ANORTHOSTIE := 76
 
+# Player-placed fence block for captive creature husbandry (enclosures).
+const MAT_FENCE := 77
+
+# Farmland and crop stage materials (Tier 1 planting system).
+# Farmland is the tilled dirt block; crop stages are 4 per species.
+const MAT_FARMLAND := 78
+const MAT_WHEAT_SEED := 79
+const MAT_WHEAT_SPROUT := 80
+const MAT_WHEAT_GROWING := 81
+const MAT_WHEAT_MATURE := 82
+const MAT_CARROT_SEED := 83
+const MAT_CARROT_SPROUT := 84
+const MAT_CARROT_GROWING := 85
+const MAT_CARROT_MATURE := 86
+const MAT_POTATO_SEED := 87
+const MAT_POTATO_SPROUT := 88
+const MAT_POTATO_GROWING := 89
+const MAT_POTATO_MATURE := 90
+const MAT_COTTON_SEED := 91
+const MAT_COTTON_SPROUT := 92
+const MAT_COTTON_GROWING := 93
+const MAT_COTTON_MATURE := 94
+const MAT_HERB_SEED := 95
+const MAT_HERB_SPROUT := 96
+const MAT_HERB_GROWING := 97
+const MAT_HERB_MATURE := 98
+const MAT_PUMPKIN_SEED := 99
+const MAT_PUMPKIN_SPROUT := 100
+const MAT_PUMPKIN_GROWING := 101
+const MAT_PUMPKIN_MATURE := 102
+
+# Crop category enum (must match C++ CropCategory).
+const CROP_GRAIN := 0
+const CROP_ROOT := 1
+const CROP_FIBER := 2
+const CROP_HERB := 3
+const CROP_FRUIT := 4
+const CROP_MAGIC := 5
+
+# Season enum (must match SeasonSystem: 0=Spring, 1=Summer, 2=Autumn, 3=Winter, -1=Any).
+const SEASON_ANY := -1
+const SEASON_SPRING := 0
+const SEASON_SUMMER := 1
+const SEASON_AUTUMN := 2
+const SEASON_WINTER := 3
+
 # Canopy shape enum (must match C++ CanopyShape).
 const CANOPY_SPHERE := 0
 const CANOPY_CONE := 1
@@ -107,13 +153,14 @@ const FLAG_SUPPORT_BEAM := 256
 # Create the default single-planet config (backward compatible).
 # Uses the original "overworld" planet with radius 512.
 static func create_default_config() -> Resource:
-	var registry: Object = ClassDB.instantiate("GDTerrainContentRegistry")
+	var registry: GDTerrainContentRegistry = ClassDB.instantiate("GDTerrainContentRegistry")
 	if registry == null:
 		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
 		return null
 	_register_builtin_material_interactions(registry)
 	_register_builtin_material_visuals(registry)
 	_register_builtin_generation_rules(registry)
+	_register_crop_species(registry)
 	_register_runtime_material_ids(registry)
 	return registry.freeze()
 
@@ -124,12 +171,13 @@ static func create_default_config() -> Resource:
 # All planets share the same material set and biome/ore/rock rules,
 # but each planet has its own dimension_id and PlanetConfig.
 static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]) -> Resource:
-	var registry: Object = ClassDB.instantiate("GDTerrainContentRegistry")
+	var registry: GDTerrainContentRegistry = ClassDB.instantiate("GDTerrainContentRegistry")
 	if registry == null:
 		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
 		return null
 	_register_builtin_material_interactions(registry)
 	_register_builtin_material_visuals(registry)
+	_register_crop_species(registry)
 	_register_runtime_material_ids(registry)
 
 	# Register generation rules and planet configs for each landable planet.
@@ -149,7 +197,7 @@ static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]
 #   - sea_level_fraction: affects water-related biomes
 #   - atmosphere_type: affects special biome/rock rules
 #   - cave_threshold: affects cave density in base terrain
-static func _register_planet_generation_rules(registry: Object, planet: PlanetDescriptor) -> void:
+static func _register_planet_generation_rules(registry: GDTerrainContentRegistry, planet: PlanetDescriptor) -> void:
 	var dim := String(planet.dimension_id)
 	var radius := planet.planet_radius
 	var gravity := planet.gravity_multiplier
@@ -347,7 +395,7 @@ static func _register_planet_generation_rules(registry: Object, planet: PlanetDe
 	})
 
 
-static func _register_builtin_material_interactions(registry: Object) -> void:
+static func _register_builtin_material_interactions(registry: GDTerrainContentRegistry) -> void:
 	registry.register_material({
 		"id": MAT_AIR,
 		"key": "snt:air",
@@ -827,6 +875,16 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "workbench", "count": 1 }],
 	})
 	registry.register_material({
+		"id": MAT_FENCE,
+		"key": "snt:fence",
+		"title_key": "terrain.fence",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 1.0,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "fence", "count": 1 }],
+	})
+	registry.register_material({
 		"id": MAT_DEEPSTONE,
 		"key": "snt:deepstone",
 		"title_key": "terrain.deepstone",
@@ -1213,8 +1271,56 @@ static func _register_builtin_material_interactions(registry: Object) -> void:
 		"drops": [{ "item_key": "sapling.olive", "count": 1 }],
 	})
 
+	# --- Farmland and crop stage materials (Tier 1 planting system) ---
 
-static func _register_builtin_material_visuals(registry: Object) -> void:
+	# Farmland: tilled dirt block. Breaking reverts to dirt (drops nothing,
+	# the till command handles dirt→farmland conversion).
+	registry.register_material({
+		"id": MAT_FARMLAND,
+		"key": "snt:farmland",
+		"title_key": "terrain.farmland",
+		"flags": FLAG_SOLID | FLAG_MINEABLE | FLAG_WALKABLE,
+		"hardness": 0.5,
+		"required_tool_tag": "shovel",
+		"required_mining_level": 0,
+		"drops": [],
+	})
+
+	# Crop stage materials: 6 species × 4 stages = 24 materials.
+	# Non-mature stages drop seed; mature stage drops crop + seed.
+	# Uses a data-driven loop to avoid 24 repetitive register_material calls.
+	var _crop_stage_names := ["seed", "sprout", "growing", "mature"]
+	var _crop_species_mats := [
+		{ "name": "wheat",   "base_id": MAT_WHEAT_SEED,   "seed_key": "seed.wheat",   "crop_key": "crop.wheat" },
+		{ "name": "carrot",  "base_id": MAT_CARROT_SEED,  "seed_key": "seed.carrot",  "crop_key": "crop.carrot" },
+		{ "name": "potato",  "base_id": MAT_POTATO_SEED,  "seed_key": "seed.potato",  "crop_key": "crop.potato" },
+		{ "name": "cotton",  "base_id": MAT_COTTON_SEED,  "seed_key": "seed.cotton",  "crop_key": "crop.cotton" },
+		{ "name": "herb",    "base_id": MAT_HERB_SEED,    "seed_key": "seed.herb",    "crop_key": "crop.herb" },
+		{ "name": "pumpkin", "base_id": MAT_PUMPKIN_SEED, "seed_key": "seed.pumpkin", "crop_key": "crop.pumpkin" },
+	]
+	for _sp in _crop_species_mats:
+		for _i in range(4):
+			var _stage: String = _crop_stage_names[_i]
+			var _drops: Array = []
+			if _i < 3:
+				_drops = [{ "item_key": _sp["seed_key"], "count": 1 }]
+			else:
+				_drops = [
+					{ "item_key": _sp["crop_key"], "count": 1 },
+					{ "item_key": _sp["seed_key"], "count": 1 },
+				]
+			registry.register_material({
+				"id": _sp["base_id"] + _i,
+				"key": "snt:%s_%s" % [_sp["name"], _stage],
+				"title_key": "terrain.%s_%s" % [_sp["name"], _stage],
+				"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+				"hardness": 0.0,
+				"required_mining_level": 0,
+				"drops": _drops,
+			})
+
+
+static func _register_builtin_material_visuals(registry: GDTerrainContentRegistry) -> void:
 	var visuals := [
 		{ "material_key": "snt:air", "dimension": "overworld", "enabled": false,
 		  "albedo_color": Color(0, 0, 0, 0) },
@@ -1328,9 +1434,11 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		{ "material_key": "snt:ladder", "dimension": "overworld",
 		  "albedo_color": Color(0.55, 0.30, 0.15), "cull_disabled": true },
 		{ "material_key": "snt:workbench", "dimension": "overworld",
-		  "albedo_color": Color(0.60, 0.40, 0.20) },
-		{ "material_key": "snt:deepstone", "dimension": "overworld",
-		  "albedo_color": Color(0.30, 0.30, 0.32) },
+	  "albedo_color": Color(0.60, 0.40, 0.20) },
+	{ "material_key": "snt:fence", "dimension": "overworld",
+	  "albedo_color": Color(0.50, 0.32, 0.16), "cull_disabled": true },
+	{ "material_key": "snt:deepstone", "dimension": "overworld",
+	  "albedo_color": Color(0.30, 0.30, 0.32) },
 		{ "material_key": "snt:core_barrier", "dimension": "overworld",
 		  "albedo_color": Color(0.10, 0.0, 0.15),
 		  "emissive_color": Color(0.15, 0.0, 0.25), "roughness": 0.5 },
@@ -1384,12 +1492,76 @@ static func _register_builtin_material_visuals(registry: Object) -> void:
 		  "albedo_color": Color(0.25, 0.38, 0.15), "cull_disabled": true },
 		{ "material_key": "snt:olive_sapling", "dimension": "overworld",
 		  "albedo_color": Color(0.28, 0.42, 0.18), "cull_disabled": true },
+
+		# Farmland: dark brown tilled soil.
+		{ "material_key": "snt:farmland", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.18, 0.10) },
+
+		# Wheat stages: green→yellow.
+		{ "material_key": "snt:wheat_seed", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.28, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:wheat_sprout", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.50, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:wheat_growing", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.60, 0.20), "cull_disabled": true },
+		{ "material_key": "snt:wheat_mature", "dimension": "overworld",
+		  "albedo_color": Color(0.85, 0.75, 0.25), "cull_disabled": true },
+
+		# Carrot stages: green tops, orange root.
+		{ "material_key": "snt:carrot_seed", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.25, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:carrot_sprout", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.45, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:carrot_growing", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.55, 0.18), "cull_disabled": true },
+		{ "material_key": "snt:carrot_mature", "dimension": "overworld",
+		  "albedo_color": Color(0.75, 0.45, 0.15), "cull_disabled": true },
+
+		# Potato stages: green tops, brown tuber.
+		{ "material_key": "snt:potato_seed", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.25, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:potato_sprout", "dimension": "overworld",
+		  "albedo_color": Color(0.28, 0.48, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:potato_growing", "dimension": "overworld",
+		  "albedo_color": Color(0.32, 0.55, 0.20), "cull_disabled": true },
+		{ "material_key": "snt:potato_mature", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.45, 0.20), "cull_disabled": true },
+
+		# Cotton stages: green→white.
+		{ "material_key": "snt:cotton_seed", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.25, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:cotton_sprout", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.50, 0.18), "cull_disabled": true },
+		{ "material_key": "snt:cotton_growing", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.55, 0.22), "cull_disabled": true },
+		{ "material_key": "snt:cotton_mature", "dimension": "overworld",
+		  "albedo_color": Color(0.92, 0.90, 0.85), "cull_disabled": true },
+
+		# Herb stages: green→purple-green.
+		{ "material_key": "snt:herb_seed", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.25, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:herb_sprout", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.45, 0.18), "cull_disabled": true },
+		{ "material_key": "snt:herb_growing", "dimension": "overworld",
+		  "albedo_color": Color(0.28, 0.50, 0.22), "cull_disabled": true },
+		{ "material_key": "snt:herb_mature", "dimension": "overworld",
+		  "albedo_color": Color(0.40, 0.55, 0.25), "cull_disabled": true },
+
+		# Pumpkin stages: green→orange.
+		{ "material_key": "snt:pumpkin_seed", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.25, 0.10), "cull_disabled": true },
+		{ "material_key": "snt:pumpkin_sprout", "dimension": "overworld",
+		  "albedo_color": Color(0.25, 0.50, 0.15), "cull_disabled": true },
+		{ "material_key": "snt:pumpkin_growing", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.55, 0.18), "cull_disabled": true },
+		{ "material_key": "snt:pumpkin_mature", "dimension": "overworld",
+		  "albedo_color": Color(0.90, 0.55, 0.15), "cull_disabled": true },
 	]
 	for visual in visuals:
 		registry.register_material_visual(visual)
 
 
-static func _register_builtin_generation_rules(registry: Object) -> void:
+static func _register_builtin_generation_rules(registry: GDTerrainContentRegistry) -> void:
 	registry.set_material_roles({
 		"air_key": "snt:air",
 		"stone_key": "snt:stone",
@@ -2005,8 +2177,199 @@ static func _register_builtin_generation_rules(registry: Object) -> void:
 # Register runtime material IDs for blocks placed by players (not by terrain generation).
 # These are separate from TerrainMaterialRoles because they are never consumed
 # by any terrain pass. The command server uses these IDs to write terrain cells.
-static func _register_runtime_material_ids(registry: Object) -> void:
+static func _register_runtime_material_ids(registry: GDTerrainContentRegistry) -> void:
 	registry.set_runtime_material_ids({
 		"ladder": "snt:ladder",
+		"ladder_key": "snt:ladder",
 		"workbench": "snt:workbench",
+		"workbench_key": "snt:workbench",
+		"farmland": "snt:farmland",
+		"fence_key": "snt:fence",
+	})
+
+
+# Register crop species for the Tier 1 planting system.
+# Each species defines biome/season constraints, growth ticks, item production,
+# and 4 stage material keys. The C++ CropGrowthSystem consumes these definitions
+# to advance crop growth stages via scheduled ticks (priority 9).
+static func _register_crop_species(registry: GDTerrainContentRegistry) -> void:
+	# Wheat: temperate grain, spring plant → summer grow → autumn harvest.
+	registry.register_crop_species({
+		"species_key": "wheat",
+		"title_key": "crop.wheat",
+		"category": CROP_GRAIN,
+		"temperature_min": -0.3, "temperature_max": 0.6,
+		"humidity_min": -0.2, "humidity_max": 0.6,
+		"plant_season": SEASON_SPRING,
+		"grow_season": SEASON_SUMMER,
+		"harvest_season": SEASON_AUTUMN,
+		"ticks_seed_to_sprout": 3000,
+		"ticks_sprout_to_growing": 6000,
+		"ticks_growing_to_mature": 9000,
+		"seed_item_key": "seed.wheat",
+		"crop_item_key": "crop.wheat",
+		"byproduct_item_key": "seed.wheat",
+		"crop_min": 1, "crop_max": 2,
+		"byproduct_count": 1,
+		"repeat_harvest": false,
+		"stage_material_keys": [
+			"snt:wheat_seed", "snt:wheat_sprout",
+			"snt:wheat_growing", "snt:wheat_mature",
+		],
+		"fertility_sensitivity": 0.7,
+		"water_sensitivity": 0.7,
+		"wild_spawn": true,
+		"wild_density_weight": 1.0,
+		"crop_color": Color(0.85, 0.75, 0.25),
+	})
+
+	# Carrot: temperate root vegetable.
+	registry.register_crop_species({
+		"species_key": "carrot",
+		"title_key": "crop.carrot",
+		"category": CROP_ROOT,
+		"temperature_min": -0.2, "temperature_max": 0.7,
+		"humidity_min": -0.1, "humidity_max": 0.7,
+		"plant_season": SEASON_SPRING,
+		"grow_season": SEASON_SUMMER,
+		"harvest_season": SEASON_AUTUMN,
+		"ticks_seed_to_sprout": 2500,
+		"ticks_sprout_to_growing": 5000,
+		"ticks_growing_to_mature": 8000,
+		"seed_item_key": "seed.carrot",
+		"crop_item_key": "crop.carrot",
+		"byproduct_item_key": "",
+		"crop_min": 1, "crop_max": 3,
+		"byproduct_count": 0,
+		"repeat_harvest": false,
+		"stage_material_keys": [
+			"snt:carrot_seed", "snt:carrot_sprout",
+			"snt:carrot_growing", "snt:carrot_mature",
+		],
+		"fertility_sensitivity": 0.5,
+		"water_sensitivity": 0.6,
+		"wild_spawn": true,
+		"wild_density_weight": 0.8,
+		"crop_color": Color(0.75, 0.45, 0.15),
+	})
+
+	# Potato: hardy root vegetable, wider climate tolerance.
+	registry.register_crop_species({
+		"species_key": "potato",
+		"title_key": "crop.potato",
+		"category": CROP_ROOT,
+		"temperature_min": -0.4, "temperature_max": 0.5,
+		"humidity_min": -0.2, "humidity_max": 0.8,
+		"plant_season": SEASON_SPRING,
+		"grow_season": SEASON_SUMMER,
+		"harvest_season": SEASON_AUTUMN,
+		"ticks_seed_to_sprout": 3000,
+		"ticks_sprout_to_growing": 5500,
+		"ticks_growing_to_mature": 8500,
+		"seed_item_key": "seed.potato",
+		"crop_item_key": "crop.potato",
+		"byproduct_item_key": "seed.potato",
+		"crop_min": 1, "crop_max": 3,
+		"byproduct_count": 1,
+		"repeat_harvest": false,
+		"stage_material_keys": [
+			"snt:potato_seed", "snt:potato_sprout",
+			"snt:potato_growing", "snt:potato_mature",
+		],
+		"fertility_sensitivity": 0.6,
+		"water_sensitivity": 0.5,
+		"wild_spawn": false,
+		"wild_density_weight": 0.5,
+		"crop_color": Color(0.55, 0.45, 0.20),
+	})
+
+	# Cotton: warm-temperate fiber crop.
+	registry.register_crop_species({
+		"species_key": "cotton",
+		"title_key": "crop.cotton",
+		"category": CROP_FIBER,
+		"temperature_min": 0.2, "temperature_max": 0.8,
+		"humidity_min": -0.1, "humidity_max": 0.5,
+		"plant_season": SEASON_SUMMER,
+		"grow_season": SEASON_SUMMER,
+		"harvest_season": SEASON_AUTUMN,
+		"ticks_seed_to_sprout": 3500,
+		"ticks_sprout_to_growing": 7000,
+		"ticks_growing_to_mature": 10000,
+		"seed_item_key": "seed.cotton",
+		"crop_item_key": "crop.cotton",
+		"byproduct_item_key": "seed.cotton",
+		"crop_min": 1, "crop_max": 2,
+		"byproduct_count": 1,
+		"repeat_harvest": false,
+		"stage_material_keys": [
+			"snt:cotton_seed", "snt:cotton_sprout",
+			"snt:cotton_growing", "snt:cotton_mature",
+		],
+		"fertility_sensitivity": 0.8,
+		"water_sensitivity": 0.7,
+		"wild_spawn": false,
+		"wild_density_weight": 0.3,
+		"crop_color": Color(0.92, 0.90, 0.85),
+	})
+
+	# Herb: medicinal plant, shade-tolerant, any season.
+	registry.register_crop_species({
+		"species_key": "herb",
+		"title_key": "crop.herb",
+		"category": CROP_HERB,
+		"temperature_min": -0.3, "temperature_max": 0.5,
+		"humidity_min": 0.0, "humidity_max": 0.8,
+		"plant_season": SEASON_ANY,
+		"grow_season": SEASON_ANY,
+		"harvest_season": SEASON_ANY,
+		"ticks_seed_to_sprout": 2000,
+		"ticks_sprout_to_growing": 4000,
+		"ticks_growing_to_mature": 6000,
+		"seed_item_key": "seed.herb",
+		"crop_item_key": "crop.herb",
+		"byproduct_item_key": "seed.herb",
+		"crop_min": 1, "crop_max": 2,
+		"byproduct_count": 1,
+		"repeat_harvest": true,
+		"regrow_ticks": 5000,
+		"stage_material_keys": [
+			"snt:herb_seed", "snt:herb_sprout",
+			"snt:herb_growing", "snt:herb_mature",
+		],
+		"fertility_sensitivity": 0.4,
+		"water_sensitivity": 0.5,
+		"wild_spawn": true,
+		"wild_density_weight": 1.2,
+		"crop_color": Color(0.40, 0.55, 0.25),
+	})
+
+	# Pumpkin: warm-season fruit, larger footprint feel.
+	registry.register_crop_species({
+		"species_key": "pumpkin",
+		"title_key": "crop.pumpkin",
+		"category": CROP_FRUIT,
+		"temperature_min": 0.3, "temperature_max": 0.9,
+		"humidity_min": 0.0, "humidity_max": 0.6,
+		"plant_season": SEASON_SUMMER,
+		"grow_season": SEASON_SUMMER,
+		"harvest_season": SEASON_AUTUMN,
+		"ticks_seed_to_sprout": 4000,
+		"ticks_sprout_to_growing": 8000,
+		"ticks_growing_to_mature": 12000,
+		"seed_item_key": "seed.pumpkin",
+		"crop_item_key": "crop.pumpkin",
+		"byproduct_item_key": "seed.pumpkin",
+		"crop_min": 1, "crop_max": 2,
+		"byproduct_count": 1,
+		"repeat_harvest": false,
+		"stage_material_keys": [
+			"snt:pumpkin_seed", "snt:pumpkin_sprout",
+			"snt:pumpkin_growing", "snt:pumpkin_mature",
+		],
+		"fertility_sensitivity": 0.7,
+		"water_sensitivity": 0.8,
+		"wild_spawn": false,
+		"wild_density_weight": 0.4,
+		"crop_color": Color(0.90, 0.55, 0.15),
 	})

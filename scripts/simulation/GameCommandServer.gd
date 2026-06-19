@@ -9,10 +9,15 @@ const COMMAND_PLACE_OBJECT: StringName = &"place_object"
 const COMMAND_FURNACE_TAKE_OUTPUT: StringName = &"furnace_take_output"
 const COMMAND_FURNACE_INSERT_INPUT: StringName = &"furnace_insert_input"
 const COMMAND_FURNACE_INSERT_FUEL: StringName = &"furnace_insert_fuel"
+const COMMAND_TILL_FARMLAND: StringName = &"till_farmland"
+const COMMAND_PLANT_CROP: StringName = &"plant_crop"
+const COMMAND_HARVEST_CROP: StringName = &"harvest_crop"
+const COMMAND_FERTILIZE: StringName = &"fertilize"
 
 const OBJECT_WORKBENCH: StringName = &"workbench"
 const OBJECT_FURNACE: StringName = &"furnace"
 const OBJECT_LADDER: StringName = &"ladder"
+const OBJECT_FENCE: StringName = &"fence"
 
 const SECONDARY_NONE := -1
 

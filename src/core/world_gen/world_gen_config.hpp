@@ -9,6 +9,7 @@
 #include "../common/resource_types.hpp"
 #include "../world/terrain_data.hpp"
 #include "tree_species_def.hpp"
+#include "crop_species_def.hpp"
 
 namespace science_and_theology {
 
@@ -117,6 +118,7 @@ struct TerrainMaterialRoles {
 struct RuntimeMaterialIds {
     TerrainMaterialId ladder = 0;
     TerrainMaterialId workbench = 0;
+    TerrainMaterialId fence = 0;
 };
 
 struct BaseTerrainRule {
@@ -338,6 +340,7 @@ struct WorldGenConfigSnapshot {
     std::vector<RockLayerRule> rock_layer_rules;
     std::vector<PlanetConfig> planet_configs;
     std::vector<TreeSpeciesDef> tree_species;
+    std::vector<CropSpeciesDef> crop_species;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key;
     std::unordered_map<int, std::string> material_keys_by_id;
 
@@ -357,6 +360,19 @@ struct WorldGenConfigSnapshot {
 
     // Returns all tree species that can grow in the given temperature/humidity.
     std::vector<const TreeSpeciesDef*> tree_species_for_biome(
+        float temperature, float humidity) const;
+
+    // Find a crop species by its key. Returns nullptr if not found.
+    const CropSpeciesDef* find_crop_species(const std::string& species_key) const;
+
+    // Find a crop species by its seed item key. Returns nullptr if not found.
+    const CropSpeciesDef* find_crop_by_seed(const std::string& seed_item_key) const;
+
+    // Returns all crop species flagged for wild generation.
+    std::vector<const CropSpeciesDef*> wild_crop_species() const;
+
+    // Returns all crop species that can grow in the given temperature/humidity.
+    std::vector<const CropSpeciesDef*> crop_species_for_biome(
         float temperature, float humidity) const;
 };
 

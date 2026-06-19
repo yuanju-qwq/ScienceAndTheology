@@ -8,18 +8,10 @@
 
 namespace science_and_theology::gt {
 
-// --- Position key ---
-
-int64_t FluidNetwork::make_position_key(MapPosition pos) {
-    return (static_cast<int64_t>(pos.x) << 32) |
-           (static_cast<int64_t>(pos.y) & 0xFFFFFFFFLL);
-}
-
 // --- Node lifecycle ---
 
 FluidNodeId FluidNetwork::add_node(MapPosition position, PipeType pipe_type) {
-    int64_t pos_key = make_position_key(position);
-    if (position_index_.count(pos_key) > 0) {
+    if (position_index_.count(position) > 0) {
         return kInvalidFluidNodeId;
     }
 
@@ -29,7 +21,7 @@ FluidNodeId FluidNetwork::add_node(MapPosition position, PipeType pipe_type) {
     node.position = position;
     node.pipe_type = pipe_type;
     nodes_[node_id] = node;
-    position_index_[pos_key] = node_id;
+    position_index_[position] = node_id;
     return node_id;
 }
 
@@ -55,8 +47,7 @@ bool FluidNetwork::remove_node(FluidNodeId node_id) {
         disconnect(node_id, other);
     }
 
-    int64_t pos_key = make_position_key(node_it->second.position);
-    position_index_.erase(pos_key);
+    position_index_.erase(node_it->second.position);
     nodes_.erase(node_it);
     adjacency_.erase(node_id);
     component_index_.erase(node_id);
@@ -92,8 +83,8 @@ bool FluidNetwork::connect(FluidNodeId a, FluidNodeId b,
     }
 
     int64_t distance = manhattan_distance(
-        node_a->position.x, node_a->position.y,
-        node_b->position.x, node_b->position.y);
+        node_a->position.x, node_a->position.y, node_a->position.z,
+        node_b->position.x, node_b->position.y, node_b->position.z);
 
     edges_.emplace_back();
     FluidEdge& edge = edges_.back();

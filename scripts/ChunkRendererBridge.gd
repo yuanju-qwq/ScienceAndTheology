@@ -147,6 +147,12 @@ func get_world_data() -> GDWorldData:
 	return world_data
 
 
+# Returns true when the chunk's view (mesh + collision) has been created.
+# Distinct from world_data.has_chunk() which only reports chunk *data* availability.
+func is_chunk_visible(chunk: Vector3i) -> bool:
+	return _visible_chunks.has(chunk)
+
+
 # Initialize with a multi-planet universe config.
 # Called by UniverseManager instead of the default single-planet initialize().
 func initialize_for_universe(config: Resource, initial_dimension: StringName) -> void:

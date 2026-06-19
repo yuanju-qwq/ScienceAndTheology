@@ -263,6 +263,36 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, string_hash(species.fruit_item_key));
         hash_combine(hash, static_cast<uint64_t>(species.fruit_season));
     }
+    for (const auto& crop : config.crop_species) {
+        hash_combine(hash, string_hash(crop.species_key));
+        hash_combine(hash, string_hash(crop.title_key));
+        hash_combine(hash, static_cast<uint64_t>(crop.category));
+        hash_combine(hash, static_cast<uint64_t>((crop.temperature_min + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((crop.temperature_max + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((crop.humidity_min + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>((crop.humidity_max + 2.0f) * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(crop.plant_season + 1));
+        hash_combine(hash, static_cast<uint64_t>(crop.grow_season + 1));
+        hash_combine(hash, static_cast<uint64_t>(crop.harvest_season + 1));
+        hash_combine(hash, static_cast<uint64_t>(crop.ticks_seed_to_sprout));
+        hash_combine(hash, static_cast<uint64_t>(crop.ticks_sprout_to_growing));
+        hash_combine(hash, static_cast<uint64_t>(crop.ticks_growing_to_mature));
+        hash_combine(hash, string_hash(crop.seed_item_key));
+        hash_combine(hash, string_hash(crop.crop_item_key));
+        hash_combine(hash, string_hash(crop.byproduct_item_key));
+        hash_combine(hash, static_cast<uint64_t>(crop.crop_min));
+        hash_combine(hash, static_cast<uint64_t>(crop.crop_max));
+        hash_combine(hash, static_cast<uint64_t>(crop.byproduct_count));
+        hash_combine(hash, crop.repeat_harvest ? 1ULL : 0ULL);
+        hash_combine(hash, static_cast<uint64_t>(crop.regrow_ticks));
+        for (int i = 0; i < 4; ++i) {
+            hash_combine(hash, string_hash(crop.stage_material_keys[i]));
+        }
+        hash_combine(hash, static_cast<uint64_t>(crop.fertility_sensitivity * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(crop.water_sensitivity * 100000.0f));
+        hash_combine(hash, crop.wild_spawn ? 1ULL : 0ULL);
+        hash_combine(hash, static_cast<uint64_t>(crop.wild_density_weight * 100000.0f));
+    }
     return hash;
 }
 
@@ -281,6 +311,50 @@ std::vector<const TreeSpeciesDef*> WorldGenConfigSnapshot::tree_species_for_biom
     float temperature, float humidity) const {
     std::vector<const TreeSpeciesDef*> result;
     for (const auto& species : tree_species) {
+        if (temperature >= species.temperature_min &&
+            temperature <= species.temperature_max &&
+            humidity >= species.humidity_min &&
+            humidity <= species.humidity_max) {
+            result.push_back(&species);
+        }
+    }
+    return result;
+}
+
+// --- Crop species lookup ---
+
+const CropSpeciesDef* WorldGenConfigSnapshot::find_crop_species(
+    const std::string& species_key) const {
+    auto it = std::find_if(crop_species.begin(), crop_species.end(),
+        [&species_key](const CropSpeciesDef& def) {
+            return def.species_key == species_key;
+        });
+    return it != crop_species.end() ? &(*it) : nullptr;
+}
+
+const CropSpeciesDef* WorldGenConfigSnapshot::find_crop_by_seed(
+    const std::string& seed_item_key) const {
+    auto it = std::find_if(crop_species.begin(), crop_species.end(),
+        [&seed_item_key](const CropSpeciesDef& def) {
+            return def.seed_item_key == seed_item_key;
+        });
+    return it != crop_species.end() ? &(*it) : nullptr;
+}
+
+std::vector<const CropSpeciesDef*> WorldGenConfigSnapshot::wild_crop_species() const {
+    std::vector<const CropSpeciesDef*> result;
+    for (const auto& species : crop_species) {
+        if (species.wild_spawn) {
+            result.push_back(&species);
+        }
+    }
+    return result;
+}
+
+std::vector<const CropSpeciesDef*> WorldGenConfigSnapshot::crop_species_for_biome(
+    float temperature, float humidity) const {
+    std::vector<const CropSpeciesDef*> result;
+    for (const auto& species : crop_species) {
         if (temperature >= species.temperature_min &&
             temperature <= species.temperature_max &&
             humidity >= species.humidity_min &&

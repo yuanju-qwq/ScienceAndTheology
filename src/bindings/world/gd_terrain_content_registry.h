@@ -12,6 +12,7 @@
 
 #include "core/world_gen/world_gen_config.hpp"
 #include "core/world_gen/tree_species_def.hpp"
+#include "core/world_gen/crop_species_def.hpp"
 #include "gd_world_gen_config.h"
 
 namespace science_and_theology {
@@ -45,6 +46,7 @@ public:
     bool register_rock_layer_rule(const godot::Dictionary& def);
     bool register_planet_config(const godot::Dictionary& def);
     bool register_tree_species(const godot::Dictionary& def);
+    bool register_crop_species(const godot::Dictionary& def);
     godot::Ref<GDWorldGenConfig> freeze();
     godot::Array validate() const;
     void clear();
@@ -74,6 +76,7 @@ private:
     std::vector<RockLayerRule> rock_layer_rules_;
     std::vector<PlanetConfig> planet_configs_;
     std::vector<TreeSpeciesDef> tree_species_;
+    std::vector<CropSpeciesDef> crop_species_;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key_;
     std::unordered_map<int, std::string> material_keys_by_id_;
 };

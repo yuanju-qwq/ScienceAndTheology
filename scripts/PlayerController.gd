@@ -100,9 +100,12 @@ var _mouse_captured := true
 var _pitch := deg_to_rad(-18.0)
 var _last_cell := Vector3i.ZERO
 var _last_debug_time := -100.0
-var _last_mouse_debug_time := -100.0
 var _spawn_debug_time := 0.0
-var _last_mouse_unhandled_time := -100.0
+# Spawn freeze: keep the player immobile until the chunk it stands on has
+# its collision body built. Otherwise the player falls through the surface
+# while chunk *data* is ready but the *collider* is still queued.
+var _spawn_freeze := true
+var _spawn_freeze_logged := false
 var _target := {}
 var _is_climbing := false
 var _gravity_direction := Vector3.DOWN
@@ -154,20 +157,6 @@ func _ready() -> void:
 	_select_hotbar(selected_hotbar)
 	_last_cell = get_current_cell()
 	_update_gravity_direction()
-	print("[MouseLook] _ready done — captured=%s locked=%s mode=%d" % [_mouse_captured, _input_locked, Input.mouse_mode])
-	_debug_log_ui_controls()
-
-
-func _debug_log_ui_controls() -> void:
-	var ui_layer := get_node_or_null(^"../UI")
-	if ui_layer == null:
-		print("[MouseLook] No UI layer found")
-		return
-	print("[MouseLook] UI children:")
-	for child in ui_layer.get_children():
-		if child is Control:
-			var c: Control = child
-			print("  %s — visible=%s mouse_filter=%d rect=%s" % [c.name, c.visible, c.mouse_filter, c.get_global_rect()])
 
 
 func _physics_process(delta: float) -> void:
@@ -175,6 +164,14 @@ func _physics_process(delta: float) -> void:
 	_update_gravity_direction()
 	_update_atmosphere_hazard(delta)
 	_update_target()
+	if _spawn_freeze:
+		_update_spawn_freeze()
+		if _spawn_freeze:
+			# Still frozen: zero out any velocity accumulated by gravity/movement
+			# and skip move_and_slide so the body stays exactly at spawn point.
+			velocity = Vector3.ZERO
+			_maybe_debug_spawn_fall(delta)
+			return
 	_handle_movement(delta)
 	_interaction.try_auto_cell_events()
 	_ui_connector.update_connector_prompt()
@@ -185,12 +182,25 @@ func _physics_process(delta: float) -> void:
 # --- Input handling ---
 
 func _input(event: InputEvent) -> void:
-	# Throttled diagnostic: confirm mouse motion events reach this node at all.
-	if event is InputEventMouseMotion:
-		var now := Time.get_ticks_msec() / 1000.0
-		if now - _last_mouse_debug_time >= 2.0:
-			_last_mouse_debug_time = now
-			print("[MouseLook] _input received motion — captured=%s locked=%s mode=%d" % [_mouse_captured, _input_locked, Input.mouse_mode])
+	# Handle mouse look in _input() (called BEFORE the GUI system) so that
+	# visible Control nodes don't swallow mouse motion events before they
+	# can reach _unhandled_input().
+	if event is InputEventMouseMotion and _mouse_captured and not _input_locked:
+		var motion: InputEventMouseMotion = event
+		rotate_y(-motion.relative.x * MOUSE_SENSITIVITY)
+		_pitch = clampf(_pitch - motion.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
+		_update_camera_rotation()
+		get_viewport().set_input_as_handled()
+		return
+	# Click-to-capture: if mouse is free (e.g. after window focus loss),
+	# re-capture on left click instead of mining.
+	if event is InputEventMouseButton and event.pressed and not _mouse_captured and not _input_locked:
+		var mb: InputEventMouseButton = event
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			_mouse_captured = true
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			get_viewport().set_input_as_handled()
+			return
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -207,19 +217,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not _input_locked:
 				_open_exit_menu()
 				return
-
-	if event is InputEventMouseMotion and _mouse_captured and not _input_locked:
-		var motion: InputEventMouseMotion = event
-		rotate_y(-motion.relative.x * MOUSE_SENSITIVITY)
-		_pitch = clampf(_pitch - motion.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-82.0), deg_to_rad(76.0))
-		_update_camera_rotation()
-		return
-	elif event is InputEventMouseMotion:
-		# Throttled diagnostic: why is mouse motion not rotating the view?
-		var now := Time.get_ticks_msec() / 1000.0
-		if now - _last_mouse_unhandled_time >= 2.0:
-			_last_mouse_unhandled_time = now
-			print("[MouseLook] unhandled motion blocked — captured=%s locked=%s mode=%d" % [_mouse_captured, _input_locked, Input.mouse_mode])
 
 	if event is InputEventKey and event.pressed and not event.echo and not _input_locked:
 		var key_event: InputEventKey = event
@@ -427,6 +424,7 @@ func _maybe_debug_spawn_fall(delta: float) -> void:
 		return
 	_spawn_debug_time = 0.0
 	var chunk_ready := false
+	var chunk_visible := false
 	var chunk_str := "no_world"
 	if world != null and world.world_data != null:
 		var cx := int(floor(global_position.x / 32.0))
@@ -434,12 +432,32 @@ func _maybe_debug_spawn_fall(delta: float) -> void:
 		var cz := int(floor(global_position.z / 32.0))
 		var dim := world.active_dimension
 		chunk_ready = world.world_data.has_chunk(dim, cx, cy, cz)
-		chunk_str = "dim=%s chunk=(%d,%d,%d) ready=%s" % [dim, cx, cy, cz, chunk_ready]
+		chunk_visible = world.is_chunk_visible(Vector3i(cx, cy, cz))
+		chunk_str = "dim=%s chunk=(%d,%d,%d) ready=%s visible=%s" % [dim, cx, cy, cz, chunk_ready, chunk_visible]
 	var ap_name := "null"
 	if _active_planet != null:
 		ap_name = _active_planet.display_name
-	print("[Player] pos=%s vel=%s grav_dir=%s grav_mult=%.2f active=%s | %s" % [
-		global_position, velocity, _gravity_direction, _gravity_multiplier, ap_name, chunk_str])
+	print("[Player] pos=%s vel=%s grav_dir=%s grav_mult=%.2f active=%s freeze=%s | %s" % [
+		global_position, velocity, _gravity_direction, _gravity_multiplier, ap_name, _spawn_freeze, chunk_str])
+
+
+# Spawn freeze check: release the player only when the chunk it stands in
+# has its collision body built. This avoids the race where chunk *data* is
+# ready but the *collider* is still queued in _process_visible_queue
+# (max 2 per frame). Initial chunks are generated only at y=0 layer, so the
+# player's spawn chunk (cy=0 when spawn_y < 32) is the one that must be ready.
+func _update_spawn_freeze() -> void:
+	if world == null or world.world_data == null:
+		return
+	var cx := int(floor(global_position.x / 32.0))
+	var cy := int(floor(global_position.y / 32.0))
+	var cz := int(floor(global_position.z / 32.0))
+	var here := Vector3i(cx, cy, cz)
+	if world.is_chunk_visible(here):
+		_spawn_freeze = false
+		if not _spawn_freeze_logged:
+			_spawn_freeze_logged = true
+			print("[Player] spawn freeze released at %s (chunk %s visible)" % [global_position, here])
 
 
 # --- Gravity system (delegates math to C++ GDPlayerHelper) ---

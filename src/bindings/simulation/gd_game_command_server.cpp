@@ -33,9 +33,15 @@ StringName command_furnace_take_output() { return StringName("furnace_take_outpu
 StringName command_furnace_insert_input() { return StringName("furnace_insert_input"); }
 StringName command_furnace_insert_fuel() { return StringName("furnace_insert_fuel"); }
 
+StringName command_till_farmland() { return StringName("till_farmland"); }
+StringName command_plant_crop() { return StringName("plant_crop"); }
+StringName command_harvest_crop() { return StringName("harvest_crop"); }
+StringName command_fertilize() { return StringName("fertilize"); }
+
 StringName object_workbench() { return StringName("workbench"); }
 StringName object_furnace() { return StringName("furnace"); }
 StringName object_ladder() { return StringName("ladder"); }
+StringName object_fence() { return StringName("fence"); }
 
 Dictionary stack_dict(int64_t item_id, int32_t count) {
     Dictionary drop;
@@ -154,6 +160,10 @@ Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
     if (type == command_furnace_take_output()) return cmd_furnace_take_output(command);
     if (type == command_furnace_insert_input()) return cmd_furnace_insert_input(command);
     if (type == command_furnace_insert_fuel()) return cmd_furnace_insert_fuel(command);
+    if (type == command_till_farmland()) return cmd_till_farmland(command);
+    if (type == command_plant_crop()) return cmd_plant_crop(command);
+    if (type == command_harvest_crop()) return cmd_harvest_crop(command);
+    if (type == command_fertilize()) return cmd_fertilize(command);
     return reject(type, "unknown command");
 }
 
@@ -505,6 +515,44 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
             emit_signal("terrain_cell_synced", dimension, chunk, local,
                         air_material, ladder_material);
         }
+    } else if (object_type == object_fence()) {
+        // Fences are placed as terrain cells (snt:fence material).
+        // Used to enclose areas for captive creature husbandry.
+        if (world_data_ == nullptr) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "world data is not available");
+        }
+        const int32_t fence_material = get_fence_material_id();
+        if (fence_material <= 0) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "fence material is not registered");
+        }
+        const int32_t chunk_size = 32;
+        const Vector3i chunk(
+            static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+        const Vector3i local(
+            cell.x - chunk.x * chunk_size,
+            cell.y - chunk.y * chunk_size,
+            cell.z - chunk.z * chunk_size);
+        const godot::Dictionary existing = world_data_->get_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z);
+        const int32_t existing_material = static_cast<int32_t>(
+            static_cast<int64_t>(existing.get("material", -1)));
+        const int32_t air_material = get_air_material_id();
+        if (existing_material != air_material) {
+            add_inventory_item(item_id, 1, kSecondaryNone, false);
+            return reject(command_place_object(), "target cell is not air");
+        }
+        placed = world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, fence_material);
+        if (placed) {
+            emit_signal("terrain_cell_synced", dimension, chunk, local,
+                        air_material, fence_material);
+        }
     } else {
         add_inventory_item(item_id, 1, kSecondaryNone, false);
         return reject(command_place_object(), "unknown object type");
@@ -535,6 +583,406 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     Dictionary result;
     result["type"] = command_place_object();
     result["object_type"] = object_type;
+    return accept(result);
+}
+
+// ============================================================
+// Farming commands (Tier 1 planting system)
+// ============================================================
+
+namespace {
+// Helper: compute chunk + local coordinates from a world cell.
+void world_to_chunk_local(const Vector3i& cell, Vector3i& chunk, Vector3i& local) {
+    constexpr int32_t chunk_size = 32;
+    chunk = Vector3i(
+        static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+        static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+        static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+    local = Vector3i(
+        cell.x - chunk.x * chunk_size,
+        cell.y - chunk.y * chunk_size,
+        cell.z - chunk.z * chunk_size);
+}
+} // namespace
+
+Dictionary GDGameCommandServer::cmd_till_farmland(const Dictionary& command) {
+    if (world_data_ == nullptr) {
+        return reject(command_till_farmland(), "world data is not available");
+    }
+
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+
+    const int32_t farmland_material = get_farmland_material_id();
+    if (farmland_material <= 0) {
+        return reject(command_till_farmland(), "farmland material is not registered");
+    }
+
+    const int32_t dirt_material = get_dirt_material_id();
+    const int32_t air_material = get_air_material_id();
+
+    // Read the target cell.
+    Vector3i chunk, local;
+    world_to_chunk_local(cell, chunk, local);
+    const Dictionary existing = world_data_->get_terrain_cell(
+        String(dimension), chunk.x, chunk.y, chunk.z,
+        local.x, local.y, local.z);
+    const int32_t existing_material = static_cast<int32_t>(
+        static_cast<int64_t>(existing.get("material", -1)));
+
+    // Accept dirt or grass (grass shares dirt role in most configs).
+    // For simplicity, accept dirt role material. A grass check could be
+    // added by comparing against a grass material key.
+    if (existing_material != dirt_material) {
+        return reject(command_till_farmland(), "target cell is not dirt");
+    }
+
+    // Check that the cell above is air (so the player can reach the farmland).
+    const Vector3i above = cell + Vector3i(0, 1, 0);
+    Vector3i above_chunk, above_local;
+    world_to_chunk_local(above, above_chunk, above_local);
+    const Dictionary above_cell = world_data_->get_terrain_cell(
+        String(dimension), above_chunk.x, above_chunk.y, above_chunk.z,
+        above_local.x, above_local.y, above_local.z);
+    const int32_t above_material = static_cast<int32_t>(
+        static_cast<int64_t>(above_cell.get("material", -1)));
+    if (above_material != air_material) {
+        return reject(command_till_farmland(), "cell above is not air");
+    }
+
+    // Convert dirt to farmland.
+    if (!world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, farmland_material)) {
+        return reject(command_till_farmland(), "failed to write farmland cell");
+    }
+
+    // Register a FARMLAND block entity.
+    WorldData* world = world_data_->get_world_ptr();
+    if (world != nullptr) {
+        const int64_t tick = world->current_tick();
+        world->block_entity_registry().register_farmland_entity(
+            std::string(String(dimension).utf8().get_data()),
+            cell.x, cell.y, cell.z,
+            0.5f, 0.7f, tick);
+    }
+
+    emit_signal("terrain_cell_synced", dimension, chunk, local,
+                dirt_material, farmland_material);
+
+    Dictionary result;
+    result["type"] = command_till_farmland();
+    return accept(result);
+}
+
+Dictionary GDGameCommandServer::cmd_plant_crop(const Dictionary& command) {
+    if (world_data_ == nullptr) {
+        return reject(command_plant_crop(), "world data is not available");
+    }
+
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+    const int64_t item_id = command.get("item_id", 0);
+    const String species_key_str = command.get("species_key", String());
+
+    if (item_id <= 0) {
+        return reject(command_plant_crop(), "seed item is invalid");
+    }
+    if (!inventory_has_item(item_id, 1)) {
+        return reject(command_plant_crop(), "seed item is missing");
+    }
+
+    WorldData* world = world_data_->get_world_ptr();
+    if (world == nullptr) {
+        return reject(command_plant_crop(), "world data is not available");
+    }
+
+    const auto config = world->worldgen_config();
+    if (!config) {
+        return reject(command_plant_crop(), "worldgen config is not available");
+    }
+
+    const std::string species_key(species_key_str.utf8().get_data());
+    const CropSpeciesDef* species = config->find_crop_species(species_key);
+    if (!species) {
+        return reject(command_plant_crop(), "crop species not found");
+    }
+
+    // The crop goes in the air cell above farmland.
+    const int32_t air_material = get_air_material_id();
+    Vector3i chunk, local;
+    world_to_chunk_local(cell, chunk, local);
+    const Dictionary existing = world_data_->get_terrain_cell(
+        String(dimension), chunk.x, chunk.y, chunk.z,
+        local.x, local.y, local.z);
+    const int32_t existing_material = static_cast<int32_t>(
+        static_cast<int64_t>(existing.get("material", -1)));
+    if (existing_material != air_material) {
+        return reject(command_plant_crop(), "target cell is not air");
+    }
+
+    // Check that the cell below is farmland.
+    const int32_t farmland_material = get_farmland_material_id();
+    const Vector3i below = cell + Vector3i(0, -1, 0);
+    Vector3i below_chunk, below_local;
+    world_to_chunk_local(below, below_chunk, below_local);
+    const Dictionary below_cell = world_data_->get_terrain_cell(
+        String(dimension), below_chunk.x, below_chunk.y, below_chunk.z,
+        below_local.x, below_local.y, below_local.z);
+    const int32_t below_material = static_cast<int32_t>(
+        static_cast<int64_t>(below_cell.get("material", -1)));
+    if (below_material != farmland_material) {
+        return reject(command_plant_crop(), "cell below is not farmland");
+    }
+
+    // Look up the SEED stage material.
+    const int32_t seed_material = static_cast<int32_t>(
+        config->material_id_or(species->stage_material_keys[0], 0));
+    if (seed_material <= 0) {
+        return reject(command_plant_crop(), "crop seed material is not registered");
+    }
+
+    // Consume the seed item.
+    if (!remove_inventory_item(item_id, 1)) {
+        return reject(command_plant_crop(), "failed to consume seed item");
+    }
+
+    // Place the seed-stage crop block.
+    if (!world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, seed_material)) {
+        add_inventory_item(item_id, 1, kSecondaryNone, false);
+        return reject(command_plant_crop(), "failed to write crop cell");
+    }
+
+    // Register a CROP block entity.
+    const int64_t tick = world->current_tick();
+    std::vector<OwnedCell> owned_cells;
+    owned_cells.push_back({cell.x, cell.y, cell.z});
+    world->block_entity_registry().register_crop_entity(
+        std::string(String(dimension).utf8().get_data()),
+        cell.x, cell.y, cell.z,
+        species_key,
+        CropGrowthStage::SEED,
+        tick,
+        owned_cells);
+
+    // Update farmland rotation history.
+    const EntityId fl_owner = world->block_entity_registry().find_owner_at(
+        below.x, below.y, below.z);
+    if (fl_owner.id != 0) {
+        FarmlandBlockEntityState* fl =
+            world->block_entity_registry().get_farmland_state_mut(fl_owner);
+        if (fl) {
+            if (fl->last_crop_key == species_key) {
+                fl->consecutive_same_crop += 1;
+            } else {
+                fl->last_crop_key = species_key;
+                fl->consecutive_same_crop = 1;
+            }
+        }
+    }
+
+    emit_signal("terrain_cell_synced", dimension, chunk, local,
+                air_material, seed_material);
+    emit_signal("inventory_synced");
+
+    Dictionary result;
+    result["type"] = command_plant_crop();
+    result["species_key"] = species_key_str;
+    return accept(result);
+}
+
+Dictionary GDGameCommandServer::cmd_harvest_crop(const Dictionary& command) {
+    if (world_data_ == nullptr) {
+        return reject(command_harvest_crop(), "world data is not available");
+    }
+
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+
+    WorldData* world = world_data_->get_world_ptr();
+    if (world == nullptr) {
+        return reject(command_harvest_crop(), "world data is not available");
+    }
+
+    auto& registry = world->block_entity_registry();
+
+    // Find the CROP entity at this cell.
+    const EntityId crop_owner = registry.find_owner_at(cell.x, cell.y, cell.z);
+    if (crop_owner.id == 0) {
+        return reject(command_harvest_crop(), "no crop at this cell");
+    }
+    if (registry.get_entity_type(crop_owner) != BlockEntityType::CROP) {
+        return reject(command_harvest_crop(), "entity at cell is not a crop");
+    }
+
+    const CropBlockEntityState* crop_state = registry.get_crop_state(crop_owner);
+    if (!crop_state) {
+        return reject(command_harvest_crop(), "crop state is missing");
+    }
+    if (crop_state->growth_stage != CropGrowthStage::MATURE) {
+        return reject(command_harvest_crop(), "crop is not mature");
+    }
+
+    const auto config = world->worldgen_config();
+    if (!config) {
+        return reject(command_harvest_crop(), "worldgen config is not available");
+    }
+
+    const CropSpeciesDef* species = config->find_crop_species(crop_state->species_key);
+    if (!species) {
+        return reject(command_harvest_crop(), "crop species not found");
+    }
+
+    // Grant crop product.
+    // Use a simple deterministic count (min) for Tier 1; randomization can be
+    // added later. We grant crop_min of the main product.
+    // The item_id for the crop product is resolved via GDScript side; here we
+    // emit a signal so GDScript can grant the actual items. For now, we use
+    // the byproduct approach: emit a harvest signal with species + count.
+    const int crop_count = species->crop_min;
+
+    // Update farmland fertility (consume nutrients).
+    const Vector3i below = cell + Vector3i(0, -1, 0);
+    const EntityId fl_owner = registry.find_owner_at(below.x, below.y, below.z);
+    if (fl_owner.id != 0) {
+        FarmlandBlockEntityState* fl = registry.get_farmland_state_mut(fl_owner);
+        if (fl) {
+            fl->fertility = std::max(0.0f, fl->fertility - 0.15f);
+        }
+    }
+
+    Vector3i chunk, local;
+    world_to_chunk_local(cell, chunk, local);
+    const int32_t air_material = get_air_material_id();
+
+    if (species->repeat_harvest) {
+        // Reset crop to GROWING stage for regrowth.
+        CropBlockEntityState* mut_state = registry.get_crop_state_mut(crop_owner);
+        if (mut_state) {
+            mut_state->growth_stage = CropGrowthStage::GROWING;
+            mut_state->last_growth_tick = world->current_tick();
+            mut_state->last_harvest_tick = world->current_tick();
+        }
+        // Update terrain to growing-stage material.
+        const int32_t growing_material = static_cast<int32_t>(
+            config->material_id_or(species->stage_material_keys[2], 0));
+        if (growing_material > 0) {
+            world_data_->set_terrain_cell(
+                String(dimension), chunk.x, chunk.y, chunk.z,
+                local.x, local.y, local.z, growing_material);
+            emit_signal("terrain_cell_synced", dimension, chunk, local,
+                        air_material, growing_material);
+        }
+    } else {
+        // Remove the crop block and entity.
+        world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, air_material);
+        registry.remove_entity(crop_owner);
+        emit_signal("terrain_cell_synced", dimension, chunk, local,
+                    air_material, air_material);
+    }
+
+    // Emit harvest signal so GDScript can grant items (it owns the
+    // item_id <-> item_key mapping via ItemDatabase).
+    emit_signal("crop_harvested", dimension, cell,
+                String(species->species_key.c_str()),
+                crop_count,
+                String(species->crop_item_key.c_str()),
+                String(species->byproduct_item_key.c_str()),
+                species->byproduct_count);
+    emit_signal("inventory_synced");
+
+    Dictionary result;
+    result["type"] = command_harvest_crop();
+    result["species_key"] = String(species->species_key.c_str());
+    result["crop_count"] = crop_count;
+    return accept(result);
+}
+
+Dictionary GDGameCommandServer::cmd_fertilize(const Dictionary& command) {
+    if (world_data_ == nullptr) {
+        return reject(command_fertilize(), "world data is not available");
+    }
+
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+    const int64_t item_id = command.get("item_id", 0);
+
+    if (item_id <= 0) {
+        return reject(command_fertilize(), "fertilizer item is invalid");
+    }
+    if (!inventory_has_item(item_id, 1)) {
+        return reject(command_fertilize(), "fertilizer item is missing");
+    }
+
+    WorldData* world = world_data_->get_world_ptr();
+    if (world == nullptr) {
+        return reject(command_fertilize(), "world data is not available");
+    }
+
+    auto& registry = world->block_entity_registry();
+
+    // Find the CROP entity at this cell.
+    const EntityId crop_owner = registry.find_owner_at(cell.x, cell.y, cell.z);
+    if (crop_owner.id == 0) {
+        return reject(command_fertilize(), "no crop at this cell");
+    }
+    if (registry.get_entity_type(crop_owner) != BlockEntityType::CROP) {
+        return reject(command_fertilize(), "entity at cell is not a crop");
+    }
+
+    CropBlockEntityState* crop_state = registry.get_crop_state_mut(crop_owner);
+    if (!crop_state) {
+        return reject(command_fertilize(), "crop state is missing");
+    }
+    if (crop_state->growth_stage == CropGrowthStage::MATURE) {
+        return reject(command_fertilize(), "crop is already mature");
+    }
+
+    const auto config = world->worldgen_config();
+    if (!config) {
+        return reject(command_fertilize(), "worldgen config is not available");
+    }
+    const CropSpeciesDef* species = config->find_crop_species(crop_state->species_key);
+    if (!species) {
+        return reject(command_fertilize(), "crop species not found");
+    }
+
+    // Consume the fertilizer item.
+    if (!remove_inventory_item(item_id, 1)) {
+        return reject(command_fertilize(), "failed to consume fertilizer item");
+    }
+
+    // Advance one stage.
+    const CropGrowthStage new_stage = static_cast<CropGrowthStage>(
+        static_cast<int>(crop_state->growth_stage) + 1);
+    const int32_t new_material = static_cast<int32_t>(
+        config->material_id_or(
+            species->stage_material_keys[static_cast<int>(new_stage)], 0));
+    if (new_material <= 0) {
+        add_inventory_item(item_id, 1, kSecondaryNone, false);
+        return reject(command_fertilize(), "crop stage material is not registered");
+    }
+
+    crop_state->growth_stage = new_stage;
+    crop_state->last_growth_tick = world->current_tick();
+
+    Vector3i chunk, local;
+    world_to_chunk_local(cell, chunk, local);
+    world_data_->set_terrain_cell(
+        String(dimension), chunk.x, chunk.y, chunk.z,
+        local.x, local.y, local.z, new_material);
+
+    emit_signal("terrain_cell_synced", dimension, chunk, local,
+                get_air_material_id(), new_material);
+    emit_signal("inventory_synced");
+
+    Dictionary result;
+    result["type"] = command_fertilize();
+    result["new_stage"] = static_cast<int64_t>(new_stage);
     return accept(result);
 }
 
@@ -757,6 +1205,25 @@ bool GDGameCommandServer::is_world_object_occupied(
             static_cast<int64_t>(existing.get("material", -1)));
         return existing_material != get_air_material_id();
     }
+    if (object_type == object_fence()) {
+        // Fences occupy terrain cells; check if the cell is non-air.
+        if (world_data_ == nullptr) return true;
+        const int32_t chunk_size = 32;
+        const Vector3i chunk(
+            static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+            static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+        const Vector3i local(
+            cell.x - chunk.x * chunk_size,
+            cell.y - chunk.y * chunk_size,
+            cell.z - chunk.z * chunk_size);
+        const godot::Dictionary existing = world_data_->get_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z);
+        const int32_t existing_material = static_cast<int32_t>(
+            static_cast<int64_t>(existing.get("material", -1)));
+        return existing_material != get_air_material_id();
+    }
     return false;
 }
 
@@ -830,6 +1297,34 @@ int32_t GDGameCommandServer::get_workbench_material_id() const {
         return 0;
     }
     return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->runtime_ids.workbench);
+}
+
+int32_t GDGameCommandServer::get_fence_material_id() const {
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->runtime_ids.fence);
+}
+
+int32_t GDGameCommandServer::get_farmland_material_id() const {
+    return get_material_id_by_key("snt:farmland");
+}
+
+int32_t GDGameCommandServer::get_dirt_material_id() const {
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->roles.dirt);
+}
+
+int32_t GDGameCommandServer::get_material_id_by_key(const String& key) const {
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    const auto snapshot = world_data_->get_worldgen_snapshot();
+    if (!snapshot) return 0;
+    return static_cast<int32_t>(
+        snapshot->material_id_or(std::string(key.utf8().get_data()), 0));
 }
 
 Array GDGameCommandServer::get_terrain_drops(int32_t terrain_material) const {

@@ -111,22 +111,24 @@ func to_placeholder_dict() -> Dictionary:
 # Serialize the full system (including realized body data) to a Dictionary.
 func to_dict() -> Dictionary:
 	var d := to_placeholder_dict()
-	d["stars"] = []
-	d["planets"] = []
+	var stars_arr: Array = []
+	var planets_arr: Array = []
 	for star in stars:
-		d["stars"].append(_planet_to_dict(star))
+		stars_arr.append(_planet_to_dict(star))
 	for planet in planets:
-		d["planets"].append(_planet_to_dict(planet))
+		planets_arr.append(_planet_to_dict(planet))
+	d["stars"] = stars_arr
+	d["planets"] = planets_arr
 	return d
 
 
 # Deserialize a placeholder from a Dictionary.
 static func from_placeholder_dict(data: Dictionary) -> StarSystemDescriptor:
 	var sys := StarSystemDescriptor.new()
-	sys.system_id = StringName(data.get("system_id", ""))
+	sys.system_id = StringName(data.get("system_id", "") as String)
 	sys.system_type = data.get("system_type", TYPE_SINGLE_STAR)
 	var pos: Array = data.get("universe_position", [0.0, 0.0, 0.0])
-	sys.universe_position = Vector3(pos[0], pos[1], pos[2])
+	sys.universe_position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
 	sys.system_radius = data.get("system_radius", 5000.0)
 	sys.system_seed = int(data.get("system_seed", 0))
 	sys.generation_state = data.get("generation_state", STATE_PLACEHOLDER)
@@ -196,28 +198,28 @@ static func _planet_to_dict(planet: PlanetDescriptor) -> Dictionary:
 # Helper: deserialize a PlanetDescriptor from a minimal Dictionary.
 static func _planet_from_dict(data: Dictionary) -> PlanetDescriptor:
 	var desc := PlanetDescriptor.new()
-	desc.dimension_id = StringName(data.get("dimension_id", ""))
+	desc.dimension_id = StringName(data.get("dimension_id", "") as String)
 	desc.display_name = data.get("display_name", "Planet")
 	var pos: Array = data.get("universe_position", [0.0, 0.0, 0.0])
-	desc.universe_position = Vector3(pos[0], pos[1], pos[2])
+	desc.universe_position = Vector3(float(pos[0]), float(pos[1]), float(pos[2]))
 	desc.planet_radius = data.get("planet_radius", 512.0)
 	var lc: Array = data.get("local_center", [0.0, -512.0, 0.0])
-	desc.local_center = Vector3(lc[0], lc[1], lc[2])
+	desc.local_center = Vector3(float(lc[0]), float(lc[1]), float(lc[2]))
 	desc.seed = int(data.get("seed", 0))
 	desc.is_star = data.get("is_star", false)
-	desc.system_id = StringName(data.get("system_id", ""))
+	desc.system_id = StringName(data.get("system_id", "") as String)
 	desc.star_spectral_type = int(data.get("star_spectral_type", 5))
 	desc.is_primary_star = data.get("is_primary_star", false)
 	desc.gravity_multiplier = data.get("gravity_multiplier", 1.0)
-	desc.atmosphere_type = data.get("atmosphere_type", PlanetDescriptor.AtmosphereType.BREATHABLE) as PlanetDescriptor.AtmosphereType
+	desc.atmosphere_type = int(data.get("atmosphere_type", PlanetDescriptor.AtmosphereType.BREATHABLE)) as PlanetDescriptor.AtmosphereType
 	desc.toxic_damage_per_sec = data.get("toxic_damage_per_sec", 5.0)
 	desc.corrosive_damage_per_sec = data.get("corrosive_damage_per_sec", 8.0)
 	desc.vacuum_damage_per_sec = data.get("vacuum_damage_per_sec", 3.0)
 	var sc: Array = data.get("star_color", [1.0, 0.95, 0.8])
-	desc.star_color = Color(sc[0], sc[1], sc[2])
+	desc.star_color = Color(float(sc[0]), float(sc[1]), float(sc[2]))
 	desc.star_light_energy = data.get("star_light_energy", 2.2)
 	var ac: Array = data.get("atmosphere_color", [0.3, 0.6, 1.0, 1.0])
-	desc.atmosphere_color = Color(ac[0], ac[1], ac[2], ac[3] if ac.size() > 3 else 1.0)
+	desc.atmosphere_color = Color(float(ac[0]), float(ac[1]), float(ac[2]), float(ac[3]) if ac.size() > 3 else 1.0)
 	desc.atmosphere_scale = data.get("atmosphere_scale", 1.08)
 	desc.atmosphere_power = data.get("atmosphere_power", 3.5)
 	desc.atmosphere_intensity = data.get("atmosphere_intensity", 1.2)

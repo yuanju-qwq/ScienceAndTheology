@@ -8,6 +8,7 @@
 #include "core/simulation/machine_system.hpp"
 #include "core/simulation/block_physics_system.hpp"
 #include "core/simulation/tree_growth_system.hpp"
+#include "core/simulation/crop_growth_system.hpp"
 #include "core/simulation/season_system.hpp"
 #include "core/simulation/region_system.hpp"
 #include "core/simulation/region_graph.hpp"
@@ -59,6 +60,12 @@ void GDTickSystem::register_block_physics_system() {
 void GDTickSystem::register_tree_growth_system() {
     if (tick_system_) {
         tick_system_->register_subsystem(std::make_unique<TreeGrowthSystem>());
+    }
+}
+
+void GDTickSystem::register_crop_growth_system() {
+    if (tick_system_) {
+        tick_system_->register_subsystem(std::make_unique<CropGrowthSystem>());
     }
 }
 
@@ -394,6 +401,74 @@ bool GDTickSystem::feed_creatures(
     return ecosystem_system_->feed_creatures(key, creature_role, amount);
 }
 
+godot::Dictionary GDTickSystem::feed_creature_at(
+    const godot::String& dimension,
+    const godot::Vector3& player_pos,
+    const godot::Vector3& look_dir,
+    float reach) {
+    godot::Dictionary result;
+    result["hit"] = false;
+    result["creature_id"] = static_cast<int64_t>(0);
+    result["species_id"] = static_cast<int64_t>(0);
+    result["outcome"] = godot::String("miss");
+
+    godot::Dictionary chunk_dict;
+    chunk_dict["dimension"] = dimension;
+    chunk_dict["cx"] = 0;
+    chunk_dict["cy"] = 0;
+    chunk_dict["cz"] = 0;
+    result["chunk"] = chunk_dict;
+
+    if (!ecosystem_system_) return result;
+
+    auto fr = ecosystem_system_->feed_creature_at(
+        dimension.utf8().get_data(),
+        player_pos.x, player_pos.y, player_pos.z,
+        look_dir.x, look_dir.y, look_dir.z,
+        reach);
+
+    result["hit"] = fr.hit;
+    result["creature_id"] = static_cast<int64_t>(fr.creature_id);
+    result["species_id"] = static_cast<int64_t>(fr.species_id);
+    result["outcome"] = godot::String(fr.outcome.c_str());
+
+    chunk_dict["dimension"] = godot::String(fr.chunk_key.dimension_id.c_str());
+    chunk_dict["cx"] = fr.chunk_key.chunk_x;
+    chunk_dict["cy"] = fr.chunk_key.chunk_y;
+    chunk_dict["cz"] = fr.chunk_key.chunk_z;
+    result["chunk"] = chunk_dict;
+
+    return result;
+}
+
+int64_t GDTickSystem::get_total_captive_count() const {
+    if (!ecosystem_system_) return 0;
+    return static_cast<int64_t>(ecosystem_system_->total_captive_count());
+}
+
+godot::Array GDTickSystem::get_captive_data(
+    const godot::String& dimension, int cx, int cy, int cz) const {
+    godot::Array result;
+    if (!ecosystem_system_) return result;
+
+    ChunkKey key(dimension.utf8().get_data(), cx, cy, cz);
+    auto data = ecosystem_system_->get_captive_data(key);
+
+    for (const auto& info : data) {
+        godot::Dictionary d;
+        d["runtime_id"] = static_cast<int64_t>(info.runtime_id);
+        d["species_id"] = static_cast<int64_t>(info.species_id);
+        d["age_stage"] = static_cast<int64_t>(info.age_stage);
+        d["is_tamed"] = info.is_tamed;
+        d["is_pregnant"] = info.is_pregnant;
+        d["pos_x"] = info.pos_x;
+        d["pos_y"] = info.pos_y;
+        d["pos_z"] = info.pos_z;
+        result.append(d);
+    }
+    return result;
+}
+
 void GDTickSystem::tick(float delta) {
     if (!tick_system_ || !world_set) return;
     tick_system_->tick(delta);
@@ -641,6 +716,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_block_physics_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_tree_growth_system"),
         &GDTickSystem::register_tree_growth_system);
+    godot::ClassDB::bind_method(godot::D_METHOD("register_crop_growth_system"),
+        &GDTickSystem::register_crop_growth_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_season_system"),
         &GDTickSystem::register_season_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_day_night_system"),
@@ -689,6 +766,14 @@ void GDTickSystem::_bind_methods() {
     godot::ClassDB::bind_method(godot::D_METHOD("feed_creatures",
         "dimension", "cx", "cy", "cz", "role", "amount"),
         &GDTickSystem::feed_creatures);
+    godot::ClassDB::bind_method(godot::D_METHOD("feed_creature_at",
+        "dimension", "player_pos", "look_dir", "reach"),
+        &GDTickSystem::feed_creature_at);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_total_captive_count"),
+        &GDTickSystem::get_total_captive_count);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_captive_data",
+        "dimension", "cx", "cy", "cz"),
+        &GDTickSystem::get_captive_data);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",
@@ -884,6 +969,61 @@ void GDTickSystem::_bind_methods() {
         godot::PropertyInfo(godot::Variant::INT, "cy"),
         godot::PropertyInfo(godot::Variant::INT, "cz")));
     ADD_SIGNAL(godot::MethodInfo("creature_moved",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "species_key"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_x"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_y"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_z")));
+
+    // Captive / husbandry signals.
+    ADD_SIGNAL(godot::MethodInfo("creature_captured",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_tamed",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_bred",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("creature_grown",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("captive_creature_added",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "species_key"),
+        godot::PropertyInfo(godot::Variant::INT, "species_id"),
+        godot::PropertyInfo(godot::Variant::INT, "age_stage"),
+        godot::PropertyInfo(godot::Variant::INT, "is_tamed"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_x"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_y"),
+        godot::PropertyInfo(godot::Variant::FLOAT, "pos_z"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("captive_creature_removed",
+        godot::PropertyInfo(godot::Variant::INT, "creature_id"),
+        godot::PropertyInfo(godot::Variant::STRING, "dimension"),
+        godot::PropertyInfo(godot::Variant::INT, "cx"),
+        godot::PropertyInfo(godot::Variant::INT, "cy"),
+        godot::PropertyInfo(godot::Variant::INT, "cz")));
+    ADD_SIGNAL(godot::MethodInfo("captive_creature_moved",
         godot::PropertyInfo(godot::Variant::INT, "creature_id"),
         godot::PropertyInfo(godot::Variant::STRING, "species_key"),
         godot::PropertyInfo(godot::Variant::FLOAT, "pos_x"),
@@ -1130,6 +1270,84 @@ void GDTickSystem::subscribe_to_event_bus() {
         GameEventType::CREATURE_MOVED,
         [this](const GameEvent& e) {
             emit_signal("creature_moved",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("species_key").c_str()),
+                static_cast<float>(e.float_data.at("pos_x")),
+                static_cast<float>(e.float_data.at("pos_y")),
+                static_cast<float>(e.float_data.at("pos_z")));
+        }));
+
+    // --- Captive / husbandry event subscriptions ---
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_CAPTURED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_captured",
+                static_cast<int64_t>(e.source_id),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_TAMED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_tamed",
+                static_cast<int64_t>(e.source_id),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_BRED,
+        [this](const GameEvent& e) {
+            emit_signal("creature_bred",
+                static_cast<int64_t>(e.source_id),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CREATURE_GROWN,
+        [this](const GameEvent& e) {
+            emit_signal("creature_grown",
+                static_cast<int64_t>(e.source_id),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CAPTIVE_CREATURE_ADDED,
+        [this](const GameEvent& e) {
+            emit_signal("captive_creature_added",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.string_data.at("species_key").c_str()),
+                static_cast<int64_t>(e.int_data.at("species_id")),
+                e.int_data.at("age_stage"),
+                e.int_data.at("is_tamed"),
+                static_cast<float>(e.float_data.at("pos_x")),
+                static_cast<float>(e.float_data.at("pos_y")),
+                static_cast<float>(e.float_data.at("pos_z")),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CAPTIVE_CREATURE_REMOVED,
+        [this](const GameEvent& e) {
+            emit_signal("captive_creature_removed",
+                static_cast<int64_t>(e.source_id),
+                godot::String(e.source_dimension.c_str()),
+                e.chunk_x, e.chunk_y, e.chunk_z);
+        }));
+
+    event_subscriptions_.push_back(bus->subscribe(
+        GameEventType::CAPTIVE_CREATURE_MOVED,
+        [this](const GameEvent& e) {
+            emit_signal("captive_creature_moved",
                 static_cast<int64_t>(e.source_id),
                 godot::String(e.string_data.at("species_key").c_str()),
                 static_cast<float>(e.float_data.at("pos_x")),

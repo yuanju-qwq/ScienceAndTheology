@@ -12,20 +12,44 @@ using PowerNodeId = uint32_t;
 
 inline constexpr PowerNodeId kInvalidNodeId = 0;
 
-// Represents a 2D position on the tile grid.
-// Engine-independent: Godot adapters map Vector2i to/from this type.
+// Represents a 3D position in the voxel grid.
+// Engine-independent: Godot adapters map Vector3i to/from this type.
 struct MapPosition {
     int32_t x = 0;
     int32_t y = 0;
+    int32_t z = 0;
 
     bool operator==(const MapPosition& other) const {
-        return x == other.x && y == other.y;
+        return x == other.x && y == other.y && z == other.z;
     }
 
     bool operator!=(const MapPosition& other) const {
         return !(*this == other);
     }
 };
+
+} // namespace science_and_theology::gt
+
+// Hash specialization for MapPosition so it can be used as unordered_map key.
+namespace std {
+template <>
+struct hash<science_and_theology::gt::MapPosition> {
+    size_t operator()(const science_and_theology::gt::MapPosition& p) const noexcept {
+        // 64-bit FNV-style combine of three 32-bit coordinates.
+        uint64_t h = 1469598103934665603ULL;
+        auto mix = [&](uint32_t v) {
+            h ^= v;
+            h *= 1099511628211ULL;
+        };
+        mix(static_cast<uint32_t>(p.x));
+        mix(static_cast<uint32_t>(p.y));
+        mix(static_cast<uint32_t>(p.z));
+        return static_cast<size_t>(h);
+    }
+};
+} // namespace std
+
+namespace science_and_theology::gt {
 
 // Possible overload result states for a node or edge.
 enum class OverloadState : uint8_t {

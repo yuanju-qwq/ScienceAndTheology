@@ -8,6 +8,7 @@
 #include "simulation/creature_species.hpp"
 #include "../network/pipe_types.hpp"
 #include "../config/gt_values.hpp"
+#include "../world_gen/crop_species_def.hpp"
 
 namespace science_and_theology {
 
@@ -51,11 +52,14 @@ enum class BlockEntityType : uint8_t {
     CREATURE    = 3,
     PIPE        = 4,
     CABLE       = 5,
-    COUNT       = 6,
+    FARMLAND    = 6,   // Tilled farmland (holds moisture/fertility)
+    CROP        = 7,   // Crop planted on farmland
+    COUNT       = 8,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
     "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
+    "Farmland", "Crop",
 };
 
 // 6-face connection bitmask used by PIPE and CABLE entities.
@@ -174,29 +178,46 @@ struct CreatureBlockEntityState {
 // ============================================================
 //
 // Machines (furnace, workbench, generator, ...) occupy one or more
-// voxel cells. The root cell is the anchor; owned_cells lists any
-// additional cells claimed by a multi-block machine.
+// voxel cells. The root cell is the controller anchor.
 //
-// `machine_type` is a short string key (e.g. "furnace", "generator_lv")
+// `machine_type` is a short string key (e.g. "furnace", "coke_oven")
 // that the bindings layer uses to look up the corresponding
-// MachineDefinition (recipe set, GUI, ports, block model).
+// MachineDefinition (recipe set, GUI, ports, block model) AND the
+// MultiblockPattern used for formation validation.
 //
 // `facing` uses the same convention as machine ports:
 //   0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z, 5 = -Z.
-// It indicates the machine's "front" direction for rendering and
-// port layout. The bindings layer is responsible for rotating the
-// block model and port offsets accordingly.
+// It indicates the machine's "front" direction. The multiblock
+// pattern is defined in canonical orientation (front = +Z) and
+// rotated by `facing` during formation check.
+//
+// Multiblock formation (GT-style):
+//   - `formed` is true when the surrounding structure matches the
+//     machine's MultiblockPattern. Only formed machines run recipes.
+//   - `claimed_cells` lists the non-controller cells claimed by the
+//     structure when formed (casing, hatches, interior). These are
+//     indexed in the BlockEntityRegistry's spatial index so that
+//     breaking any claimed cell triggers re-validation.
+//   - `hatch_entities` lists the EntityIds of hatch machines (input
+//     bus, output bus, energy hatch, ...) that are part of the formed
+//     structure. Populated only when formed.
+//   - For 1x1x1 machines (e.g. simple furnace), the pattern is a
+//     single controller cell; `formed` defaults to true and
+//     `claimed_cells` is empty.
 //
 // Runtime state (inventory, progress, energy buffer) is NOT stored
 // here. It lives in the dedicated manager (e.g. FurnaceManager) keyed
-// by the EntityId, so this struct stays cheap to serialize and
-// reconstruct. The BlockEntity placement acts as the spatial anchor
-// and the bridge to the runtime manager.
+// by the EntityId. The BlockEntity placement acts as the spatial
+// anchor and the bridge to the runtime manager.
 
 struct MachineBlockEntityState {
-    std::string machine_type;        // e.g. "furnace", "generator_lv"
+    std::string machine_type;        // e.g. "furnace", "coke_oven"
     uint8_t facing = 0;              // 0..5, see comment above
-    std::vector<OwnedCell> owned_cells;
+
+    // Multiblock formation state.
+    bool formed = false;             // is the structure currently formed?
+    std::vector<OwnedCell> claimed_cells;  // cells claimed when formed (excl. root)
+    std::vector<EntityId> hatch_entities;  // hatch EntityIds when formed
 };
 
 // ============================================================
@@ -236,6 +257,63 @@ struct CableBlockEntityState {
     gt::VoltageTier cable_tier = gt::VoltageTier::ULV;
     uint8_t connections = 0;          // BlockEntityConnectionMask bitmask
     std::vector<OwnedCell> owned_cells;  // usually empty (single cell)
+};
+
+// ============================================================
+// FarmlandBlockEntityState — tilled soil for crop planting
+// ============================================================
+//
+// Created when a player tills a dirt/grass block with a hoe.
+// Holds per-cell moisture and fertility, plus crop rotation
+// history for the continuous-cropping penalty (Tier 1 ecology).
+//
+// Moisture decreases over time (evaporation) and is replenished
+// by rain, irrigation channels, or sprinklers.
+// Fertility is consumed on harvest and restored by fallow,
+// compost, or fertilizer.
+//
+// last_crop_key / consecutive_same_crop track the rotation
+// history: planting the same crop 3+ times in a row triggers
+// a growth-rate penalty (continuous cropping obstacle).
+
+struct FarmlandBlockEntityState {
+    // Current moisture level [0, 1].
+    // Decreases by evaporation, increased by rain/irrigation.
+    float moisture = 0.5f;
+    // Current fertility level [0, 1].
+    // Consumed on harvest, restored by fallow/compost/fertilizer.
+    float fertility = 0.7f;
+    // Last planted crop species key (for rotation penalty). Empty = none.
+    std::string last_crop_key;
+    // Consecutive plantings of the same crop (>=3 triggers penalty).
+    int consecutive_same_crop = 0;
+    // Last tick moisture was updated (for evaporation timing).
+    int64_t last_moisture_tick = 0;
+};
+
+// ============================================================
+// CropBlockEntityState — growing crop on farmland
+// ============================================================
+//
+// Created when a player plants a seed on a farmland block.
+// The CropGrowthSystem advances growth_stage from SEED to
+// MATURE over time, updating the terrain material to match.
+//
+// On harvest:
+//   - repeat_harvest=false: crop entity is removed, farmland
+//     fertility decreases.
+//   - repeat_harvest=true: growth_stage resets to GROWING and
+//     last_harvest_tick is set; the crop regrows to MATURE.
+
+struct CropBlockEntityState {
+    std::string species_key;
+    CropGrowthStage growth_stage = CropGrowthStage::SEED;
+    int64_t planted_tick = 0;
+    int64_t last_growth_tick = 0;
+    // Regrow timer for repeat-harvest crops.
+    int64_t last_harvest_tick = 0;
+    // Cells occupied by the crop (usually 1, large crops may use more).
+    std::vector<OwnedCell> owned_cells;
 };
 
 } // namespace science_and_theology

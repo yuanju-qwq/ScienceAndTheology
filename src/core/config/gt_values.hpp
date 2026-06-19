@@ -131,14 +131,16 @@ inline constexpr int64_t get_cable_loss(const CableProperties& cable,
     return cable.loss_per_tile * distance_tiles;
 }
 
-// Computes the Manhattan distance between two map positions.
-inline constexpr int64_t manhattan_distance(int32_t x1, int32_t y1,
-                                             int32_t x2, int32_t y2) {
+// Computes the Manhattan distance between two 3D map positions.
+inline constexpr int64_t manhattan_distance(int32_t x1, int32_t y1, int32_t z1,
+                                             int32_t x2, int32_t y2, int32_t z2) {
     int64_t dx = (x1 > x2) ? static_cast<int64_t>(x1 - x2)
                            : static_cast<int64_t>(x2 - x1);
     int64_t dy = (y1 > y2) ? static_cast<int64_t>(y1 - y2)
                            : static_cast<int64_t>(y2 - y1);
-    return dx + dy;
+    int64_t dz = (z1 > z2) ? static_cast<int64_t>(z1 - z2)
+                           : static_cast<int64_t>(z2 - z1);
+    return dx + dy + dz;
 }
 
 // Long descriptive name for each voltage tier.

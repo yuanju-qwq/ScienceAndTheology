@@ -129,15 +129,13 @@ private:
     static ItemPipeEdge* edge_ptr(EdgeIterator it) { return &(*it); }
     static const ItemPipeEdge* edge_cptr(EdgeIterator it) { return &(*it); }
 
-    static int64_t make_position_key(MapPosition pos);
-
     void add_adjacency(ItemPipeNodeId node_id, EdgeIterator edge_it);
     void remove_adjacency(ItemPipeNodeId node_id, EdgeIterator edge_it);
 
     ItemPipeNodeId next_id_ = 1;
     NodeMap nodes_;
     EdgeList edges_;
-    std::unordered_map<int64_t, ItemPipeNodeId> position_index_;
+    std::unordered_map<MapPosition, ItemPipeNodeId> position_index_;
     AdjacencyList adjacency_;
 
     // Component index: node_id → component_id.

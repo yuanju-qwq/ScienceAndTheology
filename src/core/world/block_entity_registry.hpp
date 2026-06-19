@@ -38,6 +38,8 @@ public:
         MachineBlockEntityState machine_state;
         PipeBlockEntityState pipe_state;
         CableBlockEntityState cable_state;
+        FarmlandBlockEntityState farmland_state;
+        CropBlockEntityState crop_state;
     };
 
     BlockEntityRegistry() = default;
@@ -74,17 +76,20 @@ public:
         int64_t spawn_tick);
 
     // Register a machine block entity. Returns its assigned EntityId.
-    // machine_type: short key (e.g. "furnace") used by bindings to look up
-    //               the MachineDefinition (recipes, GUI, ports, model).
+    // machine_type: short key (e.g. "furnace", "coke_oven") used by bindings
+    //               to look up the MachineDefinition (recipes, GUI, ports,
+    //               model) and the MultiblockPattern for formation check.
     // facing: 0..5 (0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z).
-    // owned_cells: additional cells claimed by a multi-block machine
-    //              (beyond the root cell). May be empty for 1x1x1 machines.
+    // The machine starts unformed (formed=false, no claimed cells). Call
+    // check_machine_formation() after registration (and whenever a nearby
+    // block changes) to validate the structure and update formation state.
+    // For 1x1x1 machines with no pattern, check_machine_formation() will
+    // immediately set formed=true.
     EntityId register_machine_entity(
         const std::string& dimension_id,
         int32_t root_x, int32_t root_y, int32_t root_z,
         const std::string& machine_type,
-        uint8_t facing,
-        const std::vector<OwnedCell>& owned_cells);
+        uint8_t facing);
 
     // Register a pipe block entity. Returns its assigned EntityId.
     // pipe_type: LIQUID / GAS / ITEM — selects which network owns the segment.
@@ -103,6 +108,28 @@ public:
         int32_t root_x, int32_t root_y, int32_t root_z,
         gt::VoltageTier cable_tier,
         uint8_t connections);
+
+    // Register a farmland block entity. Returns its assigned EntityId.
+    // Created when a player tills dirt/grass with a hoe.
+    // initial_moisture/initial_fertility: starting soil conditions.
+    EntityId register_farmland_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        float initial_moisture, float initial_fertility,
+        int64_t current_tick);
+
+    // Register a crop block entity. Returns its assigned EntityId.
+    // Created when a player plants a seed on farmland.
+    // species_key: references CropSpeciesDef.
+    // growth_stage: initial stage (usually SEED).
+    // planted_tick: tick when planted (used as growth timer baseline).
+    EntityId register_crop_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        const std::string& species_key,
+        CropGrowthStage growth_stage,
+        int64_t planted_tick,
+        const std::vector<OwnedCell>& owned_cells);
 
     // Remove a block entity by ID. Also removes its spatial index entries.
     void remove_entity(EntityId id);
@@ -137,8 +164,19 @@ public:
     const CableBlockEntityState* get_cable_state(EntityId id) const;
     CableBlockEntityState* get_cable_state_mut(EntityId id);
 
+    // Returns the farmland state for a given entity, or nullptr if not farmland.
+    const FarmlandBlockEntityState* get_farmland_state(EntityId id) const;
+    FarmlandBlockEntityState* get_farmland_state_mut(EntityId id);
+
+    // Returns the crop state for a given entity, or nullptr if not a crop.
+    const CropBlockEntityState* get_crop_state(EntityId id) const;
+    CropBlockEntityState* get_crop_state_mut(EntityId id);
+
     // Returns the placement data for a given entity.
     const BlockEntityPlacement* get_placement(EntityId id) const;
+
+    // Returns the dimension_id for a given entity, or nullptr if not found.
+    const std::string* get_dimension_id(EntityId id) const;
 
     // --- Spatial query ---
 
@@ -163,8 +201,18 @@ public:
     void update_tree_owned_cells(
         EntityId id, const std::vector<OwnedCell>& new_cells);
 
-    // Update the owned cells for a machine entity (multi-block machines).
-    void update_machine_owned_cells(
+    // Update the formation state of a machine entity.
+    // Replaces claimed_cells (re-indexing the spatial index) and
+    // hatch_entities, and sets the formed flag. Called by the
+    // multiblock formation checker after a pattern validation pass.
+    void set_machine_formation(
+        EntityId id,
+        bool formed,
+        const std::vector<OwnedCell>& claimed_cells,
+        const std::vector<EntityId>& hatch_entities);
+
+    // Update the owned cells for a crop entity.
+    void update_crop_owned_cells(
         EntityId id, const std::vector<OwnedCell>& new_cells);
 
     // Update the connection bitmask for a pipe entity.
@@ -190,6 +238,14 @@ public:
     // Iterate over all cable entities.
     void for_each_cable(
         std::function<void(EntityId, const CableBlockEntityState&)> fn) const;
+
+    // Iterate over all crop entities.
+    void for_each_crop(
+        std::function<void(EntityId, const CropBlockEntityState&)> fn) const;
+
+    // Iterate over all farmland entities.
+    void for_each_farmland(
+        std::function<void(EntityId, const FarmlandBlockEntityState&)> fn) const;
 
     // Returns the total number of registered entities.
     size_t size() const { return entities_.size(); }

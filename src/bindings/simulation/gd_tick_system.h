@@ -53,6 +53,13 @@ public:
     // from sapling → young → mature based on tick timing and conditions.
     void register_tree_growth_system();
 
+    // Register the crop growth simulation subsystem.
+    // Must be called after set_world_data(). Handles crop growth
+    // from seed → sprout → growing → mature based on tick timing,
+    // farmland moisture/fertility, season, and rotation history.
+    // Runs at priority 9 (after TreeGrowth at 8).
+    void register_crop_growth_system();
+
     // Register the season simulation subsystem.
     // Must be called after set_world_data(). Computes current season
     // from tick counter and exposes it to other systems.
@@ -239,6 +246,34 @@ public:
         const godot::String& dimension,
         int64_t cx, int64_t cy, int64_t cz,
         int64_t role, float amount);
+
+    // --- Captive / husbandry ---
+
+    // Attempt to feed / interact with a creature the player is aiming at.
+    // If the target is a wild proxy inside a fence enclosure, it is
+    // captured (detached from the wild population). If the target is a
+    // captive creature, feeding boosts taming or triggers breeding.
+    // Returns a Dictionary with keys:
+    //   "hit": bool, "creature_id": int, "species_id": int,
+    //   "outcome": String ("miss"/"captured"/"taming"/"bred"/"fed"
+    //                       /"no_enclosure"/"pen_full"),
+    //   "chunk": Dictionary (dimension, cx, cy, cz)
+    godot::Dictionary feed_creature_at(
+        const godot::String& dimension,
+        const godot::Vector3& player_pos,
+        const godot::Vector3& look_dir,
+        float reach);
+
+    // Returns the total number of captive creatures across all chunks.
+    int64_t get_total_captive_count() const;
+
+    // Returns captive creature data for a chunk as an Array of Dictionaries.
+    // Each dict: { "runtime_id": int, "species_id": int, "age_stage": int,
+    //              "is_tamed": bool, "is_pregnant": bool,
+    //              "pos_x": float, "pos_y": float, "pos_z": float }
+    // age_stage: 0 = BABY, 1 = ADULT.
+    godot::Array get_captive_data(
+        const godot::String& dimension, int cx, int cy, int cz) const;
 
 protected:
     static void _bind_methods();

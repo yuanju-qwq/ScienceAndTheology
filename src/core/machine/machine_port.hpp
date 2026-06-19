@@ -23,6 +23,7 @@ enum class PortDirection : uint8_t {
 struct MachinePort {
     int rel_x = 0;                   // relative to machine bottom-left
     int rel_y = 0;
+    int rel_z = 0;
     PortType type = PortType::UNIVERSAL;
     PortDirection direction = PortDirection::INPUT;
     bool direction_locked = false;   // true = player cannot flip I/O

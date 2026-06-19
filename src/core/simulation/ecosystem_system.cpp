@@ -1651,4 +1651,697 @@ void EcosystemSystem::register_default_biome_overrides() {
     }
 }
 
+// ============================================================
+// Captive creature management — capture, tame, breed, grow
+// ============================================================
+
+uint64_t EcosystemSystem::capture_wild_creature(
+    EntityId proxy_id, const ChunkKey& chunk,
+    int32_t bounds_min_x, int32_t bounds_min_y, int32_t bounds_min_z,
+    int32_t bounds_max_x, int32_t bounds_max_y, int32_t bounds_max_z,
+    int64_t tick) {
+    if (!world_) return 0;
+
+    auto& registry = world_->block_entity_registry();
+    CreatureBlockEntityState* cs = registry.get_creature_state_mut(proxy_id);
+    if (!cs) return 0;
+
+    const uint16_t species_id = cs->species_id;
+    const CreatureRole role = cs->creature_role;
+    const float pos_x = cs->pos_x;
+    const float pos_y = cs->pos_y;
+    const float pos_z = cs->pos_z;
+
+    // Remove the proxy from its group.
+    auto pit = active_proxies_.find(chunk);
+    if (pit != active_proxies_.end()) {
+        ProxyGroup& group = pit->second;
+        if (role == CreatureRole::HERBIVORE) {
+            group.herbivore_ids.erase(
+                std::remove(group.herbivore_ids.begin(),
+                            group.herbivore_ids.end(), proxy_id),
+                group.herbivore_ids.end());
+        } else {
+            group.predator_ids.erase(
+                std::remove(group.predator_ids.begin(),
+                            group.predator_ids.end(), proxy_id),
+                group.predator_ids.end());
+        }
+    }
+
+    // Emit creature_despawned so the renderer removes the wild proxy node.
+    if (event_bus_) {
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(species_id);
+        const char* name = def ? def->species_key.c_str() : "creature";
+        event_bus_->emit(GameEvent::creature_despawned(
+            proxy_id.id, name,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+
+    // Remove the proxy entity from the registry.
+    registry.remove_entity(proxy_id);
+
+    // Reduce wild density (the creature leaves the wild population).
+    PopulationCell* cell = get_population_cell(chunk);
+    if (cell) {
+        if (role == CreatureRole::HERBIVORE) {
+            cell->herbivore_density = std::max(
+                0.0f, cell->herbivore_density
+                    - params_.capture_density_reduction);
+        } else {
+            cell->predator_density = std::max(
+                0.0f, cell->predator_density
+                    - params_.capture_density_reduction);
+        }
+    }
+
+    // Create the captive creature.
+    CaptiveCreature cc;
+    cc.runtime_id = next_captive_runtime_id();
+    cc.species_id = species_id;
+    cc.role = role;
+    cc.age_stage = CreatureAgeStage::ADULT;
+    cc.pos_x = pos_x;
+    cc.pos_y = pos_y;
+    cc.pos_z = pos_z;
+    cc.wander_target_x = pos_x;
+    cc.wander_target_y = pos_y;
+    cc.wander_target_z = pos_z;
+    cc.next_wander_tick = tick + params_.wander_interval_ticks;
+    cc.bounds_min_x = bounds_min_x;
+    cc.bounds_min_y = bounds_min_y;
+    cc.bounds_min_z = bounds_min_z;
+    cc.bounds_max_x = bounds_max_x;
+    cc.bounds_max_y = bounds_max_y;
+    cc.bounds_max_z = bounds_max_z;
+    cc.health = 1.0f;
+    cc.tame_progress = 0.0f;
+    cc.is_tamed = false;
+    cc.capture_tick = tick;
+    cc.birth_tick = tick;
+    cc.grow_up_tick = 0;
+    cc.breed_cooldown_until = 0;
+    cc.gestation_end_tick = 0;
+    cc.is_pregnant = false;
+    cc.partner_species_id = 0;
+
+    const uint64_t new_id = cc.runtime_id;
+
+    // Add to captive map.
+    auto& list = captive_[chunk];
+    list.push_back(std::move(cc));
+
+    // Emit capture + captive_added events.
+    if (event_bus_) {
+        event_bus_->emit(GameEvent::creature_captured(
+            new_id, species_id,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(species_id);
+        const std::string key = def ? def->species_key : std::string("creature");
+        event_bus_->emit(GameEvent::captive_creature_added(
+            new_id, key, species_id,
+            static_cast<uint8_t>(CreatureAgeStage::ADULT),
+            false,
+            pos_x, pos_y, pos_z,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+
+    return new_id;
+}
+
+void EcosystemSystem::spawn_captive_for_chunk(const ChunkKey& chunk) {
+    auto it = captive_.find(chunk);
+    if (it == captive_.end()) return;
+
+    if (!event_bus_) return;
+
+    for (const CaptiveCreature& cc : it->second) {
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(cc.species_id);
+        const std::string key = def ? def->species_key : std::string("creature");
+        event_bus_->emit(GameEvent::captive_creature_added(
+            cc.runtime_id, key, cc.species_id,
+            static_cast<uint8_t>(cc.age_stage),
+            cc.is_tamed,
+            cc.pos_x, cc.pos_y, cc.pos_z,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+}
+
+void EcosystemSystem::despawn_captive_for_chunk(const ChunkKey& chunk) {
+    auto it = captive_.find(chunk);
+    if (it == captive_.end()) return;
+
+    if (!event_bus_) return;
+
+    for (const CaptiveCreature& cc : it->second) {
+        event_bus_->emit(GameEvent::captive_creature_removed(
+            cc.runtime_id,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+}
+
+void EcosystemSystem::tick_captive(
+    const ChunkKey& chunk, int64_t tick, float delta) {
+    auto it = captive_.find(chunk);
+    if (it == captive_.end()) return;
+
+    std::vector<CaptiveCreature>& creatures = it->second;
+    if (creatures.empty()) return;
+
+    const float move_dt = delta * TickSystem::kTicksPerSecond;
+
+    // Iterate by index (birth_baby may append to the vector).
+    for (size_t i = 0; i < creatures.size(); ++i) {
+        CaptiveCreature& cc = creatures[i];
+
+        // --- Taming progress (per tick) ---
+        if (!cc.is_tamed) {
+            cc.tame_progress += params_.tame_rate_per_tick;
+            if (cc.tame_progress >= 1.0f) {
+                cc.tame_progress = 1.0f;
+                cc.is_tamed = true;
+                if (event_bus_) {
+                    event_bus_->emit(GameEvent::creature_tamed(
+                        cc.runtime_id, cc.species_id,
+                        chunk.dimension_id,
+                        chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+                }
+            }
+        }
+
+        // --- Baby growth ---
+        if (cc.age_stage == CreatureAgeStage::BABY &&
+            cc.grow_up_tick > 0 && tick >= cc.grow_up_tick) {
+            cc.age_stage = CreatureAgeStage::ADULT;
+            cc.grow_up_tick = 0;
+            if (event_bus_) {
+                event_bus_->emit(GameEvent::creature_grown(
+                    cc.runtime_id, cc.species_id,
+                    chunk.dimension_id,
+                    chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+            }
+        }
+
+        // --- Gestation completion ---
+        if (cc.is_pregnant && cc.gestation_end_tick > 0 &&
+            tick >= cc.gestation_end_tick) {
+            // birth_baby may append to `creatures`; the loop uses .size()
+            // dynamically so the newborn will be ticked next iteration.
+            birth_baby(chunk, creatures, i, tick);
+            cc.is_pregnant = false;
+            cc.gestation_end_tick = 0;
+        }
+
+        // --- Wander AI ---
+        if (tick >= cc.next_wander_tick) {
+            pick_captive_wander_target(cc, tick);
+        }
+
+        float prev_x = cc.pos_x, prev_y = cc.pos_y, prev_z = cc.pos_z;
+        move_captive(cc, params_.creature_move_speed, move_dt);
+
+        if (event_bus_ &&
+            (cc.pos_x != prev_x || cc.pos_y != prev_y || cc.pos_z != prev_z)) {
+            const CreatureSpeciesDef* def =
+                species_registry_.get_species(cc.species_id);
+            const std::string key = def ? def->species_key : std::string("creature");
+            event_bus_->emit(GameEvent::captive_creature_moved(
+                cc.runtime_id, key, cc.pos_x, cc.pos_y, cc.pos_z));
+        }
+    }
+}
+
+void EcosystemSystem::pick_captive_wander_target(
+    CaptiveCreature& cc, int64_t tick) const {
+    // Hash-based pseudo-random direction (same scheme as pick_wander_target).
+    const int64_t seed =
+        static_cast<int64_t>(cc.pos_x * 100.0f) * 73856093 +
+        static_cast<int64_t>(cc.pos_z * 100.0f) * 83492791 +
+        tick * 19349663;
+
+    float wander_r = params_.wander_radius;
+    const CreatureSpeciesDef* def =
+        species_registry_.get_species(cc.species_id);
+    if (def && def->wander_radius > 0.0f) wander_r = def->wander_radius;
+
+    float rx = static_cast<float>((seed & 0xFFFF) % 2001 - 1000) / 1000.0f;
+    float ry = static_cast<float>(((seed >> 16) & 0xFF) % 2001 - 1000) / 1000.0f;
+    float rz = static_cast<float>(((seed >> 24) & 0xFF) % 2001 - 1000) / 1000.0f;
+
+    float tx = cc.pos_x + rx * wander_r;
+    float ty = cc.pos_y + ry * 2.0f;
+    float tz = cc.pos_z + rz * wander_r;
+
+    // Clamp to pen bounds.
+    tx = std::clamp(tx,
+        static_cast<float>(cc.bounds_min_x),
+        static_cast<float>(cc.bounds_max_x));
+    ty = std::clamp(ty,
+        static_cast<float>(cc.bounds_min_y),
+        static_cast<float>(cc.bounds_max_y));
+    tz = std::clamp(tz,
+        static_cast<float>(cc.bounds_min_z),
+        static_cast<float>(cc.bounds_max_z));
+
+    cc.wander_target_x = tx;
+    cc.wander_target_y = ty;
+    cc.wander_target_z = tz;
+    cc.next_wander_tick = tick + params_.wander_interval_ticks;
+}
+
+void EcosystemSystem::move_captive(
+    CaptiveCreature& cc, float speed, float dt) const {
+    float dx = cc.wander_target_x - cc.pos_x;
+    float dy = cc.wander_target_y - cc.pos_y;
+    float dz = cc.wander_target_z - cc.pos_z;
+    float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (dist < 0.01f) return;
+
+    float nx = dx / dist;
+    float ny = dy / dist;
+    float nz = dz / dist;
+
+    float step = speed * dt;
+    if (step > dist) step = dist;
+
+    cc.pos_x += nx * step;
+    cc.pos_y += ny * step;
+    cc.pos_z += nz * step;
+
+    // Clamp to pen bounds (safety net).
+    cc.pos_x = std::clamp(cc.pos_x,
+        static_cast<float>(cc.bounds_min_x),
+        static_cast<float>(cc.bounds_max_x));
+    cc.pos_y = std::clamp(cc.pos_y,
+        static_cast<float>(cc.bounds_min_y),
+        static_cast<float>(cc.bounds_max_y));
+    cc.pos_z = std::clamp(cc.pos_z,
+        static_cast<float>(cc.bounds_min_z),
+        static_cast<float>(cc.bounds_max_z));
+}
+
+bool EcosystemSystem::try_start_breeding(
+    const ChunkKey& chunk,
+    std::vector<CaptiveCreature>& creatures,
+    size_t feeder_index, int64_t tick) {
+    if (feeder_index >= creatures.size()) return false;
+
+    CaptiveCreature& feeder = creatures[feeder_index];
+
+    // Feeder must be a tamed adult, not pregnant, not on cooldown.
+    if (feeder.age_stage != CreatureAgeStage::ADULT) return false;
+    if (!feeder.is_tamed) return false;
+    if (feeder.is_pregnant) return false;
+    if (tick < feeder.breed_cooldown_until) return false;
+
+    const float partner_dist_sq =
+        params_.breed_partner_distance * params_.breed_partner_distance;
+
+    // Search for a partner in the same chunk.
+    for (size_t j = 0; j < creatures.size(); ++j) {
+        if (j == feeder_index) continue;
+
+        CaptiveCreature& partner = creatures[j];
+        if (partner.age_stage != CreatureAgeStage::ADULT) continue;
+        if (!partner.is_tamed) continue;
+        if (partner.is_pregnant) continue;
+        if (tick < partner.breed_cooldown_until) continue;
+        if (partner.species_id != feeder.species_id) continue;
+
+        float dx = partner.pos_x - feeder.pos_x;
+        float dy = partner.pos_y - feeder.pos_y;
+        float dz = partner.pos_z - feeder.pos_z;
+        float dist_sq = dx * dx + dy * dy + dz * dz;
+        if (dist_sq > partner_dist_sq) continue;
+
+        // Found a partner — start breeding on both.
+        feeder.is_pregnant = true;
+        feeder.gestation_end_tick = tick + params_.gestation_ticks;
+        feeder.breed_cooldown_until = tick + params_.breed_cooldown_ticks;
+        feeder.partner_species_id = partner.species_id;
+
+        partner.is_pregnant = true;
+        partner.gestation_end_tick = tick + params_.gestation_ticks;
+        partner.breed_cooldown_until = tick + params_.breed_cooldown_ticks;
+        partner.partner_species_id = feeder.species_id;
+
+        return true;
+    }
+
+    return false;
+}
+
+void EcosystemSystem::birth_baby(
+    const ChunkKey& chunk,
+    std::vector<CaptiveCreature>& creatures,
+    size_t mother_index, int64_t tick) {
+    if (mother_index >= creatures.size()) return;
+
+    const CaptiveCreature& mother = creatures[mother_index];
+
+    CaptiveCreature baby;
+    baby.runtime_id = next_captive_runtime_id();
+    baby.species_id = mother.species_id;
+    baby.role = mother.role;
+    baby.age_stage = CreatureAgeStage::BABY;
+    // Spawn near the mother, clamped to pen bounds.
+    baby.pos_x = std::clamp(mother.pos_x + 0.5f,
+        static_cast<float>(mother.bounds_min_x),
+        static_cast<float>(mother.bounds_max_x));
+    baby.pos_y = mother.pos_y;
+    baby.pos_z = std::clamp(mother.pos_z + 0.5f,
+        static_cast<float>(mother.bounds_min_z),
+        static_cast<float>(mother.bounds_max_z));
+    baby.wander_target_x = baby.pos_x;
+    baby.wander_target_y = baby.pos_y;
+    baby.wander_target_z = baby.pos_z;
+    baby.next_wander_tick = tick + params_.wander_interval_ticks;
+    baby.bounds_min_x = mother.bounds_min_x;
+    baby.bounds_min_y = mother.bounds_min_y;
+    baby.bounds_min_z = mother.bounds_min_z;
+    baby.bounds_max_x = mother.bounds_max_x;
+    baby.bounds_max_y = mother.bounds_max_y;
+    baby.bounds_max_z = mother.bounds_max_z;
+    baby.health = 1.0f;
+    baby.tame_progress = 1.0f;  // Babies are born tamed.
+    baby.is_tamed = true;
+    baby.capture_tick = tick;
+    baby.birth_tick = tick;
+    baby.grow_up_tick = tick + params_.baby_growth_ticks;
+    baby.breed_cooldown_until = 0;
+    baby.gestation_end_tick = 0;
+    baby.is_pregnant = false;
+    baby.partner_species_id = 0;
+
+    const uint64_t baby_id = baby.runtime_id;
+    creatures.push_back(std::move(baby));
+
+    if (event_bus_) {
+        event_bus_->emit(GameEvent::creature_bred(
+            baby_id, mother.species_id,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+
+        const CreatureSpeciesDef* def =
+            species_registry_.get_species(mother.species_id);
+        const std::string key = def ? def->species_key : std::string("creature");
+        event_bus_->emit(GameEvent::captive_creature_added(
+            baby_id, key, mother.species_id,
+            static_cast<uint8_t>(CreatureAgeStage::BABY),
+            true,
+            creatures.back().pos_x, creatures.back().pos_y, creatures.back().pos_z,
+            chunk.dimension_id,
+            chunk.chunk_x, chunk.chunk_y, chunk.chunk_z));
+    }
+}
+
+// ============================================================
+// Player stewardship — targeted feeding (capture / tame / breed)
+// ============================================================
+
+EcosystemSystem::FeedResult EcosystemSystem::feed_creature_at(
+    const std::string& dimension,
+    float player_x, float player_y, float player_z,
+    float look_dir_x, float look_dir_y, float look_dir_z,
+    float reach) {
+    FeedResult result;
+
+    if (!world_) return result;
+
+    // Normalize look direction.
+    float look_len = std::sqrt(look_dir_x * look_dir_x
+        + look_dir_y * look_dir_y + look_dir_z * look_dir_z);
+    if (look_len < 0.001f) return result;
+    look_dir_x /= look_len;
+    look_dir_y /= look_len;
+    look_dir_z /= look_len;
+
+    const float reach_sq = reach * reach;
+    const int64_t tick = world_->current_tick();
+
+    // We track two candidate targets:
+    //   - best_wild: a wild proxy entity (target for capture)
+    //   - best_captive: a captive creature (target for tame/breed)
+    // We pick whichever is closer to the center of the view cone.
+
+    EntityId best_wild_id;
+    float best_wild_dot = -2.0f;
+    float best_wild_dist_sq = reach_sq + 1.0f;
+    ChunkKey best_wild_chunk;
+    uint16_t best_wild_species = 0;
+    CreatureRole best_wild_role = CreatureRole::HERBIVORE;
+
+    uint64_t best_captive_id = 0;
+    float best_captive_dot = -2.0f;
+    float best_captive_dist_sq = reach_sq + 1.0f;
+    ChunkKey best_captive_chunk;
+    size_t best_captive_index = 0;
+
+    // --- Search wild proxies ---
+    auto& registry = world_->block_entity_registry();
+    for (const auto& [chunk_key, group] : active_proxies_) {
+        if (chunk_key.dimension_id != dimension) continue;
+
+        const float cx_center = (chunk_key.chunk_x + 0.5f)
+            * ChunkData::kChunkSize;
+        const float cy_center = (chunk_key.chunk_y + 0.5f)
+            * ChunkData::kChunkSize;
+        const float cz_center = (chunk_key.chunk_z + 0.5f)
+            * ChunkData::kChunkSize;
+        float cdx = cx_center - player_x;
+        float cdy = cy_center - player_y;
+        float cdz = cz_center - player_z;
+        float cdist_sq = cdx * cdx + cdy * cdy + cdz * cdz;
+        float max_chunk_dist = reach + ChunkData::kChunkSize * 1.74f;
+        if (cdist_sq > max_chunk_dist * max_chunk_dist) continue;
+
+        auto check_proxy = [&](EntityId id) {
+            const CreatureBlockEntityState* cs =
+                registry.get_creature_state(id);
+            if (!cs) return;
+
+            float dx = cs->pos_x - player_x;
+            float dy = cs->pos_y - player_y;
+            float dz = cs->pos_z - player_z;
+            float dist_sq = dx * dx + dy * dy + dz * dz;
+            if (dist_sq > reach_sq) return;
+
+            float inv_dist = 1.0f / std::sqrt(dist_sq);
+            float dot = look_dir_x * dx * inv_dist
+                      + look_dir_y * dy * inv_dist
+                      + look_dir_z * dz * inv_dist;
+            if (dot < 0.5f) return;
+
+            if (dot > best_wild_dot ||
+                (dot == best_wild_dot && dist_sq < best_wild_dist_sq)) {
+                best_wild_id = id;
+                best_wild_dot = dot;
+                best_wild_dist_sq = dist_sq;
+                best_wild_chunk = chunk_key;
+                best_wild_species = cs->species_id;
+                best_wild_role = cs->creature_role;
+            }
+        };
+
+        for (EntityId id : group.herbivore_ids) check_proxy(id);
+        for (EntityId id : group.predator_ids) check_proxy(id);
+    }
+
+    // --- Search captive creatures ---
+    for (const auto& [chunk_key, list] : captive_) {
+        if (chunk_key.dimension_id != dimension) continue;
+
+        const float cx_center = (chunk_key.chunk_x + 0.5f)
+            * ChunkData::kChunkSize;
+        const float cy_center = (chunk_key.chunk_y + 0.5f)
+            * ChunkData::kChunkSize;
+        const float cz_center = (chunk_key.chunk_z + 0.5f)
+            * ChunkData::kChunkSize;
+        float cdx = cx_center - player_x;
+        float cdy = cy_center - player_y;
+        float cdz = cz_center - player_z;
+        float cdist_sq = cdx * cdx + cdy * cdy + cdz * cdz;
+        float max_chunk_dist = reach + ChunkData::kChunkSize * 1.74f;
+        if (cdist_sq > max_chunk_dist * max_chunk_dist) continue;
+
+        for (size_t i = 0; i < list.size(); ++i) {
+            const CaptiveCreature& cc = list[i];
+            float dx = cc.pos_x - player_x;
+            float dy = cc.pos_y - player_y;
+            float dz = cc.pos_z - player_z;
+            float dist_sq = dx * dx + dy * dy + dz * dz;
+            if (dist_sq > reach_sq) continue;
+
+            float inv_dist = 1.0f / std::sqrt(dist_sq);
+            float dot = look_dir_x * dx * inv_dist
+                      + look_dir_y * dy * inv_dist
+                      + look_dir_z * dz * inv_dist;
+            if (dot < 0.5f) continue;
+
+            if (dot > best_captive_dot ||
+                (dot == best_captive_dot && dist_sq < best_captive_dist_sq)) {
+                best_captive_id = cc.runtime_id;
+                best_captive_dot = dot;
+                best_captive_dist_sq = dist_sq;
+                best_captive_chunk = chunk_key;
+                best_captive_index = i;
+            }
+        }
+    }
+
+    // No target found.
+    if (best_wild_dot < -1.0f && best_captive_dot < -1.0f) {
+        result.outcome = "miss";
+        return result;
+    }
+
+    // Decide which target to use: prefer the one closer to view center.
+    bool use_captive = best_captive_dot > best_wild_dot;
+
+    if (use_captive) {
+        // --- Feed a captive creature: tame boost or breeding ---
+        auto it = captive_.find(best_captive_chunk);
+        if (it == captive_.end()) {
+            result.outcome = "miss";
+            return result;
+        }
+        std::vector<CaptiveCreature>& list = it->second;
+        if (best_captive_index >= list.size()) {
+            result.outcome = "miss";
+            return result;
+        }
+
+        CaptiveCreature& cc = list[best_captive_index];
+        result.hit = true;
+        result.creature_id = cc.runtime_id;
+        result.species_id = cc.species_id;
+        result.chunk_key = best_captive_chunk;
+
+        if (!cc.is_tamed) {
+            // Boost taming progress.
+            cc.tame_progress = std::min(
+                1.0f, cc.tame_progress + params_.feed_tame_boost);
+            if (cc.tame_progress >= 1.0f) {
+                cc.tame_progress = 1.0f;
+                cc.is_tamed = true;
+                if (event_bus_) {
+                    event_bus_->emit(GameEvent::creature_tamed(
+                        cc.runtime_id, cc.species_id,
+                        best_captive_chunk.dimension_id,
+                        best_captive_chunk.chunk_x,
+                        best_captive_chunk.chunk_y,
+                        best_captive_chunk.chunk_z));
+                }
+            }
+            result.outcome = "taming";
+            return result;
+        }
+
+        // Tamed adult: try to start breeding.
+        if (cc.age_stage == CreatureAgeStage::ADULT &&
+            !cc.is_pregnant &&
+            tick >= cc.breed_cooldown_until) {
+            if (try_start_breeding(best_captive_chunk, list,
+                                   best_captive_index, tick)) {
+                result.outcome = "bred";
+                return result;
+            }
+        }
+
+        // Otherwise just fed.
+        result.outcome = "fed";
+        return result;
+    }
+
+    // --- Feed a wild proxy: attempt capture ---
+    result.hit = true;
+    result.creature_id = best_wild_id.id;
+    result.species_id = best_wild_species;
+    result.chunk_key = best_wild_chunk;
+
+    // Check pen capacity.
+    auto cap_it = captive_.find(best_wild_chunk);
+    int current_count = cap_it == captive_.end() ? 0
+        : static_cast<int>(cap_it->second.size());
+    if (current_count >= params_.max_captive_per_chunk) {
+        result.outcome = "pen_full";
+        return result;
+    }
+
+    // Get the proxy position to seed the enclosure flood-fill.
+    const CreatureBlockEntityState* cs =
+        registry.get_creature_state(best_wild_id);
+    if (!cs) {
+        result.outcome = "miss";
+        return result;
+    }
+
+    int32_t start_x = static_cast<int32_t>(std::floor(cs->pos_x));
+    int32_t start_y = static_cast<int32_t>(std::floor(cs->pos_y));
+    int32_t start_z = static_cast<int32_t>(std::floor(cs->pos_z));
+
+    int32_t bmin_x, bmin_y, bmin_z, bmax_x, bmax_y, bmax_z;
+    if (!detect_enclosure(dimension, start_x, start_y, start_z,
+                          bmin_x, bmin_y, bmin_z,
+                          bmax_x, bmax_y, bmax_z)) {
+        result.outcome = "no_enclosure";
+        return result;
+    }
+
+    // Capture the wild creature.
+    uint64_t new_id = capture_wild_creature(
+        best_wild_id, best_wild_chunk,
+        bmin_x, bmin_y, bmin_z,
+        bmax_x, bmax_y, bmax_z,
+        tick);
+    if (new_id == 0) {
+        result.outcome = "miss";
+        return result;
+    }
+
+    result.creature_id = new_id;
+    result.outcome = "captured";
+    return result;
+}
+
+size_t EcosystemSystem::total_captive_count() const {
+    size_t count = 0;
+    for (const auto& [_, list] : captive_) {
+        count += list.size();
+    }
+    return count;
+}
+
+std::vector<EcosystemSystem::CaptiveInfo> EcosystemSystem::get_captive_data(
+    const ChunkKey& key) const {
+    std::vector<CaptiveInfo> out;
+    auto it = captive_.find(key);
+    if (it == captive_.end()) return out;
+
+    out.reserve(it->second.size());
+    for (const CaptiveCreature& cc : it->second) {
+        CaptiveInfo info;
+        info.runtime_id = cc.runtime_id;
+        info.species_id = cc.species_id;
+        info.age_stage = static_cast<uint8_t>(cc.age_stage);
+        info.is_tamed = cc.is_tamed;
+        info.is_pregnant = cc.is_pregnant;
+        info.pos_x = cc.pos_x;
+        info.pos_y = cc.pos_y;
+        info.pos_z = cc.pos_z;
+        out.push_back(info);
+    }
+    return out;
+}
+
 } // namespace science_and_theology

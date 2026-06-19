@@ -124,7 +124,7 @@ public:
 
 private:
     using NodeMap = std::unordered_map<PowerNodeId, PowerNode>;
-    using PositionIndex = std::unordered_map<int64_t, PowerNodeId>;
+    using PositionIndex = std::unordered_map<MapPosition, PowerNodeId>;
     using EdgeIterator = std::list<PowerEdge>::iterator;
     using AdjacencyList = std::unordered_map<PowerNodeId,
                                               std::vector<EdgeIterator>>;
@@ -143,9 +143,6 @@ private:
     // list iterators are stable on push_back/erase of other elements.
     static PowerEdge* edge_ptr(EdgeIterator it) { return &(*it); }
     static const PowerEdge* edge_cptr(EdgeIterator it) { return &(*it); }
-
-    // Converts MapPosition to a hashable key for the position index.
-    static int64_t make_position_key(MapPosition pos);
 
     // Adds to the adjacency list.
     void add_adjacency(PowerNodeId node_id, EdgeIterator edge_it);

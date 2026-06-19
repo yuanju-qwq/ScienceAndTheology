@@ -67,6 +67,12 @@ target_sources(snt_core PRIVATE
     world/block_entity_registry.cpp
 )
 
+# Multiblock pattern system (GT-style controller formation, V28)
+target_sources(snt_core PRIVATE
+    multiblock/multiblock_pattern.hpp
+    multiblock/multiblock_pattern.cpp
+)
+
 # World generation system
 target_sources(snt_core PRIVATE
     world_gen/world_seed.hpp
@@ -77,6 +83,7 @@ target_sources(snt_core PRIVATE
     world_gen/terrain_generator.hpp
     world_gen/terrain_generator.cpp
     world_gen/tree_species_def.hpp
+    world_gen/crop_species_def.hpp
 )
 
 # Simulation system (tick orchestration, event bus, state sync)
@@ -94,6 +101,8 @@ target_sources(snt_core PRIVATE
     simulation/block_physics_system.cpp
     simulation/tree_growth_system.hpp
     simulation/tree_growth_system.cpp
+    simulation/crop_growth_system.hpp
+    simulation/crop_growth_system.cpp
     simulation/population_cell.hpp
     simulation/ecosystem_params.hpp
     simulation/ecosystem_system.hpp

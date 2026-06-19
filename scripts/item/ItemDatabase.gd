@@ -83,6 +83,8 @@ const ITEM_FURNACE     = K_NON_MAT_BASE + 53
 const ITEM_LADDER      = K_NON_MAT_BASE + 54
 # Space station blueprint item.
 const ITEM_STATION_BLUEPRINT = K_NON_MAT_BASE + 55
+# Fence block for captive creature husbandry (enclosures).
+const ITEM_FENCE       = K_NON_MAT_BASE + 56
 
 # Tree species items: log, plank, sapling, fruit per species.
 # These are non-material items with unique colors per species.
@@ -131,6 +133,25 @@ const ITEM_BLUEPRINT_SHARD         = K_NON_MAT_BASE + 111
 const ITEM_ABERRANT_ORGAN          = K_NON_MAT_BASE + 112
 const ITEM_POLLUTED_SOURCE_ESSENCE = K_NON_MAT_BASE + 113
 
+# Crop items (Tier 1 planting system): seeds, crops, and processed products.
+const ITEM_WHEAT_SEED    = K_NON_MAT_BASE + 120
+const ITEM_WHEAT_CROP    = K_NON_MAT_BASE + 121
+const ITEM_CARROT_SEED   = K_NON_MAT_BASE + 122
+const ITEM_CARROT_CROP   = K_NON_MAT_BASE + 123
+const ITEM_POTATO_SEED   = K_NON_MAT_BASE + 124
+const ITEM_POTATO_CROP   = K_NON_MAT_BASE + 125
+const ITEM_COTTON_SEED   = K_NON_MAT_BASE + 126
+const ITEM_COTTON_CROP   = K_NON_MAT_BASE + 127
+const ITEM_HERB_SEED     = K_NON_MAT_BASE + 128
+const ITEM_HERB_CROP     = K_NON_MAT_BASE + 129
+const ITEM_PUMPKIN_SEED  = K_NON_MAT_BASE + 130
+const ITEM_PUMPKIN_CROP  = K_NON_MAT_BASE + 131
+const ITEM_BONE_MEAL     = K_NON_MAT_BASE + 132
+const ITEM_FLOUR         = K_NON_MAT_BASE + 133
+const ITEM_BREAD         = K_NON_MAT_BASE + 134
+const ITEM_COTTON_FIBER  = K_NON_MAT_BASE + 135
+const ITEM_CLOTH         = K_NON_MAT_BASE + 136
+
 static func mat_item(mat_id: int, form: int) -> int:
 	return K_MAT_ITEM_BASE + mat_id * K_FORM_COUNT + form
 
@@ -167,6 +188,7 @@ func _ready() -> void:
 	_register_survival_items()
 	_register_tree_species_items()
 	_register_source_law_drops()
+	_register_crop_items()
 	_register_non_material_keys()
 	_register_material_item_keys()
 
@@ -385,6 +407,8 @@ func _register_survival_items() -> void:
 			64, null, "placeables/stone_furnace_icon_32.png")
 	_register(ITEM_LADDER, "ladder", Color(0.55, 0.30, 0.15),
 			64, null, "placeables/ladder_icon_32.png")
+	_register(ITEM_FENCE, "fence", Color(0.50, 0.32, 0.16),
+			64, null, "")
 	_register(ITEM_STATION_BLUEPRINT, "station_blueprint", Color(0.20, 0.50, 0.80),
 			1, null, "")
 
@@ -471,6 +495,42 @@ func _register_source_law_drops() -> void:
 	_register_drop.call(ITEM_POLLUTED_SOURCE_ESSENCE, "snt:polluted_source_essence", "snt:polluted_source_essence", Color(0.40, 0.15, 0.35))
 
 
+# --- Crop items (Tier 1 planting system) ---
+
+func _register_crop_items() -> void:
+	# Helper to register a crop item and map its item_key.
+	var _register_crop := func(item_id: int, item_key: String, title_key: String, color: Color, max_stack: int = 64) -> void:
+		_register(item_id, title_key, color, max_stack)
+		_key_to_id[item_key] = item_id
+		_id_to_key[item_id] = item_key
+
+	# Wheat: seed + crop.
+	_register_crop.call(ITEM_WHEAT_SEED, "seed.wheat", "item.wheat_seed", Color(0.75, 0.65, 0.20))
+	_register_crop.call(ITEM_WHEAT_CROP, "crop.wheat", "item.wheat_crop", Color(0.85, 0.75, 0.25))
+	# Carrot: seed + crop.
+	_register_crop.call(ITEM_CARROT_SEED, "seed.carrot", "item.carrot_seed", Color(0.55, 0.35, 0.10))
+	_register_crop.call(ITEM_CARROT_CROP, "crop.carrot", "item.carrot_crop", Color(0.75, 0.45, 0.15))
+	# Potato: seed + crop.
+	_register_crop.call(ITEM_POTATO_SEED, "seed.potato", "item.potato_seed", Color(0.45, 0.35, 0.15))
+	_register_crop.call(ITEM_POTATO_CROP, "crop.potato", "item.potato_crop", Color(0.55, 0.45, 0.20))
+	# Cotton: seed + crop.
+	_register_crop.call(ITEM_COTTON_SEED, "seed.cotton", "item.cotton_seed", Color(0.60, 0.55, 0.30))
+	_register_crop.call(ITEM_COTTON_CROP, "crop.cotton", "item.cotton_crop", Color(0.92, 0.90, 0.85))
+	# Herb: seed + crop.
+	_register_crop.call(ITEM_HERB_SEED, "seed.herb", "item.herb_seed", Color(0.30, 0.50, 0.20))
+	_register_crop.call(ITEM_HERB_CROP, "crop.herb", "item.herb_crop", Color(0.40, 0.55, 0.25))
+	# Pumpkin: seed + crop.
+	_register_crop.call(ITEM_PUMPKIN_SEED, "seed.pumpkin", "item.pumpkin_seed", Color(0.70, 0.45, 0.10))
+	_register_crop.call(ITEM_PUMPKIN_CROP, "crop.pumpkin", "item.pumpkin_crop", Color(0.90, 0.55, 0.15))
+	# Bone meal: fertilizer (accelerates crop growth by 1 stage).
+	_register_crop.call(ITEM_BONE_MEAL, "bone_meal", "item.bone_meal", Color(0.92, 0.92, 0.88))
+	# Processed products.
+	_register_crop.call(ITEM_FLOUR, "flour", "item.flour", Color(0.95, 0.93, 0.85))
+	_register_crop.call(ITEM_BREAD, "bread", "item.bread", Color(0.80, 0.60, 0.30))
+	_register_crop.call(ITEM_COTTON_FIBER, "fiber.cotton", "item.cotton_fiber", Color(0.90, 0.88, 0.82))
+	_register_crop.call(ITEM_CLOTH, "cloth", "item.cloth", Color(0.75, 0.70, 0.65))
+
+
 # Register reverse mappings for non-material items (tools, components, etc.)
 # Keys mirror the C++ kNonMaterialItemKeys array in tool_items.hpp.
 func _register_non_material_keys() -> void:
@@ -518,6 +578,7 @@ func _register_non_material_keys() -> void:
 		ITEM_WORKBENCH: "workbench",
 		ITEM_FURNACE: "stone_furnace",
 		ITEM_LADDER: "ladder",
+		ITEM_FENCE: "fence",
 		ITEM_OAK_LOG: "log.oak",
 		ITEM_OAK_PLANK: "plank.oak",
 		ITEM_OAK_SAPLING: "sapling.oak",

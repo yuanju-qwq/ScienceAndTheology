@@ -7,25 +7,17 @@
 
 namespace science_and_theology::gt {
 
-// --- Position key ---
-
-int64_t PowerNetwork::make_position_key(MapPosition pos) {
-    return (static_cast<int64_t>(pos.x) << 32) |
-           (static_cast<int64_t>(pos.y) & 0xFFFFFFFFLL);
-}
-
 // --- Node lifecycle ---
 
 PowerNodeId PowerNetwork::add_node(VoltageTier tier, MapPosition position) {
-    int64_t pos_key = make_position_key(position);
-    if (position_index_.count(pos_key) > 0) {
+    if (position_index_.count(position) > 0) {
         return kInvalidNodeId;
     }
 
     PowerNodeId node_id = next_id_++;
     PowerNode node(node_id, tier, position);
     nodes_[node_id] = node;
-    position_index_[pos_key] = node_id;
+    position_index_[position] = node_id;
     return node_id;
 }
 
@@ -51,8 +43,7 @@ bool PowerNetwork::remove_node(PowerNodeId node_id) {
         disconnect(node_id, other);
     }
 
-    int64_t pos_key = make_position_key(node_it->second.position);
-    position_index_.erase(pos_key);
+    position_index_.erase(node_it->second.position);
 
     nodes_.erase(node_it);
     adjacency_.erase(node_id);
@@ -71,8 +62,7 @@ const PowerNode* PowerNetwork::get_node(PowerNodeId node_id) const {
 }
 
 PowerNodeId PowerNetwork::get_node_at(MapPosition position) const {
-    int64_t pos_key = make_position_key(position);
-    auto it = position_index_.find(pos_key);
+    auto it = position_index_.find(position);
     return (it != position_index_.end()) ? it->second : kInvalidNodeId;
 }
 
@@ -97,8 +87,8 @@ bool PowerNetwork::connect(PowerNodeId node_a, PowerNodeId node_b,
     }
 
     int64_t distance = manhattan_distance(
-        node_a_ptr->position.x, node_a_ptr->position.y,
-        node_b_ptr->position.x, node_b_ptr->position.y);
+        node_a_ptr->position.x, node_a_ptr->position.y, node_a_ptr->position.z,
+        node_b_ptr->position.x, node_b_ptr->position.y, node_b_ptr->position.z);
 
     edges_.emplace_back(node_a, node_b, cable, distance);
     auto edge_it = std::prev(edges_.end());

@@ -46,6 +46,7 @@ enum StationType {
 @export var station_type: StationType = StationType.OUTPOST
 
 # Per-station seed for deterministic generation (if needed).
+@warning_ignore("shadowing")
 @export var seed: int = 0
 
 # Gravity multiplier inside the station.
@@ -134,7 +135,9 @@ func initial_core_size() -> Vector3i:
 # Called once when the station is created.
 func initialize_core_chunks() -> void:
 	var size := initial_core_size()
+	@warning_ignore("integer_division")
 	var half_x := size.x / 2
+	@warning_ignore("integer_division")
 	var half_z := size.z / 2
 	for cx in range(-half_x, -half_x + size.x):
 		for cy in range(0, size.y):
@@ -195,21 +198,21 @@ func to_dict() -> Dictionary:
 # Create from a Dictionary (loaded from save metadata).
 static func from_dict(data: Dictionary) -> StationDescriptor:
 	var station := StationDescriptor.new()
-	station.dimension_id = StringName(data.get("dimension_id", "station_0"))
+	station.dimension_id = StringName(data.get("dimension_id", "station_0") as String)
 	station.display_name = data.get("display_name", "Space Station")
 	var pos: Array = data.get("universe_position", [0.0, 0.0, 0.0])
 	station.universe_position = Vector3(
-		pos[0] if pos.size() > 0 else 0.0,
-		pos[1] if pos.size() > 1 else 0.0,
-		pos[2] if pos.size() > 2 else 0.0)
-	station.parent_planet_id = StringName(data.get("parent_planet_id", "overworld"))
+		float(pos[0]) if pos.size() > 0 else 0.0,
+		float(pos[1]) if pos.size() > 1 else 0.0,
+		float(pos[2]) if pos.size() > 2 else 0.0)
+	station.parent_planet_id = StringName(data.get("parent_planet_id", "overworld") as String)
 	station.orbit_height = data.get("orbit_height", 2000.0)
-	station.station_type = data.get("station_type", 0) as StationType
+	station.station_type = int(data.get("station_type", 0)) as StationType
 	station.seed = data.get("seed", 0)
 	station.gravity_multiplier = data.get("gravity_multiplier", 1.0)
 	station.atmosphere_type = data.get("atmosphere_type", 2)
 	station.occupied_chunk_keys = data.get("occupied_chunk_keys", PackedStringArray())
-	station.system_id = StringName(data.get("system_id", ""))
+	station.system_id = StringName(data.get("system_id", "") as String)
 	station.rebuild_occupied_cache()
 	return station
 

@@ -134,6 +134,7 @@ func _crafting_recipes() -> Array:
 	_add_circuit_recipes(recipes)
 	_add_machine_recipes(recipes)
 	_add_misc_recipes(recipes)
+	_add_crop_recipes(recipes)
 	return recipes
 
 func _add_material_compression_recipes(recipes: Array) -> void:
@@ -415,6 +416,29 @@ func _add_misc_recipes(recipes: Array) -> void:
 				_item_key(plank_key, 4),
 				"saw"))
 
+# Crop processing recipes (Tier 1 planting system).
+# Wheat → flour (hand + hammer), cotton → fiber → cloth (workbench).
+func _add_crop_recipes(recipes: Array) -> void:
+	# Mill wheat into flour (hand recipe, requires hammer).
+	_add_recipe_if_valid(recipes, _hand(
+			"mill_wheat_to_flour",
+			"crops",
+			[_item_key("crop.wheat", 1)],
+			_item_key("flour", 1),
+			"hammer"))
+	# Spin cotton into fiber (workbench).
+	_add_recipe_if_valid(recipes, _bench(
+			"spin_cotton_to_fiber",
+			"crops",
+			[_item_key("crop.cotton", 3)],
+			_item_key("fiber.cotton", 1)))
+	# Weave fiber into cloth (workbench).
+	_add_recipe_if_valid(recipes, _bench(
+			"weave_fiber_to_cloth",
+			"crops",
+			[_item_key("fiber.cotton", 2)],
+			_item_key("cloth", 1)))
+
 func _processing_recipes() -> Array:
 	# Processing recipe maps include fuel executors and electric machines.
 	# The furnace map is fuel-fired; electric machines consume EU separately.
@@ -458,5 +482,16 @@ func _processing_recipes() -> Array:
 			"duration_ticks": 100,
 			"inputs": [_mat("crushed", "iron", 1)],
 			"outputs": [_mat("dust", "iron", 2)],
+		},
+		# Bake flour into bread (furnace, Tier 1 planting system).
+		{
+			"name": "bake_flour_to_bread",
+			"machine_type": "furnace",
+			"category": "food",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 80,
+			"inputs": [_item_key("flour", 1)],
+			"outputs": [_item_key("bread", 1)],
 		},
 	]

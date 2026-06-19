@@ -162,8 +162,6 @@ private:
     static FluidEdge* edge_ptr(EdgeIterator it) { return &(*it); }
     static const FluidEdge* edge_cptr(EdgeIterator it) { return &(*it); }
 
-    static int64_t make_position_key(MapPosition pos);
-
     void add_adjacency(FluidNodeId node_id, EdgeIterator edge_it);
     void remove_adjacency(FluidNodeId node_id, EdgeIterator edge_it);
 
@@ -179,7 +177,7 @@ private:
     FluidNodeId next_id_ = 1;
     NodeMap nodes_;
     EdgeList edges_;
-    std::unordered_map<int64_t, FluidNodeId> position_index_;
+    std::unordered_map<MapPosition, FluidNodeId> position_index_;
     AdjacencyList adjacency_;
     std::unordered_map<FluidNodeId, int> component_index_;
 };

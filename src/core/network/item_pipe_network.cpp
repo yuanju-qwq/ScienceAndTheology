@@ -6,18 +6,10 @@
 
 namespace science_and_theology::gt {
 
-// --- Position key ---
-
-int64_t ItemPipeNetwork::make_position_key(MapPosition pos) {
-    return (static_cast<int64_t>(pos.x) << 32) |
-           (static_cast<int64_t>(pos.y) & 0xFFFFFFFFLL);
-}
-
 // --- Node lifecycle ---
 
 ItemPipeNodeId ItemPipeNetwork::add_node(MapPosition position) {
-    int64_t pos_key = make_position_key(position);
-    if (position_index_.count(pos_key) > 0) {
+    if (position_index_.count(position) > 0) {
         return kInvalidItemPipeNodeId;
     }
 
@@ -26,7 +18,7 @@ ItemPipeNodeId ItemPipeNetwork::add_node(MapPosition position) {
     node.id = node_id;
     node.position = position;
     nodes_[node_id] = node;
-    position_index_[pos_key] = node_id;
+    position_index_[position] = node_id;
     return node_id;
 }
 
@@ -49,8 +41,7 @@ bool ItemPipeNetwork::remove_node(ItemPipeNodeId node_id) {
         disconnect(node_id, other);
     }
 
-    int64_t pos_key = make_position_key(node_it->second.position);
-    position_index_.erase(pos_key);
+    position_index_.erase(node_it->second.position);
     nodes_.erase(node_it);
     adjacency_.erase(node_id);
 
@@ -89,8 +80,8 @@ bool ItemPipeNetwork::connect(ItemPipeNodeId a, ItemPipeNodeId b,
     }
 
     int64_t distance = manhattan_distance(
-        node_a->position.x, node_a->position.y,
-        node_b->position.x, node_b->position.y);
+        node_a->position.x, node_a->position.y, node_a->position.z,
+        node_b->position.x, node_b->position.y, node_b->position.z);
 
     edges_.emplace_back();
     ItemPipeEdge& edge = edges_.back();

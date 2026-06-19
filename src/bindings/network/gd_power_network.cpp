@@ -311,7 +311,8 @@ godot::String GDPowerNetwork::get_tier_name(int tier) {
 }
 
 int64_t GDPowerNetwork::manhattan_dist(godot::Vector2i a, godot::Vector2i b) {
-    return manhattan_distance(a.x, a.y, b.x, b.y);
+    // Bindings still use 2D; z=0 until v28-5 migrates to Vector3i.
+    return manhattan_distance(a.x, a.y, 0, b.x, b.y, 0);
 }
 
 int64_t GDPowerNetwork::get_transformer_loss_per_step() {
