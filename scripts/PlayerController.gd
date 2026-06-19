@@ -13,6 +13,7 @@ signal inventory_changed
 
 const MOUSE_SENSITIVITY := 0.0025
 const GRAVITY_STRENGTH := 22.0
+const LoadingOverlayScript := preload("res://scripts/ui/LoadingOverlay.gd")
 const JUMP_VELOCITY := 7.0
 const CLIMB_SPEED := 3.0
 const OVERWORLD: StringName = &"overworld"
@@ -110,7 +111,7 @@ var _spawn_debug_time := 0.0
 # while chunk *data* is ready but the *collider* is still queued.
 var _spawn_freeze := true
 var _spawn_freeze_logged := false
-var _loading_overlay: LoadingOverlay
+var _loading_overlay: Control
 var target := {}
 var _is_climbing := false
 var gravity_direction := Vector3.DOWN
@@ -176,7 +177,7 @@ func _create_loading_overlay() -> void:
 		for cx in range(-radius, radius + 1):
 			initial_chunks.append(Vector3i(cx, 0, cz))
 
-	_loading_overlay = LoadingOverlay.new()
+	_loading_overlay = LoadingOverlayScript.new()
 	_loading_overlay.setup(world, initial_chunks)
 	var ui_layer := get_node_or_null(^"../UI")
 	if ui_layer != null:

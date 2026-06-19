@@ -459,10 +459,12 @@ func _process_visible_queue() -> void:
 func _create_chunk_view(chunk: Vector3i) -> void:
 	var terrain := world_data.get_chunk_terrain(active_dimension, chunk.x, chunk.y, chunk.z)
 	if terrain.is_empty():
+		print("[ChunkBridge] _create_chunk_view %s: terrain empty, skipping" % chunk)
 		return
 
 	var materials: PackedByteArray = terrain.get("materials", PackedByteArray())
 	if materials.is_empty():
+		print("[ChunkBridge] _create_chunk_view %s: materials empty, skipping" % chunk)
 		return
 
 	var size_x := int(terrain.get("size_x", CHUNK_SIZE))
@@ -521,6 +523,7 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 		"full": full_node,
 		"simplified": simplified_node,
 	}
+	print("[ChunkBridge] chunk view created: %s (visible count=%d)" % [chunk, _visible_chunks.size()])
 
 
 # Create a MeshInstance3D from greedy mesh data for a single material.
