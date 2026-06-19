@@ -150,6 +150,18 @@ var floating_origin: FloatingOrigin = null
 var _is_traveling := false
 
 
+func get_station_counter() -> int:
+	return station_counter
+
+
+func set_station_counter(value: int) -> void:
+	station_counter = value
+
+
+func get_quest_system() -> GDQuestSystem:
+	return quest_system
+
+
 func _ready() -> void:
 	_apply_game_session_overrides()
 	_generate_universe()
@@ -237,7 +249,9 @@ func _generate_universe() -> void:
 				_grid, Vector3.ZERO, system_stream_radius)
 			systems = sys_array
 		_:
-			push_warning("UniverseManager: unknown mode '%s', falling back to solar_system" % universe_mode)
+			push_warning(
+					"UniverseManager: unknown mode '%s', falling back to solar_system"
+					% universe_mode)
 			var sys := SolarSystemPreset.create_placeholder(universe_seed)
 			systems.append(sys)
 
@@ -299,7 +313,10 @@ func _update_system_streaming() -> void:
 
 	# 使用 FloatingOrigin 的 double 精度宇宙坐标计算距离，
 	# 避免大尺度下 float 精度损失导致系统流式加载错误。
-	var player_upos: Vector3 = floating_origin.get_universe_position() if floating_origin != null else _player.global_position
+	var player_upos: Vector3 = (
+			floating_origin.get_universe_position()
+			if floating_origin != null
+			else _player.global_position)
 
 	# Generate new placeholders around the player.
 	var cells := _grid.get_cells_around(player_upos, system_stream_radius)
@@ -321,7 +338,12 @@ func _update_system_streaming() -> void:
 		var sys := systems[i]
 		if sys.is_realized():
 			continue
-		var dist: float = floating_origin.distance_to_player_vec3(sys.universe_position) if floating_origin != null else player_upos.distance_to(sys.universe_position)
+		var dist: float = (
+				floating_origin.distance_to_player_vec3(
+						sys.universe_position)
+				if floating_origin != null
+				else player_upos.distance_to(
+						sys.universe_position))
 		if dist > system_stream_radius * 1.2:
 			to_remove.append(i)
 
@@ -428,7 +450,9 @@ func _create_star_lod(planet: PlanetDescriptor) -> void:
 func _set_initial_active_planet() -> void:
 	if _player == null:
 		active_planet = _find_first_landable_planet()
-		print("[UniverseManager] _set_initial_active_planet: no player, active_planet=%s" % [active_planet.display_name if active_planet else "null"])
+		print("[UniverseManager] _set_initial_active_planet: "
+				+ "no player, active_planet=%s"
+				% [active_planet.display_name if active_planet else "null"])
 		return
 
 	# Choose a spawn planet: prefer breathable atmosphere (e.g., Earth).
@@ -440,13 +464,22 @@ func _set_initial_active_planet() -> void:
 		# highest possible terrain (terrain_height_scale) to avoid clipping.
 		var spawn_y := spawn_planet.terrain_height_scale + 4.0
 		_player.global_position = Vector3(0.5, spawn_y, 0.5)
-		print("[UniverseManager] _set_initial_active_planet: spawn_planet=%s radius=%.1f local_center=%s spawn_pos=%s" % [spawn_planet.display_name, spawn_planet.planet_radius, spawn_planet.local_center, _player.global_position])
+		print("[UniverseManager] _set_initial_active_planet: "
+				+ "spawn_planet=%s radius=%.1f local_center=%s spawn_pos=%s"
+				% [spawn_planet.display_name, spawn_planet.planet_radius,
+						spawn_planet.local_center, _player.global_position])
 		_set_active_planet(spawn_planet)
-		print("[UniverseManager] _set_initial_active_planet: after set_active, active_planet=%s bridge_initialized=%s" % [active_planet.display_name if active_planet else "null", _bridge_initialized])
+		print("[UniverseManager] _set_initial_active_planet: "
+				+ "after set_active, active_planet=%s bridge_initialized=%s"
+				% [active_planet.display_name if active_planet else "null",
+						_bridge_initialized])
 		return
 
 	var nearest := find_nearest_planet(_player.global_position)
-	print("[UniverseManager] _set_initial_active_planet: no spawn_planet, nearest=%s player_pos=%s" % [nearest.display_name if nearest else "null", _player.global_position])
+	print("[UniverseManager] _set_initial_active_planet: "
+			+ "no spawn_planet, nearest=%s player_pos=%s"
+			% [nearest.display_name if nearest else "null",
+					_player.global_position])
 	if nearest != null:
 		_set_active_planet(nearest)
 
@@ -555,7 +588,8 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 
 # 更新所有 LOD 管理器的场景中心。
 # 活跃星球：planet_center = local_center（局部体素坐标）。
-# 远景星球：distant_scene_center = (distant.universe_position - active.universe_position) + active.local_center。
+# 远景星球：distant_scene_center =
+# (distant.universe_position - active.universe_position) + active.local_center。
 # 这样玩家（在活跃星球局部坐标系中）与所有星球之间的相对距离正确。
 func _update_all_lod_centers() -> void:
 	if active_planet == null:
@@ -806,17 +840,23 @@ func travel_to_planet(planet: PlanetDescriptor, spawn_offset_y: float = 4.0) -> 
 		push_warning("UniverseManager: travel_to_planet — planet is null")
 		return false
 	if planet.is_star:
-		push_warning("UniverseManager: travel_to_planet — cannot travel to a star (%s)" % planet.display_name)
+		push_warning(
+				"UniverseManager: travel_to_planet — cannot travel to a star (%s)"
+				% planet.display_name)
 		return false
 
 	# 确保目标星球所在的星系已实现。
 	var sys := get_system_for_planet(planet.dimension_id)
 	if sys == null or not sys.is_realized():
-		push_warning("UniverseManager: travel_to_planet — system not realized for %s" % planet.display_name)
+		push_warning(
+				"UniverseManager: travel_to_planet — system not realized for %s"
+				% planet.display_name)
 		return false
 
-	print("[UniverseManager] travel_to_planet: %s (dim=%s, universe_pos=%s, radius=%.1f)" % [
-		planet.display_name, String(planet.dimension_id), planet.universe_position, planet.planet_radius])
+	print("[UniverseManager] travel_to_planet: %s "
+			+ "(dim=%s, universe_pos=%s, radius=%.1f)" % [
+					planet.display_name, String(planet.dimension_id),
+					planet.universe_position, planet.planet_radius])
 
 	_is_traveling = true
 
@@ -832,7 +872,8 @@ func travel_to_planet(planet: PlanetDescriptor, spawn_offset_y: float = 4.0) -> 
 		# 重置玩家速度，避免残留的飞行惯性。
 		if _player is CharacterBody3D:
 			(_player as CharacterBody3D).velocity = Vector3.ZERO
-		print("[UniverseManager] travel_to_planet: player repositioned to %s" % _player.global_position)
+		print("[UniverseManager] travel_to_planet: "
+				+ "player repositioned to %s" % _player.global_position)
 
 	# 更新玩家宇宙坐标。
 	_update_player_universe_position()
@@ -978,7 +1019,10 @@ func compute_gravity_direction(pos: Vector3) -> Vector3:
 				continue
 
 			# 重力方向：从玩家场景位置指向星球场景位置。
-			var body_scene := floating_origin.universe_to_render_vec3(body.universe_position) + active_lc
+			var body_scene := (
+					floating_origin.universe_to_render_vec3(
+							body.universe_position)
+					+ active_lc)
 			var dir := (body_scene - pos).normalized()
 			var t := 1.0 - (dist / gravity_radius)
 			var influence := body.gravity_multiplier * t * t
@@ -1191,10 +1235,13 @@ func _maybe_debug_log(delta: float) -> void:
 	var loaded_station_count := _loaded_stations.size()
 	var sim_count := _virtual_sim.get_simulated_dimensions().size() if _virtual_sim else 0
 	var realized_count := get_realized_system_count()
-	print("UniverseManager: mode=%s seed=%d systems=%d realized=%d planets=%d stations=%d active=%s active_station=%s loaded=%d loaded_stations=%d simulating=%d pos=%s" % [
-		universe_mode, universe_seed, systems.size(), realized_count,
-		all_planets.size(), stations.size(), active_name, station_name,
-		loaded_count, loaded_station_count, sim_count, str(player_pos)])
+	print("UniverseManager: mode=%s seed=%d systems=%d realized=%d "
+			+ "planets=%d stations=%d active=%s active_station=%s "
+			+ "loaded=%d loaded_stations=%d simulating=%d pos=%s" % [
+					universe_mode, universe_seed, systems.size(),
+					realized_count, all_planets.size(), stations.size(),
+					active_name, station_name, loaded_count,
+					loaded_station_count, sim_count, str(player_pos)])
 
 
 # --- Internal helpers ---
@@ -1242,7 +1289,9 @@ func create_station(
 	# Compute universe position: above the planet at orbit_height.
 	# Direction: use the planet's "up" (positive Y in universe space).
 	var orbit_dir := Vector3.UP
-	station.universe_position = parent_planet.universe_position + orbit_dir * (parent_planet.planet_radius + orbit_height)
+	station.universe_position = (
+			parent_planet.universe_position
+			+ orbit_dir * (parent_planet.planet_radius + orbit_height))
 
 	# Mark the initial core chunks as occupied.
 	station.initialize_core_chunks()

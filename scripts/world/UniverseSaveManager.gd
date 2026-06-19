@@ -264,7 +264,7 @@ func _save_universe_meta(save_dir: String) -> void:
 		"systems": [],
 		"planets": [],
 		"stations": [],
-		"station_counter": _universe_manager.station_counter,
+		"station_counter": _universe_manager.get_station_counter(),
 	}
 
 	# Save system-level data (only realized systems in full detail).
@@ -358,8 +358,8 @@ func _load_universe_meta(save_dir: String) -> void:
 	for sd in stations_data:
 		var station := StationDescriptor.from_dict(sd)
 		_universe_manager.stations.append(station)
-	_universe_manager.station_counter = int(meta.get("station_counter",
-		_universe_manager.stations.size()))
+	_universe_manager.set_station_counter(int(meta.get("station_counter",
+		_universe_manager.stations.size())))
 
 
 # --- Utility ---
@@ -391,7 +391,7 @@ func delete_planet_save(save_dir: String, dimension_id: StringName) -> bool:
 # Save quest progress to the save directory.
 # Quest data is stored at {save_dir}/quest_progress.bin.
 func _save_quest_progress(save_dir: String) -> void:
-	var quest_sys := _universe_manager.quest_system if _universe_manager else null
+	var quest_sys := _universe_manager.get_quest_system() if _universe_manager else null
 	if quest_sys == null:
 		return
 
@@ -410,7 +410,7 @@ func _save_quest_progress(save_dir: String) -> void:
 
 # Load quest progress from the save directory.
 func _load_quest_progress(save_dir: String) -> void:
-	var quest_sys := _universe_manager.quest_system if _universe_manager else null
+	var quest_sys := _universe_manager.get_quest_system() if _universe_manager else null
 	if quest_sys == null:
 		return
 

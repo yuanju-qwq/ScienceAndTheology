@@ -222,7 +222,8 @@ static func _planet_from_dict(data: Dictionary) -> PlanetDescriptor:
 	desc.star_color = Color(float(sc[0]), float(sc[1]), float(sc[2]))
 	desc.star_light_energy = data.get("star_light_energy", 2.2)
 	var ac: Array = data.get("atmosphere_color", [0.3, 0.6, 1.0, 1.0])
-	desc.atmosphere_color = Color(float(ac[0]), float(ac[1]), float(ac[2]), float(ac[3]) if ac.size() > 3 else 1.0)
+	desc.atmosphere_color = Color(float(ac[0]), float(ac[1]), 
+		float(ac[2]), float(ac[3]) if ac.size() > 3 else 1.0)
 	desc.atmosphere_scale = data.get("atmosphere_scale", 1.08)
 	desc.atmosphere_power = data.get("atmosphere_power", 3.5)
 	desc.atmosphere_intensity = data.get("atmosphere_intensity", 1.2)
