@@ -209,3 +209,16 @@ target_sources(snt_core PRIVATE
     universe/universe_world_core.hpp
     universe/universe_world_core.cpp
 )
+
+# Universe streaming (U2: Sector-aware chunk streaming, sparse chunks, entity migration, floating origin)
+# Design: docs/unified_universe_world_design.md sections 3.2, 8.2, 10, 17, 21.2 (U2)
+target_sources(snt_core PRIVATE
+    universe/chunk_streaming_system.hpp
+    universe/chunk_streaming_system.cpp
+    universe/sparse_chunk_policy.hpp
+    universe/sparse_chunk_policy.cpp
+    universe/entity_sector_tracker.hpp
+    universe/entity_sector_tracker.cpp
+    universe/floating_origin_core.hpp
+    universe/floating_origin_core.cpp
+)

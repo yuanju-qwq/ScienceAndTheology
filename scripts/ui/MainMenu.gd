@@ -112,7 +112,7 @@ func _load_world_meta(path: String, folder_name: String) -> Dictionary:
 		"folder": folder_name,
 		"date": str(data.get("created_at", "")),
 		"universe_mode": str(data.get("universe_mode", "solar_system")),
-		"universe_seed": int(data.get("universe_seed", 0)),
+		"universe_seed": int(data.get("universe_seed", 0) as int),
 	}
 
 
@@ -154,7 +154,7 @@ func _load_world(entry: Dictionary) -> void:
 	GameSession.world_name = str(entry.get("name", ""))
 	GameSession.save_path = SAVE_ROOT + str(entry.get("folder", "")) + "/"
 	GameSession.universe_mode = str(entry.get("universe_mode", "solar_system"))
-	GameSession.universe_seed = int(entry.get("universe_seed", 0))
+	GameSession.universe_seed = int(entry.get("universe_seed", 0) as int)
 
 
 # ── Scene transition ──────────────────────────────────────────────────────────
@@ -240,7 +240,7 @@ func _build_main_menu() -> void:
 	]
 
 	for i in labels.size():
-		var btn := _make_button(labels[i], BUTTON_WIDTH, BUTTON_HEIGHT)
+		var btn := _make_button(labels[i] as String, BUTTON_WIDTH, BUTTON_HEIGHT)
 		btn.pressed.connect(callbacks[i])
 		_main_menu_vbox.add_child(btn)
 
@@ -463,11 +463,11 @@ func _make_button(text: String, width: int, height: int) -> Button:
 	normal.set_border_width_all(1)
 	normal.border_color = Color(0.18, 0.19, 0.22, 1.0)
 
-	var hover := normal.duplicate()
+	var hover := normal.duplicate() as StyleBoxFlat
 	hover.bg_color = COLOR_BUTTON_HOVER
 	hover.border_color = Color(0.30, 0.32, 0.38, 1.0)
 
-	var pressed := normal.duplicate()
+	var pressed := normal.duplicate() as StyleBoxFlat
 	pressed.bg_color = COLOR_BUTTON_PRESSED
 	pressed.border_color = COLOR_ACCENT
 
@@ -597,7 +597,7 @@ func _update_world_list_selection() -> void:
 		if not child is PanelContainer:
 			continue
 		var idx: int = child.get_meta("world_index", -1)
-		var style: StyleBoxFlat = child.get_theme_stylebox("panel")
+		var style: StyleBoxFlat = (child as Control).get_theme_stylebox("panel")
 		if idx == _selected_world_index:
 			style.bg_color = COLOR_LIST_ITEM_SELECTED
 			style.border_color = COLOR_ACCENT
@@ -748,13 +748,13 @@ func _remove_dir_recursive(path: String) -> Error:
 
 
 func _on_create_world() -> void:
-	var name := _new_world_input.text.strip_edges()
-	if name == "":
+	var world_name := _new_world_input.text.strip_edges()
+	if world_name == "":
 		_set_status("世界名称不能为空")
 		return
 	var mode := _get_selected_universe_mode()
 	var seed_value := _parse_seed_value()
-	if _create_world(name, mode, seed_value):
+	if _create_world(world_name, mode, seed_value):
 		_start_game()
 
 
@@ -774,6 +774,8 @@ func _on_randomize_seed() -> void:
 
 
 func _on_world_item_input(event: InputEvent, index: int) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		_selected_world_index = index
-		_update_world_list_selection()
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+			_selected_world_index = index
+			_update_world_list_selection()

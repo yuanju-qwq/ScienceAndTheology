@@ -72,7 +72,12 @@ func fade_out_and_free() -> void:
 	_fading = true
 	_status_label.text = "Entering world..."
 	_progress_bar.value = 100.0
-	mouse_filter = Control.MOUSE_FILTER_IGNORE  # Let input through during fade
+	# Disable mouse filtering on self and all Control children so input
+	# passes through immediately, not only after the fade tween finishes.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in get_children():
+		if child is Control:
+			child.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tween := create_tween()
-	tween.tween_property(self, "modulate:a", 0.0, 0.5)
+	tween.tween_property(self, "modulate:a", 0.0, 0.4)
 	tween.tween_callback(queue_free)

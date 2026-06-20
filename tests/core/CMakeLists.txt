@@ -23,3 +23,17 @@ if(MSVC)
 endif()
 
 add_test(NAME snt.u1.universe_core COMMAND snt_u1_universe_core)
+
+# U2: Sector-aware chunk streaming, sparse chunks, entity migration, floating origin
+# Design: docs/unified_universe_world_design.md section 21.2 (U2)
+add_executable(snt_u2_universe_streaming
+    u2_universe_streaming.cpp
+)
+
+target_link_libraries(snt_u2_universe_streaming PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_u2_universe_streaming PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.u2.universe_streaming COMMAND snt_u2_universe_streaming)
