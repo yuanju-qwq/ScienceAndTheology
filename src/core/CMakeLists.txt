@@ -256,3 +256,16 @@ target_sources(snt_core PRIVATE
     universe/space_station_sector.hpp
     universe/space_station_sector.cpp
 )
+
+# Universe simulation (U6: sector-aware scheduling, cross-sector relays, network isolation, virtual planet sim)
+# Design: docs/unified_universe_world_design.md sections 4.4, 21.2 (U6)
+target_sources(snt_core PRIVATE
+    universe/sector_simulation_scheduler.hpp
+    universe/sector_simulation_scheduler.cpp
+    universe/cross_sector_relay.hpp
+    universe/cross_sector_relay.cpp
+    universe/network_isolation_guard.hpp
+    universe/network_isolation_guard.cpp
+    universe/virtual_planet_simulator.hpp
+    universe/virtual_planet_simulator.cpp
+)

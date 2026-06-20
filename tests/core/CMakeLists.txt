@@ -107,3 +107,17 @@ if(MSVC)
 endif()
 
 add_test(NAME snt.u5.universe_building COMMAND snt_u5_universe_building)
+
+# U6: sector-aware simulation, cross-sector relays, network isolation, virtual planet sim
+# Design: docs/unified_universe_world_design.md section 21.2 (U6)
+add_executable(snt_u6_universe_simulation
+    u6_universe_simulation.cpp
+)
+
+target_link_libraries(snt_u6_universe_simulation PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_u6_universe_simulation PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.u6.universe_simulation COMMAND snt_u6_universe_simulation)
