@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 #include <functional>
 
@@ -8,6 +9,7 @@
 #include "event_bus.hpp"
 #include "error_handler.hpp"
 #include "state_sync_server.hpp"
+#include "../player/player_id.hpp"
 #include "../world/world_data.hpp"
 
 namespace science_and_theology {
@@ -63,10 +65,38 @@ public:
     // delta = real-time seconds since last frame.
     void tick(float delta);
 
-    // Update the player's current chunk position (drives ACTIVE/SLEEPING set).
+    // --- Multi-player active set API ---
+    //
+    // The active/sleeping chunk sets are computed as the union of all
+    // registered players' neighborhoods. A chunk is ACTIVE if it is
+    // within active_radius_ of ANY player. Sleep tier is determined by
+    // the minimum distance to any player.
+    //
+    // Single-player mode uses exactly one player (kSinglePlayerId = 1).
+
+    // Register a player's chunk position. Adds the player to the active
+    // set computation. If the player is already registered, updates its
+    // position. Idempotent.
+    void add_player_chunk(PlayerId id,
+                          const std::string& dimension,
+                          int cx, int cy, int cz);
+
+    // Remove a player from the active set computation.
+    void remove_player_chunk(PlayerId id);
+
+    // Remove all players from the active set computation.
+    void clear_player_chunks();
+
+    // Returns the number of registered players driving the active set.
+    size_t player_count() const { return player_chunks_.size(); }
+
+    // Legacy single-player API. Equivalent to add_player_chunk with
+    // id = kSinglePlayerId. Kept for backward compatibility with
+    // existing GDScript callers. Triggers rebuild_chunk_sets() only
+    // when the position actually changed.
     void set_player_chunk(const std::string& dimension, int cx, int cy, int cz);
 
-    // How many chunks around the player are ACTIVE (radius, Manhattan).
+    // How many chunks around the player are ACTIVE (radius, Chebyshev).
     void set_active_radius(int radius) { active_radius_ = radius; }
     int active_radius() const { return active_radius_; }
 
@@ -90,7 +120,8 @@ public:
     }
     int sleep_far_interval() const { return sleep_far_interval_; }
 
-    // Returns the sleep tier for a chunk based on its distance from the player.
+    // Returns the sleep tier for a chunk based on its distance to the
+    // nearest registered player. Returns FAR if no players are registered.
     SleepTier classify_sleep_tier(int cx, int cy, int cz) const;
 
     // --- Parallel execution control ---
@@ -173,10 +204,21 @@ private:
 
     std::vector<std::unique_ptr<SimulationSystem>> subsystems_;
 
-    std::string player_dimension_ = "overworld";
-    int player_cx_ = 0;
-    int player_cy_ = 0;
-    int player_cz_ = 0;
+    // Multi-player active set tracking.
+    // Each entry is a player's current chunk position.
+    // Single-player mode: one entry with id = kSinglePlayerId.
+    struct PlayerChunkPos {
+        std::string dimension = "overworld";
+        int cx = 0;
+        int cy = 0;
+        int cz = 0;
+    };
+    std::unordered_map<PlayerId, PlayerChunkPos> player_chunks_;
+
+    // Cached flag: set when any player position changes, cleared after
+    // rebuild_chunk_sets(). Avoids rebuilding every tick when stationary.
+    bool player_chunks_dirty_ = true;
+
     int active_radius_ = 4;
 
     std::vector<ChunkKey> active_chunks_;

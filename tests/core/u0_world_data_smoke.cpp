@@ -24,7 +24,7 @@ int main() {
 	std::cerr << "[U0CoreSmoke] prepare unicode save path" << std::endl;
     const std::string dimension = "u0_smoke";
     const fs::path save_root =
-        fs::temp_directory_path() / fs::u8path(u8"科学与神学_u0_smoke");
+        fs::temp_directory_path() / fs::u8path(u8"ScienceAndTheology_u0_smoke");
     const auto encoded_save_root = save_root.u8string();
     const std::string save_root_utf8(
         reinterpret_cast<const char*>(encoded_save_root.data()),

@@ -15,6 +15,7 @@ var _log_box: RichTextLabel
 var _is_open := false
 var _command_handlers: Dictionary = {}
 var _player: PlayerController = null
+var _perf_overlay: PerfOverlay
 
 
 func _ready() -> void:
@@ -142,6 +143,7 @@ func _register_default_commands() -> void:
 	register_command("travel", _cmd_travel,
 			"Debug teleport for dimension prototype (usage: /travel Mars)")
 	register_command("universe", _cmd_universe, "Show player's current universe position")
+	register_command("perf", _cmd_perf, "Toggle TPS and network data overlay")
 
 
 # --- Command execution ---
@@ -312,3 +314,28 @@ func _cmd_universe(_args: String) -> void:
 		print_line("  local_center: %s" % planet.local_center)
 		print_line("  radius: %.1f, gravity: %.2f" % [
 				planet.planet_radius, planet.gravity_multiplier])
+
+
+# /perf — 切换左上角 TPS 和网络数据传输量覆盖层。
+func _cmd_perf(_args: String) -> void:
+	if _perf_overlay == null:
+		_perf_overlay = PerfOverlay.new()
+		_perf_overlay.name = "PerfOverlay"
+		var ui_layer := get_parent() as CanvasLayer
+		if ui_layer != null:
+			ui_layer.add_child(_perf_overlay)
+		else:
+			add_child(_perf_overlay)
+
+		# 获取 tick_system 和 chunk_bridge 引用。
+		var tick_sys: GDTickSystem = null
+		var chunk_bridge: ChunkRendererBridge = null
+		if _player != null:
+			if _player.universe_manager != null:
+				tick_sys = _player.universe_manager.tick_system
+			chunk_bridge = _player.world
+		_perf_overlay.setup(tick_sys, chunk_bridge)
+
+	_perf_overlay.toggle()
+	var state := "ON" if _perf_overlay.visible else "OFF"
+	print_line("[color=cyan]Perf overlay: %s[/color]" % state)

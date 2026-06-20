@@ -129,16 +129,82 @@ Resource* GDGameCommandServer::get_world_data() const {
 }
 
 void GDGameCommandServer::configure_player(Resource* inventory, Resource* equipment) {
-    inventory_ = Object::cast_to<GDPlayerInventory>(inventory);
-    equipment_ = Object::cast_to<GDPlayerEquipment>(equipment);
-    if (inventory != nullptr && inventory_ == nullptr) {
+    // M1: configure_player always targets the single-player id (1).
+    // Extracts the core gt::Inventory* / gt::Equipment* from the GD
+    // wrappers and registers them in the PlayerManager.
+    GDPlayerInventory* inv = Object::cast_to<GDPlayerInventory>(inventory);
+    GDPlayerEquipment* eq = Object::cast_to<GDPlayerEquipment>(equipment);
+    if (inventory != nullptr && inv == nullptr) {
         UtilityFunctions::push_warning(
             "GDGameCommandServer: configure_player received non-GDPlayerInventory");
     }
-    if (equipment != nullptr && equipment_ == nullptr) {
+    if (equipment != nullptr && eq == nullptr) {
         UtilityFunctions::push_warning(
             "GDGameCommandServer: configure_player received non-GDPlayerEquipment");
     }
+
+    gt::Inventory* inv_ptr = inv ? &inv->get_inventory() : nullptr;
+    gt::Equipment* eq_ptr = eq ? &eq->get_equipment() : nullptr;
+
+    if (!player_manager_.has_player(kSinglePlayerId)) {
+        player_manager_.register_player(kSinglePlayerId, inv_ptr, eq_ptr);
+    } else {
+        player_manager_.bind_inventory(kSinglePlayerId, inv_ptr);
+        player_manager_.bind_equipment(kSinglePlayerId, eq_ptr);
+    }
+}
+
+bool GDGameCommandServer::register_player(int64_t player_id,
+                                          Resource* inventory,
+                                          Resource* equipment) {
+    PlayerId pid = static_cast<PlayerId>(player_id);
+    if (pid == kInvalidPlayerId) {
+        UtilityFunctions::push_warning(
+            "GDGameCommandServer: register_player received invalid player_id 0");
+        return false;
+    }
+
+    GDPlayerInventory* inv = Object::cast_to<GDPlayerInventory>(inventory);
+    GDPlayerEquipment* eq = Object::cast_to<GDPlayerEquipment>(equipment);
+    gt::Inventory* inv_ptr = inv ? &inv->get_inventory() : nullptr;
+    gt::Equipment* eq_ptr = eq ? &eq->get_equipment() : nullptr;
+
+    if (!player_manager_.register_player(pid, inv_ptr, eq_ptr)) {
+        UtilityFunctions::push_warning(
+            "GDGameCommandServer: register_player failed for player_id ",
+            player_id, " (already registered?)");
+        return false;
+    }
+    return true;
+}
+
+bool GDGameCommandServer::unregister_player(int64_t player_id) {
+    PlayerId pid = static_cast<PlayerId>(player_id);
+    return player_manager_.unregister_player(pid);
+}
+
+int64_t GDGameCommandServer::get_player_count() const {
+    return static_cast<int64_t>(player_manager_.player_count());
+}
+
+PlayerState* GDGameCommandServer::resolve_command_player(
+        const Dictionary& command, const StringName& command_type) {
+    // Read player_id from the command. Default to kSinglePlayerId (1)
+    // for backward compatibility with single-player callers that don't
+    // include the field.
+    const int64_t raw_id = static_cast<int64_t>(command.get("player_id",
+        static_cast<int64_t>(kSinglePlayerId)));
+    const PlayerId pid = static_cast<PlayerId>(raw_id);
+
+    PlayerState* state = player_manager_.get_player(pid);
+    if (state == nullptr) {
+        reject(command_type, "player_id " + String::num_int64(raw_id) +
+                             " is not registered");
+        current_player_ = nullptr;
+        return nullptr;
+    }
+    current_player_ = state;
+    return state;
 }
 
 void GDGameCommandServer::set_furnace_manager(Node* manager) {
@@ -153,6 +219,17 @@ void GDGameCommandServer::set_furnace_manager(Node* manager) {
 
 Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
     const StringName type = command_type(command);
+    // Resolve the player for this command. The cmd_* methods rely on
+    // current_player_ being set. Commands that don't touch player state
+    // (none currently) could skip this, but all current commands do.
+    if (resolve_command_player(command, type) == nullptr) {
+        // resolve_command_player already emitted command_rejected.
+        Dictionary result;
+        result["ok"] = false;
+        result["type"] = type;
+        result["reason"] = "player not registered";
+        return result;
+    }
     if (type == command_mine_block()) return cmd_mine_block(command);
     if (type == command_add_inventory_item()) return cmd_add_inventory_item(command);
     if (type == command_remove_inventory_item()) return cmd_remove_inventory_item(command);
@@ -277,9 +354,11 @@ Dictionary GDGameCommandServer::cmd_remove_inventory_item(const Dictionary& comm
 }
 
 Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
-    if (inventory_ == nullptr) {
+    if (current_player_ == nullptr || current_player_->inventory == nullptr) {
         return reject(command_craft_recipe(), "inventory is not configured");
     }
+
+    gt::Inventory* inv = current_player_->inventory;
 
     Dictionary recipe = command.get("recipe", Dictionary());
     if (recipe.is_empty()) {
@@ -361,7 +440,7 @@ Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
         if (in_id <= 0 || in_count <= 0) {
             return reject(command_craft_recipe(), "recipe has invalid input");
         }
-        if (!inventory_->has_enough(in_id, in_count)) {
+        if (!inv->has_enough(static_cast<gt::ItemId>(in_id), in_count)) {
             return reject(command_craft_recipe(),
                           "inventory does not contain recipe inputs");
         }
@@ -1197,11 +1276,12 @@ Dictionary GDGameCommandServer::cmd_furnace_insert_fuel(const Dictionary& comman
 
 int32_t GDGameCommandServer::add_inventory_item(
         int64_t item_id, int32_t count, int32_t secondary_id, bool emit_sync) {
-    if (inventory_ == nullptr) {
+    if (current_player_ == nullptr || current_player_->inventory == nullptr) {
         reject(command_add_inventory_item(), "inventory is not configured");
         return count;
     }
-    const int32_t overflow = inventory_->add_item(item_id, count, secondary_id);
+    const int32_t overflow = current_player_->inventory->add_item(
+        static_cast<gt::ItemId>(item_id), count, secondary_id);
     if (emit_sync) {
         emit_signal("inventory_synced");
     }
@@ -1209,19 +1289,22 @@ int32_t GDGameCommandServer::add_inventory_item(
 }
 
 bool GDGameCommandServer::remove_inventory_item(int64_t item_id, int32_t count) {
-    if (inventory_ == nullptr || count <= 0) return false;
-    if (!inventory_->has_enough(item_id, count)) return false;
+    if (current_player_ == nullptr || current_player_->inventory == nullptr || count <= 0) {
+        return false;
+    }
+    gt::Inventory* inv = current_player_->inventory;
+    const gt::ItemId id = static_cast<gt::ItemId>(item_id);
+    if (!inv->has_enough(id, count)) return false;
 
     int32_t remaining = count;
     while (remaining > 0) {
-        const int32_t index = inventory_->find_item(item_id);
+        const int32_t index = inv->find_item(id);
         if (index < 0) return false;
 
-        Dictionary slot = inventory_->get_slot(index);
-        const int32_t slot_count =
-            static_cast<int32_t>(static_cast<int64_t>(slot.get("count", 0)));
+        const gt::InventorySlot& slot = inv->get_slot(index);
+        const int32_t slot_count = slot.count;
         const int32_t take = remaining < slot_count ? remaining : slot_count;
-        if (!inventory_->remove_from_slot(index, take)) return false;
+        if (!inv->remove_from_slot(index, take)) return false;
         remaining -= take;
     }
 
@@ -1229,7 +1312,10 @@ bool GDGameCommandServer::remove_inventory_item(int64_t item_id, int32_t count) 
 }
 
 bool GDGameCommandServer::inventory_has_item(int64_t item_id, int32_t count) const {
-    return inventory_ != nullptr && inventory_->has_enough(item_id, count);
+    return current_player_ != nullptr
+        && current_player_->inventory != nullptr
+        && current_player_->inventory->has_enough(
+            static_cast<gt::ItemId>(item_id), count);
 }
 
 Dictionary GDGameCommandServer::sync_furnace(
@@ -1340,17 +1426,24 @@ bool GDGameCommandServer::has_required_tool(int32_t terrain_material) const {
 
 bool GDGameCommandServer::player_has_tool_named(const String& tool_name) const {
     if (tool_name.is_empty()) return true;
-    if (inventory_ == nullptr || equipment_ == nullptr) return false;
+    if (current_player_ == nullptr ||
+        current_player_->inventory == nullptr ||
+        current_player_->equipment == nullptr) {
+        return false;
+    }
 
     const String tool_lower = tool_name.to_lower();
-    for (int32_t i = 0; i < inventory_->get_slot_count(); ++i) {
-        Dictionary slot = inventory_->get_slot(i);
-        const int64_t item_id = slot.get("item_id", 0);
+    gt::Inventory* inv = current_player_->inventory;
+    for (int32_t i = 0; i < inv->slot_count(); ++i) {
+        const gt::InventorySlot& slot = inv->get_slot(i);
+        const int64_t item_id = static_cast<int64_t>(slot.item_id);
         if (item_id > 0 && tool_name_matches(item_id, tool_lower)) return true;
     }
 
+    gt::Equipment* eq = current_player_->equipment;
     for (int32_t slot = 0; slot < 6; ++slot) {
-        const int64_t item_id = equipment_->get_equipped(slot);
+        const int64_t item_id = static_cast<int64_t>(
+            eq->get_equipped(static_cast<gt::EquipmentSlot>(slot)));
         if (item_id > 0 && tool_name_matches(item_id, tool_lower)) return true;
     }
 
@@ -1358,8 +1451,11 @@ bool GDGameCommandServer::player_has_tool_named(const String& tool_name) const {
 }
 
 int64_t GDGameCommandServer::get_equipped_item() const {
-    if (equipment_ == nullptr) return 0;
-    return equipment_->get_equipped(GDPlayerEquipment::SLOT_MAIN_HAND);
+    if (current_player_ == nullptr || current_player_->equipment == nullptr) {
+        return 0;
+    }
+    return static_cast<int64_t>(
+        current_player_->equipment->get_equipped(gt::EquipmentSlot::MAIN_HAND));
 }
 
 int32_t GDGameCommandServer::get_air_material_id() const {
@@ -1534,6 +1630,12 @@ void GDGameCommandServer::_bind_methods() {
                          &GDGameCommandServer::get_world_data);
     ClassDB::bind_method(D_METHOD("configure_player", "inventory", "equipment"),
                          &GDGameCommandServer::configure_player);
+    ClassDB::bind_method(D_METHOD("register_player", "player_id", "inventory", "equipment"),
+                         &GDGameCommandServer::register_player);
+    ClassDB::bind_method(D_METHOD("unregister_player", "player_id"),
+                         &GDGameCommandServer::unregister_player);
+    ClassDB::bind_method(D_METHOD("get_player_count"),
+                         &GDGameCommandServer::get_player_count);
     ClassDB::bind_method(D_METHOD("set_furnace_manager", "manager"),
                          &GDGameCommandServer::set_furnace_manager);
     ClassDB::bind_method(D_METHOD("submit_command", "command"),

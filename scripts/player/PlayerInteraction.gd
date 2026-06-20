@@ -171,6 +171,7 @@ func try_mine_target(target: Dictionary) -> bool:
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_MINE_BLOCK,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
 		"dimension": target.get("dimension", OVERWORLD),
 		"chunk": target.get("chunk", Vector3i.ZERO),
 		"local": target.get("local", Vector3i.ZERO),

@@ -149,7 +149,23 @@ public:
     void tick(float delta);
 
     // Set the player's current chunk position to determine ACTIVE set.
+    // Legacy single-player API. Maps to player_id = 1.
     void set_player_chunk(const godot::String& dimension, int cx, int cy, int cz);
+
+    // --- Multi-player active set API ---
+    // Register/update a player's chunk position for active set computation.
+    void add_player_chunk(int64_t player_id,
+                          const godot::String& dimension,
+                          int cx, int cy, int cz);
+
+    // Remove a player from the active set computation.
+    void remove_player_chunk(int64_t player_id);
+
+    // Remove all players from the active set computation.
+    void clear_player_chunks();
+
+    // Returns the number of registered players driving the active set.
+    int64_t get_player_count() const;
 
     // Active chunk radius.
     int64_t get_active_radius() const;

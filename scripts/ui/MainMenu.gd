@@ -179,7 +179,7 @@ func _build_ui() -> void:
 	# Title label.
 	var title := Label.new()
 	title.name = "TitleLabel"
-	title.text = "科学与神学"
+	title.text = "ScienceAndTheology"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", TITLE_FONT_SIZE)
 	title.add_theme_color_override("font_color", COLOR_TEXT)

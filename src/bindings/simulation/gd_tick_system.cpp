@@ -481,6 +481,32 @@ void GDTickSystem::set_player_chunk(
     }
 }
 
+void GDTickSystem::add_player_chunk(
+    int64_t player_id, const godot::String& dimension,
+    int cx, int cy, int cz) {
+    if (tick_system_ && world_set) {
+        tick_system_->add_player_chunk(
+            static_cast<PlayerId>(player_id),
+            dimension.utf8().get_data(), cx, cy, cz);
+    }
+}
+
+void GDTickSystem::remove_player_chunk(int64_t player_id) {
+    if (tick_system_ && world_set) {
+        tick_system_->remove_player_chunk(static_cast<PlayerId>(player_id));
+    }
+}
+
+void GDTickSystem::clear_player_chunks() {
+    if (tick_system_ && world_set) {
+        tick_system_->clear_player_chunks();
+    }
+}
+
+int64_t GDTickSystem::get_player_count() const {
+    return tick_system_ ? static_cast<int64_t>(tick_system_->player_count()) : 0;
+}
+
 int64_t GDTickSystem::get_active_radius() const {
     return tick_system_ ? tick_system_->active_radius() : 0;
 }
@@ -778,6 +804,14 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::tick);
     godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",
         "cx", "cy", "cz"), &GDTickSystem::set_player_chunk);
+    godot::ClassDB::bind_method(godot::D_METHOD("add_player_chunk", "player_id",
+        "dimension", "cx", "cy", "cz"), &GDTickSystem::add_player_chunk);
+    godot::ClassDB::bind_method(godot::D_METHOD("remove_player_chunk", "player_id"),
+        &GDTickSystem::remove_player_chunk);
+    godot::ClassDB::bind_method(godot::D_METHOD("clear_player_chunks"),
+        &GDTickSystem::clear_player_chunks);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_player_count"),
+        &GDTickSystem::get_player_count);
 
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_radius"),
         &GDTickSystem::get_active_radius);

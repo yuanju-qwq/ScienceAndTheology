@@ -63,9 +63,8 @@ func _process(_delta: float) -> void:
 			visible_count += 1
 	var ratio := float(visible_count) / float(_initial_chunks.size())
 	_progress_bar.value = ratio * 100.0
-	_status_label.text = (
-			"Generating terrain... %d/%d chunks"
-			% [visible_count, _initial_chunks.size()])
+	_status_label.text = "Generating terrain... %d/%d chunks" % [visible_count, _initial_chunks.size()]
+
 
 func fade_out_and_free() -> void:
 	if _fading:

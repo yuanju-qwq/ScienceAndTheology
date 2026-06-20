@@ -31,6 +31,10 @@ target_sources(snt_core PRIVATE
 
 # Player systems
 target_sources(snt_core PRIVATE
+    player/player_id.hpp
+    player/player_state.hpp
+    player/player_manager.hpp
+    player/player_manager.cpp
     player/inventory.cpp
     player/equipment.cpp
     player/accessory.cpp
@@ -192,4 +196,16 @@ target_sources(snt_core PRIVATE
 # Quest system (progress tracking, condition evaluation, serialization)
 target_sources(snt_core PRIVATE
     quest/quest_system.cpp
+)
+
+# Universe core (U1: unified coordinates, Sector model, storage shard migration)
+# Design: docs/unified_universe_world_design.md sections 2~5, 21.2 (U1)
+target_sources(snt_core PRIVATE
+    universe/universe_types.hpp
+    universe/storage_shard.hpp
+    universe/storage_shard.cpp
+    universe/sector_manager.hpp
+    universe/sector_manager.cpp
+    universe/universe_world_core.hpp
+    universe/universe_world_core.cpp
 )

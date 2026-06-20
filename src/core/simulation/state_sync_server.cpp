@@ -13,6 +13,28 @@ void StateSyncServer::mark_dirty(
     mark_dirty(key, flags);
 }
 
+void StateSyncServer::register_observer(PlayerId id) {
+    observers_[id] = true;
+}
+
+void StateSyncServer::unregister_observer(PlayerId id) {
+    observers_.erase(id);
+}
+
+bool StateSyncServer::has_observer(PlayerId id) const {
+    return observers_.find(id) != observers_.end();
+}
+
+StateDelta StateSyncServer::compute_delta_for(
+    PlayerId observer, const std::vector<ChunkKey>& observed_chunks) {
+    // M1: single shared dirty map. Per-observer dirty tracking is M3+.
+    // Auto-register the observer so callers don't have to.
+    if (observer != kInvalidPlayerId) {
+        register_observer(observer);
+    }
+    return compute_delta(observed_chunks);
+}
+
 StateDelta StateSyncServer::compute_delta(
     const std::vector<ChunkKey>& observed_chunks) {
     StateDelta delta;

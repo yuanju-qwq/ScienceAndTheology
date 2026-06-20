@@ -10,6 +10,8 @@
 
 #include <cstdint>
 
+#include "core/player/player_id.hpp"
+#include "core/player/player_manager.hpp"
 #include "core/player/tool_def.hpp"
 
 namespace science_and_theology {
@@ -29,7 +31,25 @@ public:
     void set_world_data(godot::Resource* world);
     godot::Resource* get_world_data() const;
 
+    // Bind a player's inventory/equipment to the server.
+    // In M1 single-player mode, this registers/updates the player with
+    // id = kSinglePlayerId (1) in the PlayerManager. The GDPlayerInventory
+    // and GDPlayerEquipment own the underlying gt::Inventory / gt::Equipment;
+    // the server stores raw pointers into them.
     void configure_player(godot::Resource* inventory, godot::Resource* equipment);
+
+    // Register an additional player with an explicit id (multi-player).
+    // Returns false if the id is already registered or invalid.
+    bool register_player(int64_t player_id,
+                         godot::Resource* inventory,
+                         godot::Resource* equipment);
+
+    // Unregister a player (multi-player).
+    bool unregister_player(int64_t player_id);
+
+    // Returns the number of registered players.
+    int64_t get_player_count() const;
+
     void set_furnace_manager(godot::Node* manager);
 
     godot::Dictionary submit_command(const godot::Dictionary& command);
@@ -39,6 +59,12 @@ protected:
 
 private:
     static constexpr int32_t kSecondaryNone = -1;
+
+    // Resolve the player for the current command. Reads "player_id" from
+    // the command dict (default kSinglePlayerId). Sets current_player_.
+    // Returns nullptr and emits a rejection if the player is not registered.
+    PlayerState* resolve_command_player(const godot::Dictionary& command,
+                                        const godot::StringName& command_type);
 
     godot::Dictionary cmd_mine_block(const godot::Dictionary& command);
     godot::Dictionary cmd_add_inventory_item(const godot::Dictionary& command);
@@ -57,6 +83,7 @@ private:
         const godot::StringName& dimension, const godot::Vector3i& cell,
         const char* reason);
 
+    // Helpers operate on current_player_ (set by resolve_command_player).
     int32_t add_inventory_item(int64_t item_id, int32_t count,
                                int32_t secondary_id = kSecondaryNone,
                                bool emit_sync = true);
@@ -92,10 +119,17 @@ private:
                              const godot::String& reason);
 
     GDWorldData* world_data_ = nullptr;
-    GDPlayerInventory* inventory_ = nullptr;
-    GDPlayerEquipment* equipment_ = nullptr;
-    godot::Node* furnace_manager_ = nullptr;
     GDFurnaceManager* furnace_manager_cpp_ = nullptr;
+    godot::Node* furnace_manager_ = nullptr;
+
+    // Multi-player player registry. Owns PlayerState entries (raw pointers
+    // to inventory/equipment are owned by the GDPlayerInventory /
+    // GDPlayerEquipment Godot Resources).
+    PlayerManager player_manager_;
+
+    // The player resolved for the current submit_command call.
+    // Set by resolve_command_player, used by the helper methods.
+    PlayerState* current_player_ = nullptr;
 };
 
 } // namespace science_and_theology

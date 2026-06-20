@@ -48,6 +48,7 @@ func _run() -> void:
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
 		"object_type": GameCommandServer.OBJECT_FURNACE,
 		"dimension": OVERWORLD,
 		"cell": cell,
@@ -61,6 +62,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_FURNACE_INSERT_INPUT,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
 		"dimension": OVERWORLD,
 		"cell": cell,
 		"item_id": copper_crushed,
@@ -70,6 +72,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_FURNACE_INSERT_FUEL,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
 		"dimension": OVERWORLD,
 		"cell": cell,
 		"item_id": fuel_item,
@@ -90,6 +93,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_FURNACE_TAKE_OUTPUT,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
 		"dimension": OVERWORLD,
 		"cell": cell,
 	})

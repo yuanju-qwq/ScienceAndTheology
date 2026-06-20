@@ -3,6 +3,7 @@
 #include "season_system.hpp"
 #include "../world/world_data.hpp"
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <future>
@@ -123,28 +124,74 @@ void TickSystem::tick(float delta) {
 
 void TickSystem::set_player_chunk(
     const std::string& dimension, int cx, int cy, int cz) {
-    if (player_dimension_ == dimension &&
-        player_cx_ == cx &&
-        player_cy_ == cy &&
-        player_cz_ == cz) {
-        return;
+    add_player_chunk(kSinglePlayerId, dimension, cx, cy, cz);
+}
+
+void TickSystem::add_player_chunk(
+    PlayerId id, const std::string& dimension, int cx, int cy, int cz) {
+    if (id == kInvalidPlayerId) return;
+
+    auto it = player_chunks_.find(id);
+    if (it != player_chunks_.end()) {
+        PlayerChunkPos& pos = it->second;
+        if (pos.dimension == dimension &&
+            pos.cx == cx && pos.cy == cy && pos.cz == cz) {
+            return; // unchanged
+        }
+        pos.dimension = dimension;
+        pos.cx = cx;
+        pos.cy = cy;
+        pos.cz = cz;
+    } else {
+        PlayerChunkPos pos;
+        pos.dimension = dimension;
+        pos.cx = cx;
+        pos.cy = cy;
+        pos.cz = cz;
+        player_chunks_[id] = pos;
     }
-    player_dimension_ = dimension;
-    player_cx_ = cx;
-    player_cy_ = cy;
-    player_cz_ = cz;
-    rebuild_chunk_sets();
+    player_chunks_dirty_ = true;
+    // Rebuild immediately so active_chunks() reflects the new position
+    // before the next tick (matches legacy set_player_chunk behavior).
+    if (world_data_) {
+        rebuild_chunk_sets();
+    }
+}
+
+void TickSystem::remove_player_chunk(PlayerId id) {
+    if (player_chunks_.erase(id) > 0) {
+        player_chunks_dirty_ = true;
+    }
+}
+
+void TickSystem::clear_player_chunks() {
+    if (player_chunks_.empty()) return;
+    player_chunks_.clear();
+    player_chunks_dirty_ = true;
 }
 
 SleepTier TickSystem::classify_sleep_tier(int cx, int cy, int cz) const {
-    int dx = std::abs(cx - player_cx_);
-    int dy = std::abs(cy - player_cy_);
-    int dz = std::abs(cz - player_cz_);
-    int dist = std::max({dx, dy, dz});
+    // Find the minimum Chebyshev distance to any registered player
+    // in the same dimension. If no players are registered, return FAR.
+    int min_dist = INT32_MAX;
+    for (const auto& pair : player_chunks_) {
+        const PlayerChunkPos& pos = pair.second;
+        // Players in other dimensions do not contribute.
+        // (Chunk keys carry their own dimension; the caller filters.)
+        int dx = std::abs(cx - pos.cx);
+        int dy = std::abs(cy - pos.cy);
+        int dz = std::abs(cz - pos.cz);
+        int dist = std::max({dx, dy, dz});
+        if (dist < min_dist) min_dist = dist;
+    }
 
-    if (dist <= active_radius_ * 2) {
+    if (min_dist == INT32_MAX) {
+        return SleepTier::FAR;
+    }
+
+    if (min_dist <= active_radius_ * 2) {
         return SleepTier::NEAR;
-    } else if (dist <= active_radius_ * 3) {
+    } else if (min_dist <= active_radius_ * 3) {
         return SleepTier::MID;
     } else {
         return SleepTier::FAR;
@@ -157,31 +204,40 @@ void TickSystem::rebuild_chunk_sets() {
     sleep_mid_chunks_.clear();
     sleep_far_chunks_.clear();
 
-    if (!world_data_) return;
+    player_chunks_dirty_ = false;
 
+    if (!world_data_) return;
+    if (player_chunks_.empty()) return;
+
+    // Collect the set of dimensions that have at least one player,
+    // so we skip chunks in dimensions with no observers.
+    // (all_chunk_keys may span multiple dimensions in the future;
+    // for now this is a minor optimization.)
     auto all_keys = world_data_->all_chunk_keys();
     for (const auto& key : all_keys) {
-        if (key.dimension_id != player_dimension_) continue;
+        // Compute the minimum Chebyshev distance to any player in the
+        // same dimension. Players in other dimensions are ignored.
+        int min_dist = INT32_MAX;
+        for (const auto& pair : player_chunks_) {
+            const PlayerChunkPos& pos = pair.second;
+            if (pos.dimension != key.dimension_id) continue;
+            int dx = std::abs(key.chunk_x - pos.cx);
+            int dy = std::abs(key.chunk_y - pos.cy);
+            int dz = std::abs(key.chunk_z - pos.cz);
+            int dist = std::max({dx, dy, dz});
+            if (dist < min_dist) min_dist = dist;
+        }
 
-        int dx = std::abs(key.chunk_x - player_cx_);
-        int dy = std::abs(key.chunk_y - player_cy_);
-        int dz = std::abs(key.chunk_z - player_cz_);
+        // No player in this dimension — skip the chunk.
+        if (min_dist == INT32_MAX) continue;
 
-        if (dx <= active_radius_ &&
-            dy <= active_radius_ &&
-            dz <= active_radius_) {
+        if (min_dist <= active_radius_) {
             active_chunks_.push_back(key);
-        } else if (dx <= active_radius_ * 2 &&
-                   dy <= active_radius_ * 2 &&
-                   dz <= active_radius_ * 2) {
+        } else if (min_dist <= active_radius_ * 2) {
             sleep_near_chunks_.push_back(key);
-        } else if (dx <= active_radius_ * 3 &&
-                   dy <= active_radius_ * 3 &&
-                   dz <= active_radius_ * 3) {
+        } else if (min_dist <= active_radius_ * 3) {
             sleep_mid_chunks_.push_back(key);
-        } else if (dx <= active_radius_ * 4 &&
-                   dy <= active_radius_ * 4 &&
-                   dz <= active_radius_ * 4) {
+        } else if (min_dist <= active_radius_ * 4) {
             sleep_far_chunks_.push_back(key);
         }
     }
