@@ -181,11 +181,15 @@ static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]
 	_register_runtime_material_ids(registry)
 
 	# Register generation rules and planet configs for each landable planet.
+	var registered_count := 0
 	for planet in universe_planets:
 		if planet.is_star:
 			continue
 		_register_planet_generation_rules(registry, planet)
 		registry.register_planet_config(planet.to_planet_config_dict())
+		registered_count += 1
+		print("[TerrainContent] registered planet: dim=%s center=%s radius=%.1f" % [planet.dimension_id, planet.local_center, planet.planet_radius])
+	print("[TerrainContent] create_config_for_universe: total_planets=%d registered=%d" % [universe_planets.size(), registered_count])
 
 	return registry.freeze()
 

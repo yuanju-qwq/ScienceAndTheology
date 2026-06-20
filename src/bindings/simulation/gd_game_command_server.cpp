@@ -128,32 +128,6 @@ Resource* GDGameCommandServer::get_world_data() const {
     return world_data_;
 }
 
-void GDGameCommandServer::configure_player(Resource* inventory, Resource* equipment) {
-    // M1: configure_player always targets the single-player id (1).
-    // Extracts the core gt::Inventory* / gt::Equipment* from the GD
-    // wrappers and registers them in the PlayerManager.
-    GDPlayerInventory* inv = Object::cast_to<GDPlayerInventory>(inventory);
-    GDPlayerEquipment* eq = Object::cast_to<GDPlayerEquipment>(equipment);
-    if (inventory != nullptr && inv == nullptr) {
-        UtilityFunctions::push_warning(
-            "GDGameCommandServer: configure_player received non-GDPlayerInventory");
-    }
-    if (equipment != nullptr && eq == nullptr) {
-        UtilityFunctions::push_warning(
-            "GDGameCommandServer: configure_player received non-GDPlayerEquipment");
-    }
-
-    gt::Inventory* inv_ptr = inv ? &inv->get_inventory() : nullptr;
-    gt::Equipment* eq_ptr = eq ? &eq->get_equipment() : nullptr;
-
-    if (!player_manager_.has_player(kSinglePlayerId)) {
-        player_manager_.register_player(kSinglePlayerId, inv_ptr, eq_ptr);
-    } else {
-        player_manager_.bind_inventory(kSinglePlayerId, inv_ptr);
-        player_manager_.bind_equipment(kSinglePlayerId, eq_ptr);
-    }
-}
-
 bool GDGameCommandServer::register_player(int64_t player_id,
                                           Resource* inventory,
                                           Resource* equipment) {
@@ -169,10 +143,18 @@ bool GDGameCommandServer::register_player(int64_t player_id,
     gt::Inventory* inv_ptr = inv ? &inv->get_inventory() : nullptr;
     gt::Equipment* eq_ptr = eq ? &eq->get_equipment() : nullptr;
 
+    // Upsert: if the player is already registered, rebind the inventory
+    // and equipment pointers (their underlying Godot Resources may have
+    // been recreated). Otherwise create a new entry.
+    if (player_manager_.has_player(pid)) {
+        player_manager_.bind_inventory(pid, inv_ptr);
+        player_manager_.bind_equipment(pid, eq_ptr);
+        return true;
+    }
     if (!player_manager_.register_player(pid, inv_ptr, eq_ptr)) {
         UtilityFunctions::push_warning(
             "GDGameCommandServer: register_player failed for player_id ",
-            player_id, " (already registered?)");
+            player_id);
         return false;
     }
     return true;
@@ -1628,8 +1610,6 @@ void GDGameCommandServer::_bind_methods() {
                          &GDGameCommandServer::set_world_data);
     ClassDB::bind_method(D_METHOD("get_world_data"),
                          &GDGameCommandServer::get_world_data);
-    ClassDB::bind_method(D_METHOD("configure_player", "inventory", "equipment"),
-                         &GDGameCommandServer::configure_player);
     ClassDB::bind_method(D_METHOD("register_player", "player_id", "inventory", "equipment"),
                          &GDGameCommandServer::register_player);
     ClassDB::bind_method(D_METHOD("unregister_player", "player_id"),

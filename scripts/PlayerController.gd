@@ -640,7 +640,7 @@ func _setup_inventory() -> void:
 		equipment.equip(GDPlayerEquipment.SLOT_MAIN_HAND, ItemDatabase.ITEM_IRON_PICKAXE)
 
 	if command_server != null:
-		command_server.configure_player(inventory, equipment)
+		command_server.register_player(GameCommandServer.LOCAL_PLAYER_ID, inventory, equipment)
 		if not command_server.inventory_synced.is_connected(_on_server_inventory_synced):
 			command_server.inventory_synced.connect(_on_server_inventory_synced)
 

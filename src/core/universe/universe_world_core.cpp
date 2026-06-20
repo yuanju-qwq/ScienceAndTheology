@@ -128,6 +128,43 @@ std::vector<const CelestialBodyDesc*> UniverseWorldCore::all_celestial_bodies() 
 }
 
 // ============================================================
+// 星球环境管理（U4）
+// ============================================================
+
+bool UniverseWorldCore::register_planet_environment(const PlanetEnvironment& env) {
+    if (!env.is_valid()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    auto [it, inserted] = planet_environments_.emplace(env.celestial_id, env);
+    if (!inserted) {
+        // 已存在则更新
+        it->second = env;
+    }
+    return true;
+}
+
+const PlanetEnvironment* UniverseWorldCore::find_planet_environment(
+    const std::string& celestial_id) const {
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    auto it = planet_environments_.find(celestial_id);
+    if (it == planet_environments_.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+std::vector<const PlanetEnvironment*> UniverseWorldCore::all_planet_environments() const {
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    std::vector<const PlanetEnvironment*> result;
+    result.reserve(planet_environments_.size());
+    for (const auto& [id, env] : planet_environments_) {
+        result.push_back(&env);
+    }
+    return result;
+}
+
+// ============================================================
 // 坐标查询
 // ============================================================
 
@@ -161,6 +198,7 @@ void UniverseWorldCore::clear() {
     storage_shard_map_.clear();
     celestial_bodies_.clear();
     celestial_order_.clear();
+    planet_environments_.clear();
 }
 
 UniverseWorldCore& global_universe_core() {

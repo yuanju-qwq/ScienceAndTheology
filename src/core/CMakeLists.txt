@@ -222,3 +222,26 @@ target_sources(snt_core PRIVATE
     universe/floating_origin_core.hpp
     universe/floating_origin_core.cpp
 )
+
+# Universe navigation (U3: flight modes, celestial LOD, unified interest management)
+# Design: docs/unified_universe_world_design.md sections 9, 12, 18, 21.2 (U3)
+target_sources(snt_core PRIVATE
+    universe/flight_state_tracker.hpp
+    universe/flight_state_tracker.cpp
+    universe/celestial_lod_system.hpp
+    universe/celestial_lod_system.cpp
+    universe/interest_manager.hpp
+    universe/interest_manager.cpp
+)
+
+# Universe planets (U4: second real planet, continuous landing, gravity fields, LOD pipeline)
+# Design: docs/unified_universe_world_design.md sections 6, 7, 9, 21.2 (U4)
+target_sources(snt_core PRIVATE
+    universe/planet_environment.hpp
+    universe/gravity_field_manager.hpp
+    universe/gravity_field_manager.cpp
+    universe/celestial_lod_pipeline.hpp
+    universe/celestial_lod_pipeline.cpp
+    universe/sector_transition_manager.hpp
+    universe/sector_transition_manager.cpp
+)

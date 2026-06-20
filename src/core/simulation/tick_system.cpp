@@ -122,11 +122,6 @@ void TickSystem::tick(float delta) {
     state_sync_->set_tick_counter(tick_counter_);
 }
 
-void TickSystem::set_player_chunk(
-    const std::string& dimension, int cx, int cy, int cz) {
-    add_player_chunk(kSinglePlayerId, dimension, cx, cy, cz);
-}
-
 void TickSystem::add_player_chunk(
     PlayerId id, const std::string& dimension, int cx, int cy, int cz) {
     if (id == kInvalidPlayerId) return;

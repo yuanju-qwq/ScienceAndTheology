@@ -487,15 +487,21 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	var build_started_usec := Time.get_ticks_usec()
 	var terrain := world_data.get_chunk_terrain(active_dimension, chunk.x, chunk.y, chunk.z)
 	if terrain.is_empty():
-		if debug_chunk_streaming:
-			print("[ChunkBridge] _create_chunk_view %s: terrain empty, skipping" % chunk)
+		print("[ChunkBridge] _create_chunk_view %s: terrain empty, skipping" % chunk)
 		return
 
 	var materials: PackedByteArray = terrain.get("materials", PackedByteArray())
 	if materials.is_empty():
-		if debug_chunk_streaming:
-			print("[ChunkBridge] _create_chunk_view %s: materials empty, skipping" % chunk)
+		print("[ChunkBridge] _create_chunk_view %s: materials empty, skipping" % chunk)
 		return
+
+	# Diagnostic for spawn chunk: count non-air blocks.
+	if chunk.x == 0 and chunk.y == 0 and chunk.z == 0:
+		var non_air := 0
+		for i in range(materials.size()):
+			if materials[i] != AIR_MATERIAL:
+				non_air += 1
+		print("[ChunkBridge] chunk(0,0,0) materials_size=%d non_air=%d air_id=%d" % [materials.size(), non_air, AIR_MATERIAL])
 
 	var size_x := int(terrain.get("size_x", CHUNK_SIZE))
 	var size_y := int(terrain.get("size_y", CHUNK_SIZE))

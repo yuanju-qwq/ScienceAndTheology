@@ -31,15 +31,10 @@ public:
     void set_world_data(godot::Resource* world);
     godot::Resource* get_world_data() const;
 
-    // Bind a player's inventory/equipment to the server.
-    // In M1 single-player mode, this registers/updates the player with
-    // id = kSinglePlayerId (1) in the PlayerManager. The GDPlayerInventory
-    // and GDPlayerEquipment own the underlying gt::Inventory / gt::Equipment;
-    // the server stores raw pointers into them.
-    void configure_player(godot::Resource* inventory, godot::Resource* equipment);
-
-    // Register an additional player with an explicit id (multi-player).
-    // Returns false if the id is already registered or invalid.
+    // Register or update a player with an explicit id.
+    // Single-player mode uses player_id = 1 (kSinglePlayerId).
+    // If the player is already registered, rebinds the inventory/equipment
+    // pointers (upsert). Returns false only if player_id is invalid.
     bool register_player(int64_t player_id,
                          godot::Resource* inventory,
                          godot::Resource* equipment);

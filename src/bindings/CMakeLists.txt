@@ -2,7 +2,6 @@
 
 set(SOURCES
     register_types.cpp
-    hello_world/gd_hello_world.cpp
     network/gd_power_network.cpp
     crafting/gd_crafting.cpp
     ae2/gd_ae2_autocrafting.cpp
@@ -36,6 +35,8 @@ set(SOURCES
     quest/gd_quest_system.cpp
     multiblock/gd_multiblock_builder.cpp
     multiblock/gd_multiblock_controller.cpp
+    multiplayer/gd_network_server.cpp
+    multiplayer/gd_network_client.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})
@@ -44,7 +45,7 @@ target_include_directories(science_and_theology PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}
 )
-target_link_libraries(science_and_theology PRIVATE godot-cpp snt_core snt_adapters snt_godot_adapters)
+target_link_libraries(science_and_theology PRIVATE godot-cpp snt_core snt_server snt_adapters snt_godot_adapters)
 
 if(MSVC)
     target_compile_options(science_and_theology PRIVATE /FS /utf-8)

@@ -23,7 +23,7 @@ namespace science_and_theology {
 //   var tick_sys = GDTickSystem.new()
 //   tick_sys.set_world_data(gd_world_data)
 //   tick_sys.register_machine_system()
-//   tick_sys.set_player_chunk("overworld", 0, 0, 0)
+//   tick_sys.add_player_chunk(1, "overworld", 0, 0, 0)
 //
 //   func _process(delta):
 //       tick_sys.tick(delta)
@@ -148,12 +148,9 @@ public:
     // Advance simulation by one frame.
     void tick(float delta);
 
-    // Set the player's current chunk position to determine ACTIVE set.
-    // Legacy single-player API. Maps to player_id = 1.
-    void set_player_chunk(const godot::String& dimension, int cx, int cy, int cz);
-
     // --- Multi-player active set API ---
     // Register/update a player's chunk position for active set computation.
+    // Single-player mode uses player_id = 1 (kSinglePlayerId).
     void add_player_chunk(int64_t player_id,
                           const godot::String& dimension,
                           int cx, int cy, int cz);
@@ -211,18 +208,17 @@ public:
     // Call each frame; GDScript rendering layer uses this to update proxies.
     godot::Array get_dirty_chunks() const;
 
-    // Compute delta for the given chunk list, returns dict:
+    // Compute delta for a specific observer (player_id) over the given
+    // chunk list. Returns dict:
     //   { "flags": int, "timestamp": int,
     //     "chunks_modified": Array, "entities_created": Array, ... }
-    godot::Dictionary compute_delta(const godot::Array& chunk_keys);
+    // Single-player mode uses player_id = 1 (kSinglePlayerId).
+    godot::Dictionary compute_delta_for(int64_t player_id,
+                                        const godot::Array& chunk_keys);
 
     // Create a full snapshot for a chunk.
     godot::Dictionary create_snapshot(
         const godot::String& dimension, int cx, int cy, int cz);
-
-    // Set the GDPlayerInventory reference for event bridging.
-    void set_player_inventory(godot::Resource* inventory);
-    void set_player_equipment(godot::Resource* equipment);
 
     // --- Player combat (hunting) ---
 
@@ -320,9 +316,6 @@ private:
     EcosystemSystem* ecosystem_system_ = nullptr;
 
     std::vector<EventBus::HandlerId> event_subscriptions_;
-
-    godot::Resource* player_inventory_ = nullptr;
-    godot::Resource* player_equipment_ = nullptr;
 };
 
 } // namespace science_and_theology

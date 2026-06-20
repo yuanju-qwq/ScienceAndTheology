@@ -66,6 +66,23 @@ void TerrainGenerator::pass_base_terrain(
     TerrainData& terrain) {
     // Check if this dimension has a planet configuration.
     const PlanetConfig* planet = config_->find_planet_config(dimension_id);
+    // Low-frequency diagnostic: only log for chunk (0,0,0) to verify
+    // dimension_id matching and PlanetConfig lookup at spawn.
+    if (chunk_x == 0 && chunk_y == 0 && chunk_z == 0) {
+        printf("[TerrainGen] pass_base_terrain chunk(0,0,0) dim='%s' "
+               "planet_found=%d is_planet=%d",
+               dimension_id.c_str(),
+               planet != nullptr ? 1 : 0,
+               (planet && planet->is_planet()) ? 1 : 0);
+        if (planet) {
+            printf(" center=(%.1f,%.1f,%.1f) radius=%.1f sea_level=%.1f",
+                   planet->center_x, planet->center_y, planet->center_z,
+                   planet->planet_radius,
+                   planet->planet_radius + planet->terrain_height_scale * planet->sea_level_fraction);
+        }
+        printf("\n");
+        fflush(stdout);
+    }
     if (planet && planet->is_planet()) {
         pass_base_terrain_planet(dimension_id, chunk_x, chunk_y, chunk_z,
                                  terrain, *planet);

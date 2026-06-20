@@ -25,7 +25,7 @@ func _run() -> void:
 	var inventory := GDPlayerInventory.new()
 	inventory.init(9, 4)
 	var equipment := GDPlayerEquipment.new()
-	command_server.configure_player(inventory, equipment)
+	command_server.register_player(GameCommandServer.LOCAL_PLAYER_ID, inventory, equipment)
 	command_server.set_furnace_manager(furnace_manager)
 
 	command_server.furnace_synced.connect(func(dimension: StringName, cell: Vector3i) -> void:

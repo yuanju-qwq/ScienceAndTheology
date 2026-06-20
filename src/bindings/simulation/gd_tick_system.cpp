@@ -474,13 +474,6 @@ void GDTickSystem::tick(float delta) {
     tick_system_->tick(delta);
 }
 
-void GDTickSystem::set_player_chunk(
-    const godot::String& dimension, int cx, int cy, int cz) {
-    if (tick_system_ && world_set) {
-        tick_system_->set_player_chunk(dimension.utf8().get_data(), cx, cy, cz);
-    }
-}
-
 void GDTickSystem::add_player_chunk(
     int64_t player_id, const godot::String& dimension,
     int cx, int cy, int cz) {
@@ -595,7 +588,8 @@ godot::Array GDTickSystem::get_dirty_chunks() const {
     return arr;
 }
 
-godot::Dictionary GDTickSystem::compute_delta(const godot::Array& chunk_keys) {
+godot::Dictionary GDTickSystem::compute_delta_for(
+    int64_t player_id, const godot::Array& chunk_keys) {
     godot::Dictionary dict;
     if (!tick_system_ || !tick_system_->state_sync()) return dict;
 
@@ -612,7 +606,8 @@ godot::Dictionary GDTickSystem::compute_delta(const godot::Array& chunk_keys) {
         keys.push_back(ck);
     }
 
-    auto delta = tick_system_->state_sync()->compute_delta(keys);
+    auto delta = tick_system_->state_sync()->compute_delta_for(
+        static_cast<PlayerId>(player_id), keys);
     return delta_to_dict(delta);
 }
 
@@ -629,14 +624,6 @@ godot::Dictionary GDTickSystem::create_snapshot(
 
     auto delta = tick_system_->state_sync()->create_snapshot(key);
     return delta_to_dict(delta);
-}
-
-void GDTickSystem::set_player_inventory(godot::Resource* inventory) {
-    player_inventory_ = inventory;
-}
-
-void GDTickSystem::set_player_equipment(godot::Resource* equipment) {
-    player_equipment_ = equipment;
 }
 
 WorldData* GDTickSystem::get_world_data_ptr() const {
@@ -802,8 +789,6 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::get_captive_data);
     godot::ClassDB::bind_method(godot::D_METHOD("tick", "delta"),
         &GDTickSystem::tick);
-    godot::ClassDB::bind_method(godot::D_METHOD("set_player_chunk", "dimension",
-        "cx", "cy", "cz"), &GDTickSystem::set_player_chunk);
     godot::ClassDB::bind_method(godot::D_METHOD("add_player_chunk", "player_id",
         "dimension", "cx", "cy", "cz"), &GDTickSystem::add_player_chunk);
     godot::ClassDB::bind_method(godot::D_METHOD("remove_player_chunk", "player_id"),
@@ -851,15 +836,10 @@ void GDTickSystem::_bind_methods() {
 
     godot::ClassDB::bind_method(godot::D_METHOD("get_dirty_chunks"),
         &GDTickSystem::get_dirty_chunks);
-    godot::ClassDB::bind_method(godot::D_METHOD("compute_delta",
-        "chunk_keys"), &GDTickSystem::compute_delta);
+    godot::ClassDB::bind_method(godot::D_METHOD("compute_delta_for",
+        "player_id", "chunk_keys"), &GDTickSystem::compute_delta_for);
     godot::ClassDB::bind_method(godot::D_METHOD("create_snapshot", "dimension",
         "cx", "cy", "cz"), &GDTickSystem::create_snapshot);
-
-    godot::ClassDB::bind_method(godot::D_METHOD("set_player_inventory",
-        "inventory"), &GDTickSystem::set_player_inventory);
-    godot::ClassDB::bind_method(godot::D_METHOD("set_player_equipment",
-        "equipment"), &GDTickSystem::set_player_equipment);
 
     // --- Signals: real-time events bridged from EventBus ---
 

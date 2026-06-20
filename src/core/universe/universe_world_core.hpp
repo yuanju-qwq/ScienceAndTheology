@@ -33,6 +33,7 @@
 #include "universe_types.hpp"
 #include "sector_manager.hpp"
 #include "storage_shard.hpp"
+#include "planet_environment.hpp"
 
 namespace science_and_theology {
 
@@ -118,6 +119,17 @@ public:
     // 返回所有天体（只读）。
     std::vector<const CelestialBodyDesc*> all_celestial_bodies() const;
 
+    // --- 星球环境管理（U4） ---
+
+    // 注册星球环境配置。celestial_id 应与已注册的 CelestialBodyDesc.id 对应。
+    bool register_planet_environment(const PlanetEnvironment& env);
+
+    // 通过天体 id 查找星球环境。
+    const PlanetEnvironment* find_planet_environment(const std::string& celestial_id) const;
+
+    // 返回所有星球环境（只读）。
+    std::vector<const PlanetEnvironment*> all_planet_environments() const;
+
     // --- 坐标查询（便捷方法） ---
 
     // 查找全局方块坐标所属 Sector（委托 SectorManager）。
@@ -150,6 +162,9 @@ private:
     std::unordered_map<std::string, CelestialBodyDesc> celestial_bodies_;
     // 按注册顺序保存天体 id。
     std::vector<std::string> celestial_order_;
+
+    // 星球环境按 celestial_id 索引（U4）。
+    std::unordered_map<std::string, PlanetEnvironment> planet_environments_;
 };
 
 // 全局默认 UniverseWorldCore 实例。

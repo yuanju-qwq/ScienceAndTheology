@@ -90,12 +90,6 @@ public:
     // Returns the number of registered players driving the active set.
     size_t player_count() const { return player_chunks_.size(); }
 
-    // Legacy single-player API. Equivalent to add_player_chunk with
-    // id = kSinglePlayerId. Kept for backward compatibility with
-    // existing GDScript callers. Triggers rebuild_chunk_sets() only
-    // when the position actually changed.
-    void set_player_chunk(const std::string& dimension, int cx, int cy, int cz);
-
     // How many chunks around the player are ACTIVE (radius, Chebyshev).
     void set_active_radius(int radius) { active_radius_ = radius; }
     int active_radius() const { return active_radius_; }

@@ -1233,7 +1233,7 @@ func _drivetick_system(delta: float) -> void:
 
 	var player_chunk := _compute_player_chunk()
 
-	tick_system.set_player_chunk(dimension, player_chunk.x, player_chunk.y, player_chunk.z)
+	tick_system.add_player_chunk(GameCommandServer.LOCAL_PLAYER_ID, dimension, player_chunk.x, player_chunk.y, player_chunk.z)
 	tick_system.tick(delta)
 
 	# Sync tick counter to quest system for REACH_TICK conditions.

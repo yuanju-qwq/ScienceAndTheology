@@ -52,12 +52,7 @@ public:
     // Returns true if the observer is registered.
     bool has_observer(PlayerId id) const;
 
-    // --- Legacy API (single-observer, backward compatible) ---
-
-    // Compute a delta since the last sync for the observed set of chunks.
-    // After calling this, dirty flags for the returned categories are
-    // auto-cleared. Call clear_dirty() to force-clear specific flags.
-    StateDelta compute_delta(const std::vector<ChunkKey>& observed_chunks);
+    // --- Snapshot / dirty query API ---
 
     // Create a full snapshot for a single chunk (for new observers).
     StateDelta create_snapshot(const ChunkKey& key) const;
@@ -88,6 +83,10 @@ private:
     // Registered observers. In M1 this is informational; per-observer
     // dirty tracking is M3+ scope. Kept as a set for API completeness.
     std::unordered_map<PlayerId, bool> observers_;
+
+    // Shared dirty-map delta computation used by compute_delta_for.
+    // Clears dirty flags for the returned categories.
+    StateDelta compute_delta(const std::vector<ChunkKey>& observed_chunks);
 };
 
 } // namespace science_and_theology
