@@ -182,11 +182,8 @@ bool GDNetworkServer::on_login(uint64_t player_id,
         reject_reason = "command server not configured";
         return false;
     }
-    // The player will be registered in PlayerManager when they submit
-    // their first command with their inventory/equipment. For now,
-    // just accept. The host GDScript can override this by registering
-    // the player explicitly on the "player_connected" signal.
     UtilityFunctions::print("[GDNetworkServer] player ", player_id, " connected");
+    emit_signal("player_connected", static_cast<int64_t>(player_id));
     return true;
 }
 
@@ -195,6 +192,7 @@ void GDNetworkServer::on_disconnect(uint64_t player_id) {
         command_server_->unregister_player(static_cast<int64_t>(player_id));
     }
     UtilityFunctions::print("[GDNetworkServer] player ", player_id, " disconnected");
+    emit_signal("player_disconnected", static_cast<int64_t>(player_id));
 }
 
 // --- Serialization helpers ---

@@ -1,0 +1,18 @@
+[gd_scene load_steps=4 format=3 uid="uid://bserver_scene_m4_001"]
+
+[ext_resource type="Script" path="res://scripts/server/ServerMain.gd" id="1_server_main"]
+[ext_resource type="Script" uid="uid://lvfn41gsf24d" path="res://scripts/world/FurnaceManager.gd" id="2_furnace_manager"]
+[ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="3_command_server"]
+
+[node name="ServerScene" type="Node"]
+script = ExtResource("1_server_main")
+
+[node name="FurnaceManager" type="GDFurnaceManager" parent="."]
+script = ExtResource("2_furnace_manager")
+
+[node name="GameCommandServer" type="GDGameCommandServer" parent="."]
+script = ExtResource("3_command_server")
+
+[node name="GDTickSystem" type="GDTickSystem" parent="."]
+
+[node name="GDNetworkServer" type="GDNetworkServer" parent="."]

@@ -16,6 +16,16 @@
 
     #pragma comment(lib, "ws2_32.lib")
 
+    // Windows headers define NEAR/FAR as empty macros (legacy 16-bit
+    // near/far pointer qualifiers). These conflict with enum values
+    // and identifiers elsewhere in the codebase. Undefine them.
+    #ifdef NEAR
+        #undef NEAR
+    #endif
+    #ifdef FAR
+        #undef FAR
+    #endif
+
     using socket_t = SOCKET;
     inline constexpr socket_t kInvalidSocket = INVALID_SOCKET;
     inline constexpr int kSocketError = SOCKET_ERROR;

@@ -93,3 +93,17 @@ if(MSVC)
 endif()
 
 add_test(NAME snt.u4.universe_planets COMMAND snt_u4_universe_planets)
+
+# U5: cross-sector BlockSpace, structure anchors, space station sectors
+# Design: docs/unified_universe_world_design.md section 21.2 (U5)
+add_executable(snt_u5_universe_building
+    u5_universe_building.cpp
+)
+
+target_link_libraries(snt_u5_universe_building PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_u5_universe_building PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.u5.universe_building COMMAND snt_u5_universe_building)

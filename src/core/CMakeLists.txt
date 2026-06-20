@@ -245,3 +245,14 @@ target_sources(snt_core PRIVATE
     universe/sector_transition_manager.hpp
     universe/sector_transition_manager.cpp
 )
+
+# Universe building (U5: cross-sector BlockSpace, structure anchors, space station sectors)
+# Design: docs/unified_universe_world_design.md sections 6.2, 8, 21.2 (U5)
+target_sources(snt_core PRIVATE
+    universe/block_space.hpp
+    universe/block_space.cpp
+    universe/structure_anchor_manager.hpp
+    universe/structure_anchor_manager.cpp
+    universe/space_station_sector.hpp
+    universe/space_station_sector.cpp
+)

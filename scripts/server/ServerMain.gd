@@ -1,0 +1,169 @@
+# ServerMain — Dedicated server entry point for headless mode.
+#
+# Design: docs/多人游戏系统设计.md §6.2 M4
+#
+# Usage:
+#   godot --headless --main-scene res://ServerScene.tscn -- --port 8910 --password secret --seed 12345
+#
+# This script sets up the authoritative server pipeline without any rendering
+# nodes:
+#   GDWorldData → GameCommandServer + GDTickSystem + FurnaceManager
+#   GDNetworkServer wraps snt_server::ServerCore, bridging network frames
+#   to command execution and per-observer delta production.
+#
+# Player lifecycle:
+#   player_connected signal → create inventory/equipment, register_player,
+#                             add_player_chunk (default spawn at origin)
+#   player_disconnected signal → remove_player_chunk (unregister_player is
+#                                 already called in C++ on_disconnect)
+extends Node
+
+const BuiltinTerrainContent := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
+
+const DEFAULT_TCP_PORT := 8910
+const DEFAULT_UDP_PORT := 8911
+const DEFAULT_WORLD_SEED := 0
+const INVENTORY_WIDTH := 9
+const INVENTORY_HEIGHT := 4
+const SPAWN_DIMENSION := "overworld"
+const SPAWN_CX := 0
+const SPAWN_CY := 0
+const SPAWN_CZ := 0
+
+@onready var _command_server: GameCommandServer = $GameCommandServer
+@onready var _tick_system: GDTickSystem = $GDTickSystem
+@onready var _furnace_manager: FurnaceManager = $FurnaceManager
+@onready var _net_server: GDNetworkServer = $GDNetworkServer
+
+var _world_data: GDWorldData = null
+var _tick_accumulator: float = 0.0
+const TICK_RATE := 20.0  # 20 ticks per second
+const TICK_INTERVAL := 1.0 / TICK_RATE
+
+
+func _ready() -> void:
+	var args := _parse_args()
+	_setup_world(args.seed)
+	_setup_systems()
+	_setup_network(args)
+	print("[ServerMain] ready — listening on tcp:%d udp:%d" % [args.tcp_port, args.udp_port])
+
+
+func _process(delta: float) -> void:
+	# Poll network (non-blocking, drains all ready sockets).
+	_net_server.poll()
+
+	# Drive simulation at fixed tick rate.
+	_tick_accumulator += delta
+	while _tick_accumulator >= TICK_INTERVAL:
+		_tick_accumulator -= TICK_INTERVAL
+		_tick_system.tick(TICK_INTERVAL)
+
+	# Process async world generation results.
+	if _world_data:
+		_world_data.process_async_results()
+
+
+# --- Setup ---
+
+func _setup_world(seed: int) -> void:
+	_world_data = GDWorldData.new()
+	_world_data.seed = seed if seed != 0 else randi()
+	_world_data.set_max_async_results_per_frame(8)
+
+	var config := BuiltinTerrainContent.create_default_config()
+	_world_data.worldgen_config = config
+
+	# Generate spawn-area chunks so players have terrain immediately.
+	_world_data.request_chunk_async(SPAWN_DIMENSION, SPAWN_CX, SPAWN_CY, SPAWN_CZ)
+
+
+func _setup_systems() -> void:
+	# GameCommandServer: inject world data + furnace manager.
+	# (GameCommandServer.gd's _configure_server tries ChunkRendererBridge
+	# which doesn't exist here, so we set world_data explicitly.)
+	_command_server.set_world_data(_world_data)
+	_command_server.set_furnace_manager(_furnace_manager)
+
+	# GDTickSystem: inject world data + register all subsystems.
+	_tick_system.set_world_data(_world_data)
+	_tick_system.register_day_night_system()
+	_tick_system.register_block_physics_system()
+	_tick_system.register_machine_system()
+	_tick_system.register_region_system()
+	_tick_system.register_tree_growth_system()
+	_tick_system.register_crop_growth_system()
+	_tick_system.register_season_system()
+	_tick_system.register_ecosystem_system()
+
+
+func _setup_network(args: Args) -> void:
+	_net_server.set_command_server(_command_server)
+	_net_server.set_tick_system(_tick_system)
+	if args.password != "":
+		_net_server.set_password(args.password)
+	_net_server.set_server_name(args.server_name)
+	_net_server.player_connected.connect(_on_player_connected)
+	_net_server.player_disconnected.connect(_on_player_disconnected)
+	var ok := _net_server.start(args.tcp_port, args.udp_port)
+	if not ok:
+		push_error("[ServerMain] failed to start network server on tcp:%d" % args.tcp_port)
+		get_tree().quit(1)
+
+
+# --- Player lifecycle ---
+
+func _on_player_connected(player_id: int) -> void:
+	print("[ServerMain] player %d connected, registering..." % player_id)
+	var inventory := GDPlayerInventory.new()
+	inventory.init(INVENTORY_WIDTH, INVENTORY_HEIGHT)
+	var equipment := GDPlayerEquipment.new()
+	_command_server.register_player(player_id, inventory, equipment)
+	_tick_system.add_player_chunk(player_id, SPAWN_DIMENSION,
+		SPAWN_CX, SPAWN_CY, SPAWN_CZ)
+
+
+func _on_player_disconnected(player_id: int) -> void:
+	print("[ServerMain] player %d disconnected, cleaning up..." % player_id)
+	_tick_system.remove_player_chunk(player_id)
+	# unregister_player is already called in C++ GDNetworkServer::on_disconnect.
+
+
+# --- Command-line argument parsing ---
+
+class Args:
+	var tcp_port: int = DEFAULT_TCP_PORT
+	var udp_port: int = DEFAULT_UDP_PORT
+	var password: String = ""
+	var seed: int = DEFAULT_WORLD_SEED
+	var server_name: String = "ScienceAndTheology Server"
+
+func _parse_args() -> Args:
+	var args := Args.new()
+	var user_args := OS.get_cmdline_user_args()
+	var i := 0
+	while i < user_args.size():
+		var a: String = user_args[i]
+		match a:
+			"--port", "--tcp-port":
+				if i + 1 < user_args.size():
+					args.tcp_port = int(user_args[i + 1])
+					i += 1
+			"--udp-port":
+				if i + 1 < user_args.size():
+					args.udp_port = int(user_args[i + 1])
+					i += 1
+			"--password":
+				if i + 1 < user_args.size():
+					args.password = user_args[i + 1]
+					i += 1
+			"--seed":
+				if i + 1 < user_args.size():
+					args.seed = int(user_args[i + 1])
+					i += 1
+			"--name", "--server-name":
+				if i + 1 < user_args.size():
+					args.server_name = user_args[i + 1]
+					i += 1
+		i += 1
+	return args

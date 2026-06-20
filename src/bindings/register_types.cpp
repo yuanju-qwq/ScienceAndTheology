@@ -3,7 +3,6 @@
 #include <godot_cpp/core/defs.hpp>
 #include <godot_cpp/godot.hpp>
 
-#include "hello_world/gd_hello_world.h"
 #include "network/gd_power_network.h"
 #include "crafting/gd_crafting.h"
 #include "ae2/gd_ae2_autocrafting.h"
@@ -77,7 +76,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     source_law::ElixirRegistry::initialize();
     source_law::SublimationPathRegistry::initialize();
 
-    ClassDB::register_class<GDHelloWorld>();
     ClassDB::register_class<GDPowerNetwork>();
     ClassDB::register_class<GDCraftingManager>();
     ClassDB::register_class<GDFluidNetwork>();
