@@ -38,6 +38,7 @@
 #include "multiblock/gd_multiblock_controller.h"
 #include "multiplayer/gd_network_server.hpp"
 #include "multiplayer/gd_network_client.hpp"
+#include "multiplayer/gd_prediction_buffer.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
@@ -113,6 +114,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDMultiblockController>();
     ClassDB::register_class<GDNetworkServer>();
     ClassDB::register_class<GDNetworkClient>();
+    ClassDB::register_class<GDPredictionBuffer>();
     GDAutocraftingService::initialize();
 }
 

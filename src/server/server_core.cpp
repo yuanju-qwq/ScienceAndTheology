@@ -88,6 +88,18 @@ size_t ServerCore::session_count() const {
     return sessions_.size();
 }
 
+std::vector<uint64_t> ServerCore::logged_in_player_ids() const {
+    std::vector<uint64_t> ids;
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    ids.reserve(sessions_.size());
+    for (const auto& s : sessions_) {
+        if (s->logged_in) {
+            ids.push_back(s->player_id);
+        }
+    }
+    return ids;
+}
+
 uint64_t ServerCore::allocate_player_id() {
     // PlayerId 0 is invalid; ids start at 1.
     // Cap at kMaxPlayers (design §7 Q3: 20 players).

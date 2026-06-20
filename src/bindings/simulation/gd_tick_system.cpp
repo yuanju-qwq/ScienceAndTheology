@@ -500,6 +500,12 @@ int64_t GDTickSystem::get_player_count() const {
     return tick_system_ ? static_cast<int64_t>(tick_system_->player_count()) : 0;
 }
 
+godot::String GDTickSystem::get_player_dimension(int64_t player_id) const {
+    if (!tick_system_) return godot::String();
+    return godot::String(tick_system_->get_player_dimension(
+        static_cast<PlayerId>(player_id)).c_str());
+}
+
 int64_t GDTickSystem::get_active_radius() const {
     return tick_system_ ? tick_system_->active_radius() : 0;
 }
@@ -609,6 +615,48 @@ godot::Dictionary GDTickSystem::compute_delta_for(
     auto delta = tick_system_->state_sync()->compute_delta_for(
         static_cast<PlayerId>(player_id), keys);
     return delta_to_dict(delta);
+}
+
+godot::Array GDTickSystem::compute_deltas_batch(const godot::Array& observer_views) {
+    godot::Array results;
+    if (!tick_system_ || !tick_system_->state_sync()) return results;
+
+    std::vector<std::pair<PlayerId, std::vector<ChunkKey>>> views;
+    views.reserve(static_cast<size_t>(observer_views.size()));
+
+    for (int64_t i = 0; i < observer_views.size(); ++i) {
+        const godot::Variant& v = observer_views[i];
+        if (v.get_type() != godot::Variant::DICTIONARY) continue;
+        godot::Dictionary view = v;
+        if (!view.has("player_id") || !view.has("chunks")) continue;
+
+        PlayerId pid = static_cast<PlayerId>(
+            static_cast<int64_t>(view["player_id"]));
+        std::vector<ChunkKey> keys;
+        godot::Array chunks = view["chunks"];
+        for (int64_t j = 0; j < chunks.size(); ++j) {
+            auto d = chunks[j];
+            if (d.get_type() != godot::Variant::DICTIONARY) continue;
+            godot::Dictionary kd = d;
+            ChunkKey ck;
+            ck.dimension_id = static_cast<godot::String>(
+                kd["dimension"]).utf8().get_data();
+            ck.chunk_x = static_cast<int>(kd["cx"]);
+            ck.chunk_y = static_cast<int>(kd["cy"]);
+            ck.chunk_z = static_cast<int>(kd["cz"]);
+            keys.push_back(ck);
+        }
+        views.emplace_back(pid, std::move(keys));
+    }
+
+    auto batch_results = tick_system_->state_sync()->compute_deltas_batch(views);
+    for (const auto& [pid, delta] : batch_results) {
+        godot::Dictionary entry;
+        entry["player_id"] = static_cast<int64_t>(pid);
+        entry["delta"] = delta_to_dict(delta);
+        results.append(entry);
+    }
+    return results;
 }
 
 godot::Dictionary GDTickSystem::create_snapshot(
@@ -797,6 +845,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::clear_player_chunks);
     godot::ClassDB::bind_method(godot::D_METHOD("get_player_count"),
         &GDTickSystem::get_player_count);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_player_dimension",
+        "player_id"), &GDTickSystem::get_player_dimension);
 
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_radius"),
         &GDTickSystem::get_active_radius);
@@ -838,6 +888,8 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::get_dirty_chunks);
     godot::ClassDB::bind_method(godot::D_METHOD("compute_delta_for",
         "player_id", "chunk_keys"), &GDTickSystem::compute_delta_for);
+    godot::ClassDB::bind_method(godot::D_METHOD("compute_deltas_batch",
+        "observer_views"), &GDTickSystem::compute_deltas_batch);
     godot::ClassDB::bind_method(godot::D_METHOD("create_snapshot", "dimension",
         "cx", "cy", "cz"), &GDTickSystem::create_snapshot);
 

@@ -90,6 +90,11 @@ public:
     // Returns the number of registered players driving the active set.
     size_t player_count() const { return player_chunks_.size(); }
 
+    // Returns the dimension the player is currently in, or empty string
+    // if the player is not registered. Used by the network layer to
+    // filter deltas by player dimension (M5: multi-planet concurrent).
+    std::string get_player_dimension(PlayerId id) const;
+
     // How many chunks around the player are ACTIVE (radius, Chebyshev).
     void set_active_radius(int radius) { active_radius_ = radius; }
     int active_radius() const { return active_radius_; }

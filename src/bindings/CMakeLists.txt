@@ -37,6 +37,7 @@ set(SOURCES
     multiblock/gd_multiblock_controller.cpp
     multiplayer/gd_network_server.cpp
     multiplayer/gd_network_client.cpp
+    multiplayer/gd_prediction_buffer.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

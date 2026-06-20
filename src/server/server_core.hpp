@@ -118,6 +118,11 @@ public:
     // Number of TCP sessions (including not-yet-logged-in).
     size_t session_count() const;
 
+    // Returns the player IDs of all currently logged-in players.
+    // Use this instead of assuming sequential IDs 1..N (M5: players may
+    // join/leave in any order, leaving gaps in the ID space).
+    std::vector<uint64_t> logged_in_player_ids() const;
+
     // Set the server name reported in LAN discovery replies.
     void set_server_name(const std::string& name) { server_name_ = name; }
     const std::string& server_name() const { return server_name_; }

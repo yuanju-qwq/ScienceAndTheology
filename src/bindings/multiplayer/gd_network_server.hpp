@@ -3,6 +3,7 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_int64_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 #include <memory>
@@ -87,6 +88,10 @@ public:
 
     // Number of TCP sessions (including not-yet-logged-in).
     int64_t get_session_count() const;
+
+    // Returns the player IDs of all currently logged-in players.
+    // Use this instead of assuming sequential IDs 1..N (M5).
+    godot::PackedInt64Array get_logged_in_player_ids() const;
 
     // Kick a player by id.
     void kick_player(int64_t player_id, const godot::String& reason);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "state_sync_common.hpp"
@@ -48,6 +49,17 @@ public:
     // compute_delta). Per-observer dirty tracking is M3+ scope.
     StateDelta compute_delta_for(PlayerId observer,
                                  const std::vector<ChunkKey>& observed_chunks);
+
+    // M5: Compute deltas for multiple observers in batch. Each observer
+    // gets a delta for their respective observed chunks. Dirty flags
+    // are only cleared after ALL observers have been processed, so
+    // multiple observers in the same dimension all see the same dirty
+    // state (the single-observer compute_delta_for would clear flags
+    // after the first observer, starving the rest).
+    // observer_views: list of (observer_id, observed_chunks) pairs.
+    // Returns: list of (observer_id, delta) pairs in the same order.
+    std::vector<std::pair<PlayerId, StateDelta>> compute_deltas_batch(
+        const std::vector<std::pair<PlayerId, std::vector<ChunkKey>>>& observer_views);
 
     // Returns true if the observer is registered.
     bool has_observer(PlayerId id) const;

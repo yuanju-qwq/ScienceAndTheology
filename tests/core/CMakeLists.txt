@@ -38,6 +38,34 @@ endif()
 
 add_test(NAME snt.m3.server_network COMMAND snt_m3_server_network)
 
+# M5: Multi-planet concurrent tests
+# Design: docs/多人游戏系统设计.md §3.6 多星球并发, §6.2 M5
+add_executable(snt_m5_multi_planet
+    m5_multi_planet.cpp
+)
+
+target_link_libraries(snt_m5_multi_planet PRIVATE snt_core snt_server)
+
+if(MSVC)
+    target_compile_options(snt_m5_multi_planet PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.m5.multi_planet COMMAND snt_m5_multi_planet)
+
+# M6: Client prediction + rollback tests
+# Design: docs/多人游戏系统设计.md §6.2 M6, §3.4 命令协议升级
+add_executable(snt_m6_prediction
+    m6_prediction.cpp
+)
+
+target_link_libraries(snt_m6_prediction PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_m6_prediction PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.m6.prediction COMMAND snt_m6_prediction)
+
 # U1: unified universe core tests
 # Design: docs/unified_universe_world_design.md section 21.2 (U1)
 add_executable(snt_u1_universe_core
@@ -121,3 +149,17 @@ if(MSVC)
 endif()
 
 add_test(NAME snt.u6.universe_simulation COMMAND snt_u6_universe_simulation)
+
+# U7: multi-sector AOI, per-observer budget, concurrent sector sync
+# Design: docs/unified_universe_world_design.md section 21.2 (U7)
+add_executable(snt_u7_universe_multiplayer
+    u7_universe_multiplayer.cpp
+)
+
+target_link_libraries(snt_u7_universe_multiplayer PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_u7_universe_multiplayer PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.u7.universe_multiplayer COMMAND snt_u7_universe_multiplayer)

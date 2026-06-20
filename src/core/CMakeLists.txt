@@ -142,6 +142,8 @@ target_sources(snt_core PRIVATE
     simulation/state_sync_server.cpp
     simulation/state_sync_client.hpp
     simulation/state_sync_client.cpp
+    simulation/prediction_buffer.hpp
+    simulation/prediction_buffer.cpp
 )
 
 # Save / load system
@@ -268,4 +270,15 @@ target_sources(snt_core PRIVATE
     universe/network_isolation_guard.cpp
     universe/virtual_planet_simulator.hpp
     universe/virtual_planet_simulator.cpp
+)
+
+# Universe multiplayer (U7: per-observer AOI budget, sector-aware observer map, multi-sector sync)
+# Design: docs/unified_universe_world_design.md sections 12, 21.2 (U7)
+target_sources(snt_core PRIVATE
+    universe/aoi_budget_manager.hpp
+    universe/aoi_budget_manager.cpp
+    universe/sector_observer_map.hpp
+    universe/sector_observer_map.cpp
+    universe/multi_sector_sync_coordinator.hpp
+    universe/multi_sector_sync_coordinator.cpp
 )

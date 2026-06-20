@@ -35,6 +35,76 @@ StateDelta StateSyncServer::compute_delta_for(
     return compute_delta(observed_chunks);
 }
 
+std::vector<std::pair<PlayerId, StateDelta>> StateSyncServer::compute_deltas_batch(
+    const std::vector<std::pair<PlayerId, std::vector<ChunkKey>>>& observer_views) {
+    std::vector<std::pair<PlayerId, StateDelta>> results;
+    results.reserve(observer_views.size());
+
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    const int64_t timestamp =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+
+    // Track all chunks observed by any observer. Dirty flags for these
+    // chunks are cleared only after ALL observers have been processed.
+    std::unordered_set<ChunkKey> observed_set;
+
+    for (const auto& [observer, chunks] : observer_views) {
+        if (observer != kInvalidPlayerId) {
+            register_observer(observer);
+        }
+
+        StateDelta delta;
+        delta.timestamp = timestamp;
+
+        for (const auto& chunk_key : chunks) {
+            observed_set.insert(chunk_key);
+            auto it = dirty_chunks_.find(chunk_key);
+            if (it == dirty_chunks_.end()) continue;
+
+            delta.flags |= it->second;
+            delta.chunks_modified.push_back(chunk_key);
+
+            if (world_data_) {
+                auto* chunk = world_data_->get_chunk(
+                    chunk_key.dimension_id,
+                    chunk_key.chunk_x,
+                    chunk_key.chunk_y,
+                    chunk_key.chunk_z);
+                if (chunk) {
+                    if ((it->second & SyncFlags::ENTITY) != SyncFlags::NONE) {
+                        for (auto eid : chunk->entities) {
+                            delta.entities_created.push_back(eid);
+                        }
+                    }
+                }
+            }
+            // NOTE: dirty flags are NOT cleared here — only after all
+            // observers have been processed.
+        }
+
+        results.emplace_back(observer, std::move(delta));
+    }
+
+    // Clear dirty flags for all chunks that were observed by any observer.
+    for (const auto& key : observed_set) {
+        auto it = dirty_chunks_.find(key);
+        if (it != dirty_chunks_.end()) {
+            it->second = SyncFlags::NONE;
+        }
+    }
+
+    // Remove fully clean entries.
+    for (auto it = dirty_chunks_.begin(); it != dirty_chunks_.end(); ) {
+        if (it->second == SyncFlags::NONE) {
+            it = dirty_chunks_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    return results;
+}
+
 StateDelta StateSyncServer::compute_delta(
     const std::vector<ChunkKey>& observed_chunks) {
     StateDelta delta;

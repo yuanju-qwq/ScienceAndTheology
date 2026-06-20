@@ -164,6 +164,11 @@ public:
     // Returns the number of registered players driving the active set.
     int64_t get_player_count() const;
 
+    // Returns the dimension the player is currently in, or empty string
+    // if the player is not registered. Used by the network layer to
+    // filter deltas by player dimension (M5: multi-planet concurrent).
+    godot::String get_player_dimension(int64_t player_id) const;
+
     // Active chunk radius.
     int64_t get_active_radius() const;
     void set_active_radius(int64_t radius);
@@ -215,6 +220,16 @@ public:
     // Single-player mode uses player_id = 1 (kSinglePlayerId).
     godot::Dictionary compute_delta_for(int64_t player_id,
                                         const godot::Array& chunk_keys);
+
+    // M5: Compute deltas for multiple observers in batch. Dirty flags
+    // are only cleared after ALL observers have been processed, so
+    // multiple observers in the same dimension all see the same dirty
+    // state.
+    // observer_views: Array of Dictionaries, each with:
+    //   { "player_id": int, "chunks": Array of chunk Dictionaries }
+    // Returns: Array of Dictionaries, each with:
+    //   { "player_id": int, "delta": Dictionary }
+    godot::Array compute_deltas_batch(const godot::Array& observer_views);
 
     // Create a full snapshot for a chunk.
     godot::Dictionary create_snapshot(

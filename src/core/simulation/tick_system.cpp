@@ -165,6 +165,12 @@ void TickSystem::clear_player_chunks() {
     player_chunks_dirty_ = true;
 }
 
+std::string TickSystem::get_player_dimension(PlayerId id) const {
+    auto it = player_chunks_.find(id);
+    if (it == player_chunks_.end()) return std::string();
+    return it->second.dimension;
+}
+
 SleepTier TickSystem::classify_sleep_tier(int cx, int cy, int cz) const {
     // Find the minimum Chebyshev distance to any registered player
     // in the same dimension. If no players are registered, return FAR.

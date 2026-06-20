@@ -118,6 +118,18 @@ int64_t GDNetworkServer::get_session_count() const {
     return core_ ? static_cast<int64_t>(core_->session_count()) : 0;
 }
 
+godot::PackedInt64Array GDNetworkServer::get_logged_in_player_ids() const {
+    godot::PackedInt64Array arr;
+    if (!core_) return arr;
+    auto ids = core_->logged_in_player_ids();
+    arr.resize(static_cast<int64_t>(ids.size()));
+    auto* ptr = arr.ptrw();
+    for (size_t i = 0; i < ids.size(); ++i) {
+        ptr[i] = static_cast<int64_t>(ids[i]);
+    }
+    return arr;
+}
+
 void GDNetworkServer::kick_player(int64_t player_id, const String& reason) {
     if (core_) {
         core_->kick_player(static_cast<uint64_t>(player_id),
@@ -130,7 +142,7 @@ void GDNetworkServer::kick_player(int64_t player_id, const String& reason) {
 std::vector<uint8_t> GDNetworkServer::on_command(
     uint64_t player_id, uint64_t client_tick,
     const std::vector<uint8_t>& payload) {
-    (void)client_tick;
+    (void)client_tick;  // client_tick flows through the command Dictionary
     if (!command_server_) return {};
 
     // Deserialize the command Dictionary from the payload.
@@ -143,6 +155,13 @@ std::vector<uint8_t> GDNetworkServer::on_command(
     // Execute the command via the authoritative command server.
     godot::Dictionary result = command_server_->submit_command(cmd);
 
+    // M6: Echo client_tick back so the client can reconcile predictions.
+    // The client includes client_tick in the command Dictionary; the
+    // command server may or may not echo it, so we ensure it here.
+    if (cmd.has("client_tick")) {
+        result["client_tick"] = cmd["client_tick"];
+    }
+
     // Serialize the result back to bytes.
     return dict_to_bytes(result);
 }
@@ -152,23 +171,60 @@ GDNetworkServer::on_produce_deltas() {
     std::vector<std::pair<uint64_t, std::vector<uint8_t>>> deltas;
     if (!core_ || !tick_system_) return deltas;
 
-    // For each connected player, compute their delta.
-    // In M3 we use a simple approach: compute delta over all dirty chunks
-    // for each player. Per-observer dirty tracking is M5+ scope.
-    const int64_t player_count = core_->player_count();
-    if (player_count == 0) return deltas;
+    // M5: Enumerate actual logged-in player IDs instead of assuming
+    // sequential 1..N (players may join/leave in any order, leaving
+    // gaps in the ID space).
+    auto player_ids = core_->logged_in_player_ids();
+    if (player_ids.empty()) return deltas;
 
     // Get all dirty chunks from the tick system.
     godot::Array dirty = tick_system_->get_dirty_chunks();
     if (dirty.is_empty()) return deltas;
 
-    // For each player, compute delta for the dirty chunks.
-    // TODO (M5): filter chunks by each player's view distance.
-    // For now, all players see all dirty chunks.
-    for (int64_t i = 1; i <= player_count; ++i) {
-        godot::Dictionary delta = tick_system_->compute_delta_for(i, dirty);
+    // M5: Per-observer delta filtering by dimension.
+    // Players on different planets only receive deltas for their own
+    // planet. Design §3.6: 客户端只关心自己所在星球。
+    //
+    // Build per-observer chunk views (filtered by dimension), then use
+    // the batch delta API so dirty flags are only cleared after ALL
+    // observers have been processed. This ensures multiple players on
+    // the same planet all receive the delta (the single-observer
+    // compute_delta_for would clear flags after the first observer).
+    godot::Array observer_views;
+    for (uint64_t pid : player_ids) {
+        const int64_t player_id = static_cast<int64_t>(pid);
+        godot::String player_dim = tick_system_->get_player_dimension(player_id);
+        if (player_dim.is_empty()) continue;  // player not registered yet
+
+        // Filter dirty chunks to only those in the player's dimension.
+        godot::Array player_dirty;
+        for (int64_t i = 0; i < dirty.size(); ++i) {
+            const godot::Variant& v = dirty[i];
+            if (v.get_type() != godot::Variant::DICTIONARY) continue;
+            godot::Dictionary chunk_dict = v;
+            godot::String chunk_dim = chunk_dict["dimension"];
+            if (chunk_dim == player_dim) {
+                player_dirty.append(chunk_dict);
+            }
+        }
+        if (player_dirty.is_empty()) continue;
+
+        godot::Dictionary view;
+        view["player_id"] = player_id;
+        view["chunks"] = player_dirty;
+        observer_views.append(view);
+    }
+
+    if (observer_views.is_empty()) return deltas;
+
+    // Compute all deltas in batch (dirty flags cleared once at the end).
+    godot::Array batch_results = tick_system_->compute_deltas_batch(observer_views);
+    for (int64_t i = 0; i < batch_results.size(); ++i) {
+        godot::Dictionary entry = batch_results[i];
+        int64_t pid = entry["player_id"];
+        godot::Dictionary delta = entry["delta"];
         if (!delta.is_empty()) {
-            deltas.emplace_back(static_cast<uint64_t>(i), dict_to_bytes(delta));
+            deltas.emplace_back(static_cast<uint64_t>(pid), dict_to_bytes(delta));
         }
     }
     return deltas;
@@ -247,6 +303,8 @@ void GDNetworkServer::_bind_methods() {
                          &GDNetworkServer::get_player_count);
     ClassDB::bind_method(D_METHOD("get_session_count"),
                          &GDNetworkServer::get_session_count);
+    ClassDB::bind_method(D_METHOD("get_logged_in_player_ids"),
+                         &GDNetworkServer::get_logged_in_player_ids);
 
     ClassDB::bind_method(D_METHOD("kick_player", "player_id", "reason"),
                          &GDNetworkServer::kick_player);
