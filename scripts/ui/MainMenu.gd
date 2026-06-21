@@ -36,7 +36,7 @@ const PANEL_HEIGHT := 440
 
 # ── State ─────────────────────────────────────────────────────────────────────
 
-enum State { MAIN_MENU, WORLD_LIST, NEW_WORLD_DIALOG }
+enum State { MAIN_MENU, WORLD_LIST, NEW_WORLD_DIALOG, SETTINGS }
 
 var _state: State = State.MAIN_MENU
 var _world_list: Array[Dictionary] = []
@@ -52,6 +52,7 @@ var _new_world_input: LineEdit
 var _universe_mode_option: OptionButton
 var _seed_input: LineEdit
 var _status_label: Label
+var _settings_ui: SettingsUI
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -220,6 +221,7 @@ func _build_ui() -> void:
 	_build_main_menu()
 	_build_world_list_panel()
 	_build_new_world_dialog()
+	_build_settings_ui()
 
 
 # ── Main menu buttons ─────────────────────────────────────────────────────────
@@ -333,6 +335,13 @@ func _build_world_list_panel() -> void:
 
 
 # ── New world dialog ──────────────────────────────────────────────────────────
+
+
+func _build_settings_ui() -> void:
+	_settings_ui = SettingsUI.new()
+	_settings_ui.name = "SettingsUI"
+	_settings_ui.closed.connect(_show_main_menu)
+	add_child(_settings_ui)
 
 
 func _build_new_world_dialog() -> void:
@@ -542,6 +551,8 @@ func _show_main_menu() -> void:
 	_main_menu_vbox.visible = true
 	_world_list_panel.visible = false
 	_new_world_panel.visible = false
+	if _settings_ui:
+		_settings_ui.close()
 	_selected_world_index = -1
 	_set_status("")
 	_recenter_panels()
@@ -666,7 +677,9 @@ func _on_multiplayer() -> void:
 
 
 func _on_settings() -> void:
-	_set_status("设置 — 即将推出")
+	_state = State.SETTINGS
+	_main_menu_vbox.visible = false
+	_settings_ui.open()
 
 
 func _on_quit() -> void:

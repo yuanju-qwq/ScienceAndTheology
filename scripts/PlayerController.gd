@@ -92,6 +92,7 @@ var selected_hotbar := 0
 
 # Exit menu (pause menu) — created programmatically and added to the UI layer.
 var exit_menu: ExitMenu = null
+var _settings_ui: SettingsUI = null
 
 # Sub-modules for separated concerns.
 var interaction: PlayerInteraction
@@ -114,6 +115,7 @@ var _spawn_freeze_logged := false
 var _loading_overlay: Control
 var target := {}
 var _is_climbing := false
+var _is_quitting := false
 var gravity_direction := Vector3.DOWN
 var planet_center := Vector3.ZERO
 
@@ -139,6 +141,13 @@ var _atmosphere_type: int = PlanetDescriptor.AtmosphereType.BREATHABLE
 
 # Accumulated damage timer for atmosphere hazard ticks.
 var _atmo_damage_timer := 0.0
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and not _is_quitting:
+		_is_quitting = true
+		_do_save()
+		get_tree().quit.call_deferred()
 
 
 func _ready() -> void:
@@ -245,12 +254,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			if exit_menu and exit_menu.is_open():
 				_close_exit_menu()
 				return
-			if not input_locked:
-				_open_exit_menu()
+			if input_locked:
+				# A gameplay UI is open — close it instead of opening the exit menu.
+				_close_gameplay_ui()
 				return
+			_open_exit_menu()
+			return
 
-	if event is InputEventKey and event.pressed and not event.echo and not input_locked:
+	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event: InputEventKey = event
+		# Allow UI toggle keys even when input_locked so they can close UIs.
+		var key := key_event.keycode
+		if input_locked and key != KEY_E and key != KEY_C and key != KEY_B and key != KEY_J:
+			return
 		_handle_key(key_event)
 		return
 
@@ -274,20 +290,20 @@ func _handle_key(event: InputEventKey) -> void:
 		_select_hotbar(key - KEY_1)
 		return
 
-	if key == KEY_TAB:
+	if event.is_action_pressed(&"toggle_mouse"):
 		_mouse_captured = not _mouse_captured
 		Input.mouse_mode = (
 			Input.MOUSE_MODE_CAPTURED if _mouse_captured
 			else Input.MOUSE_MODE_VISIBLE)
 		return
 
-	if key == KEY_C:
+	if event.is_action_pressed(&"toggle_crafting"):
 		_ui_connector.toggle_crafting()
-	elif key == KEY_B:
+	elif event.is_action_pressed(&"toggle_wiki"):
 		if _ui_connector.close_furnace_if_open():
 			return
 		_ui_connector.toggle_wiki()
-	elif key == KEY_I:
+	elif event.is_action_pressed(&"toggle_inventory"):
 		if _ui_connector.close_furnace_if_open():
 			return
 		if wiki_ui and wiki_ui.visible:
@@ -295,12 +311,10 @@ func _handle_key(event: InputEventKey) -> void:
 			set_input_locked(false)
 			return
 		_ui_connector.toggle_inventory()
-	elif key == KEY_E or key == KEY_SPACE:
-		interaction.try_place_or_interact(target)
-	elif key == KEY_F3:
+	elif event.is_action_pressed(&"toggle_debug"):
 		if probe_panel:
 			probe_panel.toggle_mode()
-	elif key == KEY_J:
+	elif event.is_action_pressed(&"toggle_quest_book"):
 		_ui_connector.toggle_quest_book()
 
 
@@ -869,23 +883,32 @@ func _setup_exit_menu() -> void:
 	exit_menu.resume_requested.connect(_on_exit_menu_resume)
 	exit_menu.return_to_main_menu_requested.connect(_on_exit_menu_return_to_main)
 	exit_menu.quit_requested.connect(_on_exit_menu_quit)
+	exit_menu.settings_requested.connect(_on_exit_menu_settings)
 
 
 func _open_exit_menu() -> void:
 	if exit_menu == null:
 		return
 	# Close any open gameplay UIs first so the exit menu is the top overlay.
-	_ui_connector.close_furnace_if_open()
-	if wiki_ui and wiki_ui.visible:
-		wiki_ui.toggle()
-	if inventory_ui and inventory_ui.visible:
-		_ui_connector.toggle_inventory()
-	if crafting_ui and crafting_ui.visible:
-		_ui_connector.toggle_crafting()
-	if quest_ui and quest_ui.is_open():
-		_ui_connector.toggle_quest_book()
+	_close_gameplay_ui()
 	exit_menu.open()
 	set_input_locked(true)
+
+
+func _close_gameplay_ui() -> void:
+	_ui_connector.close_furnace_if_open()
+	if wiki_ui and wiki_ui.visible:
+		wiki_ui._is_open = false
+		wiki_ui.visible = false
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui._is_open = false
+		inventory_ui.visible = false
+	if crafting_ui and crafting_ui.visible:
+		crafting_ui._is_open = false
+		crafting_ui.visible = false
+	if quest_ui and quest_ui.is_open():
+		quest_ui.toggle()
+	set_input_locked(false)
 
 
 func _close_exit_menu() -> void:
@@ -901,12 +924,48 @@ func _on_exit_menu_resume() -> void:
 	_close_exit_menu()
 
 
+func _do_save() -> void:
+	if universe_manager != null:
+		var ok := universe_manager.save_universe()
+		if ok:
+			print("[PlayerController] world saved before exit")
+		else:
+			push_warning("[PlayerController] failed to save world before exit")
+
+
 func _on_exit_menu_return_to_main() -> void:
+	if not _is_quitting:
+		_is_quitting = true
+		_do_save()
 	get_tree().change_scene_to_file(MAIN_MENU_SCENE_PATH)
 
 
 func _on_exit_menu_quit() -> void:
+	if not _is_quitting:
+		_is_quitting = true
+		_do_save()
 	get_tree().quit()
+
+
+func _on_exit_menu_settings() -> void:
+	if exit_menu:
+		exit_menu.close()
+	if _settings_ui == null:
+		_settings_ui = SettingsUI.new()
+		_settings_ui.name = "SettingsUI"
+		var ui_layer := get_node_or_null(^"../UI")
+		if ui_layer != null:
+			ui_layer.add_child(_settings_ui)
+		else:
+			add_child(_settings_ui)
+		_settings_ui.closed.connect(_on_settings_closed)
+	_settings_ui.open()
+
+
+func _on_settings_closed() -> void:
+	# 关闭设置后回到暂停菜单。
+	if exit_menu:
+		exit_menu.open()
 
 
 # --- Status label ---

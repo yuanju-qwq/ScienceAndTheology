@@ -7,6 +7,7 @@ extends Control
 signal resume_requested
 signal return_to_main_menu_requested
 signal quit_requested
+signal settings_requested
 
 # ── Theme colors (match MainMenu) ────────────────────────────────────────────
 
@@ -80,6 +81,7 @@ func _build_ui() -> void:
 
 	# Buttons.
 	_add_button("继续游戏", _on_resume)
+	_add_button("设置", _on_settings)
 	_add_button("返回主菜单", _on_return_to_main)
 	_add_button("退出游戏", _on_quit)
 
@@ -136,6 +138,10 @@ func is_open() -> bool:
 
 func _on_resume() -> void:
 	resume_requested.emit()
+
+
+func _on_settings() -> void:
+	settings_requested.emit()
 
 
 func _on_return_to_main() -> void:

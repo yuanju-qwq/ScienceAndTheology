@@ -92,8 +92,6 @@ func set_player(p: PlayerController) -> void:
 func toggle() -> void:
 	_is_open = not _is_open
 	visible = _is_open
-	if player:
-		player.set_input_locked(_is_open)
 	if _is_open:
 		_update_all_slots()
 

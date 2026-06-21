@@ -43,6 +43,7 @@ func toggle_inventory() -> void:
 		toggle_crafting()
 	if inventory_ui:
 		inventory_ui.toggle()
+		_player.set_input_locked(inventory_ui.visible)
 
 
 func toggle_wiki() -> void:
