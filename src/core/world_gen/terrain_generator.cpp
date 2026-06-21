@@ -186,6 +186,10 @@ void TerrainGenerator::pass_base_terrain_planet(
     TerrainData& terrain, const PlanetConfig& planet) {
     (void)dimension_id;
     const auto mat = materials();
+    const TerrainMaterialId snow_material =
+        config_->material_id_or("snt:snow", mat.dirt);
+    const TerrainMaterialId ice_material =
+        config_->material_id_or("snt:ice", mat.water);
 
     NoiseGenerator elevation_noise(world_seed_.chunk_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
@@ -226,9 +230,31 @@ void TerrainGenerator::pass_base_terrain_planet(
                 const float dir_z = dz * inv_dist;
 
                 // Compute surface radius at this direction using 3D noise.
-                const float surface_r = planet_surface_radius(
+                float surface_r = planet_surface_radius(
                     elevation_noise, detail_noise,
                     dir_x, dir_y, dir_z, planet);
+
+                // local_center places the north-pole spawn above (center_x,
+                // center_z). Keep a small landing area there so a new player
+                // never starts over an ocean or lava surface.
+                constexpr float kSpawnFlatRadius = 8.0f;
+                constexpr float kSpawnTransitionRadius = 24.0f;
+                const float spawn_distance = std::sqrt(dx * dx + dz * dz);
+                if (dir_y > 0.0f && spawn_distance < kSpawnTransitionRadius) {
+                    float blend = std::clamp(
+                        (kSpawnTransitionRadius - spawn_distance)
+                            / (kSpawnTransitionRadius - kSpawnFlatRadius),
+                        0.0f, 1.0f);
+                    blend = blend * blend * (3.0f - 2.0f * blend);
+                    const float safe_surface_r = sea_level_radius + 2.0f * blend;
+                    surface_r = std::max(surface_r, safe_surface_r);
+                }
+
+                // Breathable planets have permanent polar snow caps and a
+                // one-block ice shell over polar oceans.
+                const bool is_polar =
+                    planet.atmosphere_type == ATMO_BREATHABLE
+                    && std::abs(dir_y) >= 0.85f;
 
                 // Compute perturbed core boundary at this direction.
                 const float core_noise_val = core_boundary_noise.noise_3d_scaled(
@@ -274,7 +300,9 @@ void TerrainGenerator::pass_base_terrain_planet(
 
                     if (depth < 1.0f) {
                         // Surface layer.
-                        if (surface_r < sea_level_radius) {
+                        if (is_polar) {
+                            material = snow_material;
+                        } else if (surface_r < sea_level_radius) {
                             material = mat.sand;
                         } else {
                             material = mat.dirt;
@@ -303,8 +331,11 @@ void TerrainGenerator::pass_base_terrain_planet(
                         }
                     }
                 } else if (dist <= sea_level_radius) {
-                    // Above surface but below sea level: water.
-                    material = mat.water;
+                    // Above surface but below sea level: water, capped with
+                    // one block of ice in permanent polar regions.
+                    material = is_polar && sea_level_radius - dist < 1.0f
+                        ? ice_material
+                        : mat.water;
                 }
 
                 set_cell_id(terrain, x, y, z, material);

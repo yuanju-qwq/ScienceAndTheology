@@ -605,21 +605,24 @@ func _update_all_lod_centers() -> void:
 		return
 	var active_up := active_planet.universe_position
 	var active_lc := active_planet.local_center
+	# Deactivate and reposition distant bodies first. The active manager is
+	# applied last because it owns the shared surface/space environment.
 	for dim_id in _lod_managers.keys():
 		var lod: PlanetLodManager = _lod_managers[dim_id]
-		if lod == null:
+		if lod == null or dim_id == active_planet.dimension_id:
 			continue
-		if dim_id == active_planet.dimension_id:
-			# 活跃星球：使用 local_center 作为场景中心。
-			lod.set_scene_center(active_lc, true)
-		else:
-			# 远景星球：相对活跃星球的宇宙偏移 + 活跃星球的 local_center。
-			var planet := get_planet_by_dimension(dim_id)
-			if planet == null:
-				continue
-			var relative := planet.universe_position - active_up
-			var scene_center := relative + active_lc
-			lod.set_scene_center(scene_center, false)
+		# 远景星球：相对活跃星球的宇宙偏移 + 活跃星球的 local_center。
+		var planet := get_planet_by_dimension(dim_id)
+		if planet == null:
+			continue
+		var relative := planet.universe_position - active_up
+		var scene_center := relative + active_lc
+		lod.set_scene_center(scene_center, false)
+
+	var active_lod: PlanetLodManager = _lod_managers.get(active_planet.dimension_id)
+	if active_lod != null:
+		# 活跃星球：使用 local_center 作为场景中心，并接管全局环境。
+		active_lod.set_scene_center(active_lc, true)
 
 
 # --- Planet loading / unloading with serialization ---

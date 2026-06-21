@@ -19,13 +19,14 @@
 extends Node
 
 const BuiltinTerrainContent := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
+const SolarSystemPresetScript := preload("res://scripts/world/SolarSystemPreset.gd")
 
 const DEFAULT_TCP_PORT := 8910
 const DEFAULT_UDP_PORT := 8911
 const DEFAULT_WORLD_SEED := 0
 const INVENTORY_WIDTH := 9
 const INVENTORY_HEIGHT := 4
-const SPAWN_DIMENSION := "overworld"
+const SPAWN_DIMENSION := "planet_earth"
 const SPAWN_CX := 0
 const SPAWN_CY := 0
 const SPAWN_CZ := 0
@@ -67,11 +68,13 @@ func _process(delta: float) -> void:
 # --- Setup ---
 
 func _setup_world(seed: int) -> void:
+	var resolved_seed := seed if seed != 0 else randi()
 	_world_data = GDWorldData.new()
-	_world_data.seed = seed if seed != 0 else randi()
+	_world_data.seed = resolved_seed
 	_world_data.set_max_async_results_per_frame(8)
 
-	var config := BuiltinTerrainContent.create_default_config()
+	var solar_system := SolarSystemPresetScript.generate(resolved_seed)
+	var config := BuiltinTerrainContent.create_config_for_universe(solar_system.planets)
 	_world_data.worldgen_config = config
 
 	# Generate spawn-area chunks so players have terrain immediately.

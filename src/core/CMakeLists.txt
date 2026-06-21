@@ -282,3 +282,12 @@ target_sources(snt_core PRIVATE
     universe/multi_sector_sync_coordinator.hpp
     universe/multi_sector_sync_coordinator.cpp
 )
+
+# Universe release (U8: performance budget monitor, save reliability, stress scenarios)
+# Design: docs/unified_universe_world_design.md sections 21.2 (U8)
+target_sources(snt_core PRIVATE
+    universe/performance_budget_monitor.hpp
+    universe/performance_budget_monitor.cpp
+    universe/save_reliability_manager.hpp
+    universe/save_reliability_manager.cpp
+)

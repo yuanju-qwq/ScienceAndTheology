@@ -101,7 +101,7 @@ struct RelayConfig {
     size_t max_queue_size = 16;
 
     // 是否在断线时丢弃队列。
-    bool drop_on_disconnect = false;
+    bool drop_on_disconnect = true;
 };
 
 // 中继统计。

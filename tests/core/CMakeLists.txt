@@ -163,3 +163,17 @@ if(MSVC)
 endif()
 
 add_test(NAME snt.u7.universe_multiplayer COMMAND snt_u7_universe_multiplayer)
+
+# U8: performance budget, save reliability, stress scenarios, fault recovery
+# Design: docs/unified_universe_world_design.md section 21.2 (U8)
+add_executable(snt_u8_universe_release
+    u8_universe_release.cpp
+)
+
+target_link_libraries(snt_u8_universe_release PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_u8_universe_release PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.u8.universe_release COMMAND snt_u8_universe_release)

@@ -24,9 +24,12 @@ func _run() -> void:
 
 	var universe := world.get_node_or_null("UniverseManager") as UniverseManager
 	var bridge := world.get_node_or_null("ChunkRendererBridge") as ChunkRendererBridge
+	var player := world.get_node_or_null("Player") as CharacterBody3D
 	if not _expect(universe != null, "UniverseManager is missing"):
 		return
 	if not _expect(bridge != null, "ChunkRendererBridge is missing"):
+		return
+	if not _expect(player != null, "Player is missing"):
 		return
 
 	var deadline := Time.get_ticks_msec() + WAIT_TIMEOUT_MSEC
@@ -39,7 +42,10 @@ func _run() -> void:
 			return
 		await get_tree().process_frame
 
-	print("[U0SceneSmoke] chunk generation settled; starting voxel/save checks")
+	print("[U0SceneSmoke] chunk generation settled; checking spawn terrain")
+	if not await _smoke_spawn_terrain(player, bridge, universe):
+		return
+	print("[U0SceneSmoke] spawn terrain passed; starting voxel/save checks")
 	if not _smoke_voxel_and_save(bridge):
 		return
 	print("[U0SceneSmoke] voxel/save checks passed; starting LOD checks")
@@ -52,6 +58,58 @@ func _run() -> void:
 	_remove_smoke_save()
 	print("U0 world scene smoke passed: generation, voxel edit, save/load, LOD, and debug travel.")
 	get_tree().quit(0)
+
+
+func _smoke_spawn_terrain(player: CharacterBody3D,
+		bridge: ChunkRendererBridge, universe: UniverseManager) -> bool:
+	var terrain: Dictionary = bridge.get_world_data().get_chunk_terrain(
+			String(bridge.active_dimension), 0, 0, 0)
+	var materials: PackedByteArray = terrain.get("materials", PackedByteArray())
+	var snow_material := int(bridge.worldgen_config.get_material_id("snt:snow"))
+	var ice_material := int(bridge.worldgen_config.get_material_id("snt:ice"))
+	var non_air := 0
+	var snow_blocks := 0
+	var ice_blocks := 0
+	for material in materials:
+		if material != 0:
+			non_air += 1
+		if material == snow_material:
+			snow_blocks += 1
+		elif material == ice_material:
+			ice_blocks += 1
+	if not _expect(non_air > 0, "spawn chunk contains only air"):
+		return false
+	if not _expect(snow_blocks > 0 and ice_blocks > 0,
+			"polar spawn chunk is missing snow or ice"):
+		return false
+
+	var deadline := Time.get_ticks_msec() + WAIT_TIMEOUT_MSEC
+	while not player.is_on_floor():
+		if Time.get_ticks_msec() >= deadline:
+			return _expect(false,
+					"player did not settle on spawn terrain; position=%s"
+					% player.global_position)
+		await get_tree().physics_frame
+
+	var ground_cell := bridge.world_position_to_cell(
+			player.global_position + Vector3.DOWN)
+	var ground_info := bridge.get_cell_info(ground_cell, bridge.active_dimension)
+	var ground_material := int(ground_info.get("data", {}).get("material", 0))
+	if not _expect(ground_material == snow_material,
+			"player did not settle on polar snow"):
+		return false
+
+	var active_lod := universe.get_node_or_null(
+			"LOD_%s" % String(bridge.active_dimension)) as PlanetLodManager
+	if not _expect(active_lod != null, "active planet LOD manager is missing"):
+		return false
+	if not _expect(not active_lod.is_space_environment_active(),
+			"surface view is still using the space environment"):
+		return false
+
+	print("[U0SceneSmoke] polar spawn position=%s snow=%d ice=%d non_air=%d"
+			% [player.global_position, snow_blocks, ice_blocks, non_air])
+	return true
 
 
 func _configure_deterministic_session() -> void:

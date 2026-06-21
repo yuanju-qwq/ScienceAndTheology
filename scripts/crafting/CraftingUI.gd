@@ -35,6 +35,11 @@ const CATEGORY_LABELS: Dictionary = {
 func _ready() -> void:
 	visible = false
 	_build_ui()
+	get_viewport().size_changed.connect(_center_in_viewport)
+
+
+func _center_in_viewport() -> void:
+	position = (get_viewport_rect().size - size) / 2.0
 
 
 func _build_ui() -> void:
@@ -42,10 +47,7 @@ func _build_ui() -> void:
 	var panel_h := 400
 
 	size = Vector2(panel_w, panel_h)
-	position = Vector2(
-		get_viewport_rect().size.x / 2 - size.x / 2,
-		get_viewport_rect().size.y / 2 - size.y / 2
-	)
+	_center_in_viewport()
 
 	_bg = ColorRect.new()
 	_bg.size = size

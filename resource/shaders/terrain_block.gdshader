@@ -13,7 +13,7 @@
 // from UV2.y and maps fract(UV) into that cell.
 shader_type spatial;
 
-render_mode cull_disabled, depth_draw_alpha_opaque, blend_mix;
+render_mode cull_disabled, depth_prepass_alpha, blend_mix;
 
 // Fallback albedo color when no atlas tile is assigned for the face.
 uniform vec4 albedo_color : source_color = vec4(0.85, 0.20, 0.85, 1.0);

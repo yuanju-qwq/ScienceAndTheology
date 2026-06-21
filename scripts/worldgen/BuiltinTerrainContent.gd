@@ -117,6 +117,8 @@ const MAT_PUMPKIN_SEED := 99
 const MAT_PUMPKIN_SPROUT := 100
 const MAT_PUMPKIN_GROWING := 101
 const MAT_PUMPKIN_MATURE := 102
+const MAT_SNOW := 103
+const MAT_ICE := 104
 
 # Crop category enum (must match C++ CropCategory).
 const CROP_GRAIN := 0
@@ -150,21 +152,6 @@ const FLAG_COLLAPSE_RISK := 128
 const FLAG_SUPPORT_BEAM := 256
 
 
-# Create the default single-planet config (backward compatible).
-# Uses the original "overworld" planet with radius 512.
-static func create_default_config() -> Resource:
-	var registry: GDTerrainContentRegistry = ClassDB.instantiate("GDTerrainContentRegistry")
-	if registry == null:
-		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
-		return null
-	_register_builtin_material_interactions(registry)
-	_register_builtin_material_visuals(registry)
-	_register_builtin_generation_rules(registry)
-	_register_crop_species(registry)
-	_register_runtime_material_ids(registry)
-	return registry.freeze()
-
-
 # Create a multi-planet config from an array of PlanetDescriptor resources.
 # Registers base terrain rules, biome rules, ore vein rules, rock layer rules,
 # and planet configs for each landable planet. Stars are skipped.
@@ -176,7 +163,9 @@ static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]
 		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
 		return null
 	_register_builtin_material_interactions(registry)
+	_register_builtin_material_roles(registry)
 	_register_builtin_material_visuals(registry)
+	_register_tree_species(registry)
 	_register_crop_species(registry)
 	_register_runtime_material_ids(registry)
 
@@ -453,6 +442,24 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"title_key": "terrain.lava",
 		"flags": FLAG_LIQUID,
 		"hardness": 100.0,
+	})
+	registry.register_material({
+		"id": MAT_SNOW,
+		"key": "snt:snow",
+		"title_key": "terrain.snow",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.2,
+		"required_tool_tag": "shovel",
+		"required_mining_level": 0,
+	})
+	registry.register_material({
+		"id": MAT_ICE,
+		"key": "snt:ice",
+		"title_key": "terrain.ice",
+		"flags": FLAG_SOLID | FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.6,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 0,
 	})
 	registry.register_material({
 		"id": MAT_ORE_IRON,
@@ -1349,6 +1356,11 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		{ "material_key": "snt:lava", "dimension": "overworld",
 		  "albedo_color": Color(0.95, 0.28, 0.08),
 		  "emissive_color": Color(0.8, 0.2, 0.05), "roughness": 0.3 },
+		{ "material_key": "snt:snow", "dimension": "overworld",
+		  "albedo_color": Color(0.92, 0.95, 1.0), "roughness": 0.82 },
+		{ "material_key": "snt:ice", "dimension": "overworld",
+		  "albedo_color": Color(0.62, 0.82, 0.95, 0.82),
+		  "transparent": true, "roughness": 0.12 },
 		{ "material_key": "snt:ore_iron", "dimension": "overworld",
 		  "albedo_color": Color(0.65, 0.58, 0.50) },
 		{ "material_key": "snt:ore_copper", "dimension": "overworld",
@@ -1572,7 +1584,7 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		registry.register_material_visual(visual)
 
 
-static func _register_builtin_generation_rules(registry: GDTerrainContentRegistry) -> void:
+static func _register_builtin_material_roles(registry: GDTerrainContentRegistry) -> void:
 	registry.set_material_roles({
 		"air_key": "snt:air",
 		"stone_key": "snt:stone",
@@ -1589,396 +1601,8 @@ static func _register_builtin_generation_rules(registry: GDTerrainContentRegistr
 		"core_barrier_key": "snt:core_barrier",
 	})
 
-	registry.register_base_terrain_rule({
-		"dimension": "overworld",
-		"mode": "surface_elevation",
-		"default_material_key": "snt:dirt",
-		"low_elevation_material_key": "snt:water",
-		"high_elevation_material_key": "snt:stone",
-		"elevation_scale": 0.02,
-		"elevation_octaves": 4,
-		"detail_scale": 0.05,
-		"detail_octaves": 3,
-		"water_elevation_max": -0.25,
-		"water_detail_max": 0.3,
-		"stone_elevation_abs_min": 0.55,
-	})
-	registry.register_biome_rule({
-		"key": "snt:desert_sand",
-		"dimension": "overworld",
-		"source_material_key": "snt:dirt",
-		"result_material_key": "snt:sand",
-		"temperature_min": 0.3,
-		"humidity_max": -0.2,
-	})
-	registry.register_biome_rule({
-		"key": "snt:beach_sand",
-		"dimension": "overworld",
-		"source_material_key": "snt:dirt",
-		"result_material_key": "snt:sand",
-		"requires_near_material": true,
-		"near_material_key": "snt:water",
-		"near_radius": 2,
-	})
-	registry.register_biome_rule({
-		"key": "snt:rocky_highlands",
-		"dimension": "overworld",
-		"source_material_key": "snt:dirt",
-		"result_material_key": "snt:stone",
-		"temperature_max": -0.4,
-		"humidity_max": -0.1,
-	})
 
-	# --- GT-style ore vein groups ---
-	# Each vein group contains primary, secondary, between, and sporadic ores.
-	# Depth ranges control where each vein type can appear.
-	# Weight controls relative frequency (higher = more common).
-
-	# Chalcopyrite vein: shallow-mid copper source.
-	# Primary: chalcopyrite (CuFeS2), Secondary: pyrite (FeS2),
-	# Between: galena (PbS), Sporadic: sphalerite (ZnS).
-	registry.register_ore_vein_group({
-		"key": "snt:chalcopyrite_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_chalcopyrite",
-		"secondary_ore_key": "snt:ore_pyrite",
-		"between_ore_key": "snt:ore_galena",
-		"sporadic_ore_key": "snt:ore_sphalerite",
-		"depth_min": 5.0,
-		"depth_max": 40.0,
-		"radius": 18.0,
-		"density": 0.55,
-		"weight": 2.0,
-	})
-
-	# Cassiterite vein: shallow tin source.
-	# Primary: cassiterite (SnO2), Secondary: tin ore (pure Sn),
-	# Between: chalcopyrite (CuFeS2), Sporadic: galena (PbS).
-	registry.register_ore_vein_group({
-		"key": "snt:cassiterite_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_cassiterite",
-		"secondary_ore_key": "snt:ore_tin",
-		"between_ore_key": "snt:ore_chalcopyrite",
-		"sporadic_ore_key": "snt:ore_galena",
-		"depth_min": 0.0,
-		"depth_max": 30.0,
-		"radius": 14.0,
-		"density": 0.50,
-		"weight": 1.5,
-	})
-
-	# Magnetite vein: mid-depth iron source with gold byproduct.
-	# Primary: magnetite (Fe3O4), Secondary: ilmenite (FeTiO3),
-	# Between: gold (Au), Sporadic: pyrite (FeS2).
-	registry.register_ore_vein_group({
-		"key": "snt:magnetite_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_magnetite",
-		"secondary_ore_key": "snt:ore_ilmenite",
-		"between_ore_key": "snt:ore_gold",
-		"sporadic_ore_key": "snt:ore_pyrite",
-		"depth_min": 15.0,
-		"depth_max": 55.0,
-		"radius": 20.0,
-		"density": 0.60,
-		"weight": 1.8,
-	})
-
-	# Bauxite vein: shallow aluminum source.
-	# Primary: bauxite (Al(OH)3), Secondary: titanium ore (Ti),
-	# Between: iron ore (Fe), Sporadic: manganese ore (Mn).
-	registry.register_ore_vein_group({
-		"key": "snt:bauxite_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_bauxite",
-		"secondary_ore_key": "snt:ore_titanium",
-		"between_ore_key": "snt:ore_iron",
-		"sporadic_ore_key": "snt:ore_manganese",
-		"depth_min": 0.0,
-		"depth_max": 25.0,
-		"radius": 16.0,
-		"density": 0.50,
-		"weight": 1.2,
-	})
-
-	# Sphalerite vein: shallow-mid zinc source.
-	# Primary: sphalerite (ZnS), Secondary: zinc ore (pure Zn),
-	# Between: galena (PbS), Sporadic: silver ore (Ag).
-	registry.register_ore_vein_group({
-		"key": "snt:sphalerite_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_sphalerite",
-		"secondary_ore_key": "snt:ore_zinc",
-		"between_ore_key": "snt:ore_galena",
-		"sporadic_ore_key": "snt:ore_silver",
-		"depth_min": 5.0,
-		"depth_max": 35.0,
-		"radius": 14.0,
-		"density": 0.50,
-		"weight": 1.3,
-	})
-
-	# Galena vein: mid-depth lead-silver source.
-	# Primary: galena (PbS), Secondary: lead ore (pure Pb),
-	# Between: silver ore (Ag), Sporadic: sphalerite (ZnS).
-	registry.register_ore_vein_group({
-		"key": "snt:galena_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_galena",
-		"secondary_ore_key": "snt:ore_lead",
-		"between_ore_key": "snt:ore_silver",
-		"sporadic_ore_key": "snt:ore_sphalerite",
-		"depth_min": 15.0,
-		"depth_max": 50.0,
-		"radius": 14.0,
-		"density": 0.50,
-		"weight": 1.0,
-	})
-
-	# Pentlandite vein: mid-deep nickel source with cobalt byproduct.
-	# Primary: pentlandite ((Ni,Fe)9S8), Secondary: nickel ore (pure Ni),
-	# Between: cobalt ore (Co), Sporadic: platinum ore (Pt).
-	registry.register_ore_vein_group({
-		"key": "snt:pentlandite_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_pentlandite",
-		"secondary_ore_key": "snt:ore_nickel",
-		"between_ore_key": "snt:ore_cobalt",
-		"sporadic_ore_key": "snt:ore_platinum",
-		"depth_min": 30.0,
-		"depth_max": 70.0,
-		"radius": 12.0,
-		"density": 0.45,
-		"weight": 0.8,
-	})
-
-	# Tungsten vein: deep ore for hard alloys.
-	# Primary: tungsten ore (W), Secondary: manganese ore (Mn),
-	# Between: cassiterite (SnO2), Sporadic: fluorite (CaF2).
-	registry.register_ore_vein_group({
-		"key": "snt:tungsten_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:deepstone",
-		"primary_ore_key": "snt:ore_tungsten",
-		"secondary_ore_key": "snt:ore_manganese",
-		"between_ore_key": "snt:ore_cassiterite",
-		"sporadic_ore_key": "snt:ore_fluorite",
-		"depth_min": 50.0,
-		"depth_max": 100.0,
-		"radius": 10.0,
-		"density": 0.40,
-		"weight": 0.5,
-	})
-
-	# Uranium vein: very deep nuclear fuel source.
-	# Primary: uranium ore (U), Secondary: cobalt ore (Co),
-	# Between: lead ore (Pb), Sporadic: platinum ore (Pt).
-	registry.register_ore_vein_group({
-		"key": "snt:uranium_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:deepstone",
-		"primary_ore_key": "snt:ore_uranium",
-		"secondary_ore_key": "snt:ore_cobalt",
-		"between_ore_key": "snt:ore_lead",
-		"sporadic_ore_key": "snt:ore_platinum",
-		"depth_min": 70.0,
-		"depth_max": 200.0,
-		"radius": 8.0,
-		"density": 0.35,
-		"weight": 0.3,
-	})
-
-	# Platinum group vein: very deep rare catalyst metals.
-	# Primary: platinum ore (Pt), Secondary: nickel ore (Ni),
-	# Between: cobalt ore (Co), Sporadic: iridium (placeholder: gold).
-	registry.register_ore_vein_group({
-		"key": "snt:platinum_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:deepstone",
-		"primary_ore_key": "snt:ore_platinum",
-		"secondary_ore_key": "snt:ore_nickel",
-		"between_ore_key": "snt:ore_cobalt",
-		"sporadic_ore_key": "snt:ore_gold",
-		"depth_min": 80.0,
-		"depth_max": 200.0,
-		"radius": 6.0,
-		"density": 0.30,
-		"weight": 0.2,
-	})
-
-	# Diamond vein: very deep carbon gemstone.
-	# Primary: diamond (C), Secondary: graphite (C),
-	# Between: ruby (Cr), Sporadic: emerald (Be).
-	registry.register_ore_vein_group({
-		"key": "snt:diamond_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:deepstone",
-		"primary_ore_key": "snt:ore_diamond",
-		"secondary_ore_key": "snt:ore_graphite",
-		"between_ore_key": "snt:ore_ruby",
-		"sporadic_ore_key": "snt:ore_emerald",
-		"depth_min": 60.0,
-		"depth_max": 150.0,
-		"radius": 6.0,
-		"density": 0.30,
-		"weight": 0.25,
-	})
-
-	# Sapphire vein: deep gemstone source.
-	# Primary: sapphire (Al2O3), Secondary: bauxite (Al source),
-	# Between: ruby (Cr), Sporadic: emerald (Be).
-	registry.register_ore_vein_group({
-		"key": "snt:sapphire_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:deepstone",
-		"primary_ore_key": "snt:ore_sapphire",
-		"secondary_ore_key": "snt:ore_bauxite",
-		"between_ore_key": "snt:ore_ruby",
-		"sporadic_ore_key": "snt:ore_emerald",
-		"depth_min": 50.0,
-		"depth_max": 120.0,
-		"radius": 8.0,
-		"density": 0.35,
-		"weight": 0.35,
-	})
-
-	# Salt vein: shallow-mid industrial mineral.
-	# Primary: salt (NaCl), Secondary: fluorite (CaF2),
-	# Between: graphite (C), Sporadic: cinnabar (HgS).
-	registry.register_ore_vein_group({
-		"key": "snt:salt_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_salt",
-		"secondary_ore_key": "snt:ore_fluorite",
-		"between_ore_key": "snt:ore_graphite",
-		"sporadic_ore_key": "snt:ore_cinnabar",
-		"depth_min": 5.0,
-		"depth_max": 40.0,
-		"radius": 16.0,
-		"density": 0.55,
-		"weight": 1.0,
-	})
-
-	# Sulfur vein: volcanic zone chemical source.
-	# Primary: sulfur (S), Secondary: pyrite (FeS2),
-	# Between: cinnabar (HgS), Sporadic: sphalerite (ZnS).
-	registry.register_ore_vein_group({
-		"key": "snt:sulfur_vein",
-		"dimension": "overworld",
-		"host_material_key": "snt:granite_rock",
-		"primary_ore_key": "snt:ore_sulfur",
-		"secondary_ore_key": "snt:ore_pyrite",
-		"between_ore_key": "snt:ore_cinnabar",
-		"sporadic_ore_key": "snt:ore_sphalerite",
-		"depth_min": 10.0,
-		"depth_max": 45.0,
-		"radius": 12.0,
-		"density": 0.50,
-		"weight": 0.8,
-	})
-
-	# Rock layer rules: regional rock types that determine underground composition.
-	# Overworld uses granite + basalt (Earth-like composition).
-	registry.register_rock_layer_rule({
-		"key": "snt:granite",
-		"dimension": "overworld",
-		"rock_material_key": "snt:granite_rock",
-		"noise_scale": 0.005,
-		"noise_octaves": 3,
-		"noise_min": -1.0,
-		"noise_max": 0.0,
-		"depth_min": 0.0,
-		"depth_max": 100.0,
-		"hardness_multiplier": 1.0,
-		"collapse_chance": 0.3,
-		"associated_ores": [
-			"snt:ore_iron", "snt:ore_copper",
-			"snt:ore_chalcopyrite", "snt:ore_cassiterite",
-			"snt:ore_sphalerite", "snt:ore_galena",
-			"snt:ore_magnetite", "snt:ore_bauxite",
-			"snt:ore_salt", "snt:ore_sulfur",
-			"snt:ore_tin", "snt:ore_zinc",
-			"snt:ore_pyrite", "snt:ore_fluorite",
-		],
-	})
-	registry.register_rock_layer_rule({
-		"key": "snt:basalt",
-		"dimension": "overworld",
-		"rock_material_key": "snt:basalt_rock",
-		"noise_scale": 0.005,
-		"noise_octaves": 3,
-		"noise_min": 0.0,
-		"noise_max": 1.0,
-		"depth_min": 0.0,
-		"depth_max": 100.0,
-		"hardness_multiplier": 1.2,
-		"collapse_chance": 0.25,
-		"associated_ores": [
-			"snt:ore_iron", "snt:ore_magnetite",
-			"snt:ore_pentlandite", "snt:ore_ilmenite",
-			"snt:ore_nickel", "snt:ore_cinnabar",
-			"snt:ore_manganese",
-		],
-	})
-	registry.register_rock_layer_rule({
-		"key": "snt:deeprock",
-		"dimension": "overworld",
-		"rock_material_key": "snt:deepstone",
-		"noise_scale": 0.003,
-		"noise_octaves": 2,
-		"noise_min": -1.0,
-		"noise_max": 1.0,
-		"depth_min": 60.0,
-		"depth_max": 10000.0,
-		"hardness_multiplier": 1.5,
-		"collapse_chance": 0.5,
-		"associated_ores": [
-			"snt:ore_tungsten", "snt:ore_titanium",
-			"snt:ore_uranium", "snt:ore_platinum",
-			"snt:ore_cobalt", "snt:ore_diamond",
-			"snt:ore_ruby", "snt:ore_sapphire",
-			"snt:ore_emerald", "snt:ore_graphite",
-		],
-	})
-
-	# Planet configuration: spherical world with radius 512 blocks.
-	# Center is placed so that the player starts near the "north pole" surface.
-	# Core is 5% of radius (25 blocks), mantle boundary at 50% (256 blocks).
-	# Players can tunnel through the crust and mantle to reach the other side,
-	# but the inner core barrier (25 blocks radius) is indestructible.
-	registry.register_planet_config({
-		"dimension": "overworld",
-		"planet_radius": 512.0,
-		"center_x": 0.0,
-		"center_y": -512.0,
-		"center_z": 0.0,
-		"terrain_height_scale": 16.0,
-		"elevation_noise_scale": 0.008,
-		"elevation_octaves": 5,
-		"detail_noise_scale": 0.03,
-		"detail_octaves": 3,
-		"cave_noise_scale": 0.04,
-		"cave_octaves": 4,
-		"cave_threshold": 0.35,
-		"sea_level_fraction": 0.3,
-		"core_radius_ratio": 0.05,
-		"mantle_radius_ratio": 0.5,
-		"core_boundary_noise_scale": 0.02,
-		"core_boundary_noise_octaves": 3,
-		"core_boundary_noise_amplitude": 0.15,
-		"atmosphere_type": 2,
-	})
-
-	# --- Tree species registration ---
+static func _register_tree_species(registry: GDTerrainContentRegistry) -> void:
 
 	# Oak: temperate deciduous, round canopy, most common.
 	registry.register_tree_species({
@@ -2185,9 +1809,6 @@ static func _register_builtin_generation_rules(registry: GDTerrainContentRegistr
 	})
 
 
-# Register runtime material IDs for blocks placed by players (not by terrain generation).
-# These are separate from TerrainMaterialRoles because they are never consumed
-# by any terrain pass. The command server uses these IDs to write terrain cells.
 static func _register_runtime_material_ids(registry: GDTerrainContentRegistry) -> void:
 	registry.set_runtime_material_ids({
 		"ladder": "snt:ladder",

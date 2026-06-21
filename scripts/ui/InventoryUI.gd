@@ -14,16 +14,18 @@ var equip_slots: Array[SlotUI] = []
 func _ready() -> void:
 	visible = false
 	_initialize_ui()
+	get_viewport().size_changed.connect(_center_in_viewport)
+
+
+func _center_in_viewport() -> void:
+	position = (get_viewport_rect().size - size) / 2.0
 
 
 func _initialize_ui() -> void:
 	var total_w := COLS * (SLOT_SIZE + PADDING)
 	var total_h := ROWS * (SLOT_SIZE + PADDING) + 60
 	size = Vector2(total_w + 160, total_h)
-	position = Vector2(
-		get_viewport_rect().size.x / 2 - size.x / 2,
-		get_viewport_rect().size.y / 2 - size.y / 2
-	)
+	_center_in_viewport()
 
 	var bg := ColorRect.new()
 	bg.size = size
@@ -131,4 +133,3 @@ func _update_all_slots() -> void:
 			equip_slots[i].item_stack = ItemStack.new(item_id, 1)
 		else:
 			equip_slots[i].item_stack = null
-

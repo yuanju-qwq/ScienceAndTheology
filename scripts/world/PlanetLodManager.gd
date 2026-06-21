@@ -38,6 +38,13 @@ var is_active_planet := false:
 		if is_active_planet == value:
 			return
 		is_active_planet = value
+		if not _is_initialized:
+			return
+		if is_active_planet:
+			_apply_active_environment()
+		elif _is_space_env_active:
+			_activate_surface_environment()
+			_is_space_env_active = false
 
 # 远景星球在场景中的渲染中心（由 UniverseManager 计算）。
 # 活跃星球忽略此值，直接使用 planet_center（= local_center）。
@@ -130,8 +137,9 @@ func _process(delta: float) -> void:
 		_get_player_position(), effective_center, planet_radius, _current_lod_level)
 	_apply_fade_alpha()
 	_update_cloud_time(delta)
-	_update_horizon_fog()
-	_update_space_environment()
+	if is_active_planet:
+		_update_horizon_fog()
+		_update_space_environment()
 
 	if show_debug_info:
 		_maybe_log_debug(delta)
@@ -150,6 +158,10 @@ func get_fade_alpha() -> float:
 func get_surface_distance() -> float:
 	return GDPlanetLod.compute_surface_distance(
 		_get_player_position(), get_effective_center(), planet_radius)
+
+
+func is_space_environment_active() -> bool:
+	return _is_space_env_active
 
 
 func get_lod_distances() -> Dictionary:
@@ -463,12 +475,12 @@ func _create_horizon_fog() -> void:
 		add_child(_world_env)
 		_owns_world_env = true
 
-	_env.fog_enabled = true
-	_env.fog_light_color = horizon_fog_color
-	_env.fog_density = 0.0
-	_env.fog_sky_affect = 0.0
-	_env.fog_depth_begin = 0.0
-	_env.fog_depth_end = horizon_fog_max_distance
+	_surface_sky = _env.sky
+	_surface_bg_mode = _env.background_mode
+	_surface_ambient_color = _env.ambient_light_color
+	_surface_ambient_energy = _env.ambient_light_energy
+	if is_active_planet:
+		_apply_surface_environment_settings()
 
 
 func _update_horizon_fog() -> void:
@@ -533,6 +545,35 @@ func _update_space_environment() -> void:
 		_activate_surface_environment()
 
 
+func _apply_active_environment() -> void:
+	if _env == null:
+		return
+	if _current_lod_level >= LOD_PROXY_SPHERE and space_sky_enabled:
+		if not _is_space_env_active:
+			_activate_space_environment()
+			_is_space_env_active = true
+	else:
+		if _is_space_env_active:
+			_activate_surface_environment()
+			_is_space_env_active = false
+		else:
+			_apply_surface_environment_settings()
+
+
+func _apply_surface_environment_settings() -> void:
+	if _env == null:
+		return
+	_env.fog_enabled = horizon_fog_enabled
+	_env.fog_light_color = horizon_fog_color
+	_env.fog_density = 0.0
+	_env.fog_sky_affect = 0.0
+	_env.fog_depth_begin = 0.0
+	_env.fog_depth_end = horizon_fog_max_distance
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	_env.ambient_light_color = _surface_ambient_color
+	_env.ambient_light_energy = _surface_ambient_energy
+
+
 func _activate_space_environment() -> void:
 	# Save the current surface environment state for restoration.
 	_surface_sky = _env.sky
@@ -573,6 +614,7 @@ func _activate_surface_environment() -> void:
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	_env.ambient_light_color = _surface_ambient_color
 	_env.ambient_light_energy = _surface_ambient_energy
+	_apply_surface_environment_settings()
 
 
 # --- Seed helpers ---

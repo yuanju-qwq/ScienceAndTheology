@@ -7,7 +7,6 @@ extends Node3D
 
 signal chunk_bridge_ready
 
-const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
 const BlockAtlasBuilderScript := preload("res://scripts/world/BlockAtlasBuilder.gd")
 const CHUNK_SIZE := 32
 const BLOCK_SIZE := 1.0
@@ -15,6 +14,9 @@ const BLOCK_SIZE := 1.0
 # Air material ID 0 is a protocol convention: zero-initialized terrain cells
 # are air by definition. This is safe to hardcode.
 const AIR_MATERIAL := 0
+const MATERIAL_FLAG_WALKABLE := 1
+const MATERIAL_FLAG_SOLID := 2
+const MATERIAL_ID_CAPACITY := 256
 
 const OVERWORLD: StringName = &"overworld"
 
@@ -68,6 +70,7 @@ var _mesh_build_max_usec := 0
 var _mesh_build_last_usec := 0
 var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
+var _collidable_material_mask := PackedByteArray()
 # Shared block texture atlas for the active dimension.
 # Built by BlockAtlasBuilder from the worldgen material visuals.
 # Keys: "texture" (ImageTexture), "grid" (Vector2i), "tiles" (Dictionary).
@@ -128,10 +131,12 @@ func initialize() -> void:
 		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 
 	if worldgen_config == null:
-		worldgen_config = BuiltinTerrainContentScript.create_default_config()
+		push_error("ChunkRendererBridge: worldgen_config must be provided by UniverseManager.")
+		return
 	world_data.worldgen_config = worldgen_config
 
 	_resolve_runtime_material_ids()
+	_build_collidable_material_mask()
 
 	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
 		world_data.chunk_ready.connect(_on_chunk_ready)
@@ -197,6 +202,7 @@ func initialize_for_universe(config: Resource, initial_dimension: StringName) ->
 	active_dimension = initial_dimension
 
 	_resolve_runtime_material_ids()
+	_build_collidable_material_mask()
 
 	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
 		world_data.chunk_ready.connect(_on_chunk_ready)
@@ -348,6 +354,21 @@ func _resolve_runtime_material_ids() -> void:
 	var runtime_ids: Dictionary = worldgen_config.get_runtime_material_ids()
 	ladder_material_id = int(runtime_ids.get("ladder", AIR_MATERIAL))
 	workbench_material_id = int(runtime_ids.get("workbench", AIR_MATERIAL))
+
+
+@warning_ignore("unsafe_method_access")
+func _build_collidable_material_mask() -> void:
+	_collidable_material_mask.resize(MATERIAL_ID_CAPACITY)
+	_collidable_material_mask.fill(0)
+	if worldgen_config == null:
+		return
+	for definition: Dictionary in worldgen_config.get_material_defs():
+		var material_id := int(definition.get("id", -1))
+		var flags := int(definition.get("flags", 0))
+		if material_id < 0 or material_id >= MATERIAL_ID_CAPACITY:
+			continue
+		if (flags & (MATERIAL_FLAG_WALKABLE | MATERIAL_FLAG_SOLID)) != 0:
+			_collidable_material_mask[material_id] = 1
 
 
 # --- Chunk lifecycle ---
@@ -513,7 +534,7 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 
 	# Build collision faces (C++ hot path).
 	var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
-		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id)
+		materials, size_x, size_y, size_z, _collidable_material_mask)
 
 	# Root node holds both LOD 0 and LOD 1 children.
 	var root := Node3D.new()
@@ -685,7 +706,6 @@ func _get_material(material_id: int) -> Material:
 	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85)) if has_visual else Color(0.85, 0.20, 0.85)
 	var roughness: float = visual.get("roughness", 0.92) if has_visual else 0.92
 	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0)) if has_visual else Color(0, 0, 0)
-	var is_transparent: bool = visual.get("transparent", false) if has_visual else false
 
 	# Overlay layers (first overlay only for now).
 	var overlays: Array = visual.get("overlays", []) if has_visual else []
@@ -728,12 +748,8 @@ func _get_material(material_id: int) -> Material:
 		else:
 			push_warning("ChunkRendererBridge: failed to load overlay texture '%s' for material %d" % [overlay_path, material_id])
 
-	# Transparency / cull flags (shader uses cull_disabled render_mode always,
-	# but alpha transparency is driven by ALPHA and the visual flags).
-	if is_transparent or albedo.a < 1.0:
-		# ShaderMaterial transparency must be set on the material resource.
-		shader_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	# cull_disabled is already in the shader render_mode.
+	# Transparency is driven by the shader's ALPHA output and blend mode.
+	# cull_disabled is also declared in the shader render_mode.
 
 	var material: Material = shader_mat
 	_material_cache[material_id] = material

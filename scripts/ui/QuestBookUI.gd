@@ -73,6 +73,11 @@ var _quest_buttons: Dictionary = {} # quest_id -> Button
 func _ready() -> void:
 	visible = false
 	_build_ui()
+	get_viewport().size_changed.connect(_center_in_viewport)
+
+
+func _center_in_viewport() -> void:
+	position = (get_viewport_rect().size - size) / 2.0
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -123,10 +128,7 @@ func close() -> void:
 
 func _build_ui() -> void:
 	size = Vector2(PANEL_W, PANEL_H)
-	position = Vector2(
-		get_viewport_rect().size.x / 2 - PANEL_W / 2,
-		get_viewport_rect().size.y / 2 - PANEL_H / 2
-	)
+	_center_in_viewport()
 
 	# Background.
 	_bg = ColorRect.new()

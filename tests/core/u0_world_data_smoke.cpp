@@ -1,9 +1,11 @@
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include "save/save_manager.hpp"
 #include "world/world_data.hpp"
+#include "world_gen/terrain_generator.hpp"
 
 namespace fs = std::filesystem;
 using namespace science_and_theology;
@@ -18,9 +20,69 @@ bool expect(bool condition, const std::string& message) {
     return false;
 }
 
+bool verify_polar_surface_generation() {
+    auto config = std::make_shared<WorldGenConfigSnapshot>();
+    auto add_material = [&](TerrainMaterialId id, const std::string& key,
+                            uint32_t flags) {
+        TerrainMaterialDef material;
+        material.id = id;
+        material.key = key;
+        material.flags = flags;
+        config->materials.push_back(material);
+        config->material_ids_by_key[key] = id;
+        config->material_keys_by_id[id] = key;
+    };
+
+    add_material(0, "snt:air", 0);
+    add_material(1, "snt:stone", TF_SOLID | TF_MINEABLE);
+    add_material(2, "snt:dirt", TF_WALKABLE | TF_MINEABLE);
+    add_material(3, "snt:sand", TF_WALKABLE | TF_MINEABLE);
+    add_material(4, "snt:water", TF_LIQUID);
+    add_material(5, "snt:lava", TF_LIQUID);
+    add_material(6, "snt:deepstone", TF_SOLID | TF_MINEABLE);
+    add_material(7, "snt:core_barrier", TF_SOLID | TF_INDESTRUCTIBLE);
+    add_material(103, "snt:snow", TF_WALKABLE | TF_MINEABLE);
+    add_material(104, "snt:ice", TF_SOLID | TF_WALKABLE | TF_MINEABLE);
+
+    config->roles.air = 0;
+    config->roles.stone = 1;
+    config->roles.dirt = 2;
+    config->roles.sand = 3;
+    config->roles.water = 4;
+    config->roles.lava = 5;
+    config->roles.deepstone = 6;
+    config->roles.core_barrier = 7;
+
+    PlanetConfig planet;
+    planet.dimension_id = "polar_test";
+    planet.planet_radius = 512.0f;
+    planet.center_y = -512.0f;
+    planet.terrain_height_scale = 16.0f;
+    planet.sea_level_fraction = 0.3f;
+    planet.atmosphere_type = ATMO_BREATHABLE;
+    config->planet_configs.push_back(planet);
+
+    TerrainGenerator generator(WorldSeed(20260619), config);
+    const ChunkData chunk = generator.generate_chunk("polar_test", 0, 0, 0);
+    int snow_count = 0;
+    int ice_count = 0;
+    for (const TerrainCell& cell : chunk.terrain.cells) {
+        if (cell.material == 103) ++snow_count;
+        if (cell.material == 104) ++ice_count;
+    }
+
+    return expect(snow_count > 0, "polar spawn generated no snow")
+        && expect(ice_count > 0, "polar ocean generated no ice")
+        && expect(chunk.terrain.cell_at(0, 6, 0).material == 103,
+                  "north-pole landing surface is not snow");
+}
+
 } // namespace
 
 int main() {
+	if (!verify_polar_surface_generation()) {
+		return 1;
+	}
 	std::cerr << "[U0CoreSmoke] prepare unicode save path" << std::endl;
     const std::string dimension = "u0_smoke";
     const fs::path save_root =

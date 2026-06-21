@@ -310,6 +310,28 @@ bool is_transparent_for_face(int32_t x, int32_t y, int32_t z,
     return mat == air_material || mat == ladder_material;
 }
 
+bool is_collidable_material(
+        int32_t material, const godot::PackedByteArray& collidable_material_mask) {
+    return material >= 0 && material < collidable_material_mask.size()
+        && collidable_material_mask[material] != 0;
+}
+
+bool is_open_for_collision(
+        int32_t x, int32_t y, int32_t z,
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        const godot::PackedByteArray& collidable_material_mask) {
+    if (x < 0 || x >= size_x || y < 0 || y >= size_y || z < 0 || z >= size_z) {
+        return true;
+    }
+    const int64_t idx = GDChunkHelper::terrain_index(x, y, z, size_x, size_z);
+    if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
+        return true;
+    }
+    return !is_collidable_material(
+        static_cast<int32_t>(materials[idx]), collidable_material_mask);
+}
+
 // Per-material mesh data accumulator.
 struct MeshAccum {
     std::vector<godot::Vector3> vertices;
@@ -646,7 +668,7 @@ godot::Dictionary GDChunkHelper::build_greedy_mesh(
 godot::Dictionary GDChunkHelper::build_collision_faces(
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
-        int32_t air_material, int32_t ladder_material) {
+        const godot::PackedByteArray& collidable_material_mask) {
     std::vector<godot::Vector3> verts;
     std::vector<int32_t> indices;
     int32_t vertex_count = 0;
@@ -657,14 +679,15 @@ godot::Dictionary GDChunkHelper::build_collision_faces(
                 const int64_t idx = terrain_index(x, y, z, size_x, size_z);
                 if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) continue;
                 const int32_t mat = static_cast<int32_t>(materials[idx]);
-                if (mat == air_material || mat == ladder_material) continue;
+                if (!is_collidable_material(mat, collidable_material_mask)) continue;
 
                 // For each of 6 faces, check if exposed.
                 for (int dir = 0; dir < FaceDir::kCount; ++dir) {
                     godot::Vector3i off = neighbor_offset(dir);
-                    if (!is_transparent_for_face(x + off.x, y + off.y, z + off.z,
-                                                 materials, size_x, size_y, size_z,
-                                                 air_material, ladder_material)) {
+                    if (!is_open_for_collision(
+                            x + off.x, y + off.y, z + off.z,
+                            materials, size_x, size_y, size_z,
+                            collidable_material_mask)) {
                         continue;
                     }
 
@@ -770,7 +793,7 @@ void GDChunkHelper::_bind_methods() {
                                 &B::compute_surface_mask);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_greedy_mesh", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
                                 &B::build_greedy_mesh);
-    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "collidable_material_mask"),
                                 &B::build_collision_faces);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_visible_chunks", "player_chunk", "loaded_radius", "view_radius", "use_spherical_loading"),
                                 &B::compute_visible_chunks);
