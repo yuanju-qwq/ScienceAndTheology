@@ -73,10 +73,18 @@ func open() -> void:
 	_refresh_all_rows()
 
 
-func close() -> void:
+# Hide the panel without notifying its owner. Use this when the owner is
+# already applying a state transition, such as MainMenu._show_main_menu().
+func dismiss() -> void:
 	_stop_listening()
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+func close() -> void:
+	if not visible:
+		return
+	dismiss()
 	closed.emit()
 
 

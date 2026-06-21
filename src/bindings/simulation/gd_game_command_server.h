@@ -88,6 +88,10 @@ private:
     bool is_world_object_occupied(const godot::StringName& object_type,
                                   const godot::StringName& dimension,
                                   const godot::Vector3i& cell) const;
+    bool resolve_placement_cell(const godot::Dictionary& command,
+                                const godot::StringName& dimension,
+                                godot::Vector3i& out_cell,
+                                godot::String& out_error) const;
     bool node_bool_call(godot::Node* node, const godot::StringName& method,
                         const godot::StringName& dimension,
                         const godot::Vector3i& cell) const;

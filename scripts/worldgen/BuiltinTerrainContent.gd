@@ -1352,7 +1352,7 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		  "sides_variant_count": 4 },
 		{ "material_key": "snt:water", "dimension": "overworld",
 		  "albedo_color": Color(0.18, 0.39, 0.74, 0.78),
-		  "transparent": true, "cull_disabled": true, "roughness": 0.1 },
+		  "transparent": true, "roughness": 0.1 },
 		{ "material_key": "snt:lava", "dimension": "overworld",
 		  "albedo_color": Color(0.95, 0.28, 0.08),
 		  "emissive_color": Color(0.8, 0.2, 0.05), "roughness": 0.3 },

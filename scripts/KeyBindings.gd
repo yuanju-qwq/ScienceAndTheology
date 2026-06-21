@@ -15,6 +15,7 @@ const ACTION_DEFS: Array[Array] = [
 	[&"toggle_quest_book", "任务书",     KEY_J],
 	[&"toggle_mouse",      "释放鼠标",   KEY_TAB],
 	[&"toggle_debug",      "调试面板",   KEY_F3],
+	[&"toggle_build_mode", "建造坐标",   KEY_G],
 ]
 
 

@@ -6,7 +6,7 @@
 
 - 玩家可以从一个星球起飞，进入太空，再飞到另一个星球。
 - 玩家可以从一个星球一路搭方块，最终搭到另一个星球。
-- 星球、太空、空间站、小行星、太空桥都处于同一个连续宇宙坐标体系中。
+- 星球、太空、空间站、小行星、太空桥共享连续的宇宙空间；星球地表方块使用各自的局部体素坐标。
 - 服务器内部通过 Sector、Chunk、Simulation Island 等机制进行性能分区。
 - 网络同步只同步玩家兴趣范围内的数据，远处天体使用 LOD / Proxy 表示。
 - 工厂系统、电网、物流、AE 类网络不能无限全局连通，需要边界和中继机制。
@@ -15,7 +15,7 @@
 
 ```text
 对玩家：一个连续宇宙。
-对引擎：统一坐标 + Sector 分区 + Chunk 流式加载 + 分段模拟。
+对引擎：分层坐标 + Sector 分区 + Chunk 流式加载 + 分段模拟。
 ```
 
 ---
@@ -97,11 +97,11 @@ enum class SectorKind {
 
 ---
 
-## 3. 统一坐标系统
+## 3. 分层坐标系统
 
-### 3.1 服务端全局坐标
+### 3.1 宇宙坐标与星球局部坐标
 
-方块使用整数全局坐标：
+宇宙坐标用于天体、跨 Sector 实体和远距离导航：
 
 ```cpp
 struct GlobalBlockPos {
@@ -111,7 +111,7 @@ struct GlobalBlockPos {
 };
 ```
 
-实体使用连续坐标：
+实体使用连续全局坐标：
 
 ```cpp
 struct GlobalPos {
@@ -121,13 +121,28 @@ struct GlobalPos {
 };
 ```
 
+星球地表方块不直接以宇宙全局 XYZ 作为存储键，而是使用：
+
+```text
+dimension_id + planet_local_block_pos(x, y, z)
+```
+
+`planet_local_block_pos` 是以该星球 `local_center` 所在体素空间为参照的整数坐标。星球的宇宙位置变化不得重写已存储的 chunk 键。在地表 Sector 与宇宙空间之间通过星球变换显式转换：
+
+```text
+universe_pos = planet.universe_position + (planet_local_pos - planet.local_center)
+planet_local_pos = planet.local_center + (universe_pos - planet.universe_position)
+```
+
 坐标规则：
 
 ```text
-方块：int64 格子坐标。
-实体：double 连续坐标。
+星球方块：dimension_id + 星球局部整数 x/y/z。
+宇宙实体：double 连续全局坐标。
 客户端渲染：相对玩家的 float 局部坐标。
 ```
+
+`GlobalBlockPos` 仅用于宇宙空间、空间站或跨 Sector 查询的全局表示，不取代星球地表的局部体素键。
 
 ### 3.2 客户端 Floating Origin
 
@@ -217,7 +232,7 @@ constexpr int CHUNK_SIZE = 16;
 
 ### 5.2 ChunkKey
 
-全局坐标连续，但存储带 SectorId：
+Chunk 存储带 `SectorId`；`coord` 的解释由 Sector 决定：星球地表使用星球局部 chunk 坐标，宇宙空间使用稀疏全局 chunk 坐标。
 
 ```cpp
 struct ChunkKey {
@@ -239,13 +254,16 @@ class SectorManager {
 public:
     SectorId find_sector(GlobalBlockPos pos);
     ChunkKey make_chunk_key(GlobalBlockPos pos);
+    ChunkKey make_planet_chunk_key(PlanetId planet, PlanetLocalBlockPos pos);
 };
 ```
 
 流程：
 
 ```text
-GlobalBlockPos → 找到所在 Sector → 转换成 Sector 内 ChunkCoord → 访问对应 Sector 的 ChunkManager
+宇宙空间：GlobalBlockPos → 找到 Sector → 稀疏全局 ChunkCoord。
+星球地表：PlanetId + PlanetLocalBlockPos → 地表 Sector → 局部 ChunkCoord。
+跨边界查询：先通过星球变换在局部坐标与宇宙坐标之间转换，再访问目标 Sector。
 ```
 
 ---
@@ -327,20 +345,52 @@ enum class GravityFieldType {
 
 ## 8. 方块搭桥系统
 
+### 8.0 方块、星球与建造方向基线
+
+所有地表建造系统必须遵守同一组规则：
+
+```text
+方块形状：全局固定立方体。
+方块坐标：星球局部 x/y/z。
+星球形状：球形裁剪。
+重力方向：指向球心。
+玩家移动：沿球面切线。
+默认建造：沿星球局部上/下/横向。
+高级建造：可选全局 XYZ 模式。
+```
+
+“全局固定立方体”意味着方块不随球面法线旋转，邻格仍然只有当前体素网格的六个轴向相邻格。因此，星球局部建造方向是玩法语义，不是旋转体素网格。
+
+对任意目标格中心 `p` 和星球中心 `c`：
+
+```text
+radial_up = normalize(p - c)
+radial_down = -radial_up
+```
+
+把连续的局部方向映射到离散方块邻格时，从 `±X/±Y/±Z` 中选择与请求方向点积最大的轴向：
+
+- 局部“上”选择最接近 `radial_up` 的邻格，局部“下”取其反向。
+- 局部“横向”先将玩家视线或蓝图方向投影到球面切平面，再在排除当前上/下轴后的四个邻格中取点积最大者。
+- 直接点击方块表面放置时，命中面法线仍映射到上述局部语义，最终放置位置必须是六邻格之一。
+- 全局 XYZ 模式直接选择宇宙空间的 `±X/±Y/±Z`，跳过径向/切向解析，用于精确施工和跨区域结构对齐。
+
+建造命令应携带建造模式与已解析的整数邻格方向；服务端使用星球中心重新验证，不信任客户端传入的浮点基向量。
+
 ### 8.1 统一 BlockSpace
 
-统一宇宙坐标下，从一个星球搭到另一个星球不需要 WorldLink 或 Anchor。
+玩家可以从星球局部体素区域连续建造到稀疏太空 Sector，但 `BlockSpace` 必须显式携带坐标域，不得把星球局部坐标当作宇宙全局坐标。
 
 ```cpp
 class BlockSpace {
 public:
-    BlockId get_block(GlobalBlockPos pos);
-    void set_block(GlobalBlockPos pos, BlockId block);
-    Optional<GlobalBlockPos> neighbor(GlobalBlockPos pos, Direction dir);
+    BlockId get_block(BlockAddress pos);
+    void set_block(BlockAddress pos, BlockId block);
+    Optional<BlockAddress> neighbor(BlockAddress pos, Direction dir);
 };
 ```
 
-邻居查询能够跨 Sector 边界。
+`BlockAddress` 是带标签的坐标类型：星球地表地址为 `PlanetId + PlanetLocalBlockPos`，太空/空间站地址为 `SectorId + GlobalBlockPos`。邻居查询可以跨 Sector 边界，跨坐标域时必须通过 Sector 边界转换，不做隐式整数坐标拷贝。
 
 ### 8.2 稀疏太空 Chunk
 

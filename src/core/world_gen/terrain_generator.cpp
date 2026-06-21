@@ -59,6 +59,30 @@ ChunkData TerrainGenerator::generate_chunk(
     return chunk;
 }
 
+TerrainGenerator::LandformZone TerrainGenerator::landform_zone_at_direction(
+    const std::string& dimension_id,
+    float dir_x, float dir_y, float dir_z) const {
+    const std::string normalized_dimension = normalize_dimension_id(dimension_id);
+    const PlanetConfig* planet =
+        config_->find_planet_config(normalized_dimension);
+    const float length_sq = dir_x * dir_x + dir_y * dir_y + dir_z * dir_z;
+    if (planet == nullptr || !planet->is_planet() || length_sq < 1.0e-12f) {
+        return LandformZone::PLAINS;
+    }
+
+    const float inv_length = 1.0f / std::sqrt(length_sq);
+    NoiseGenerator elevation_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
+        normalized_dimension));
+    NoiseGenerator detail_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
+        normalized_dimension));
+    return sample_planet_landform(
+        elevation_noise, detail_noise,
+        dir_x * inv_length, dir_y * inv_length, dir_z * inv_length,
+        *planet).zone;
+}
+
 // --- Pass 1: Base Terrain ---
 
 void TerrainGenerator::pass_base_terrain(
@@ -112,15 +136,15 @@ void TerrainGenerator::pass_base_terrain_flat(
     (void)dimension_id;
     const auto mat = materials();
 
-    NoiseGenerator elevation_noise(world_seed_.chunk_seed(
+    NoiseGenerator elevation_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator detail_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator cave_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator cave_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 2,
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     for (int y = 0; y < terrain.size_y; ++y) {
         for (int z = 0; z < terrain.size_z; ++z) {
@@ -184,25 +208,24 @@ void TerrainGenerator::pass_base_terrain_flat(
 void TerrainGenerator::pass_base_terrain_planet(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     TerrainData& terrain, const PlanetConfig& planet) {
-    (void)dimension_id;
     const auto mat = materials();
     const TerrainMaterialId snow_material =
         config_->material_id_or("snt:snow", mat.dirt);
     const TerrainMaterialId ice_material =
         config_->material_id_or("snt:ice", mat.water);
 
-    NoiseGenerator elevation_noise(world_seed_.chunk_seed(
+    NoiseGenerator elevation_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator detail_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator cave_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator cave_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 2,
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator core_boundary_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator core_boundary_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 3,
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     // Radial layer boundaries.
     const float core_r = planet.planet_radius * planet.core_radius_ratio;
@@ -229,16 +252,19 @@ void TerrainGenerator::pass_base_terrain_planet(
                 const float dir_y = dy * inv_dist;
                 const float dir_z = dz * inv_dist;
 
-                // Compute surface radius at this direction using 3D noise.
-                float surface_r = planet_surface_radius(
+                // Compute a continuous, exhaustive landform profile at this
+                // direction. Ocean is represented by a submerged basin.
+                const LandformSample landform = sample_planet_landform(
                     elevation_noise, detail_noise,
                     dir_x, dir_y, dir_z, planet);
+                float surface_r =
+                    planet.planet_radius + landform.terrain_offset;
 
                 // local_center places the north-pole spawn above (center_x,
                 // center_z). Keep a small landing area there so a new player
                 // never starts over an ocean or lava surface.
-                constexpr float kSpawnFlatRadius = 8.0f;
-                constexpr float kSpawnTransitionRadius = 24.0f;
+                constexpr float kSpawnFlatRadius = 32.0f;
+                constexpr float kSpawnTransitionRadius = 64.0f;
                 const float spawn_distance = std::sqrt(dx * dx + dz * dz);
                 if (dir_y > 0.0f && spawn_distance < kSpawnTransitionRadius) {
                     float blend = std::clamp(
@@ -246,8 +272,12 @@ void TerrainGenerator::pass_base_terrain_planet(
                             / (kSpawnTransitionRadius - kSpawnFlatRadius),
                         0.0f, 1.0f);
                     blend = blend * blend * (3.0f - 2.0f * blend);
-                    const float safe_surface_r = sea_level_radius + 2.0f * blend;
-                    surface_r = std::max(surface_r, safe_surface_r);
+                    // Convert a fixed north-pole Y level to a radius along
+                    // this direction. This creates a genuinely horizontal
+                    // landing plateau instead of merely filling low spots.
+                    const float safe_surface_r =
+                        (sea_level_radius + 2.0f) / std::max(dir_y, 0.001f);
+                    surface_r += (safe_surface_r - surface_r) * blend;
                 }
 
                 // Breathable planets have permanent polar snow caps and a
@@ -303,6 +333,12 @@ void TerrainGenerator::pass_base_terrain_planet(
                         if (is_polar) {
                             material = snow_material;
                         } else if (surface_r < sea_level_radius) {
+                            material = mat.sand;
+                        } else if (landform.zone == LandformZone::MOUNTAINS
+                                   || landform.zone == LandformZone::RUGGED) {
+                            material = mat.stone;
+                        } else if (landform.zone == LandformZone::BASIN
+                                   && planet.sea_level_fraction <= 0.01f) {
                             material = mat.sand;
                         } else {
                             material = mat.dirt;
@@ -362,9 +398,9 @@ void TerrainGenerator::pass_rock_layer(
     const auto mat = materials();
     const PlanetConfig* planet = config_->find_planet_config(dimension_id);
 
-    NoiseGenerator rock_noise(world_seed_.chunk_seed(
+    NoiseGenerator rock_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::ROCK_LAYER),
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     for (int y = 0; y < terrain.size_y; ++y) {
         for (int z = 0; z < terrain.size_z; ++z) {
@@ -388,12 +424,12 @@ void TerrainGenerator::pass_rock_layer(
                     const float dz = static_cast<float>(global_z) - planet->center_z;
                     const float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
                     const float inv_dist = (dist > 0.001f) ? (1.0f / dist) : 0.0f;
-                    NoiseGenerator elev_noise(world_seed_.chunk_seed(
+                    NoiseGenerator elev_noise(world_seed_.dimension_seed(
                         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-                        chunk_x, chunk_y, chunk_z));
-                    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+                        dimension_id));
+                    NoiseGenerator detail_noise(world_seed_.dimension_seed(
                         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
-                        chunk_x, chunk_y, chunk_z));
+                        dimension_id));
                     const float surface_r = planet_surface_radius(
                         elev_noise, detail_noise,
                         dx * inv_dist, dy * inv_dist, dz * inv_dist, *planet);
@@ -403,9 +439,9 @@ void TerrainGenerator::pass_rock_layer(
                     const BaseTerrainRule* base_rule =
                         config_->find_base_rule(dimension_id);
                     if (base_rule) {
-                        NoiseGenerator elev_noise(world_seed_.chunk_seed(
+                        NoiseGenerator elev_noise(world_seed_.dimension_seed(
                             static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-                            chunk_x, chunk_y, chunk_z));
+                            dimension_id));
                         const int surface_height = surface_height_at(
                             elev_noise, global_x, global_z, *base_rule);
                         depth = static_cast<float>(surface_height - global_y);
@@ -428,7 +464,9 @@ void TerrainGenerator::pass_rock_layer(
                     // Use surface direction for rock layer noise so that
                     // the same region on the surface extends underground.
                     noise_val = rock_noise.noise_3d_scaled(
-                        dx * inv_dist, dy * inv_dist, dz * inv_dist,
+                        dx * inv_dist * planet->planet_radius,
+                        dy * inv_dist * planet->planet_radius,
+                        dz * inv_dist * planet->planet_radius,
                         rules.front()->noise_scale,
                         rules.front()->noise_octaves);
                 } else {
@@ -489,10 +527,10 @@ void TerrainGenerator::pass_biome(
     }
 
     const auto mat = materials();
-    NoiseGenerator temp_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::BIOME), chunk_x, chunk_y, chunk_z));
-    NoiseGenerator humidity_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::BIOME) + 1, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator temp_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME), dimension_id));
+    NoiseGenerator humidity_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME) + 1, dimension_id));
 
     for (int y = 0; y < terrain.size_y; ++y) {
         for (int z = 0; z < terrain.size_z; ++z) {
@@ -585,23 +623,23 @@ void TerrainGenerator::pass_ore_vein_group(
     // vein_select_noise: selects which vein group occupies each position.
     // vein_shape_noise: determines the shape/density within the vein.
     // ore_type_noise: determines primary/secondary/between/sporadic distribution.
-    NoiseGenerator vein_select_noise(world_seed_.chunk_seed(
+    NoiseGenerator vein_select_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::ORE_VEIN_GROUP),
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator vein_shape_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator vein_shape_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::ORE_VEIN_GROUP) + 1,
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator ore_type_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator ore_type_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::ORE_VEIN_GROUP) + 2,
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     // Reuse base terrain noise for depth computation.
-    NoiseGenerator elev_noise(world_seed_.chunk_seed(
+    NoiseGenerator elev_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
-        chunk_x, chunk_y, chunk_z));
-    NoiseGenerator detail_noise(world_seed_.chunk_seed(
+        dimension_id));
+    NoiseGenerator detail_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN) + 1,
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     for (int y = 0; y < terrain.size_y; ++y) {
         for (int z = 0; z < terrain.size_z; ++z) {
@@ -824,24 +862,24 @@ void TerrainGenerator::pass_surface_objects(
     }
 
     const auto mat = materials();
-    NoiseGenerator tree_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::OBJECT), chunk_x, chunk_y, chunk_z));
-    NoiseGenerator canopy_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::OBJECT) + 1, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator tree_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT), dimension_id));
+    NoiseGenerator canopy_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 1, dimension_id));
 
     // Temperature and humidity noise (same seeds as pass_biome for consistency).
-    NoiseGenerator temp_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::BIOME), chunk_x, chunk_y, chunk_z));
-    NoiseGenerator humidity_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::BIOME) + 1, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator temp_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME), dimension_id));
+    NoiseGenerator humidity_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME) + 1, dimension_id));
 
     // Species selection noise (deterministic per-position species choice).
-    NoiseGenerator species_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::OBJECT) + 2, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator species_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 2, dimension_id));
 
     // Trunk height variation noise.
-    NoiseGenerator height_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::OBJECT) + 3, chunk_x, chunk_y, chunk_z));
+    NoiseGenerator height_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::OBJECT) + 3, dimension_id));
 
     // Counter for generating unique entity IDs within this chunk.
     uint64_t next_entity_id = 1;
@@ -1057,19 +1095,19 @@ void TerrainGenerator::place_wild_crops(
     const auto mat = materials();
 
     // Dedicated noise for wild crop density (distinct seed offset from trees).
-    NoiseGenerator crop_noise(world_seed_.chunk_seed(
+    NoiseGenerator crop_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::OBJECT) + 10,
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     // Reuse biome noise (same seeds as pass_biome / tree pass) for species
     // selection consistency.
-    NoiseGenerator temp_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::BIOME), chunk_x, chunk_y, chunk_z));
-    NoiseGenerator humidity_noise(world_seed_.chunk_seed(
-        static_cast<uint32_t>(GenerationPass::BIOME) + 1, chunk_x, chunk_y, chunk_z));
-    NoiseGenerator species_noise(world_seed_.chunk_seed(
+    NoiseGenerator temp_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME), dimension_id));
+    NoiseGenerator humidity_noise(world_seed_.dimension_seed(
+        static_cast<uint32_t>(GenerationPass::BIOME) + 1, dimension_id));
+    NoiseGenerator species_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::OBJECT) + 11,
-        chunk_x, chunk_y, chunk_z));
+        dimension_id));
 
     for (int z = 0; z < terrain.size_z; ++z) {
         for (int x = 0; x < terrain.size_x; ++x) {
@@ -1301,26 +1339,131 @@ float TerrainGenerator::cave_noise_at(
 
 // --- Planet helpers ---
 
+TerrainGenerator::LandformSample TerrainGenerator::sample_planet_landform(
+    const NoiseGenerator& elevation_noise,
+    const NoiseGenerator& detail_noise,
+    float dir_x, float dir_y, float dir_z,
+    const PlanetConfig& planet) const {
+    // Convert the normalized direction back to surface-space coordinates.
+    // Planet noise scales are specified in blocks; sampling the unit vector
+    // directly made these scales nearly constant over the entire sphere.
+    const float surface_x = dir_x * planet.planet_radius;
+    const float surface_y = dir_y * planet.planet_radius;
+    const float surface_z = dir_z * planet.planet_radius;
+
+    const float elevation = elevation_noise.noise_3d_scaled(
+        surface_x, surface_y, surface_z,
+        planet.elevation_noise_scale, planet.elevation_octaves);
+    const float detail = detail_noise.noise_3d_scaled(
+        surface_x + 10000.0f, surface_y - 10000.0f, surface_z + 10000.0f,
+        planet.detail_noise_scale, planet.detail_octaves);
+
+    const float base_normalized = elevation * 0.7f + detail * 0.3f;
+    const float base_offset = base_normalized * planet.terrain_height_scale;
+
+    // Water-bearing planets keep low continental regions as ocean. Every
+    // remaining direction is classified as land by the zone anchors below.
+    const float ocean_threshold = planet.sea_level_fraction - 0.30f;
+    if (planet.sea_level_fraction > 0.01f
+        && base_normalized <= ocean_threshold) {
+        return {LandformZone::BASIN, base_offset};
+    }
+
+    const float region_scale = std::max(
+        0.0015f, planet.elevation_noise_scale * 0.2f);
+    const float selector_raw = elevation_noise.noise_3d_scaled(
+        surface_x + 37000.0f, surface_y - 19000.0f, surface_z + 53000.0f,
+        region_scale, 2);
+    const float selector = std::clamp(selector_raw * 1.8f, -1.0f, 1.0f);
+
+    // Ridged noise turns zero-crossing contours into connected mountain
+    // chains. A second, sharper field adds individual summits along them.
+    const float ridge_source = detail_noise.noise_3d_scaled(
+        surface_x - 23000.0f, surface_y + 41000.0f, surface_z - 17000.0f,
+        std::max(0.01f, planet.detail_noise_scale * 0.55f), 3);
+    const float ridge = std::pow(std::clamp(
+        1.0f - std::abs(ridge_source) * 1.7f, 0.0f, 1.0f), 3.0f);
+    const float peak_source = elevation_noise.noise_3d_scaled(
+        surface_x + 71000.0f, surface_y + 29000.0f, surface_z - 61000.0f,
+        std::max(0.018f, planet.detail_noise_scale), 3);
+    const float peaks = std::pow(
+        std::max(0.0f, peak_source), 2.0f);
+
+    // Each profile is normalized by terrain_height_scale. Anchors are ordered
+    // so every land point belongs to a zone and transitions remain continuous.
+    constexpr float kAnchors[] = {-0.85f, -0.50f, -0.15f, 0.20f, 0.55f, 0.85f};
+    const float profiles[] = {
+        // Basin: low, gently rolling inland depressions.
+        planet.sea_level_fraction + 0.04f + elevation * 0.08f + detail * 0.03f,
+        // Plains: broad areas with only a few blocks of relief.
+        planet.sea_level_fraction + 0.12f + elevation * 0.10f + detail * 0.04f,
+        // Hills: medium-amplitude rolling terrain.
+        planet.sea_level_fraction + 0.18f
+            + elevation * 0.38f + detail * 0.12f,
+        // Plateau: raised but locally flat terrain.
+        planet.sea_level_fraction + 0.35f
+            + elevation * 0.08f + detail * 0.04f,
+        // Mountains: broad range uplift plus connected ridges and summits.
+        planet.sea_level_fraction + 0.26f + ridge * 0.68f
+            + peaks * 0.42f + elevation * 0.12f + detail * 0.06f,
+        // Rugged land: maximum local relief, common on barren bodies.
+        planet.sea_level_fraction + 0.16f
+            + elevation * 0.65f + detail * 0.35f + peaks * 0.18f,
+    };
+
+    int lower = 0;
+    while (lower < 5 && selector > kAnchors[lower + 1]) {
+        ++lower;
+    }
+    int upper = std::min(lower + 1, 5);
+    float blend = 0.0f;
+    if (upper != lower) {
+        blend = std::clamp(
+            (selector - kAnchors[lower])
+                / (kAnchors[upper] - kAnchors[lower]),
+            0.0f, 1.0f);
+        blend = blend * blend * (3.0f - 2.0f * blend);
+    }
+
+    float normalized_offset =
+        profiles[lower] + (profiles[upper] - profiles[lower]) * blend;
+
+    // Atmospheres erode terrain. Breathable worlds favor smoother land while
+    // airless bodies preserve sharper relief without changing zone coverage.
+    float erosion_multiplier = 1.0f;
+    if (planet.atmosphere_type == ATMO_BREATHABLE) {
+        erosion_multiplier = 0.78f;
+    } else if (planet.atmosphere_type == ATMO_TOXIC
+               || planet.atmosphere_type == ATMO_CORROSIVE) {
+        erosion_multiplier = 0.90f;
+    } else if (planet.atmosphere_type == ATMO_NONE) {
+        erosion_multiplier = 1.12f;
+    }
+    normalized_offset = planet.sea_level_fraction
+        + (normalized_offset - planet.sea_level_fraction) * erosion_multiplier;
+
+    // Land must remain above sea level after profile blending.
+    if (planet.sea_level_fraction > 0.01f) {
+        normalized_offset = std::max(
+            normalized_offset, planet.sea_level_fraction + 0.03f);
+    }
+
+    const int nearest = (upper != lower && blend >= 0.5f) ? upper : lower;
+    return {
+        static_cast<LandformZone>(nearest),
+        normalized_offset * planet.terrain_height_scale,
+    };
+}
+
 float TerrainGenerator::planet_surface_radius(
     const NoiseGenerator& elevation_noise,
     const NoiseGenerator& detail_noise,
     float dir_x, float dir_y, float dir_z,
     const PlanetConfig& planet) const {
-    // Use the normalized direction vector as noise input.
-    // This produces seamless noise on the sphere surface.
-    const float elevation = elevation_noise.noise_3d_scaled(
-        dir_x, dir_y, dir_z,
-        planet.elevation_noise_scale, planet.elevation_octaves);
+    const LandformSample landform = sample_planet_landform(
+        elevation_noise, detail_noise, dir_x, dir_y, dir_z, planet);
 
-    const float detail = detail_noise.noise_3d_scaled(
-        dir_x + 100.0f, dir_y + 100.0f, dir_z + 100.0f,
-        planet.detail_noise_scale, planet.detail_octaves);
-
-    // Combine elevation and detail noise.
-    const float terrain_offset = (elevation * 0.7f + detail * 0.3f)
-        * planet.terrain_height_scale;
-
-    return planet.planet_radius + terrain_offset;
+    return planet.planet_radius + landform.terrain_offset;
 }
 
 } // namespace science_and_theology

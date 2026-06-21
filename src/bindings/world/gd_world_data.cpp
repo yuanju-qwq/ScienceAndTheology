@@ -458,6 +458,7 @@ godot::Dictionary GDWorldData::get_gameplay_config() const {
     d["enable_day_night"] = gc.enable_day_night;
     d["day_length_seconds"] = gc.day_length_seconds;
     d["twilight_fraction"] = gc.twilight_fraction;
+    d["day_start_time"] = gc.day_start_time;
     d["days_per_season"] = gc.days_per_season;
     d["enable_season_colors"] = gc.enable_season_colors;
 
@@ -484,6 +485,8 @@ godot::Dictionary GDWorldData::get_gameplay_config() const {
         po["day_length_seconds"] = o.day_length_seconds;
         po["has_twilight_fraction"] = o.has_twilight_fraction;
         po["twilight_fraction"] = o.twilight_fraction;
+        po["has_day_start_time"] = o.has_day_start_time;
+        po["day_start_time"] = o.day_start_time;
         overrides[godot::String(pair.first.c_str())] = po;
     }
     d["planet_overrides"] = overrides;
@@ -507,6 +510,8 @@ void GDWorldData::set_gameplay_config(const godot::Dictionary& config) {
         config.get("day_length_seconds", gc.day_length_seconds));
     gc.twilight_fraction = static_cast<float>(
         config.get("twilight_fraction", gc.twilight_fraction));
+    gc.day_start_time = static_cast<float>(
+        config.get("day_start_time", gc.day_start_time));
     gc.days_per_season = static_cast<int>(
         config.get("days_per_season", gc.days_per_season));
     gc.enable_season_colors = config.get("enable_season_colors", gc.enable_season_colors);
@@ -545,6 +550,9 @@ void GDWorldData::set_gameplay_config(const godot::Dictionary& config) {
             o.has_twilight_fraction = po.get("has_twilight_fraction", false);
             o.twilight_fraction = static_cast<float>(
                 po.get("twilight_fraction", 0.1f));
+            o.has_day_start_time = po.get("has_day_start_time", false);
+            o.day_start_time = static_cast<float>(
+                po.get("day_start_time", 0.5f));
 
             gc.planet_overrides[dim_key.utf8().get_data()] = o;
         }
@@ -567,6 +575,7 @@ godot::Dictionary GDWorldData::get_gameplay_config_for_dimension(
     d["enable_day_night"] = gc.is_day_night_enabled(dim);
     d["day_length_seconds"] = gc.get_day_length_seconds(dim);
     d["twilight_fraction"] = gc.get_twilight_fraction(dim);
+    d["day_start_time"] = gc.get_day_start_time(dim);
     d["days_per_season"] = gc.days_per_season;
     d["enable_season_colors"] = gc.enable_season_colors;
     return d;

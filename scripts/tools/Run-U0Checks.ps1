@@ -98,7 +98,10 @@ try {
     $GDScriptTests = @(
         "res://scripts/test/test_item_key_lookup.gd",
         "res://scripts/test/test_content_database.gd",
-        "res://scripts/test/test_furnace_command_server.gd"
+        "res://scripts/test/test_furnace_command_server.gd",
+        "res://scripts/test/test_player_helper.gd",
+        "res://scripts/test/test_planet_build_frame.gd",
+        "res://scripts/test/test_chunk_mesh_helper.gd"
     )
     foreach ($TestScript in $GDScriptTests) {
         Invoke-GodotChecked "Run $TestScript" @(
@@ -108,6 +111,10 @@ try {
     Invoke-GodotChecked "Run U0 world scene smoke" @(
         "--headless", "--path", $ProjectRoot,
         "res://scripts/test/U0WorldSceneSmoke.tscn")
+
+    Invoke-GodotChecked "Run main menu startup smoke" @(
+        "--headless", "--path", $ProjectRoot,
+        "res://scripts/test/MainMenuStartupSmoke.tscn")
 
     Invoke-GodotChecked "Validate Godot project startup" @(
         "--headless", "--path", $ProjectRoot, "--editor", "--quit")

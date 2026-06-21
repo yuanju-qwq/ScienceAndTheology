@@ -1,9 +1,12 @@
+#include <array>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
 
 #include "save/save_manager.hpp"
+#include "simulation/day_night_def.hpp"
 #include "world/world_data.hpp"
 #include "world_gen/terrain_generator.hpp"
 
@@ -18,6 +21,21 @@ bool expect(bool condition, const std::string& message) {
     }
     std::cerr << "U0 world data smoke failed: " << message << '\n';
     return false;
+}
+
+bool verify_default_daylight() {
+    const GameplayConfig config;
+    const float time_of_day = compute_time_of_day(
+        0, 12000, config.day_start_time);
+    const DayNightState state = compute_day_night_state(
+        time_of_day, config.twilight_fraction);
+    return expect(std::abs(time_of_day - 0.5f) < 0.0001f,
+                  "new world does not start at noon")
+        && expect(state.is_daytime && state.sun_light_energy > 2.0f,
+                  "new world default lighting is not daytime")
+        && expect(std::abs(compute_time_of_day(
+                      6000, 12000, config.day_start_time)) < 0.0001f,
+                  "day phase offset does not wrap to midnight");
 }
 
 bool verify_polar_surface_generation() {
@@ -65,21 +83,82 @@ bool verify_polar_surface_generation() {
     TerrainGenerator generator(WorldSeed(20260619), config);
     const ChunkData chunk = generator.generate_chunk("polar_test", 0, 0, 0);
     int snow_count = 0;
-    int ice_count = 0;
     for (const TerrainCell& cell : chunk.terrain.cells) {
         if (cell.material == 103) ++snow_count;
-        if (cell.material == 104) ++ice_count;
     }
 
-    return expect(snow_count > 0, "polar spawn generated no snow")
-        && expect(ice_count > 0, "polar ocean generated no ice")
+    bool ok = expect(snow_count > 0, "polar spawn generated no snow")
         && expect(chunk.terrain.cell_at(0, 6, 0).material == 103,
-                  "north-pole landing surface is not snow");
+                  "north-pole landing surface is not snow")
+        && expect(chunk.terrain.cell_at(16, 6, 16).material == 103,
+                  "landing plateau is not level at its center")
+        && expect(chunk.terrain.cell_at(31, 6, 0).material == 103,
+                  "landing plateau does not reach its configured radius")
+        && expect(chunk.terrain.cell_at(16, 7, 16).material == 0,
+                  "landing plateau has terrain above its level surface");
+
+    auto dry_config = std::make_shared<WorldGenConfigSnapshot>(*config);
+    dry_config->planet_configs[0].dimension_id = "landform_test";
+    dry_config->planet_configs[0].sea_level_fraction = 0.0f;
+    dry_config->planet_configs[0].atmosphere_type = ATMO_NONE;
+    TerrainGenerator landform_generator(WorldSeed(20260619), dry_config);
+    std::array<bool, static_cast<size_t>(TerrainGenerator::LandformZone::COUNT)>
+        found_zones{};
+    constexpr float kPi = 3.14159265358979323846f;
+    for (int latitude = -85; latitude <= 85; latitude += 5) {
+        const float lat = static_cast<float>(latitude) * kPi / 180.0f;
+        for (int longitude = 0; longitude < 360; longitude += 5) {
+            const float lon = static_cast<float>(longitude) * kPi / 180.0f;
+            const float cos_lat = std::cos(lat);
+            const auto zone = landform_generator.landform_zone_at_direction(
+                "landform_test",
+                cos_lat * std::cos(lon), std::sin(lat), cos_lat * std::sin(lon));
+            found_zones[static_cast<size_t>(zone)] = true;
+        }
+    }
+    for (size_t zone = 0; zone < found_zones.size(); ++zone) {
+        ok = expect(found_zones[zone],
+                    "landform coverage is missing zone " + std::to_string(zone))
+            && ok;
+    }
+
+    const ChunkData left_low = generator.generate_chunk("polar_test", 2, -1, 0);
+    const ChunkData left_high = generator.generate_chunk("polar_test", 2, 0, 0);
+    const ChunkData right_low = generator.generate_chunk("polar_test", 3, -1, 0);
+    const ChunkData right_high = generator.generate_chunk("polar_test", 3, 0, 0);
+    auto surface_height = [](const ChunkData& low, const ChunkData& high,
+                             int local_x, int local_z) {
+        for (int y = 31; y >= 0; --y) {
+            const auto material = high.terrain.cell_at(local_x, y, local_z).material;
+            if (material != 0 && material != 4) return y;
+        }
+        for (int y = 31; y >= 0; --y) {
+            const auto material = low.terrain.cell_at(local_x, y, local_z).material;
+            if (material != 0 && material != 4) return y - 32;
+        }
+        return -1000;
+    };
+    int max_boundary_step = 0;
+    for (int z = 0; z < 32; ++z) {
+        const int left_y = surface_height(left_low, left_high, 31, z);
+        const int right_y = surface_height(right_low, right_high, 0, z);
+        if (left_y > -1000 && right_y > -1000) {
+            max_boundary_step = std::max(
+                max_boundary_step, std::abs(left_y - right_y));
+        }
+    }
+    ok = expect(max_boundary_step <= 6,
+                "terrain is discontinuous at chunk boundary; max step="
+                    + std::to_string(max_boundary_step)) && ok;
+    return ok;
 }
 
 } // namespace
 
 int main() {
+	if (!verify_default_daylight()) {
+		return 1;
+	}
 	if (!verify_polar_surface_generation()) {
 		return 1;
 	}

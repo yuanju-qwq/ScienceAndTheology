@@ -38,7 +38,8 @@ void DayNightSystem::tick_active(const ChunkKey& chunk, float delta,
         day_len_sec * kTicksPerSecond);
 
     // Compute time of day.
-    const float tod = compute_time_of_day(tick, day_length_ticks);
+    const float tod = compute_time_of_day(
+        tick, day_length_ticks, gc.get_day_start_time(player_dimension_));
 
     // Get twilight fraction for this dimension.
     const float twilight = gc.get_twilight_fraction(player_dimension_);

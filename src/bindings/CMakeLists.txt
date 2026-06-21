@@ -16,6 +16,7 @@ set(SOURCES
     world/gd_furnace_manager.cpp
     world/gd_chunk_helper.cpp
     world/gd_planet_lod.cpp
+    world/gd_planet_build_frame.cpp
     simulation/gd_game_command_server.cpp
     simulation/gd_tick_system.cpp
     player/gd_player_inventory.cpp

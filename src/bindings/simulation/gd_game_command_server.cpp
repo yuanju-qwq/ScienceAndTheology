@@ -16,6 +16,7 @@
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
 #include "core/material/tool_items.hpp"
+#include "core/universe/planet_build_frame.hpp"
 #include "core/world/world_data.hpp"
 
 namespace science_and_theology {
@@ -111,6 +112,25 @@ bool recipe_matches_dictionary(const gt::CraftingRecipe& recipe,
         if (!found) return false;
     }
 
+    return true;
+}
+
+bool direction_from_offset(const Vector3i& offset, Direction& out_direction) {
+    if (offset == Vector3i(1, 0, 0)) {
+        out_direction = Direction::PosX;
+    } else if (offset == Vector3i(-1, 0, 0)) {
+        out_direction = Direction::NegX;
+    } else if (offset == Vector3i(0, 1, 0)) {
+        out_direction = Direction::PosY;
+    } else if (offset == Vector3i(0, -1, 0)) {
+        out_direction = Direction::NegY;
+    } else if (offset == Vector3i(0, 0, 1)) {
+        out_direction = Direction::PosZ;
+    } else if (offset == Vector3i(0, 0, -1)) {
+        out_direction = Direction::NegZ;
+    } else {
+        return false;
+    }
     return true;
 }
 
@@ -448,7 +468,11 @@ Dictionary GDGameCommandServer::cmd_craft_recipe(const Dictionary& command) {
 Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     const StringName object_type = command.get("object_type", StringName());
     const StringName dimension = command.get("dimension", StringName("overworld"));
-    const Vector3i cell = command.get("cell", Vector3i());
+    Vector3i cell;
+    String placement_error;
+    if (!resolve_placement_cell(command, dimension, cell, placement_error)) {
+        return reject(command_place_object(), placement_error);
+    }
     const int64_t item_id = command.get("item_id", 0);
 
     if (item_id <= 0) {
@@ -657,6 +681,72 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
     result["type"] = command_place_object();
     result["object_type"] = object_type;
     return accept(result);
+}
+
+bool GDGameCommandServer::resolve_placement_cell(
+        const Dictionary& command,
+        const StringName& dimension,
+        Vector3i& out_cell,
+        String& out_error) const {
+    if (!command.has("anchor_cell") ||
+        !command.has("build_direction") ||
+        !command.has("build_mode")) {
+        out_error = "placement direction metadata is missing";
+        return false;
+    }
+
+    const Vector3i anchor = command.get("anchor_cell", Vector3i());
+    const Vector3i offset = command.get("build_direction", Vector3i());
+    Direction direction = Direction::COUNT;
+    if (!direction_from_offset(offset, direction)) {
+        out_error = "placement direction is not a voxel axis neighbor";
+        return false;
+    }
+
+    const int64_t mode_value = command.get(
+        "build_mode", static_cast<int64_t>(BuildMode::PlanetLocal));
+    if (mode_value != static_cast<int64_t>(BuildMode::PlanetLocal) &&
+        mode_value != static_cast<int64_t>(BuildMode::GlobalAxes)) {
+        out_error = "placement build mode is invalid";
+        return false;
+    }
+
+    const Vector3i resolved_cell = anchor + offset;
+    if (command.has("cell")) {
+        const Vector3i requested_cell = command.get("cell", Vector3i());
+        if (requested_cell != resolved_cell) {
+            out_error = "placement cell does not match anchor and direction";
+            return false;
+        }
+    }
+
+    if (mode_value == static_cast<int64_t>(BuildMode::PlanetLocal)) {
+        if (world_data_ == nullptr || world_data_->get_world_ptr() == nullptr) {
+            out_error = "world data is not available for local placement";
+            return false;
+        }
+        const auto config = world_data_->get_world_ptr()->worldgen_config();
+        const std::string dimension_key(String(dimension).utf8().get_data());
+        const PlanetConfig* planet =
+            config ? config->find_planet_config(dimension_key) : nullptr;
+        if (planet == nullptr || !planet->is_planet()) {
+            out_error = "planet-local placement requires a planet dimension";
+            return false;
+        }
+
+        const PlanetBuildFrame frame(
+            planet->center_x, planet->center_y, planet->center_z);
+        const auto semantic = frame.classify(
+            PlanetLocalBlockPos{anchor.x, anchor.y, anchor.z}, direction);
+        const int64_t requested_semantic = command.get("build_semantic", -1);
+        if (requested_semantic != static_cast<int64_t>(semantic)) {
+            out_error = "placement local direction semantic is invalid";
+            return false;
+        }
+    }
+
+    out_cell = resolved_cell;
+    return true;
 }
 
 Dictionary GDGameCommandServer::cmd_remove_object(const Dictionary& command) {

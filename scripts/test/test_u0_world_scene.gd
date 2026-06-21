@@ -79,8 +79,8 @@ func _smoke_spawn_terrain(player: CharacterBody3D,
 			ice_blocks += 1
 	if not _expect(non_air > 0, "spawn chunk contains only air"):
 		return false
-	if not _expect(snow_blocks > 0 and ice_blocks > 0,
-			"polar spawn chunk is missing snow or ice"):
+	if not _expect(snow_blocks > 0,
+			"polar spawn chunk is missing snow"):
 		return false
 
 	var deadline := Time.get_ticks_msec() + WAIT_TIMEOUT_MSEC
@@ -105,6 +105,60 @@ func _smoke_spawn_terrain(player: CharacterBody3D,
 		return false
 	if not _expect(not active_lod.is_space_environment_active(),
 			"surface view is still using the space environment"):
+		return false
+	var tick_system := universe.get_parent().get_node_or_null(
+			"GDTickSystem") as GDTickSystem
+	var day_state: Dictionary = tick_system.get_day_night_state() \
+			if tick_system != null else {}
+	if not _expect(bool(day_state.get("is_daytime", false))
+			and float(day_state.get("time_of_day", 0.0)) >= 0.49,
+			"new world did not start during daytime"):
+		return false
+	var sun_lod := universe.get_node_or_null(
+			"LOD_star_sun") as PlanetLodManager
+	var other_planet_lod := universe.get_node_or_null(
+			"LOD_planet_mercury") as PlanetLodManager
+	if not _expect(sun_lod != null and other_planet_lod != null
+			and sun_lod.is_hidden_by_surface_atmosphere()
+			and other_planet_lod.is_hidden_by_surface_atmosphere(),
+			"compressed-orbit bodies are visible through the surface atmosphere"):
+		return false
+	var surface_position := player.global_position
+	player.global_position = universe.active_planet.local_center + Vector3.UP * (
+			universe.active_planet.planet_radius
+			+ universe.active_planet.horizon_fog_max_distance + 1.0)
+	universe._update_distant_body_visibility()
+	if not _expect(not other_planet_lod.is_hidden_by_surface_atmosphere(),
+			"distant bodies did not reappear after leaving the atmosphere"):
+		return false
+	player.global_position = surface_position
+	universe._update_distant_body_visibility()
+	var world_environment := universe.get_parent().get_node_or_null(
+			"WorldEnvironment") as WorldEnvironment
+	if not _expect(world_environment != null
+			and world_environment.environment != null
+			and world_environment.environment.background_mode == Environment.BG_SKY
+			and world_environment.environment.sky != null,
+			"surface sky with visible sun/moon is missing"):
+		return false
+	var sky_material := world_environment.environment.sky.sky_material as ShaderMaterial
+	if not _expect(sky_material != null and sky_material.shader != null
+			and sky_material.shader.resource_path.ends_with("surface_sky.gdshader"),
+			"surface sky is not using the day/night celestial shader"):
+		return false
+
+	var stone_material_id := int(
+			bridge.worldgen_config.get_material_id("snt:stone"))
+	var water_material_id := int(
+			bridge.worldgen_config.get_material_id("snt:water"))
+	var stone_material := bridge._get_material(stone_material_id) as ShaderMaterial
+	var water_material := bridge._get_material(water_material_id) as ShaderMaterial
+	if not _expect(stone_material != null and stone_material.shader.resource_path.ends_with(
+			"terrain_block.gdshader"), "stone is not using the opaque shader"):
+		return false
+	if not _expect(water_material != null and water_material.shader.resource_path.ends_with(
+			"terrain_block_transparent.gdshader"),
+			"water is not using the transparent depth shader"):
 		return false
 
 	print("[U0SceneSmoke] polar spawn position=%s snow=%d ice=%d non_air=%d"
@@ -215,9 +269,19 @@ func _smoke_debug_travel(universe: UniverseManager,
 	if not _expect(universe.travel_to_planet(target),
 			"migration-only debug travel was rejected"):
 		return false
-	return _expect(universe.active_planet == target
+	if not _expect(universe.active_planet == target
 			and bridge.active_dimension == target.dimension_id,
-			"debug travel did not switch the active prototype dimension")
+			"debug travel did not switch the active prototype dimension"):
+		return false
+	if target.atmosphere_type == PlanetDescriptor.AtmosphereType.NONE:
+		universe._update_distant_body_visibility()
+		var sun_lod := universe.get_node_or_null(
+				"LOD_star_sun") as PlanetLodManager
+		if not _expect(sun_lod != null
+				and not sun_lod.is_hidden_by_surface_atmosphere(),
+				"airless planet incorrectly hides distant celestial bodies"):
+			return false
+	return true
 
 
 func _expect(condition: bool, message: String) -> bool:

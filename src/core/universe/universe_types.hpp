@@ -18,8 +18,8 @@
 // 旧 API 通过 StorageShardId 适配层访问默认 Sector。
 //
 // 坐标规则（见设计文档 3.1）：
-//   方块：int64 格子坐标。
-//   实体：double 连续坐标。
+//   星球方块：Planet/dimension + PlanetLocalBlockPos。
+//   宇宙实体：double 连续全局坐标。
 //   客户端渲染：相对玩家的 float 局部坐标（由表现层处理）。
 
 #include <cstdint>
@@ -70,8 +70,27 @@ struct StorageShardId {
 
 // --- 坐标类型 ---
 
-// 全局方块坐标（整数格子坐标）。
-// 使用 int64 以支持星球间距 100,000~500,000 格的统一宇宙（见设计文档 3.1、8.3）。
+// 星球地表的局部整数体素坐标。
+// 必须与 PlanetId / dimension_id 一起使用，不表示宇宙全局位置。
+struct PlanetLocalBlockPos {
+    int64_t x = 0;
+    int64_t y = 0;
+    int64_t z = 0;
+
+    PlanetLocalBlockPos() = default;
+    PlanetLocalBlockPos(int64_t x_, int64_t y_, int64_t z_)
+        : x(x_), y(y_), z(z_) {}
+
+    bool operator==(const PlanetLocalBlockPos& other) const {
+        return x == other.x && y == other.y && z == other.z;
+    }
+    bool operator!=(const PlanetLocalBlockPos& other) const {
+        return !(*this == other);
+    }
+};
+
+// 宇宙空间、空间站和跨 Sector 查询的全局方块坐标。
+// 不用作星球地表 chunk 的存储键。
 struct GlobalBlockPos {
     int64_t x = 0;
     int64_t y = 0;
@@ -264,7 +283,7 @@ struct ChunkCoord {
 };
 
 // Sector 内 ChunkKey（见设计文档 5.3）。
-// 虽然全局坐标连续，但存储带 SectorId，便于按 Sector 存档、tick 和网络同步。
+// coord 由 Sector 解释：星球地表为局部 chunk，宇宙空间为全局 chunk。
 struct SectorChunkKey {
     SectorId sector;
     ChunkCoord coord;
@@ -296,6 +315,18 @@ inline GlobalBlockPos direction_offset(Direction d) {
         case Direction::PosZ: return GlobalBlockPos{ 0,  0,  1};
         case Direction::NegZ: return GlobalBlockPos{ 0,  0, -1};
         default: return GlobalBlockPos{0, 0, 0};
+    }
+}
+
+inline Direction opposite_direction(Direction d) {
+    switch (d) {
+        case Direction::PosX: return Direction::NegX;
+        case Direction::NegX: return Direction::PosX;
+        case Direction::PosY: return Direction::NegY;
+        case Direction::NegY: return Direction::PosY;
+        case Direction::PosZ: return Direction::NegZ;
+        case Direction::NegZ: return Direction::PosZ;
+        default: return Direction::COUNT;
     }
 }
 

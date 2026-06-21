@@ -42,7 +42,7 @@ public:
     // Compute a rotation that aligns the body's up vector toward
     // the target up direction, with a maximum rotation angle per step.
     // Returns the new Basis after rotation, or the current basis if
-    // already well-aligned (dot > 0.999).
+    // already aligned within floating-point precision.
     static godot::Basis align_body_to_gravity(
         const godot::Basis& current_basis,
         const godot::Vector3& target_up,

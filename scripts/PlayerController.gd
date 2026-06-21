@@ -10,6 +10,7 @@ signal connector_used(connector_id: int, from_dimension: StringName, to_dimensio
 signal mechanism_activated(mechanism_id: StringName, dimension: StringName)
 signal hotbar_changed(index: int)
 signal inventory_changed
+signal build_mode_changed(mode: int)
 
 const MOUSE_SENSITIVITY := 0.0025
 const GRAVITY_STRENGTH := 22.0
@@ -119,6 +120,10 @@ var _is_quitting := false
 var gravity_direction := Vector3.DOWN
 var planet_center := Vector3.ZERO
 
+# Surface construction defaults to radial/tangent planet-local semantics.
+# Global axes remain available for precision and cross-sector construction.
+var build_mode := GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
+
 # Per-planet gravity multiplier (1.0 = Earth-like, 0.38 = Mars-like).
 # Updated each frame by _update_gravity_direction().
 var _gravity_multiplier := 1.0
@@ -199,6 +204,10 @@ func _create_loading_overlay() -> void:
 func _physics_process(delta: float) -> void:
 	interaction.process_cooldown(delta)
 	_update_gravity_direction()
+	# CharacterBody3D uses this vector to classify floor contacts. Keep it in
+	# sync with spherical gravity when crossing separate chunk colliders.
+	if gravity_direction != Vector3.ZERO:
+		up_direction = -gravity_direction
 	_update_atmosphere_hazard(delta)
 	_update_target()
 	if _spawn_freeze:
@@ -314,8 +323,39 @@ func _handle_key(event: InputEventKey) -> void:
 	elif event.is_action_pressed(&"toggle_debug"):
 		if probe_panel:
 			probe_panel.toggle_mode()
+	elif event.is_action_pressed(&"toggle_build_mode"):
+		_toggle_build_mode()
 	elif event.is_action_pressed(&"toggle_quest_book"):
 		_ui_connector.toggle_quest_book()
+
+
+func _toggle_build_mode() -> void:
+	build_mode = (
+		GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
+		if build_mode == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
+		else GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL)
+	build_mode_changed.emit(build_mode)
+	print("[Player] build mode changed to %s" % _build_mode_name())
+
+
+func _effective_build_mode() -> int:
+	if build_mode == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL \
+			and gravity_direction != Vector3.ZERO:
+		return GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
+	return GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
+
+
+func _build_mode_name() -> String:
+	return (
+		"planet-local"
+		if _effective_build_mode() == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
+		else "global-xyz")
+
+
+func _build_planet_center() -> Vector3:
+	if universe_manager != null and universe_manager.active_planet != null:
+		return universe_manager.active_planet.local_center
+	return planet_center
 
 
 # --- Movement and physics ---
@@ -712,7 +752,17 @@ func _update_target() -> void:
 
 	target = info
 	target["normal"] = normal
-	target["place_cell"] = world.world_position_to_cell(hit_position + normal * 0.55)
+	var build_direction := GDPlanetBuildFrame.snap_global_axis(normal)
+	var effective_mode := _effective_build_mode()
+	target["build_anchor_cell"] = cell
+	target["build_direction"] = build_direction
+	target["build_mode"] = effective_mode
+	target["build_semantic"] = (
+		GDPlanetBuildFrame.classify_direction(
+			cell, _build_planet_center(), build_direction)
+		if effective_mode == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
+		else -1)
+	target["place_cell"] = cell + build_direction
 	target["position"] = hit_position
 	_set_selection_visible(true)
 	if selection_box:
@@ -989,20 +1039,22 @@ func _update_status_label() -> void:
 		PlanetDescriptor.AtmosphereType.CORROSIVE:
 			atmo_short = "corrosive"
 
+	var build_text := " | build=%s" % _build_mode_name()
 	if fly_mode:
-		label.text = "Fly (creative)"
+		label.text = "Fly (creative)" + build_text
 	elif gravity_direction == Vector3.ZERO:
-		label.text = "Space (zero-G)"
+		label.text = "Space (zero-G)" + build_text
 	elif universe_manager != null and universe_manager.active_planet != null:
 		var planet := universe_manager.active_planet
 		var grav_text := "g=%.2f" % _gravity_multiplier
 		# 显示当前星球名 + 重力 + 大气 + 宇宙坐标（double 精度）。
 		var upos := get_player_universe_position()
-		label.text = "%s (%s, %s) @U(%.0f,%.0f,%.0f)" % [
-			planet.display_name, grav_text, atmo_short, upos.x, upos.y, upos.z]
+		label.text = "%s (%s, %s) @U(%.0f,%.0f,%.0f)%s" % [
+			planet.display_name, grav_text, atmo_short, upos.x, upos.y, upos.z,
+			build_text]
 	else:
 		var grav_text := "g=%.2f" % _gravity_multiplier
-		label.text = "3D Surface (%s, %s)" % [grav_text, atmo_short]
+		label.text = "3D Surface (%s, %s)%s" % [grav_text, atmo_short, build_text]
 
 
 # --- Quest system ---

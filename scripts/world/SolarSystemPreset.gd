@@ -178,7 +178,7 @@ static func _create_earth(universe_seed: int) -> PlanetDescriptor:
 	desc.seed = _hash_planet_seed(universe_seed, "earth")
 	desc.gravity_multiplier = 1.0
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.BREATHABLE
-	desc.terrain_height_scale = 16.0
+	desc.terrain_height_scale = 24.0
 	desc.elevation_noise_scale = 0.008
 	desc.elevation_octaves = 5
 	desc.detail_noise_scale = 0.03

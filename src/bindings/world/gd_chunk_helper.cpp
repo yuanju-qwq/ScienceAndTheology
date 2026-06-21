@@ -1,5 +1,6 @@
 #include "gd_chunk_helper.h"
 
+#include <array>
 #include <cmath>
 #include <algorithm>
 #include <unordered_map>
@@ -294,20 +295,81 @@ inline godot::Vector3i neighbor_offset(int dir) {
     }
 }
 
-// Check if a voxel at (x,y,z) is transparent (air or ladder) for face culling.
-bool is_transparent_for_face(int32_t x, int32_t y, int32_t z,
-                              const godot::PackedByteArray& materials,
-                              int32_t size_x, int32_t size_y, int32_t size_z,
-                              int32_t air_material, int32_t ladder_material) {
-    if (x < 0 || x >= size_x || y < 0 || y >= size_y || z < 0 || z >= size_z) {
-        return true;  // Chunk boundary = exposed face.
-    }
-    const int64_t idx = GDChunkHelper::terrain_index(x, y, z, size_x, size_z);
-    if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
+bool is_render_transparent(
+        int32_t material,
+        const godot::PackedByteArray& transparent_material_mask) {
+    return material >= 0 && material < transparent_material_mask.size()
+        && transparent_material_mask[material] != 0;
+}
+
+bool sample_neighbor_material(
+        int32_t x, int32_t y, int32_t z, int dir,
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        const std::array<godot::PackedByteArray, FaceDir::kCount>& boundary_materials,
+        const std::array<bool, FaceDir::kCount>& boundary_available,
+        int32_t& material_out) {
+    if (x >= 0 && x < size_x && y >= 0 && y < size_y
+        && z >= 0 && z < size_z) {
+        const int64_t idx = GDChunkHelper::terrain_index(
+            x, y, z, size_x, size_z);
+        if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
+            return false;
+        }
+        material_out = static_cast<int32_t>(materials[idx]);
         return true;
     }
-    const int32_t mat = static_cast<int32_t>(materials[idx]);
-    return mat == air_material || mat == ladder_material;
+
+    if (dir < 0 || dir >= FaceDir::kCount || !boundary_available[dir]) {
+        return false;
+    }
+
+    switch (dir) {
+        case FaceDir::kTop: y = 0; break;
+        case FaceDir::kBottom: y = size_y - 1; break;
+        case FaceDir::kPosX: x = 0; break;
+        case FaceDir::kNegX: x = size_x - 1; break;
+        case FaceDir::kPosZ: z = 0; break;
+        case FaceDir::kNegZ: z = size_z - 1; break;
+        default: return false;
+    }
+
+    const auto& neighbor = boundary_materials[dir];
+    const int64_t idx = GDChunkHelper::terrain_index(
+        x, y, z, size_x, size_z);
+    if (idx < 0 || idx >= static_cast<int64_t>(neighbor.size())) {
+        return false;
+    }
+    material_out = static_cast<int32_t>(neighbor[idx]);
+    return true;
+}
+
+bool should_emit_render_face(
+        int32_t material, bool has_neighbor, int32_t neighbor_material, int dir,
+        int32_t air_material, int32_t ladder_material,
+        const godot::PackedByteArray& transparent_material_mask) {
+    const bool transparent = is_render_transparent(
+        material, transparent_material_mask);
+    if (!has_neighbor) {
+        // Until an adjacent chunk arrives, only keep a liquid's horizontal
+        // surface. This avoids transparent walls at streaming boundaries.
+        return !transparent || dir == FaceDir::kTop;
+    }
+    if (neighbor_material == air_material || neighbor_material == ladder_material) {
+        return true;
+    }
+
+    const bool neighbor_transparent = is_render_transparent(
+        neighbor_material, transparent_material_mask);
+    if (!transparent) {
+        // Opaque terrain below water/ice must remain visible through it.
+        return neighbor_transparent;
+    }
+    if (!neighbor_transparent || neighbor_material == material) {
+        return false;
+    }
+    // At an interface between two transparent materials, emit one face only.
+    return material > neighbor_material;
 }
 
 bool is_collidable_material(
@@ -517,9 +579,20 @@ void emit_face_quad(MeshAccum& accum, int dir, int32_t d,
 godot::Dictionary GDChunkHelper::build_greedy_mesh(
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
-        int32_t air_material, int32_t ladder_material) {
+        int32_t air_material, int32_t ladder_material,
+        const godot::PackedByteArray& transparent_material_mask,
+        const godot::Dictionary& neighbor_materials) {
     // Accumulate mesh data per material.
     std::unordered_map<int32_t, MeshAccum> accum_by_material;
+    std::array<godot::PackedByteArray, FaceDir::kCount> boundary_materials;
+    std::array<bool, FaceDir::kCount> boundary_available{};
+    for (int dir = 0; dir < FaceDir::kCount; ++dir) {
+        if (!neighbor_materials.has(dir)) {
+            continue;
+        }
+        boundary_materials[dir] = neighbor_materials[dir];
+        boundary_available[dir] = !boundary_materials[dir].is_empty();
+    }
 
     // For each of the 6 face directions, sweep the chunk in slices
     // along the normal axis and greedily merge same-material faces.
@@ -582,9 +655,16 @@ godot::Dictionary GDChunkHelper::build_greedy_mesh(
                     int32_t nx = x + off.x;
                     int32_t ny = y + off.y;
                     int32_t nz = z + off.z;
-                    if (!is_transparent_for_face(nx, ny, nz, materials,
-                                                 size_x, size_y, size_z,
-                                                 air_material, ladder_material)) {
+                    int32_t neighbor_material = air_material;
+                    const bool has_neighbor = sample_neighbor_material(
+                        nx, ny, nz, dir, materials,
+                        size_x, size_y, size_z,
+                        boundary_materials, boundary_available,
+                        neighbor_material);
+                    if (!should_emit_render_face(
+                            mat, has_neighbor, neighbor_material, dir,
+                            air_material, ladder_material,
+                            transparent_material_mask)) {
                         continue;
                     }
 
@@ -791,7 +871,10 @@ void GDChunkHelper::_bind_methods() {
                                 &B::ladder_facing);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_surface_mask", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
                                 &B::compute_surface_mask);
-    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_greedy_mesh", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD(
+        "build_greedy_mesh", "materials", "size_x", "size_y", "size_z",
+        "air_material", "ladder_material", "transparent_material_mask",
+        "neighbor_materials"),
                                 &B::build_greedy_mesh);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "collidable_material_mask"),
                                 &B::build_collision_faces);

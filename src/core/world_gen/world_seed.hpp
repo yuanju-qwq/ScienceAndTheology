@@ -41,6 +41,22 @@ public:
         return h;
     }
 
+    // Derives one stable noise-field seed for a dimension and generation
+    // pass. Noise sampled with global coordinates must use this seed so the
+    // permutation table remains identical on both sides of chunk borders.
+    uint64_t dimension_seed(uint32_t pass_id,
+                            const std::string& dimension_id) const {
+        uint64_t h = sub_seed(pass_id);
+        for (const unsigned char byte : dimension_id) {
+            h ^= static_cast<uint64_t>(byte);
+            h *= 0x100000001b3ULL;
+        }
+        h ^= h >> 33;
+        h *= 0xff51afd7ed558ccdULL;
+        h ^= h >> 33;
+        return h & 0x7FFFFFFFFFFFFFFFULL;
+    }
+
     // Derives a sub-seed for a specific chunk and pass.
     uint64_t chunk_seed(uint32_t pass_id, int chunk_x, int chunk_y, int chunk_z) const {
         uint64_t h = sub_seed(pass_id);

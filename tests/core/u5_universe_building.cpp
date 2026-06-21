@@ -8,6 +8,7 @@
 //   3. 太空结构使用稀疏 chunk，空 chunk 可回收，结构锚点保护核心区域。
 //   4. 空间站作为 SpaceStation Sector，可在宇宙坐标中直接接近和离开。
 //   5. 跨 Sector 边界的测试桥可连续放置、拆除。
+//   6. 星球局部建造方向可稳定量化到固定体素六邻格。
 
 #include <iostream>
 #include <string>
@@ -19,6 +20,7 @@
 #include "universe/universe_world_core.hpp"
 #include "universe/sparse_chunk_policy.hpp"
 #include "universe/block_space.hpp"
+#include "universe/planet_build_frame.hpp"
 #include "universe/structure_anchor_manager.hpp"
 #include "universe/space_station_sector.hpp"
 #include "universe/sector_transition_manager.hpp"
@@ -35,6 +37,47 @@ void check(bool condition, const std::string& message) {
     }
     std::cerr << "[U5 FAIL] " << message << std::endl;
     ++g_failures;
+}
+
+void test_planet_build_frame() {
+    std::cerr << "[U5] test_planet_build_frame" << std::endl;
+
+    const PlanetBuildFrame frame(0.0, -512.0, 0.0);
+
+    const PlanetLocalBlockPos north_surface{0, 0, 0};
+    check(frame.local_up(north_surface) == Direction::PosY,
+          "north surface local up should resolve to +Y");
+    check(frame.local_down(north_surface) == Direction::NegY,
+          "north surface local down should resolve to -Y");
+    check(frame.local_horizontal(north_surface, BuildVector{1.0, 1.0, 0.0}) ==
+              Direction::PosX,
+          "north surface horizontal should remove radial Y component");
+    check(frame.classify(north_surface, Direction::PosY) ==
+              LocalBuildDirection::Up,
+          "+Y should classify as local up at north surface");
+    check(frame.classify(north_surface, Direction::PosZ) ==
+              LocalBuildDirection::Horizontal,
+          "+Z should classify as horizontal at north surface");
+
+    const PlanetLocalBlockPos east_surface{512, -512, 0};
+    check(frame.local_up(east_surface) == Direction::PosX,
+          "east surface local up should resolve to +X");
+    check(frame.local_down(east_surface) == Direction::NegX,
+          "east surface local down should resolve to -X");
+    check(frame.local_horizontal(east_surface, BuildVector{1.0, 1.0, 0.0}) ==
+              Direction::PosY,
+          "east surface horizontal should remove radial X component");
+
+    const Direction degenerate_horizontal =
+        frame.local_horizontal(east_surface, BuildVector{1.0, 0.0, 0.0});
+    check(degenerate_horizontal != Direction::PosX &&
+              degenerate_horizontal != Direction::NegX &&
+              PlanetBuildFrame::is_axis_direction(degenerate_horizontal),
+          "degenerate tangent request should choose a valid horizontal axis");
+
+    check(PlanetBuildFrame::snap_global_axis(BuildVector{-0.8, 0.1, 0.2}) ==
+              Direction::NegX,
+          "global axis snapping should select the strongest signed component");
 }
 
 // 辅助：注册两个相邻的可建造 Sector（用于跨边界测试）
@@ -645,6 +688,7 @@ void test_full_building_scenario() {
 int main() {
     std::cerr << "[U5Core] starting universe building tests" << std::endl;
 
+    test_planet_build_frame();
     test_block_space_basic();
     test_cross_sector_neighbor();
     test_cross_sector_bridge();

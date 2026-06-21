@@ -296,6 +296,13 @@ func try_place_world_object(target: Dictionary) -> bool:
 			return false
 
 	var place_cell: Vector3i = target.get("place_cell", _player.get_current_cell())
+	var anchor_cell: Vector3i = target.get("build_anchor_cell", Vector3i.ZERO)
+	var build_direction: Vector3i = target.get("build_direction", Vector3i.ZERO)
+	var build_mode: int = int(target.get(
+		"build_mode", GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL))
+	var build_semantic: int = int(target.get("build_semantic", -1))
+	if not GDPlanetBuildFrame.is_axis_direction(build_direction):
+		return false
 	var world: ChunkRendererBridge = _player.world
 	if world and _player.global_position.distance_to(
 			world.cell_to_world_position(place_cell)) > REACH:
@@ -306,6 +313,10 @@ func try_place_world_object(target: Dictionary) -> bool:
 		"object_type": object_type,
 		"dimension": _player.get_current_dimension(),
 		"cell": place_cell,
+		"anchor_cell": anchor_cell,
+		"build_direction": build_direction,
+		"build_mode": build_mode,
+		"build_semantic": build_semantic,
 		"item_id": held_id,
 	})
 	if not bool(result.get("ok", false)):

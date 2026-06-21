@@ -71,7 +71,9 @@ public:
     static godot::Dictionary build_greedy_mesh(
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
-        int32_t air_material, int32_t ladder_material);
+        int32_t air_material, int32_t ladder_material,
+        const godot::PackedByteArray& transparent_material_mask,
+        const godot::Dictionary& neighbor_materials);
 
     // Build collision faces for a chunk. Returns a Dictionary with:
     //   "vertices": PackedVector3Array  - vertex positions in chunk-local space

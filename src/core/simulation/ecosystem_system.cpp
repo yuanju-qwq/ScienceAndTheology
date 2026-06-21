@@ -45,13 +45,14 @@ void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
     const int64_t tick = world_->current_tick();
     constexpr float kTicksPerSecond = 20.0f;
     const int64_t ticks_per_day = static_cast<int64_t>(
-        gc.day_length_seconds * kTicksPerSecond);
+        gc.get_day_length_seconds(chunk.dimension_id) * kTicksPerSecond);
     current_season_ = season_from_tick(tick, gc.days_per_season, ticks_per_day);
 
     // Update cached day/night state.
-    const float time_of_day = compute_time_of_day(tick, ticks_per_day);
+    const float time_of_day = compute_time_of_day(
+        tick, ticks_per_day, gc.get_day_start_time(chunk.dimension_id));
     const DayNightState dn = compute_day_night_state(
-        time_of_day, gc.twilight_fraction);
+        time_of_day, gc.get_twilight_fraction(chunk.dimension_id));
     is_daytime_ = dn.is_daytime;
 
     // Ensure this chunk has a population cell.

@@ -50,6 +50,10 @@ var is_active_planet := false:
 # 活跃星球忽略此值，直接使用 planet_center（= local_center）。
 var distant_scene_center := Vector3.ZERO
 
+# Atmospheric surface views use the day/night sky for celestial bodies.
+# Compressed gameplay orbits must not leak full planet proxy meshes through it.
+var _hidden_by_surface_atmosphere := false
+
 @export var world_seed := 0:
 	set(value):
 		world_seed = value
@@ -166,6 +170,18 @@ func is_space_environment_active() -> bool:
 
 func get_lod_distances() -> Dictionary:
 	return _distances_cache.duplicate()
+
+
+func set_hidden_by_surface_atmosphere(hidden: bool) -> void:
+	if _hidden_by_surface_atmosphere == hidden:
+		return
+	_hidden_by_surface_atmosphere = hidden
+	if _is_initialized:
+		_apply_lod_visibility()
+
+
+func is_hidden_by_surface_atmosphere() -> bool:
+	return _hidden_by_surface_atmosphere
 
 
 # 返回当前生效的星球中心。
@@ -353,18 +369,21 @@ func _apply_lod_visibility() -> void:
 	# Only toggle visibility for LOD 2, LOD 3 and LOD 4 meshes here.
 	for level: int in _lod_meshes.keys():
 		var mesh_instance: MeshInstance3D = _lod_meshes[level]
-		mesh_instance.visible = (level == _current_lod_level)
+		mesh_instance.visible = not _hidden_by_surface_atmosphere \
+			and level == _current_lod_level
 
 	# Atmosphere shell is visible at LOD 2 and LOD 3.
 	# At LOD 4 the billboard shader includes its own atmosphere glow.
 	if _atmosphere_mesh:
-		_atmosphere_mesh.visible = _current_lod_level >= LOD_PROXY_SPHERE \
+		_atmosphere_mesh.visible = not _hidden_by_surface_atmosphere \
+			and _current_lod_level >= LOD_PROXY_SPHERE \
 			and _current_lod_level < LOD_BILLBOARD
 
 	# Clouds are visible at LOD 2 and LOD 3 (same as atmosphere).
 	# At LOD 4 the planet is too far for clouds to be distinguishable.
 	if _cloud_mesh:
-		_cloud_mesh.visible = _current_lod_level >= LOD_PROXY_SPHERE \
+		_cloud_mesh.visible = not _hidden_by_surface_atmosphere \
+			and _current_lod_level >= LOD_PROXY_SPHERE \
 			and _current_lod_level < LOD_BILLBOARD
 
 

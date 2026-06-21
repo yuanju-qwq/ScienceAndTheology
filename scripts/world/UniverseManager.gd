@@ -32,6 +32,8 @@ class_name UniverseManager
 extends Node3D
 
 const BuiltinTerrainContentScript := preload("res://scripts/worldgen/BuiltinTerrainContent.gd")
+const CHUNK_SIZE := 32
+const SPAWN_LOCAL_COORD := CHUNK_SIZE * 0.5 + 0.5
 
 signal active_planet_changed(planet: PlanetDescriptor)
 signal planet_loaded(planet: PlanetDescriptor)
@@ -187,6 +189,7 @@ func _process(delta: float) -> void:
 	# 旅行进行中时跳过自动活跃星球切换，避免覆盖 travel_to_planet 的设置。
 	if not _is_traveling:
 		_update_active_planet()
+	_update_distant_body_visibility()
 	_update_planet_loading()
 	_update_station_loading()
 	_drivetick_system(delta)
@@ -472,7 +475,8 @@ func _set_initial_active_planet() -> void:
 		# top is at y≈0 (local_center = (0, -radius, 0)). Spawn above the
 		# highest possible terrain (terrain_height_scale) to avoid clipping.
 		var spawn_y := spawn_planet.terrain_height_scale + 4.0
-		_player.global_position = Vector3(0.5, spawn_y, 0.5)
+		_player.global_position = Vector3(
+			SPAWN_LOCAL_COORD, spawn_y, SPAWN_LOCAL_COORD)
 		print("[UniverseManager] _set_initial_active_planet: "
 				+ "spawn_planet=%s radius=%.1f local_center=%s spawn_pos=%s"
 				% [spawn_planet.display_name, spawn_planet.planet_radius,
@@ -589,6 +593,7 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 	# 更新所有 LOD 管理器的场景中心坐标。
 	# 活跃星球使用 local_center，远景星球使用相对宇宙偏移。
 	_update_all_lod_centers()
+	_update_distant_body_visibility()
 
 	# 重新居中浮动原点到新活跃星球的宇宙位置。
 	if floating_origin != null:
@@ -623,6 +628,30 @@ func _update_all_lod_centers() -> void:
 	if active_lod != null:
 		# 活跃星球：使用 local_center 作为场景中心，并接管全局环境。
 		active_lod.set_scene_center(active_lc, true)
+
+
+# Hide compressed-orbit planet proxy meshes while the player remains inside
+# an atmosphere. The surface sky renders the local sun and moon instead.
+func _update_distant_body_visibility() -> void:
+	var hide_distant := false
+	if active_planet != null and _player != null \
+			and active_planet.atmosphere_type != PlanetDescriptor.AtmosphereType.NONE:
+		var altitude := maxf(0.0, _player.global_position.distance_to(
+				active_planet.local_center) - active_planet.planet_radius)
+		var atmosphere_height := maxf(
+				active_planet.horizon_fog_max_distance,
+				active_planet.planet_radius
+						* maxf(active_planet.atmosphere_scale - 1.0, 0.0))
+		hide_distant = altitude <= atmosphere_height
+
+	for dim_id in _lod_managers.keys():
+		var lod: PlanetLodManager = _lod_managers[dim_id]
+		if lod == null:
+			continue
+		var is_active_body: bool = active_planet != null \
+				and dim_id == active_planet.dimension_id
+		lod.set_hidden_by_surface_atmosphere(
+				hide_distant and not is_active_body)
 
 
 # --- Planet loading / unloading with serialization ---
@@ -878,10 +907,11 @@ func travel_to_planet(planet: PlanetDescriptor, spawn_offset_y: float = 4.0) -> 
 
 	# 将玩家传送到目标星球的表面。
 	# 局部坐标系约定：local_center = (0, -radius, 0)，地表在 y≈0。
-	# 玩家生成在 (0.5, terrain_height_scale + spawn_offset_y, 0.5)。
+	# 玩家生成在区块中心，避免刚开始移动就跨越两条区块边界。
 	if _player != null:
 		var spawn_y := planet.terrain_height_scale + spawn_offset_y
-		_player.global_position = Vector3(0.5, spawn_y, 0.5)
+		_player.global_position = Vector3(
+			SPAWN_LOCAL_COORD, spawn_y, SPAWN_LOCAL_COORD)
 		# 重置玩家速度，避免残留的飞行惯性。
 		if _player is CharacterBody3D:
 			(_player as CharacterBody3D).velocity = Vector3.ZERO

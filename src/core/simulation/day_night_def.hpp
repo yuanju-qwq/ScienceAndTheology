@@ -55,18 +55,25 @@ struct DayNightState {
     float moon_color_b = 0.8f;
 };
 
-// Compute time_of_day from tick counter and day_length_ticks.
-inline float compute_time_of_day(int64_t tick, int64_t day_length_ticks) {
+// Compute time_of_day from tick counter and day length. start_time specifies
+// the phase at tick 0; new worlds default to noon rather than midnight.
+inline float compute_time_of_day(int64_t tick, int64_t day_length_ticks,
+                                 float start_time = 0.5f) {
     if (day_length_ticks <= 0) day_length_ticks = 12000;
     int64_t wrapped = tick % day_length_ticks;
     if (wrapped < 0) wrapped += day_length_ticks;
-    return static_cast<float>(wrapped) / static_cast<float>(day_length_ticks);
+    float time = static_cast<float>(wrapped)
+        / static_cast<float>(day_length_ticks) + start_time;
+    time -= std::floor(time);
+    if (time < 0.0f) time += 1.0f;
+    return time;
 }
 
 // Compute sun elevation from time_of_day.
 // 0.5 (noon) = +pi/2, 0.0/1.0 (midnight) = -pi/2.
 inline float compute_sun_elevation(float time_of_day) {
-    return (time_of_day - 0.5f) * 3.14159265f;
+    constexpr float kPi = 3.14159265f;
+    return -cosf(time_of_day * 2.0f * kPi) * (kPi * 0.5f);
 }
 
 // Compute moon elevation (opposite phase from sun).

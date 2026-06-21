@@ -326,7 +326,7 @@ struct PlanetConfig {
 };
 
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 8;
+    static constexpr uint32_t kSchemaVersion = 9;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;

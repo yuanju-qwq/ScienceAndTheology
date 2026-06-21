@@ -17,6 +17,14 @@ const AIR_MATERIAL := 0
 const MATERIAL_FLAG_WALKABLE := 1
 const MATERIAL_FLAG_SOLID := 2
 const MATERIAL_ID_CAPACITY := 256
+const FACE_NEIGHBOR_OFFSETS: Array[Vector3i] = [
+	Vector3i(0, 1, 0),
+	Vector3i(0, -1, 0),
+	Vector3i(1, 0, 0),
+	Vector3i(-1, 0, 0),
+	Vector3i(0, 0, 1),
+	Vector3i(0, 0, -1),
+]
 
 const OVERWORLD: StringName = &"overworld"
 
@@ -42,7 +50,7 @@ var workbench_material_id: int = AIR_MATERIAL
 		if world_data:
 			world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 @export var max_chunk_load_requests_per_frame := 10
-@export var max_chunk_views_per_frame := 2
+@export var max_chunk_views_per_frame := 1
 @export var player_node_path: NodePath = ^"../Player"
 @export var auto_update := true
 @export var auto_generate_start_chunks := true
@@ -61,6 +69,7 @@ var is_initialized := false
 # "simplified" is the LOD 1 child (surface voxels only, no collision).
 var _visible_chunks: Dictionary = {}
 var _pending_view_queue: Array[Vector3i] = []
+var _pending_rebuild_queue: Array[Vector3i] = []
 var _tracked_chunks: Dictionary = {}
 var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
@@ -71,6 +80,7 @@ var _mesh_build_last_usec := 0
 var _materials: Dictionary = {}
 var _material_cache: Dictionary = {}
 var _collidable_material_mask := PackedByteArray()
+var _transparent_material_mask := PackedByteArray()
 # Shared block texture atlas for the active dimension.
 # Built by BlockAtlasBuilder from the worldgen material visuals.
 # Keys: "texture" (ImageTexture), "grid" (Vector2i), "tiles" (Dictionary).
@@ -167,6 +177,7 @@ func get_streaming_metrics() -> Dictionary:
 		"active_dimension": String(active_dimension),
 		"visible_chunks": _visible_chunks.size(),
 		"queued_chunk_views": _pending_view_queue.size(),
+		"queued_chunk_rebuilds": _pending_rebuild_queue.size(),
 		"tracked_chunks": _tracked_chunks.size(),
 		"async_generation_pending": (
 				world_data.get_async_pending_count() if world_data else 0),
@@ -469,15 +480,28 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 		return
 	var chunk := Vector3i(chunk_x, chunk_y, chunk_z)
 	_tracked_chunks[chunk] = true
-	if _pending_view_queue.has(chunk):
-		return
-	_enqueue_chunk_view(chunk)
+	if not _pending_view_queue.has(chunk):
+		_enqueue_chunk_view(chunk)
+
+	# Existing neighbors may have been meshed while this chunk was absent.
+	# Rebuild them once so transparent boundary faces are culled correctly.
+	for offset in FACE_NEIGHBOR_OFFSETS:
+		var neighbor := chunk + offset
+		if not _visible_chunks.has(neighbor):
+			continue
+		_enqueue_chunk_rebuild(neighbor)
 
 
 func _enqueue_chunk_view(chunk: Vector3i) -> void:
 	if _pending_view_queue.has(chunk):
 		return
 	_pending_view_queue.append(chunk)
+
+
+func _enqueue_chunk_rebuild(chunk: Vector3i) -> void:
+	if _pending_rebuild_queue.has(chunk):
+		return
+	_pending_rebuild_queue.append(chunk)
 
 
 func _process_visible_queue() -> void:
@@ -500,6 +524,32 @@ func _process_visible_queue() -> void:
 		_create_chunk_view(chunk)
 		built += 1
 
+	# Boundary rebuilds keep the previous mesh visible until replacement is
+	# complete, so streaming cannot expose a blank frame.
+	while built < max_chunk_views_per_frame or max_chunk_views_per_frame <= 0:
+		if _pending_rebuild_queue.is_empty():
+			break
+		var chunk: Vector3i = _pending_rebuild_queue.pop_front()
+		if not _visible_chunks.has(chunk) or world_data == null \
+				or not world_data.has_chunk(
+						active_dimension, chunk.x, chunk.y, chunk.z):
+			continue
+		_rebuild_chunk_view(chunk)
+		built += 1
+
+
+func _rebuild_chunk_view(chunk: Vector3i) -> void:
+	var old_entry: Dictionary = _visible_chunks.get(chunk, {})
+	var old_root := old_entry.get("root") as Node3D
+	_visible_chunks.erase(chunk)
+	_create_chunk_view(chunk)
+	if not _visible_chunks.has(chunk):
+		_visible_chunks[chunk] = old_entry
+		return
+	if old_root != null:
+		old_root.visible = false
+		old_root.queue_free()
+
 
 # --- Chunk rendering (scene-tree operations, stays in GDScript) ---
 
@@ -516,8 +566,8 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 		print("[ChunkBridge] _create_chunk_view %s: materials empty, skipping" % chunk)
 		return
 
-	# Diagnostic for spawn chunk: count non-air blocks.
-	if chunk.x == 0 and chunk.y == 0 and chunk.z == 0:
+	# Opt-in diagnostic for the spawn chunk.
+	if debug_chunk_streaming and chunk.x == 0 and chunk.y == 0 and chunk.z == 0:
 		var non_air := 0
 		for i in range(materials.size()):
 			if materials[i] != AIR_MATERIAL:
@@ -530,7 +580,8 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 
 	# Build greedy mesh (C++ hot path).
 	var greedy_mesh: Dictionary = GDChunkHelper.build_greedy_mesh(
-		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id)
+		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id,
+		_transparent_material_mask, _get_neighbor_materials(chunk))
 
 	# Build collision faces (C++ hot path).
 	var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
@@ -552,19 +603,8 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	full_node.name = "LOD0_Full"
 	root.add_child(full_node)
 
-	for material_id_key: Variant in greedy_mesh.keys():
-		var mid: int = int(material_id_key)
-		var mesh_data: Dictionary = greedy_mesh[material_id_key]
-		_create_greedy_mesh_instance(full_node, mid, mesh_data, chunk_offset)
-
-	# Chunk-level collision: one ConcavePolygonShape3D.
-	if not collision_data.is_empty():
-		var col_verts: PackedVector3Array = collision_data.get("vertices", PackedVector3Array())
-		var col_indices: PackedInt32Array = collision_data.get("indices", PackedInt32Array())
-		if col_verts.size() > 0 and col_indices.size() > 0:
-			_create_chunk_collision(full_node, col_verts, col_indices, chunk_offset)
-
-	# LOD 1: simplified (same greedy mesh, no collision, slightly different visibility).
+	# LOD 1 currently uses the same geometry without collision. Both instances
+	# share one ArrayMesh so vertices are transformed and uploaded only once.
 	var simplified_node := Node3D.new()
 	simplified_node.name = "LOD1_Simplified"
 	simplified_node.visible = false
@@ -573,7 +613,18 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	for material_id_key: Variant in greedy_mesh.keys():
 		var mid: int = int(material_id_key)
 		var mesh_data: Dictionary = greedy_mesh[material_id_key]
-		_create_greedy_mesh_instance(simplified_node, mid, mesh_data, chunk_offset)
+		var array_mesh := _create_greedy_mesh_resource(mesh_data, chunk_offset)
+		if array_mesh == null:
+			continue
+		_create_greedy_mesh_instance(full_node, mid, array_mesh)
+		_create_greedy_mesh_instance(simplified_node, mid, array_mesh)
+
+	# Chunk-level collision: one ConcavePolygonShape3D.
+	if not collision_data.is_empty():
+		var col_verts: PackedVector3Array = collision_data.get("vertices", PackedVector3Array())
+		var col_indices: PackedInt32Array = collision_data.get("indices", PackedInt32Array())
+		if col_verts.size() > 0 and col_indices.size() > 0:
+			_create_chunk_collision(full_node, col_verts, col_indices, chunk_offset)
 
 	_visible_chunks[chunk] = {
 		"root": root,
@@ -589,9 +640,27 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 			chunk, _visible_chunks.size(), float(_mesh_build_last_usec) / 1000.0])
 
 
-# Create a MeshInstance3D from greedy mesh data for a single material.
-func _create_greedy_mesh_instance(root: Node3D, material_id: int,
-		mesh_data: Dictionary, chunk_offset: Vector3) -> void:
+func _get_neighbor_materials(chunk: Vector3i) -> Dictionary:
+	var result := {}
+	if world_data == null:
+		return result
+	for direction in range(FACE_NEIGHBOR_OFFSETS.size()):
+		var neighbor: Vector3i = chunk + FACE_NEIGHBOR_OFFSETS[direction]
+		if not world_data.has_chunk(
+				active_dimension, neighbor.x, neighbor.y, neighbor.z):
+			continue
+		var terrain := world_data.get_chunk_terrain(
+				active_dimension, neighbor.x, neighbor.y, neighbor.z)
+		var materials: PackedByteArray = terrain.get(
+				"materials", PackedByteArray())
+		if not materials.is_empty():
+			result[direction] = materials
+	return result
+
+
+# Create one shareable ArrayMesh from greedy mesh data for a single material.
+func _create_greedy_mesh_resource(mesh_data: Dictionary,
+		chunk_offset: Vector3) -> ArrayMesh:
 	var verts: PackedVector3Array = mesh_data.get("vertices", PackedVector3Array())
 	var norms: PackedVector3Array = mesh_data.get("normals", PackedVector3Array())
 	var uvs: PackedVector2Array = mesh_data.get("uvs", PackedVector2Array())
@@ -599,7 +668,7 @@ func _create_greedy_mesh_instance(root: Node3D, material_id: int,
 	var indices: PackedInt32Array = mesh_data.get("indices", PackedInt32Array())
 
 	if verts.size() == 0 or indices.size() == 0:
-		return
+		return null
 
 	# Apply chunk offset to vertices.
 	var offset_verts := PackedVector3Array()
@@ -617,7 +686,11 @@ func _create_greedy_mesh_instance(root: Node3D, material_id: int,
 
 	var array_mesh := ArrayMesh.new()
 	array_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return array_mesh
 
+
+func _create_greedy_mesh_instance(root: Node3D, material_id: int,
+		array_mesh: ArrayMesh) -> void:
 	var instance := MeshInstance3D.new()
 	instance.name = "Material_%d" % material_id
 	instance.mesh = array_mesh
@@ -661,6 +734,7 @@ func _remove_chunk_view(chunk: Vector3i) -> void:
 	if node == null:
 		return
 	_visible_chunks.erase(chunk)
+	_pending_rebuild_queue.erase(chunk)
 	node.queue_free()
 
 
@@ -671,6 +745,7 @@ func _clear_all_chunk_views() -> void:
 		_remove_chunk_view(chunk)
 	_visible_chunks.clear()
 	_pending_view_queue.clear()
+	_pending_rebuild_queue.clear()
 	_tracked_chunks.clear()
 
 
@@ -680,6 +755,8 @@ func _clear_all_chunk_views() -> void:
 func _build_materials() -> void:
 	_materials.clear()
 	_material_cache.clear()
+	_transparent_material_mask.resize(MATERIAL_ID_CAPACITY)
+	_transparent_material_mask.fill(0)
 	_block_atlas.clear()
 	if worldgen_config == null:
 		return
@@ -689,11 +766,15 @@ func _build_materials() -> void:
 		if mid < 0:
 			continue
 		_materials[mid] = visual
+		if mid < MATERIAL_ID_CAPACITY and bool(visual.get("transparent", false)):
+			_transparent_material_mask[mid] = 1
 	# Build the shared block texture atlas for this dimension's visuals.
 	_block_atlas = BlockAtlasBuilderScript.build_atlas(visuals)
 
 
 const TERRAIN_BLOCK_SHADER := preload("res://resource/shaders/terrain_block.gdshader")
+const TERRAIN_TRANSPARENT_SHADER := preload(
+		"res://resource/shaders/terrain_block_transparent.gdshader")
 
 
 @warning_ignore("unsafe_method_access", "unsafe_call_argument")
@@ -706,6 +787,7 @@ func _get_material(material_id: int) -> Material:
 	var albedo: Color = visual.get("albedo_color", Color(0.85, 0.20, 0.85)) if has_visual else Color(0.85, 0.20, 0.85)
 	var roughness: float = visual.get("roughness", 0.92) if has_visual else 0.92
 	var emissive: Color = visual.get("emissive_color", Color(0, 0, 0)) if has_visual else Color(0, 0, 0)
+	var transparent: bool = bool(visual.get("transparent", false)) if has_visual else false
 
 	# Overlay layers (first overlay only for now).
 	var overlays: Array = visual.get("overlays", []) if has_visual else []
@@ -720,7 +802,10 @@ func _get_material(material_id: int) -> Material:
 	var sides_tile: Dictionary = tile_entry.get("sides", {})
 
 	var shader_mat := ShaderMaterial.new()
-	shader_mat.shader = TERRAIN_BLOCK_SHADER
+	shader_mat.shader = TERRAIN_TRANSPARENT_SHADER if transparent else TERRAIN_BLOCK_SHADER
+	if transparent:
+		# Ice is drawn after water at shared boundaries.
+		shader_mat.render_priority = 1 if String(visual.get("material_key", "")) == "snt:ice" else 0
 	shader_mat.set_shader_parameter("albedo_color", albedo)
 	shader_mat.set_shader_parameter("roughness", roughness)
 	shader_mat.set_shader_parameter("emissive_color", emissive)
@@ -747,9 +832,6 @@ func _get_material(material_id: int) -> Material:
 			shader_mat.set_shader_parameter("has_overlay", true)
 		else:
 			push_warning("ChunkRendererBridge: failed to load overlay texture '%s' for material %d" % [overlay_path, material_id])
-
-	# Transparency is driven by the shader's ALPHA output and blend mode.
-	# cull_disabled is also declared in the shader render_mode.
 
 	var material: Material = shader_mat
 	_material_cache[material_id] = material

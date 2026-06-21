@@ -87,65 +87,47 @@ godot::Basis GDPlayerHelper::align_body_to_gravity(
         const godot::Vector3& target_up,
         float rotation_speed,
         float delta) {
-    const godot::Vector3 current_up = current_basis.rows[1];
-    const float dot = current_up.dot(target_up);
-
-    // Already well-aligned.
-    if (dot > 0.999f) {
+    constexpr float kDirectionEpsilonSq = 1.0e-12f;
+    if (target_up.length_squared() < kDirectionEpsilonSq) {
         return current_basis;
     }
 
-    // Nearly opposite: cross product is degenerate, use fallback axis.
-    if (dot < -0.999f) {
-        const godot::Vector3 fallback_axis = current_basis.rows[2];
+    // Godot stores Basis rows internally, but local x/y/z axes are columns.
+    // Using rows here creates a feedback error once the body is rotated.
+    const godot::Basis normalized_basis = current_basis.orthonormalized();
+    const godot::Vector3 current_up = normalized_basis.get_column(1);
+    const godot::Vector3 normalized_target_up = target_up.normalized();
+    const float dot = std::fmax(
+        -1.0f, std::fmin(1.0f, current_up.dot(normalized_target_up)));
+    const godot::Vector3 axis = current_up.cross(normalized_target_up);
+    const float axis_length_sq = axis.length_squared();
+    const float max_angle = std::fmax(0.0f, rotation_speed * delta);
+    if (max_angle <= 0.0f) {
+        return normalized_basis;
+    }
+
+    // Parallel directions are aligned. Anti-parallel directions need a
+    // stable local fallback axis because their cross product is degenerate.
+    if (axis_length_sq < kDirectionEpsilonSq) {
+        if (dot >= 0.0f) {
+            return normalized_basis;
+        }
+        const godot::Vector3 fallback_axis =
+            normalized_basis.get_column(2).normalized();
         const float angle = static_cast<float>(M_PI);
-        const float max_angle = rotation_speed * delta;
         const float actual_angle = std::fmin(angle, max_angle);
-
-        const float c = std::cos(actual_angle);
-        const float s = std::sin(actual_angle);
-        const float t = 1.0f - c;
-
-        const float x = fallback_axis.x;
-        const float y = fallback_axis.y;
-        const float z = fallback_axis.z;
-
-        godot::Basis rot;
-        rot.rows[0] = godot::Vector3(t * x * x + c,     t * x * y - s * z, t * x * z + s * y);
-        rot.rows[1] = godot::Vector3(t * x * y + s * z, t * y * y + c,     t * y * z - s * x);
-        rot.rows[2] = godot::Vector3(t * x * z - s * y, t * y * z + s * x, t * z * z + c);
-
-        godot::Basis result = rot * current_basis;
+        const godot::Basis rot(fallback_axis, actual_angle);
+        const godot::Basis result = rot * normalized_basis;
         return result.orthonormalized();
     }
 
-    const godot::Vector3 axis = current_up.cross(target_up);
-    const float axis_length_sq = axis.length_squared();
-    if (axis_length_sq < 0.0001f) {
-        return current_basis;
-    }
-
-    const float angle = std::acos(std::fmax(-1.0f, std::fmin(1.0f, dot)));
-    const float max_angle = rotation_speed * delta;
+    // atan2 remains stable for tiny angles, so gravity changes are applied
+    // continuously instead of accumulating in a visible angular dead zone.
+    const float axis_length = std::sqrt(axis_length_sq);
+    const float angle = std::atan2(axis_length, dot);
     const float actual_angle = std::fmin(angle, max_angle);
-
-    const godot::Vector3 normalized_axis = axis / std::sqrt(axis_length_sq);
-
-    // Rotate the basis around the axis by actual_angle.
-    const float c = std::cos(actual_angle);
-    const float s = std::sin(actual_angle);
-    const float t = 1.0f - c;
-
-    const float x = normalized_axis.x;
-    const float y = normalized_axis.y;
-    const float z = normalized_axis.z;
-
-    godot::Basis rot;
-    rot.rows[0] = godot::Vector3(t * x * x + c,     t * x * y - s * z, t * x * z + s * y);
-    rot.rows[1] = godot::Vector3(t * x * y + s * z, t * y * y + c,     t * y * z - s * x);
-    rot.rows[2] = godot::Vector3(t * x * z - s * y, t * y * z + s * x, t * z * z + c);
-
-    godot::Basis result = rot * current_basis;
+    const godot::Basis rot(axis / axis_length, actual_angle);
+    const godot::Basis result = rot * normalized_basis;
     return result.orthonormalized();
 }
 

@@ -59,6 +59,9 @@ struct GameplayConfig {
     // 0.1 = 10% of the day is sunrise/sunset transition.
     float twilight_fraction = 0.1f;
 
+    // Time of day at world tick 0, in [0, 1). 0.5 is noon.
+    float day_start_time = 0.5f;
+
     // --- Season system ---
 
     // Number of in-game days per season. Default: 16 days.
@@ -113,6 +116,9 @@ struct GameplayConfig {
 
         bool has_twilight_fraction = false;
         float twilight_fraction = 0.1f;
+
+        bool has_day_start_time = false;
+        float day_start_time = 0.5f;
 
         // Ecosystem per-planet overrides.
         bool has_enable_ecosystem = false;
@@ -198,6 +204,14 @@ struct GameplayConfig {
             return it->second.twilight_fraction;
         }
         return twilight_fraction;
+    }
+
+    float get_day_start_time(const std::string& dimension_id) const {
+        auto it = planet_overrides.find(dimension_id);
+        if (it != planet_overrides.end() && it->second.has_day_start_time) {
+            return it->second.day_start_time;
+        }
+        return day_start_time;
     }
 
     // --- Ecosystem resolved accessors ---

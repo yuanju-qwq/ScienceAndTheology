@@ -552,7 +552,7 @@ func _show_main_menu() -> void:
 	_world_list_panel.visible = false
 	_new_world_panel.visible = false
 	if _settings_ui:
-		_settings_ui.close()
+		_settings_ui.dismiss()
 	_selected_world_index = -1
 	_set_status("")
 	_recenter_panels()

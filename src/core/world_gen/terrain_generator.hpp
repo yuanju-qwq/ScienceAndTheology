@@ -35,6 +35,16 @@ namespace science_and_theology {
 //   ChunkData chunk = gen.generate_chunk("overworld", 0, 0, 0);
 class TerrainGenerator {
 public:
+    enum class LandformZone : uint8_t {
+        BASIN = 0,
+        PLAINS = 1,
+        HILLS = 2,
+        PLATEAU = 3,
+        MOUNTAINS = 4,
+        RUGGED = 5,
+        COUNT = 6,
+    };
+
     explicit TerrainGenerator(
         WorldSeed seed,
         std::shared_ptr<const WorldGenConfigSnapshot> config = nullptr);
@@ -44,7 +54,18 @@ public:
     ChunkData generate_chunk(const std::string& dimension_id,
                              int chunk_x, int chunk_y, int chunk_z);
 
+    // Read-only terrain query for maps, diagnostics, and generation tests.
+    // The input direction does not need to be normalized.
+    LandformZone landform_zone_at_direction(
+        const std::string& dimension_id,
+        float dir_x, float dir_y, float dir_z) const;
+
 private:
+    struct LandformSample {
+        LandformZone zone = LandformZone::PLAINS;
+        float terrain_offset = 0.0f;
+    };
+
     struct MaterialIds {
         TerrainMaterialId air = 0;
         TerrainMaterialId stone = 0;
@@ -143,8 +164,15 @@ private:
                         int global_x, int global_y, int global_z,
                         const BaseTerrainRule& rule) const;
 
-    // Planet: compute surface radius at a direction from planet center.
-    // Uses 3D noise on the normalized direction vector.
+    // Planet: sample a continuous landform profile and surface radius at a
+    // direction from planet center. All non-ocean land maps to one of the six
+    // landform zones, with smooth interpolation between neighboring zones.
+    LandformSample sample_planet_landform(
+                                const NoiseGenerator& elevation_noise,
+                                const NoiseGenerator& detail_noise,
+                                float dir_x, float dir_y, float dir_z,
+                                const PlanetConfig& planet) const;
+
     float planet_surface_radius(const NoiseGenerator& elevation_noise,
                                 const NoiseGenerator& detail_noise,
                                 float dir_x, float dir_y, float dir_z,

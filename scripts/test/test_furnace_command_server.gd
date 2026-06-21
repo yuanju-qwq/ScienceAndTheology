@@ -54,6 +54,24 @@ func _run() -> void:
 		"cell": cell,
 		"item_id": furnace_item,
 	})
+	if not _expect(not result.get("ok", false),
+			"legacy cell-only placement command was accepted"):
+		return
+	if not _expect(inventory.count_item(furnace_item) == 1,
+			"rejected legacy placement consumed its item"):
+		return
+
+	result = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"object_type": GameCommandServer.OBJECT_FURNACE,
+		"dimension": OVERWORLD,
+		"cell": cell,
+		"anchor_cell": cell + Vector3i.DOWN,
+		"build_direction": Vector3i.UP,
+		"build_mode": GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES,
+		"item_id": furnace_item,
+	})
 	if not _expect(result.get("ok", false), "place furnace rejected: %s" % str(result)):
 		return
 	if not _expect(furnace_manager.has_furnace(OVERWORLD, cell),

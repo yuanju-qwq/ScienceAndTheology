@@ -13,7 +13,7 @@
 // from UV2.y and maps fract(UV) into that cell.
 shader_type spatial;
 
-render_mode cull_disabled, depth_prepass_alpha, blend_mix;
+render_mode cull_back, depth_draw_opaque;
 
 // Fallback albedo color when no atlas tile is assigned for the face.
 uniform vec4 albedo_color : source_color = vec4(0.85, 0.20, 0.85, 1.0);
@@ -87,14 +87,10 @@ void fragment() {
 	}
 
 	vec3 base_color;
-	float base_alpha;
-
 	if (has_tex) {
 		base_color = tex_color.rgb * albedo_color.rgb;
-		base_alpha = tex_color.a * albedo_color.a;
 	} else {
 		base_color = albedo_color.rgb;
-		base_alpha = albedo_color.a;
 	}
 
 	// Apply overlay if present (standalone repeating texture, not atlas).
@@ -104,7 +100,6 @@ void fragment() {
 	}
 
 	ALBEDO = base_color;
-	ALPHA = base_alpha;
 	ROUGHNESS = roughness;
 	METALLIC = 0.0;
 
