@@ -307,6 +307,10 @@ func _save_universe_meta(save_dir: String) -> void:
 		"universe_mode": _universe_manager.universe_mode,
 		"universe_seed": _universe_manager.universe_seed,
 		"system_density": _universe_manager.system_density,
+		"player_game_mode": _universe_manager.player_game_mode,
+		"player_health": _universe_manager.player_health,
+		"player_source_law": _universe_manager.player_source_law_dict,
+		"player_satiation": _universe_manager.player_satiation_dict,
 		"format_version": 4,
 		"systems": [],
 		"planets": [],
@@ -399,6 +403,14 @@ func _load_universe_meta(save_dir: String) -> void:
 	_universe_manager.universe_seed = int(meta.get("universe_seed", 0))
 	_universe_manager.system_density = float(meta.get("system_density",
 		SpatialUniverseGrid.DEFAULT_DENSITY))
+
+	# Restore player game mode.
+	_universe_manager.player_game_mode = int(meta.get("player_game_mode", 0))
+
+	# Restore player vitals.
+	_universe_manager.player_health = float(meta.get("player_health", 100.0))
+	_universe_manager.player_source_law_dict = meta.get("player_source_law", {})
+	_universe_manager.player_satiation_dict = meta.get("player_satiation", {})
 
 	# Restore space stations.
 	var stations_data: Array = meta.get("stations", [])

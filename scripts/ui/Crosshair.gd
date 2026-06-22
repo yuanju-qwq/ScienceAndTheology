@@ -4,7 +4,6 @@ extends Control
 
 func _ready() -> void:
 	set_anchors_preset(PRESET_CENTER)
-	# 让 Control 覆盖整个视口，这样 _draw() 的坐标以屏幕中心为原点。
 	anchor_left = 0.0
 	anchor_top = 0.0
 	anchor_right = 1.0
@@ -14,6 +13,11 @@ func _ready() -> void:
 	offset_right = 0.0
 	offset_bottom = 0.0
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+func set_game_mode(mode: int) -> void:
+	const OBSERVER := 2
+	visible = (mode != OBSERVER)
 
 
 func _draw() -> void:

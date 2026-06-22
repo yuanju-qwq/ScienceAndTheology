@@ -11,6 +11,7 @@ signal mechanism_activated(mechanism_id: StringName, dimension: StringName)
 signal hotbar_changed(index: int)
 signal inventory_changed
 signal build_mode_changed(mode: int)
+signal game_mode_changed(mode: int)
 
 const MOUSE_SENSITIVITY := 0.0025
 const GRAVITY_STRENGTH := 22.0
@@ -20,17 +21,40 @@ const CLIMB_SPEED := 3.0
 const OVERWORLD: StringName = &"overworld"
 const MAIN_MENU_SCENE_PATH := "res://MainMenu.tscn"
 
-# Creative fly mode — toggled via /fly console command.
-var fly_mode := false:
+enum GameMode {
+	SURVIVAL = 0,
+	CREATIVE = 1,
+	OBSERVER = 2,
+}
+
+var game_mode: int = GameMode.SURVIVAL:
 	set(value):
-		if fly_mode == value:
+		value = clampi(value, GameMode.SURVIVAL, GameMode.OBSERVER)
+		if game_mode == value:
 			return
-		fly_mode = value
-		if fly_mode:
+		game_mode = value
+		if game_mode == GameMode.OBSERVER:
+			collision_layer = 0
+			collision_mask = 0
 			_is_climbing = false
+		else:
+			collision_layer = _saved_collision_layer
+			collision_mask = _saved_collision_mask
+		if game_mode == GameMode.SURVIVAL:
+			_is_climbing = false
+		game_mode_changed.emit(game_mode)
+
+var _saved_collision_layer := 0
+var _saved_collision_mask := 0
 
 # Fly movement speed (adjustable via /speed console command).
 var fly_speed := 20.0
+
+# Observer mode movement speed.
+var observer_speed := 30.0
+
+# Flight toggle in SURVIVAL mode (CREATIVE and OBSERVER always have flight).
+var _flight_enabled := false
 
 @export var move_speed := 5.2
 @export var sprint_multiplier := 1.45
@@ -51,6 +75,7 @@ var fly_speed := 20.0
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
 @export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
 @export var console_ui_path: NodePath = ^"../UI/ConsoleUI"
+@export var crosshair_path: NodePath = ^"../UI/Crosshair"
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
 @export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
 @export var probe_panel_path: NodePath = ^"../UI/ProbePanel"
@@ -147,6 +172,21 @@ var _atmosphere_type: int = PlanetDescriptor.AtmosphereType.BREATHABLE
 # Accumulated damage timer for atmosphere hazard ticks.
 var _atmo_damage_timer := 0.0
 
+# Player health system — health_max and health_regen come from C++ CombatAttributes.
+var _health_current: float = 100.0
+# _health_max is computed from _source_law.compute_combat_attributes() each tick.
+var _health_regen_timer := 0.0
+const _HEALTH_REGEN_INTERVAL := 2.0
+
+# Source Law data — drives health_max, health_regen, rejection damage, etc.
+var _source_law: GDPlayerSourceLawData = null
+
+# Satiation (hunger) system — backed by C++ GDSatiationData.
+var _satiation: GDSatiationData = null
+var _satiation_tick_timer := 0.0
+const _SATIATION_TICK_INTERVAL := 0.05
+var _status_bars: Node = null
+
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST and not _is_quitting:
@@ -156,6 +196,9 @@ func _notification(what: int) -> void:
 
 
 func _ready() -> void:
+	_saved_collision_layer = collision_layer
+	_saved_collision_mask = collision_mask
+
 	interaction = PlayerInteraction.new()
 	interaction.name = "PlayerInteraction"
 	add_child(interaction)
@@ -168,9 +211,16 @@ func _ready() -> void:
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_connect_universe_manager()
+	if universe_manager != null:
+		game_mode = universe_manager.player_game_mode
+		_health_current = universe_manager.player_health
 	_setup_inventory()
 	_ui_connector.connect_ui()
 	_connect_console()
+	_connect_crosshair()
+	_setup_vitals()
+	# Clamp current health to computed max (may have increased from organ restoration).
+	_health_current = mini(_health_current, _get_health_max())
 	_connect_quest_system()
 	_setup_exit_menu()
 	_update_camera_rotation()
@@ -209,6 +259,7 @@ func _physics_process(delta: float) -> void:
 	if gravity_direction != Vector3.ZERO:
 		up_direction = -gravity_direction
 	_update_atmosphere_hazard(delta)
+	_process_vitals(delta)
 	_update_target()
 	if _spawn_freeze:
 		_update_spawn_freeze()
@@ -374,8 +425,18 @@ func _handle_movement(delta: float) -> void:
 		move_and_slide()
 		return
 
-	# Creative fly mode — 6DoF camera-relative movement.
-	if fly_mode:
+	# OBSERVER mode — noclip flight, direct position manipulation.
+	if game_mode == GameMode.OBSERVER:
+		_handle_observer_movement(delta)
+		return
+
+	# CREATIVE mode — 6DoF camera-relative flight with collision.
+	if game_mode == GameMode.CREATIVE:
+		_handle_fly_movement(delta)
+		return
+
+	# SURVIVAL mode with flight enabled.
+	if _flight_enabled:
 		_handle_fly_movement(delta)
 		return
 
@@ -462,7 +523,34 @@ func _handle_fly_movement(delta: float) -> void:
 	move_and_slide()
 
 
-# Zero-G movement (space, no fly mode): camera-relative with Space/Shift for up/down.
+func _handle_observer_movement(delta: float) -> void:
+	var xform_basis := global_transform.basis
+	var forward := -xform_basis.z
+	var right := xform_basis.x
+	var up := xform_basis.y
+
+	var direction := Vector3.ZERO
+	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+		direction += forward
+	if Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN):
+		direction -= forward
+	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+		direction += right
+	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+		direction -= right
+	if Input.is_key_pressed(KEY_SPACE):
+		direction += up
+	if Input.is_key_pressed(KEY_SHIFT):
+		direction -= up
+
+	if direction != Vector3.ZERO:
+		direction = direction.normalized()
+
+	var speed := observer_speed * (sprint_multiplier if Input.is_key_pressed(KEY_CTRL) else 1.0)
+	global_position += direction * speed * delta
+	velocity = Vector3.ZERO
+
+
 func _handle_zero_g_movement(delta: float, input_vector: Vector2) -> void:
 	var xform_basis := global_transform.basis
 	var forward := -xform_basis.z
@@ -573,7 +661,7 @@ func _update_gravity_direction() -> void:
 			_atmosphere_type = _active_planet.atmosphere_type
 		else:
 			_atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
-		if fly_mode:
+		if game_mode != GameMode.SURVIVAL or _flight_enabled:
 			gravity_direction = Vector3.ZERO
 		return
 
@@ -593,8 +681,8 @@ func _update_gravity_direction() -> void:
 	if universe_manager != null and universe_manager.active_planet != null:
 		_gravity_multiplier = universe_manager.active_planet.gravity_multiplier
 
-	# In fly mode, override gravity to zero so player has full 6DoF control.
-	if fly_mode:
+	# In non-survival modes or when flight is on, override gravity to zero.
+	if game_mode != GameMode.SURVIVAL or _flight_enabled:
 		gravity_direction = Vector3.ZERO
 
 
@@ -626,8 +714,8 @@ func _align_body_to_gravity(delta: float) -> void:
 # CORROSIVE: heavy damage + equipment degradation without suit.
 # TODO: check player equipment for oxygen mask / hazard suit to negate damage.
 func _update_atmosphere_hazard(delta: float) -> void:
-	# No hazard in creative fly mode.
-	if fly_mode:
+	# No hazard in non-survival modes.
+	if game_mode != GameMode.SURVIVAL:
 		return
 
 	# No hazard in space (zero-G, no active planet).
@@ -661,21 +749,93 @@ func _update_atmosphere_hazard(delta: float) -> void:
 		return
 
 	_atmo_damage_timer += delta
-	# TODO: Apply damage to player health system when implemented.
-	# For now, log a warning every 2 seconds so developers can verify.
-	if _atmo_damage_timer >= 2.0:
-		_atmo_damage_timer -= 2.0
-		var atmo_name := "unknown"
-		match _atmosphere_type:
-			PlanetDescriptor.AtmosphereType.NONE:
-				atmo_name = "vacuum"
-			PlanetDescriptor.AtmosphereType.THIN:
-				atmo_name = "thin"
-			PlanetDescriptor.AtmosphereType.TOXIC:
-				atmo_name = "toxic"
-			PlanetDescriptor.AtmosphereType.CORROSIVE:
-				atmo_name = "corrosive"
-		push_warning("Player in %s atmosphere: %.1f dmg/sec" % [atmo_name, damage_rate])
+	# Apply damage to player health every 1 second.
+	if _atmo_damage_timer >= 1.0:
+		_atmo_damage_timer -= 1.0
+		_health_current -= damage_rate
+
+
+# --- Player vitals (health + hunger) ---
+
+func _setup_vitals() -> void:
+	_source_law = GDPlayerSourceLawData.new()
+	_satiation = GDSatiationData.new()
+
+	# Restore saved data if available.
+	if universe_manager != null:
+		if not universe_manager.player_source_law_dict.is_empty():
+			_source_law.from_dict(universe_manager.player_source_law_dict)
+		if not universe_manager.player_satiation_dict.is_empty():
+			_satiation.from_dict(universe_manager.player_satiation_dict)
+
+	var bars := preload("res://scripts/ui/PlayerStatusBars.gd").new()
+	bars.name = "PlayerStatusBars"
+	bars.setup(self)
+	_status_bars = bars
+	var ui_layer := get_node_or_null(^"../UI")
+	if ui_layer != null:
+		ui_layer.add_child(bars)
+	else:
+		add_child(bars)
+
+
+func _process_vitals(delta: float) -> void:
+	if game_mode == GameMode.OBSERVER:
+		return
+	if game_mode == GameMode.CREATIVE:
+		return
+	if _source_law == null or _satiation == null:
+		return
+
+	# Tick source law (handles stability/mutation convergence, rejection timer, etc.).
+	# Apply rejection damage if any.
+	if _source_law.is_rejecting():
+		var rej := _source_law.get_rejection()
+		var dpt := float(rej.get("damage_per_tick", 0.0))
+		_health_current -= dpt
+
+	# Tick satiation at 20 TPS.
+	_satiation_tick_timer += delta
+	while _satiation_tick_timer >= _SATIATION_TICK_INTERVAL:
+		_satiation_tick_timer -= _SATIATION_TICK_INTERVAL
+		_satiation.tick()
+		# Tick source law at same rate.
+		_source_law.tick()
+		# Apply starvation damage.
+		var starve_dmg := _satiation.get_starvation_damage_per_tick()
+		if starve_dmg > 0.0:
+			_health_current = maxf(_health_current - starve_dmg, 0.0)
+
+	# Health regen — enhanced by satiation and source law combat attributes.
+	var health_max := _get_health_max()
+	var regen_rate := _get_health_regen()
+	if _health_current < health_max and regen_rate > 0.0:
+		_health_regen_timer += delta
+		var regen_mod := _satiation.get_health_regen_modifier()
+		if regen_mod > 0.0:
+			var interval := _HEALTH_REGEN_INTERVAL
+			while _health_regen_timer >= interval:
+				_health_regen_timer -= interval
+				_health_current = minf(_health_current + regen_rate * regen_mod, health_max)
+	else:
+		_health_regen_timer = 0.0
+
+	# Clamp health to valid range.
+	_health_current = clampi(_health_current, 0, _get_health_max())
+
+
+func _get_health_max() -> int:
+	if _source_law == null:
+		return 100
+	var attrs: Dictionary = _source_law.compute_combat_attributes()
+	return int(attrs.get("health_max", 100))
+
+
+func _get_health_regen() -> float:
+	if _source_law == null:
+		return 0.0
+	var attrs: Dictionary = _source_law.compute_combat_attributes()
+	return float(attrs.get("health_regen", 0.0))
 
 
 # --- Inventory and equipment ---
@@ -834,6 +994,27 @@ func get_selected_hotbar() -> int:
 	return selected_hotbar
 
 
+func set_game_mode(mode: int) -> void:
+	game_mode = mode
+	if universe_manager != null:
+		universe_manager.player_game_mode = mode
+
+
+func get_game_mode() -> int:
+	return game_mode
+
+
+func get_game_mode_name() -> String:
+	match game_mode:
+		GameMode.SURVIVAL:
+			return "survival"
+		GameMode.CREATIVE:
+			return "creative"
+		GameMode.OBSERVER:
+			return "observer"
+	return "unknown"
+
+
 func set_input_locked(is_locked: bool) -> void:
 	input_locked = is_locked
 	if is_locked:
@@ -909,6 +1090,13 @@ func _connect_console() -> void:
 			console_ui.console_closed.connect(_on_console_closed)
 
 
+func _connect_crosshair() -> void:
+	var crosshair: Control = get_node_or_null(crosshair_path) as Control
+	if crosshair != null:
+		game_mode_changed.connect(crosshair.set_game_mode)
+		crosshair.set_game_mode(game_mode)
+
+
 func _on_console_opened() -> void:
 	set_input_locked(true)
 
@@ -976,6 +1164,12 @@ func _on_exit_menu_resume() -> void:
 
 func _do_save() -> void:
 	if universe_manager != null:
+		universe_manager.player_game_mode = game_mode
+		universe_manager.player_health = _health_current
+		if _source_law != null:
+			universe_manager.player_source_law_dict = _source_law.to_dict()
+		if _satiation != null:
+			universe_manager.player_satiation_dict = _satiation.to_dict()
 		var ok := universe_manager.save_universe()
 		if ok:
 			print("[PlayerController] world saved before exit")
@@ -1040,14 +1234,21 @@ func _update_status_label() -> void:
 			atmo_short = "corrosive"
 
 	var build_text := " | build=%s" % _build_mode_name()
-	if fly_mode:
-		label.text = "Fly (creative)" + build_text
-	elif gravity_direction == Vector3.ZERO:
+	if game_mode == GameMode.OBSERVER:
+		label.text = "Observer (noclip)" + build_text
+		return
+	if game_mode == GameMode.CREATIVE:
+		label.text = "Creative (fly)" + build_text
+		return
+	# SURVIVAL mode.
+	if _flight_enabled:
+		label.text = "Survival (fly)" + build_text
+		return
+	if gravity_direction == Vector3.ZERO:
 		label.text = "Space (zero-G)" + build_text
 	elif universe_manager != null and universe_manager.active_planet != null:
 		var planet := universe_manager.active_planet
 		var grav_text := "g=%.2f" % _gravity_multiplier
-		# 显示当前星球名 + 重力 + 大气 + 宇宙坐标（double 精度）。
 		var upos := get_player_universe_position()
 		label.text = "%s (%s, %s) @U(%.0f,%.0f,%.0f)%s" % [
 			planet.display_name, grav_text, atmo_short, upos.x, upos.y, upos.z,

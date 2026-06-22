@@ -135,10 +135,11 @@ func _build_ui() -> void:
 # --- Command registration ---
 
 func _register_default_commands() -> void:
-	register_command("fly", _cmd_fly, "Toggle creative fly mode")
+	register_command("fly", _cmd_fly, "Toggle flight in survival mode")
+	register_command("gamemode", _cmd_gamemode, "Set game mode (survival/creative/observer)")
 	register_command("gravity", _cmd_gravity, "Show current gravity direction and zone")
 	register_command("help", _cmd_help, "List available commands")
-	register_command("speed", _cmd_speed, "Set fly speed (default 20, usage: /speed 40)")
+	register_command("speed", _cmd_speed, "Set flight/observer speed (default 20/30)")
 	register_command("planets", _cmd_planets, "List all travelable planets with distances")
 	register_command("travel", _cmd_travel,
 			"Debug teleport for dimension prototype (usage: /travel Mars)")
@@ -188,9 +189,35 @@ func _cmd_fly(_args: String) -> void:
 		print_line("[color=red]No player reference[/color]")
 		return
 
-	_player.fly_mode = not _player.fly_mode
-	var state := "ON" if _player.fly_mode else "OFF"
-	print_line("[color=cyan]Fly mode: %s[/color]" % state)
+	if _player.game_mode == PlayerController.GameMode.OBSERVER:
+		print_line("[color=yellow]Flight is always on in observer mode[/color]")
+		return
+	if _player.game_mode == PlayerController.GameMode.CREATIVE:
+		print_line("[color=yellow]Flight is always on in creative mode[/color]")
+		return
+
+	_player._flight_enabled = not _player._flight_enabled
+	print_line("[color=cyan]Flight: %s[/color]" % ("ON" if _player._flight_enabled else "OFF"))
+
+
+func _cmd_gamemode(args: String) -> void:
+	if _player == null:
+		print_line("[color=red]No player reference[/color]")
+		return
+
+	var mode_name := args.strip_edges().to_lower()
+	match mode_name:
+		"survival", "0", "s":
+			_player.set_game_mode(PlayerController.GameMode.SURVIVAL)
+		"creative", "1", "c":
+			_player.set_game_mode(PlayerController.GameMode.CREATIVE)
+		"observer", "2", "o":
+			_player.set_game_mode(PlayerController.GameMode.OBSERVER)
+		_:
+			print_line("[color=red]Usage: /gamemode <survival|creative|observer>[/color]")
+			return
+
+	print_line("[color=cyan]Game mode set to: %s[/color]" % _player.get_game_mode_name())
 
 
 func _cmd_gravity(_args: String) -> void:
@@ -227,8 +254,14 @@ func _cmd_speed(args: String) -> void:
 		print_line("[color=red]No player reference[/color]")
 		return
 
+	if _player.game_mode == PlayerController.GameMode.SURVIVAL and not _player._flight_enabled:
+		print_line("[color=yellow]/speed is only available when flight is active[/color]")
+		return
+
 	if args == "":
-		print_line("Current fly speed: %.1f" % _player.fly_speed)
+		var speed_name := "fly_speed" if _player.game_mode != PlayerController.GameMode.OBSERVER else "observer_speed"
+		var current := _player.fly_speed if _player.game_mode != PlayerController.GameMode.OBSERVER else _player.observer_speed
+		print_line("Current %s: %.1f" % [speed_name, current])
 		return
 
 	var value := args.to_float()
@@ -236,8 +269,11 @@ func _cmd_speed(args: String) -> void:
 		print_line("[color=red]Speed must be positive[/color]")
 		return
 
-	_player.fly_speed = value
-	print_line("[color=cyan]Fly speed set to %.1f[/color]" % value)
+	if _player.game_mode == PlayerController.GameMode.OBSERVER:
+		_player.observer_speed = value
+	else:
+		_player.fly_speed = value
+	print_line("[color=cyan]Speed set to %.1f[/color]" % value)
 
 
 # --- Multi-planet travel commands ---

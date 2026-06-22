@@ -134,6 +134,18 @@ var _save_manager: UniverseSaveManager = null
 # Save directory for per-planet chunk serialization.
 var _save_dir: String = ""
 
+# Player game mode persisted across saves (0=SURVIVAL, 1=CREATIVE, 2=OBSERVER).
+var player_game_mode: int = 0
+
+# Player health persisted across saves.
+var player_health: float = 100.0
+
+# Player source law serialized as Dictionary (drives health_max, health_regen, etc.).
+var player_source_law_dict: Dictionary = {}
+
+# Player satiation serialized as Dictionary.
+var player_satiation_dict: Dictionary = {}
+
 var _player: Node3D = null
 var _chunk_bridge: ChunkRendererBridge = null
 var tick_system: GDTickSystem = null
@@ -167,6 +179,7 @@ func get_quest_system() -> GDQuestSystem:
 func _ready() -> void:
 	_apply_game_session_overrides()
 	_generate_universe()
+	_load_player_game_mode()
 	_realize_initial_system()
 	_find_references()
 	_create_virtual_simulator()
@@ -266,6 +279,27 @@ func _generate_universe() -> void:
 					% universe_mode)
 			var sys := SolarSystemPreset.create_placeholder(universe_seed)
 			systems.append(sys)
+
+
+func _load_player_game_mode() -> void:
+	if _save_dir == "":
+		return
+	var meta_path := _save_dir + "/universe_meta.json"
+	if not FileAccess.file_exists(meta_path):
+		return
+	var file := FileAccess.open(meta_path, FileAccess.READ)
+	if file == null:
+		return
+	var json_str := file.get_as_text()
+	file.close()
+	var json := JSON.new()
+	if json.parse(json_str) != OK:
+		return
+	var meta: Dictionary = json.data
+	player_game_mode = int(meta.get("player_game_mode", 0))
+	player_health = float(meta.get("player_health", 100.0))
+	player_source_law_dict = meta.get("player_source_law", {})
+	player_satiation_dict = meta.get("player_satiation", {})
 
 
 # --- Initial system realization ---

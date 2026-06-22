@@ -37,6 +37,14 @@ func _connect_crop_harvest_signal() -> void:
 	_crop_signal_connected = true
 
 
+func _is_interaction_blocked() -> bool:
+	return _player.game_mode == PlayerController.GameMode.OBSERVER
+
+
+func _is_creative() -> bool:
+	return _player.game_mode == PlayerController.GameMode.CREATIVE
+
+
 func process_cooldown(delta: float) -> void:
 	if _cooldown_remaining > 0.0:
 		_cooldown_remaining = maxf(_cooldown_remaining - delta, 0.0)
@@ -52,6 +60,8 @@ func process_cooldown(delta: float) -> void:
 # Returns true if an attack was attempted (hit or miss).
 @warning_ignore("unsafe_call_argument")
 func try_attack_creature() -> bool:
+	if _is_interaction_blocked():
+		return false
 	if _player.input_locked or _attack_cooldown_remaining > 0.0:
 		return false
 
@@ -160,6 +170,8 @@ func _on_creature_killed(result: Dictionary) -> void:
 
 @warning_ignore("unsafe_call_argument")
 func try_mine_target(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
 	var command_server := _player.get_command_server()
 	if command_server == null or target.is_empty():
 		return false
@@ -167,6 +179,10 @@ func try_mine_target(target: Dictionary) -> bool:
 	var data: Dictionary = target.get("data", {})
 	var material := int(data.get("material", 0))
 	if material == 0:
+		return false
+
+	# Skip cooldown in CREATIVE mode.
+	if not _is_creative() and _cooldown_remaining > 0.0:
 		return false
 
 	var result: Dictionary = command_server.submit_command({
@@ -226,13 +242,16 @@ func try_place_or_interact(target: Dictionary) -> bool:
 # feeding boosts taming or triggers breeding. Feed items are fruits.
 @warning_ignore("unsafe_call_argument")
 func try_feed_creature() -> bool:
+	if _is_interaction_blocked():
+		return false
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment == null:
 		return false
 
 	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-	# Only fruit items can be used as creature feed.
-	if held_id != ItemDatabase.ITEM_CHERRY_FRUIT and held_id != ItemDatabase.ITEM_OLIVE_FRUIT:
+	# Only fruit items can be used as creature feed (skip in CREATIVE mode).
+	if not _is_creative() and held_id != ItemDatabase.ITEM_CHERRY_FRUIT \
+			and held_id != ItemDatabase.ITEM_OLIVE_FRUIT:
 		return false
 
 	var um: UniverseManager = _player.universe_manager
@@ -263,8 +282,9 @@ func try_feed_creature() -> bool:
 
 	# Consume one feed item on a successful interaction
 	# (capture, taming, bred, or fed — but not on "no_enclosure" / "pen_full").
-	if outcome == "captured" or outcome == "taming" \
-			or outcome == "bred" or outcome == "fed":
+	# Skip item consumption in CREATIVE mode.
+	if not _is_creative() and (outcome == "captured" or outcome == "taming" \
+			or outcome == "bred" or outcome == "fed"):
 		if _player.inventory != null:
 			var slot := _player.inventory.find_item(held_id)
 			if slot >= 0:
@@ -276,12 +296,19 @@ func try_feed_creature() -> bool:
 
 @warning_ignore("unsafe_call_argument")
 func try_place_world_object(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
 	var command_server := _player.get_command_server()
 	var equipment: GDPlayerEquipment = _player.equipment
 	if target.is_empty() or command_server == null or equipment == null:
 		return false
 
 	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+
+	# CREATIVE mode: no item requirement for placement.
+	if _is_creative() and held_id <= 0:
+		# Try to deduce the object type from the target context.
+		return false
 	var object_type := &""
 	match held_id:
 		ItemDatabase.ITEM_WORKBENCH:
@@ -328,6 +355,10 @@ func try_place_world_object(target: Dictionary) -> bool:
 	if not machine_type.is_empty():
 		machine_placed.emit(machine_type)
 
+	# CREATIVE mode: don't consume the placed item.
+	if _is_creative() and _player.inventory != null:
+		_player.inventory.add_item(held_id, 1)
+
 	_player.inventory_changed.emit()
 	return true
 
@@ -343,13 +374,16 @@ func try_place_world_object(target: Dictionary) -> bool:
 # Till a dirt block into farmland using a shovel.
 @warning_ignore("unsafe_call_argument")
 func try_till_farmland(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment == null or target.is_empty():
 		return false
-	# Require a shovel in the main hand.
-	var stats: Dictionary = equipment.get_tool_stats()
-	if int(stats.get("type", 0)) != ToolDef.ToolType.SHOVEL:
-		return false
+	# Require a shovel in the main hand (skip in CREATIVE mode).
+	if not _is_creative():
+		var stats: Dictionary = equipment.get_tool_stats()
+		if int(stats.get("type", 0)) != ToolDef.ToolType.SHOVEL:
+			return false
 	# Target must be a dirt block.
 	var data: Dictionary = target.get("data", {})
 	var material := int(data.get("material", 0))
@@ -377,15 +411,17 @@ func try_till_farmland(target: Dictionary) -> bool:
 # Plant a seed on farmland. The crop occupies the air cell above the farmland.
 @warning_ignore("unsafe_call_argument")
 func try_plant_crop(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment == null or target.is_empty():
 		return false
 	# Held item must be a seed.
 	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-	if held_id <= 0:
+	if held_id <= 0 and not _is_creative():
 		return false
 	var item_key := ItemDatabase.get_item_key_by_id(held_id)
-	if not item_key.begins_with("seed."):
+	if not item_key.begins_with("seed.") and not _is_creative():
 		return false
 	# Target must be farmland.
 	var data: Dictionary = target.get("data", {})
@@ -411,6 +447,9 @@ func try_plant_crop(target: Dictionary) -> bool:
 	if not bool(result.get("ok", false)):
 		_debug("plant rejected: %s" % str(result.get("reason", "unknown")))
 		return false
+	# CREATIVE mode: don't consume the seed.
+	if _is_creative() and _player.inventory != null and held_id > 0:
+		_player.inventory.add_item(held_id, 1)
 	crop_planted.emit(species_key)
 	_player.inventory_changed.emit()
 	_debug("planted %s at %s" % [species_key, str(crop_cell)])
@@ -420,12 +459,14 @@ func try_plant_crop(target: Dictionary) -> bool:
 # Fertilize a crop with bone meal to advance one growth stage.
 @warning_ignore("unsafe_call_argument")
 func try_fertilize_crop(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
 	var equipment: GDPlayerEquipment = _player.equipment
 	if equipment == null or target.is_empty():
 		return false
-	# Held item must be bone meal.
+	# Held item must be bone meal (skip in CREATIVE mode).
 	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
-	if held_id != ItemDatabase.ITEM_BONE_MEAL:
+	if held_id != ItemDatabase.ITEM_BONE_MEAL and not _is_creative():
 		return false
 	# Target must be a crop block (material in crop stage range).
 	var data: Dictionary = target.get("data", {})
@@ -447,6 +488,9 @@ func try_fertilize_crop(target: Dictionary) -> bool:
 	if not bool(result.get("ok", false)):
 		_debug("fertilize rejected: %s" % str(result.get("reason", "unknown")))
 		return false
+	# CREATIVE mode: don't consume the bone meal.
+	if _is_creative() and _player.inventory != null and held_id > 0:
+		_player.inventory.add_item(held_id, 1)
 	crop_fertilized.emit("")  # species_key not returned by command; empty for generic tracking
 	_player.inventory_changed.emit()
 	_debug("fertilized crop at %s" % str(cell))
@@ -456,6 +500,8 @@ func try_fertilize_crop(target: Dictionary) -> bool:
 # Harvest a mature crop. Works with any held item (or empty hand).
 @warning_ignore("unsafe_call_argument")
 func try_harvest_crop(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
 	if target.is_empty():
 		return false
 	# Target must be a crop block.
