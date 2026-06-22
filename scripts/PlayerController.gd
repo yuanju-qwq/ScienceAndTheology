@@ -959,9 +959,14 @@ func _update_target() -> void:
 	if selection_box:
 		selection_box.global_position = world.cell_to_world_position(cell)
 	if probe_panel:
+		var world_data := world.get_world_data()
 		var mat_def: Dictionary = (
-			world.get_world_data().get_terrain_material_def(material)
-			if world.get_world_data() else {})
+			world_data.get_terrain_material_def(material)
+			if world_data else {})
+		if mat_def.is_empty() and material > 0:
+			mat_def = {"id": material, "title_key": "Block #%d" % material, "hardness": -1.0}
+			if debug_interactions:
+				print("[Player] _update_target: material %d has no definition (world_data=%s)" % [material, str(world_data != null)])
 		var tool_def: ToolDef = _get_equipped_tool_def()
 		probe_panel.update_target(mat_def, tool_def)
 
