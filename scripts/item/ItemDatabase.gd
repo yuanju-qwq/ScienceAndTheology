@@ -78,6 +78,62 @@ const ITEM_WOODEN_SWORD   = K_NON_MAT_BASE + 48
 const ITEM_STONE_SWORD    = K_NON_MAT_BASE + 49
 const ITEM_IRON_SWORD     = K_NON_MAT_BASE + 50
 
+# TFC expansion: copper tools (mining_level=2)
+const ITEM_COPPER_PICKAXE = K_NON_MAT_BASE + 200
+const ITEM_COPPER_AXE     = K_NON_MAT_BASE + 201
+const ITEM_COPPER_SHOVEL  = K_NON_MAT_BASE + 202
+const ITEM_COPPER_SWORD   = K_NON_MAT_BASE + 203
+
+# TFC expansion: bronze tools (mining_level=3, parallel alloys)
+const ITEM_TIN_BRONZE_PICKAXE    = K_NON_MAT_BASE + 210
+const ITEM_TIN_BRONZE_AXE        = K_NON_MAT_BASE + 211
+const ITEM_BISMUTH_BRONZE_PICKAXE = K_NON_MAT_BASE + 212
+const ITEM_BISMUTH_BRONZE_AXE    = K_NON_MAT_BASE + 213
+const ITEM_BLACK_BRONZE_PICKAXE  = K_NON_MAT_BASE + 214
+
+# TFC expansion: steel tools (mining_level=5)
+const ITEM_STEEL_PICKAXE = K_NON_MAT_BASE + 220
+const ITEM_STEEL_AXE     = K_NON_MAT_BASE + 221
+const ITEM_STEEL_SHOVEL  = K_NON_MAT_BASE + 222
+const ITEM_STEEL_SWORD   = K_NON_MAT_BASE + 223
+
+# TFC expansion: knapping tool heads
+const ITEM_STONE_AXE_HEAD   = K_NON_MAT_BASE + 230
+const ITEM_STONE_SHOVEL_HEAD = K_NON_MAT_BASE + 231
+const ITEM_STONE_HOE_HEAD   = K_NON_MAT_BASE + 232
+const ITEM_STONE_KNIFE_HEAD = K_NON_MAT_BASE + 233
+const ITEM_FLINT = K_NON_MAT_BASE + 234
+const ITEM_CHERT = K_NON_MAT_BASE + 235
+
+# TFC expansion: knapped stone tools (complete)
+const ITEM_STONE_HOE   = K_NON_MAT_BASE + 236
+const ITEM_STONE_KNIFE = K_NON_MAT_BASE + 237
+
+# TFC expansion: pottery / clay
+const ITEM_CLAY_BALL        = K_NON_MAT_BASE + 240
+const ITEM_UNFIRED_BOWL     = K_NON_MAT_BASE + 241
+const ITEM_UNFIRED_JUG      = K_NON_MAT_BASE + 242
+const ITEM_UNFIRED_CRUCIBLE = K_NON_MAT_BASE + 243
+const ITEM_UNFIRED_BRICK    = K_NON_MAT_BASE + 244
+const ITEM_FIRED_BOWL       = K_NON_MAT_BASE + 245
+const ITEM_FIRED_JUG        = K_NON_MAT_BASE + 246
+const ITEM_FIRED_CRUCIBLE   = K_NON_MAT_BASE + 247
+const ITEM_REFRACTORY_BRICK = K_NON_MAT_BASE + 248
+const ITEM_STRAW            = K_NON_MAT_BASE + 249
+
+# TFC expansion: charcoal + metallurgy
+const ITEM_CHARCOAL         = K_NON_MAT_BASE + 250
+const ITEM_IRON_BLOOM       = K_NON_MAT_BASE + 251
+const ITEM_WROUGHT_IRON_INGOT = K_NON_MAT_BASE + 252
+const ITEM_STEEL_INGOT      = K_NON_MAT_BASE + 253
+const ITEM_COAL_DUST        = K_NON_MAT_BASE + 254
+const ITEM_FLINT_AND_STEEL  = K_NON_MAT_BASE + 255
+
+# TFC expansion: forge items
+const ITEM_HAMMER           = K_NON_MAT_BASE + 260
+const ITEM_BELLOWS          = K_NON_MAT_BASE + 261
+const ITEM_ANVIL            = K_NON_MAT_BASE + 262
+
 const ITEM_WORKBENCH   = K_NON_MAT_BASE + 52
 const ITEM_FURNACE     = K_NON_MAT_BASE + 53
 const ITEM_LADDER      = K_NON_MAT_BASE + 54
@@ -186,6 +242,7 @@ func _ready() -> void:
 	_register_tool_items()
 	_register_component_items()
 	_register_survival_items()
+	_register_tfc_items()
 	_register_tree_species_items()
 	_register_source_law_drops()
 	_register_crop_items()
@@ -300,12 +357,13 @@ func _register_material_items() -> void:
 			"item.anorthosite_tiny_dust", Color(0.65, 0.65, 0.68), 64, null, "")
 
 func _make_tool_def(
-		tool_type: int, tier: int, mining_level: int,
-		speed: float, durability: int, attack: float) -> ToolDef:
+		tool_type: int, mining_level: int,
+		speed: float, durability: int, attack: float,
+		material_key: String = "") -> ToolDef:
 	var t := ToolDef.new()
 	t.tool_type = tool_type
-	t.tier = tier
 	t.mining_level = mining_level
+	t.material_key = material_key
 	t.speed = speed
 	t.durability = durability
 	t.attack_damage = attack
@@ -316,38 +374,85 @@ func _register_tool_items() -> void:
 	var axe := ToolDef.ToolType.AXE
 	var shovel := ToolDef.ToolType.SHOVEL
 	var sword := ToolDef.ToolType.SWORD
-	var w := ToolDef.Tier.WOOD
-	var s := ToolDef.Tier.STONE
-	var i := ToolDef.Tier.IRON
 
 	var brown := Color(0.55, 0.35, 0.15)
 	var gray := Color(0.60, 0.60, 0.60)
 	var silver := Color(0.75, 0.75, 0.80)
+	var copper_col := Color(0.80, 0.45, 0.20)
+	var bronze_col := Color(0.70, 0.55, 0.20)
+	var steel_col := Color(0.55, 0.58, 0.62)
 
+	# mining_level: 0=wood, 1=stone/flint, 2=copper/bronze/iron, 3=steel, 4=diamond
 	_register(ITEM_WOODEN_PICKAXE, "wooden_pickaxe", brown, 1,
-			_make_tool_def(pick, w, 0, 1.5, 60, 2.0), "tools/wooden_pickaxe_icon_32.png")
+			_make_tool_def(pick, 0, 1.5, 60, 2.0, "Wood"), "tools/wooden_pickaxe_icon_32.png")
 	_register(ITEM_STONE_PICKAXE, "stone_pickaxe", gray, 1,
-			_make_tool_def(pick, s, 1, 2.0, 130, 3.0), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 1, 2.0, 130, 3.0, "Stone"), "tools/stone_pickaxe_icon_32.png")
 	_register(ITEM_IRON_PICKAXE, "iron_pickaxe", silver, 1,
-			_make_tool_def(pick, i, 2, 3.0, 250, 4.0), "tools/iron_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.0, 250, 4.0, "Iron"), "tools/iron_pickaxe_icon_32.png")
 	_register(ITEM_WOODEN_AXE, "wooden_axe", brown, 1,
-			_make_tool_def(axe, w, 0, 1.5, 60, 3.0), "tools/wooden_axe_icon_32.png")
+			_make_tool_def(axe, 0, 1.5, 60, 3.0, "Wood"), "tools/wooden_axe_icon_32.png")
 	_register(ITEM_STONE_AXE, "stone_axe", gray, 1,
-			_make_tool_def(axe, s, 1, 2.0, 130, 4.0), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, 1, 2.0, 130, 4.0, "Stone"), "tools/stone_axe_icon_32.png")
 	_register(ITEM_IRON_AXE, "iron_axe", silver, 1,
-			_make_tool_def(axe, i, 2, 3.0, 250, 5.0), "tools/iron_axe_icon_32.png")
+			_make_tool_def(axe, 2, 3.0, 250, 5.0, "Iron"), "tools/iron_axe_icon_32.png")
 	_register(ITEM_WOODEN_SHOVEL, "wooden_shovel", brown, 1,
-			_make_tool_def(shovel, w, 0, 1.5, 60, 1.5), "tools/wooden_shovel_icon_32.png")
+			_make_tool_def(shovel, 0, 1.5, 60, 1.5, "Wood"), "tools/wooden_shovel_icon_32.png")
 	_register(ITEM_STONE_SHOVEL, "stone_shovel", gray, 1,
-			_make_tool_def(shovel, s, 1, 2.0, 130, 2.5), "tools/stone_shovel_icon_32.png")
+			_make_tool_def(shovel, 1, 2.0, 130, 2.5, "Stone"), "tools/stone_shovel_icon_32.png")
 	_register(ITEM_IRON_SHOVEL, "iron_shovel", silver, 1,
-			_make_tool_def(shovel, i, 2, 3.0, 250, 3.5), "tools/iron_shovel_icon_32.png")
+			_make_tool_def(shovel, 2, 3.0, 250, 3.5, "Iron"), "tools/iron_shovel_icon_32.png")
 	_register(ITEM_WOODEN_SWORD, "wooden_sword", brown, 1,
-			_make_tool_def(sword, w, 0, 1.0, 60, 4.0), "tools/wooden_sword_icon_32.png")
+			_make_tool_def(sword, 0, 1.0, 60, 4.0, "Wood"), "tools/wooden_sword_icon_32.png")
 	_register(ITEM_STONE_SWORD, "stone_sword", gray, 1,
-			_make_tool_def(sword, s, 1, 1.0, 130, 5.0), "tools/stone_sword_icon_32.png")
+			_make_tool_def(sword, 1, 1.0, 130, 5.0, "Stone"), "tools/stone_sword_icon_32.png")
 	_register(ITEM_IRON_SWORD, "iron_sword", silver, 1,
-			_make_tool_def(sword, i, 2, 1.0, 250, 6.0), "tools/iron_sword_icon_32.png")
+			_make_tool_def(sword, 2, 1.0, 250, 6.0, "Iron"), "tools/iron_sword_icon_32.png")
+
+	# TFC expansion: copper/bronze/steel + parallel bronze variants
+	_register(ITEM_COPPER_PICKAXE, "copper_pickaxe", copper_col, 1,
+			_make_tool_def(pick, 2, 2.5, 180, 3.5, "Copper"), "tools/stone_pickaxe_icon_32.png")
+	_register(ITEM_COPPER_AXE, "copper_axe", copper_col, 1,
+			_make_tool_def(axe, 2, 2.5, 180, 4.5, "Copper"), "tools/stone_axe_icon_32.png")
+	_register(ITEM_COPPER_SHOVEL, "copper_shovel", copper_col, 1,
+			_make_tool_def(shovel, 2, 2.5, 180, 3.0, "Copper"), "tools/stone_shovel_icon_32.png")
+	_register(ITEM_COPPER_SWORD, "copper_sword", copper_col, 1,
+			_make_tool_def(sword, 2, 1.0, 180, 5.5, "Copper"), "tools/stone_sword_icon_32.png")
+
+	# Tin Bronze, Bismuth Bronze, Black Bronze — parallel mining_level=2
+	_register(ITEM_TIN_BRONZE_PICKAXE, "tin_bronze_pickaxe", bronze_col, 1,
+			_make_tool_def(pick, 2, 3.5, 400, 4.5, "Tin Bronze"), "tools/stone_pickaxe_icon_32.png")
+	_register(ITEM_TIN_BRONZE_AXE, "tin_bronze_axe", bronze_col, 1,
+			_make_tool_def(axe, 2, 3.5, 400, 5.5, "Tin Bronze"), "tools/stone_axe_icon_32.png")
+	_register(ITEM_BISMUTH_BRONZE_PICKAXE, "bismuth_bronze_pickaxe", bronze_col, 1,
+			_make_tool_def(pick, 2, 3.0, 520, 4.2, "Bismuth Bronze"), "tools/stone_pickaxe_icon_32.png")
+	_register(ITEM_BISMUTH_BRONZE_AXE, "bismuth_bronze_axe", bronze_col, 1,
+			_make_tool_def(axe, 2, 3.0, 520, 5.2, "Bismuth Bronze"), "tools/stone_axe_icon_32.png")
+	_register(ITEM_BLACK_BRONZE_PICKAXE, "black_bronze_pickaxe", bronze_col, 1,
+			_make_tool_def(pick, 2, 3.2, 460, 4.8, "Black Bronze"), "tools/stone_pickaxe_icon_32.png")
+
+	# Steel: mining_level=3 (unlocks diamond-tier ores)
+	_register(ITEM_STEEL_PICKAXE, "steel_pickaxe", steel_col, 1,
+			_make_tool_def(pick, 3, 4.5, 800, 6.0, "Steel"), "tools/stone_pickaxe_icon_32.png")
+	_register(ITEM_STEEL_AXE, "steel_axe", steel_col, 1,
+			_make_tool_def(axe, 3, 4.5, 800, 7.0, "Steel"), "tools/stone_axe_icon_32.png")
+	_register(ITEM_STEEL_SHOVEL, "steel_shovel", steel_col, 1,
+			_make_tool_def(shovel, 3, 4.5, 800, 5.0, "Steel"), "tools/stone_shovel_icon_32.png")
+	_register(ITEM_STEEL_SWORD, "steel_sword", steel_col, 1,
+			_make_tool_def(sword, 3, 1.0, 800, 8.0, "Steel"), "tools/stone_sword_icon_32.png")
+
+	# Knapping tool heads (used to compose tools)
+	_register(ITEM_STONE_AXE_HEAD, "stone_axe_head", gray, 16)
+	_register(ITEM_STONE_SHOVEL_HEAD, "stone_shovel_head", gray, 16)
+	_register(ITEM_STONE_HOE_HEAD, "stone_hoe_head", gray, 16)
+	_register(ITEM_STONE_KNIFE_HEAD, "stone_knife_head", gray, 16)
+	_register(ITEM_FLINT, "flint", Color(0.45, 0.38, 0.30), 64)
+	_register(ITEM_CHERT, "chert", Color(0.52, 0.48, 0.38), 64)
+
+	# Stone tools (from knapping + assembly)
+	_register(ITEM_STONE_HOE, "stone_hoe", gray, 1,
+			_make_tool_def(ToolDef.ToolType.HOE, 1, 1.5, 120, 2.0, "Stone"), "")
+	_register(ITEM_STONE_KNIFE, "stone_knife", gray, 1,
+			_make_tool_def(ToolDef.ToolType.KNIFE, 1, 1.0, 100, 3.0, "Stone"), "")
 
 
 func _register_component_items() -> void:
@@ -429,6 +534,40 @@ func _register_survival_items() -> void:
 			64, null, "")
 	_register(ITEM_STATION_BLUEPRINT, "station_blueprint", Color(0.20, 0.50, 0.80),
 			1, null, "")
+
+
+# --- TFC expansion items ---
+func _register_tfc_items() -> void:
+	# Raw materials
+	_register(ITEM_CLAY_BALL, "item.clay_ball", Color(0.68, 0.62, 0.55), 64, null, "")
+	_register(ITEM_STRAW, "item.straw", Color(0.82, 0.75, 0.38), 64, null, "")
+	_register(ITEM_CHARCOAL, "item.charcoal", Color(0.12, 0.12, 0.12), 64, null, "")
+	_register(ITEM_COAL_DUST, "item.coal_dust", Color(0.10, 0.10, 0.11), 64, null, "")
+	_register(ITEM_FLINT, "item.flint", Color(0.45, 0.38, 0.30), 64, null, "")
+	_register(ITEM_CHERT, "item.chert", Color(0.52, 0.48, 0.38), 64, null, "")
+	_register(ITEM_FLINT_AND_STEEL, "item.flint_and_steel", Color(0.60, 0.55, 0.50), 1, null, "")
+
+	# Pottery: unfired
+	_register(ITEM_UNFIRED_BOWL, "item.unfired_bowl", Color(0.55, 0.45, 0.35), 64, null, "")
+	_register(ITEM_UNFIRED_JUG, "item.unfired_jug", Color(0.55, 0.45, 0.35), 64, null, "")
+	_register(ITEM_UNFIRED_CRUCIBLE, "item.unfired_crucible", Color(0.55, 0.45, 0.35), 64, null, "")
+	_register(ITEM_UNFIRED_BRICK, "item.unfired_brick", Color(0.55, 0.45, 0.35), 64, null, "")
+	# Pottery: fired
+	_register(ITEM_FIRED_BOWL, "item.fired_bowl", Color(0.72, 0.55, 0.35), 64, null, "")
+	_register(ITEM_FIRED_JUG, "item.fired_jug", Color(0.72, 0.55, 0.35), 64, null, "")
+	_register(ITEM_FIRED_CRUCIBLE, "item.fired_crucible", Color(0.72, 0.55, 0.35), 1, null, "")
+	_register(ITEM_REFRACTORY_BRICK, "item.refractory_brick", Color(0.65, 0.40, 0.25), 64, null, "")
+
+	# Metallurgy
+	_register(ITEM_IRON_BLOOM, "item.iron_bloom", Color(0.55, 0.35, 0.15), 64, null, "")
+	_register(ITEM_WROUGHT_IRON_INGOT, "item.wrought_iron_ingot", Color(0.52, 0.50, 0.48), 64, null, "")
+	_register(ITEM_STEEL_INGOT, "item.steel_ingot", Color(0.55, 0.58, 0.62), 64, null, "")
+
+	# Hammer tool (forge welding)
+	var hammer_tool := _make_tool_def(ToolDef.ToolType.NONE, 0, 1.0, 200, 1.0, "Iron")
+	_register(ITEM_HAMMER, "item.hammer", Color(0.55, 0.55, 0.58), 1, hammer_tool, "")
+	_register(ITEM_BELLOWS, "item.bellows", Color(0.60, 0.42, 0.25), 1, null, "")
+	_register(ITEM_ANVIL, "item.anvil", Color(0.30, 0.30, 0.32), 1, null, "")
 
 
 func _register_tree_species_items() -> void:
@@ -702,6 +841,48 @@ func _register_non_material_keys() -> void:
 		ITEM_OLIVE_SAPLING: "sapling.olive",
 		ITEM_OLIVE_FRUIT: "fruit.olive",
 		ITEM_STATION_BLUEPRINT: "station_blueprint",
+
+		# TFC expansion
+		ITEM_COPPER_PICKAXE: "copper_pickaxe",
+		ITEM_COPPER_AXE: "copper_axe",
+		ITEM_COPPER_SHOVEL: "copper_shovel",
+		ITEM_COPPER_SWORD: "copper_sword",
+		ITEM_TIN_BRONZE_PICKAXE: "tin_bronze_pickaxe",
+		ITEM_TIN_BRONZE_AXE: "tin_bronze_axe",
+		ITEM_BISMUTH_BRONZE_PICKAXE: "bismuth_bronze_pickaxe",
+		ITEM_BISMUTH_BRONZE_AXE: "bismuth_bronze_axe",
+		ITEM_BLACK_BRONZE_PICKAXE: "black_bronze_pickaxe",
+		ITEM_STEEL_PICKAXE: "steel_pickaxe",
+		ITEM_STEEL_AXE: "steel_axe",
+		ITEM_STEEL_SHOVEL: "steel_shovel",
+		ITEM_STEEL_SWORD: "steel_sword",
+		ITEM_STONE_AXE_HEAD: "stone_axe_head",
+		ITEM_STONE_SHOVEL_HEAD: "stone_shovel_head",
+		ITEM_STONE_HOE_HEAD: "stone_hoe_head",
+		ITEM_STONE_KNIFE_HEAD: "stone_knife_head",
+		ITEM_STONE_HOE: "stone_hoe",
+		ITEM_STONE_KNIFE: "stone_knife",
+		ITEM_FLINT: "flint",
+		ITEM_CHERT: "chert",
+		ITEM_FLINT_AND_STEEL: "flint_and_steel",
+		ITEM_CLAY_BALL: "clay_ball",
+		ITEM_STRAW: "straw",
+		ITEM_CHARCOAL: "charcoal",
+		ITEM_COAL_DUST: "coal_dust",
+		ITEM_UNFIRED_BOWL: "unfired_bowl",
+		ITEM_UNFIRED_JUG: "unfired_jug",
+		ITEM_UNFIRED_CRUCIBLE: "unfired_crucible",
+		ITEM_UNFIRED_BRICK: "unfired_brick",
+		ITEM_FIRED_BOWL: "fired_bowl",
+		ITEM_FIRED_JUG: "fired_jug",
+		ITEM_FIRED_CRUCIBLE: "fired_crucible",
+		ITEM_REFRACTORY_BRICK: "refractory_brick",
+		ITEM_IRON_BLOOM: "iron_bloom",
+		ITEM_WROUGHT_IRON_INGOT: "wrought_iron_ingot",
+		ITEM_STEEL_INGOT: "steel_ingot",
+		ITEM_HAMMER: "hammer",
+		ITEM_BELLOWS: "bellows",
+		ITEM_ANVIL: "anvil",
 	}
 	for id: int in entries:
 		var key: String = entries[id]

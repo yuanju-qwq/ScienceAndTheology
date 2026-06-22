@@ -69,6 +69,10 @@ var _flight_enabled := false
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
+@export var charcoal_pit_manager_path: NodePath = ^"../CharcoalPitManager"
+@export var pit_kiln_manager_path: NodePath = ^"../PitKilnManager"
+@export var bloomery_manager_path: NodePath = ^"../BloomeryManager"
+@export var anvil_manager_path: NodePath = ^"../AnvilManager"
 @export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
 @export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
 @export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
@@ -80,6 +84,7 @@ var _flight_enabled := false
 @export var connector_prompt_label_path: NodePath = ^"../UI/ConnectorPrompt/Label"
 @export var probe_panel_path: NodePath = ^"../UI/ProbePanel"
 @export var quest_ui_path: NodePath = ^"../UI/QuestBookUI"
+@export var knapping_ui_path: NodePath = ^"../UI/KnappingUI"
 @export var quest_system_path: NodePath = ^"../GDQuestSystem"
 @export var head_path: NodePath = ^"Head"
 @export var camera_path: NodePath = ^"Head/Camera3D"
@@ -101,6 +106,14 @@ var selected_hotbar := 0
 	get_node_or_null(mechanism_manager_path) as MechanismManager)
 @onready var furnace_manager: FurnaceManager = (
 	get_node_or_null(furnace_manager_path) as FurnaceManager)
+@onready var charcoal_pit_manager: CharcoalPitManager = (
+	get_node_or_null(charcoal_pit_manager_path) as CharcoalPitManager)
+@onready var pit_kiln_manager: PitKilnManager = (
+	get_node_or_null(pit_kiln_manager_path) as PitKilnManager)
+@onready var bloomery_manager: BloomeryManager = (
+	get_node_or_null(bloomery_manager_path) as BloomeryManager)
+@onready var anvil_manager: AnvilManager = (
+	get_node_or_null(anvil_manager_path) as AnvilManager)
 @onready var hotbar_ui: HotbarUI = get_node_or_null(hotbar_ui_path) as HotbarUI
 @onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
 @onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
@@ -111,6 +124,7 @@ var selected_hotbar := 0
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
 @onready var probe_panel: ProbePanel = get_node_or_null(probe_panel_path) as ProbePanel
 @onready var quest_ui: QuestBookUI = get_node_or_null(quest_ui_path) as QuestBookUI
+@onready var knapping_ui: KnappingUI = get_node_or_null(knapping_ui_path) as KnappingUI
 @onready var quest_system: Node = get_node_or_null(quest_system_path)
 @onready var head: Node3D = get_node_or_null(head_path) as Node3D
 @onready var camera: Camera3D = get_node_or_null(camera_path) as Camera3D

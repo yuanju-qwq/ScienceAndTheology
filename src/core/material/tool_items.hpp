@@ -66,6 +66,8 @@ inline constexpr ItemId STONE_SWORD      = kNonMaterialItemBase + 49;
 inline constexpr ItemId IRON_SWORD       = kNonMaterialItemBase + 50;
 inline constexpr ItemId DIAMOND_SWORD    = kNonMaterialItemBase + 51;
 
+
+
 // ---- Survival Items ----
 inline constexpr ItemId WORKBENCH_ITEM   = kNonMaterialItemBase + 52;
 inline constexpr ItemId FURNACE_ITEM     = kNonMaterialItemBase + 53;

@@ -563,6 +563,58 @@ item.cotton_fiber,棉纤维
 item.cloth,布料
 
 # ============================================================
+# TFC expansion items
+# ============================================================
+copper_pickaxe,铜镐
+copper_axe,铜斧
+copper_shovel,铜锹
+copper_sword,铜剑
+tin_bronze_pickaxe,锡镐
+tin_bronze_axe,锡斧
+bismuth_bronze_pickaxe,铋青铜镐
+bismuth_bronze_axe,铋青铜斧
+black_bronze_pickaxe,黑青铜镐
+steel_pickaxe,钢镐
+steel_axe,钢斧
+steel_shovel,钢锹
+steel_sword,钢剑
+stone_axe_head,石斧头
+stone_shovel_head,石锹头
+stone_hoe_head,石锄头
+stone_knife_head,石刀头
+stone_hoe,石锄
+stone_knife,石刀
+flint,燧石
+chert,黑硅石
+flint_and_steel,打火石
+item.clay_ball,粘土球
+item.straw,稻草
+item.charcoal,木炭
+item.coal_dust,煤粉
+item.unfired_bowl,未烧制的碗
+item.unfired_jug,未烧制的罐
+item.unfired_crucible,未烧制的坩埚
+item.unfired_brick,未烧制的砖
+item.fired_bowl,陶碗
+item.fired_jug,陶罐
+item.fired_crucible,坩埚
+item.refractory_brick,耐火砖
+item.iron_bloom,铁坯
+item.wrought_iron_ingot,熟铁锭
+item.steel_ingot,钢锭
+item.hammer,铁锤
+item.bellows,风箱
+item.anvil,铁砧
+# Terrain material names
+terrain.clay,粘土
+terrain.log_pile,原木堆
+terrain.charcoal,木炭块
+terrain.straw,稻草
+terrain.bloomery,高炉砖
+terrain.anvil,铁砧
+terrain.pit_kiln,窑坑
+
+# ============================================================
 # Captive breeding system (圈养繁殖系统)
 # ============================================================
 husbandry.captured,捕获成功！生物已被圈养

@@ -19,6 +19,25 @@ const COMMAND_PLANT_CROP: StringName = &"plant_crop"
 const COMMAND_HARVEST_CROP: StringName = &"harvest_crop"
 const COMMAND_FERTILIZE: StringName = &"fertilize"
 
+# TFC expansion commands
+const COMMAND_FORAGE_WILD: StringName = &"forage_wild"
+const COMMAND_KNAPPING_PLACE: StringName = &"knapping_place"
+const COMMAND_KNAPPING_PICKUP: StringName = &"knapping_pickup"
+const COMMAND_PLACE_CHARCOAL_PIT: StringName = &"place_charcoal_pit"
+const COMMAND_ADD_LOG: StringName = &"add_log"
+const COMMAND_COVER_PIT: StringName = &"cover_pit"
+const COMMAND_LIGHT_PIT: StringName = &"light_pit"
+const COMMAND_COLLECT_CHARCOAL: StringName = &"collect_charcoal"
+const COMMAND_PLACE_PIT_KILN: StringName = &"place_pit_kiln"
+const COMMAND_ADD_POTTERY: StringName = &"add_pottery"
+const COMMAND_COLLECT_POTTERY: StringName = &"collect_pottery"
+const COMMAND_PLACE_BLOOMERY: StringName = &"place_bloomery"
+const COMMAND_ADD_BLOOMERY_INPUT: StringName = &"add_bloomery_input"
+const COMMAND_USE_BELLOWS: StringName = &"use_bellows"
+const COMMAND_BREAK_BLOOMERY: StringName = &"break_bloomery"
+const COMMAND_PLACE_ANVIL: StringName = &"place_anvil"
+const COMMAND_ANVIL_WELD: StringName = &"anvil_weld"
+
 const OBJECT_WORKBENCH: StringName = &"workbench"
 const OBJECT_FURNACE: StringName = &"furnace"
 const OBJECT_LADDER: StringName = &"ladder"
@@ -28,6 +47,10 @@ const SECONDARY_NONE := -1
 
 @export var chunk_bridge_path: NodePath = ^"../ChunkRendererBridge"
 @export var furnace_manager_path: NodePath = ^"../FurnaceManager"
+@export var charcoal_pit_manager_path: NodePath = ^"../CharcoalPitManager"
+@export var pit_kiln_manager_path: NodePath = ^"../PitKilnManager"
+@export var bloomery_manager_path: NodePath = ^"../BloomeryManager"
+@export var anvil_manager_path: NodePath = ^"../AnvilManager"
 
 var _chunk_bridge: ChunkRendererBridge
 
@@ -42,3 +65,8 @@ func _configure_server() -> void:
 	set_furnace_manager(get_node_or_null(furnace_manager_path))
 	if _chunk_bridge != null:
 		set_world_data(_chunk_bridge.get_world_data())
+
+
+# TFC commands are now handled directly in C++ GDGameCommandServer.
+# GDScript override is no longer needed - all dispatch goes through
+# the C++ submit_command() which has been extended with new handlers.

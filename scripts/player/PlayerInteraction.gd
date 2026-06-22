@@ -225,6 +225,20 @@ func try_place_or_interact(target: Dictionary) -> bool:
 		return true
 	if try_use_station_blueprint():
 		return true
+	# TFC interactions in priority order
+	if try_forage_wild(target):
+		return true
+	if try_use_knapping():
+		return true
+	# TFC structure interactions (placed blocks)
+	if try_tfc_charcoal_pit(target):
+		return true
+	if try_tfc_pit_kiln(target):
+		return true
+	if try_tfc_bloomery(target):
+		return true
+	if try_tfc_anvil(target):
+		return true
 	if try_till_farmland(target):
 		return true
 	if try_plant_crop(target):
@@ -364,6 +378,346 @@ func try_place_world_object(target: Dictionary) -> bool:
 
 	_player.inventory_changed.emit()
 	return true
+
+
+# --- TFC: Wild crop foraging ---
+# Right-click a mature wild crop to harvest it without destroying the block.
+# The crop resets to sprout stage and can regrow.
+@warning_ignore("unsafe_call_argument")
+func try_forage_wild(target: Dictionary) -> bool:
+	if _is_interaction_blocked() or target.is_empty():
+		return false
+	var data: Dictionary = target.get("data", {})
+	var material := int(data.get("material", 0))
+	if not _is_crop_material(material):
+		return false
+	# Only wild crops (non-farmland plants) can be foraged.
+	# Check the cell below — if it's not farmland, it's wild.
+	var below_data: Dictionary = _get_cell_data(target, Vector3i.DOWN)
+	if int(below_data.get("material", 0)) == BuiltinTerrainContent.MAT_FARMLAND:
+		return false
+
+	var command_server := _player.get_command_server()
+	if command_server == null:
+		return false
+	var dimension = target.get("dimension", OVERWORLD)
+	var cell: Vector3i = target.get("cell", Vector3i.ZERO)
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_FORAGE_WILD,
+		"dimension": dimension,
+		"cell": cell,
+	})
+	if not bool(result.get("ok", false)):
+		return false
+	_debug("foraged wild crop at %s" % str(cell))
+	return true
+
+
+# Helper: get cell data at a relative offset from the target.
+@warning_ignore("unsafe_call_argument")
+func _get_cell_data(target: Dictionary, offset: Vector3i) -> Dictionary:
+	var world: ChunkRendererBridge = _player.world
+	if world == null:
+		return {}
+	var cell: Vector3i = target.get("cell", Vector3i.ZERO) + offset
+	var dim: String = target.get("dimension", OVERWORLD)
+	return world.get_cell_info(cell, StringName(dim)).get("data", {})
+
+
+# --- TFC: Knapping interaction ---
+# Hold a knappable stone (flint/chert) and right-click to open KnappingUI.
+func try_use_knapping() -> bool:
+	if _is_interaction_blocked():
+		return false
+	var equipment: GDPlayerEquipment = _player.equipment
+	if equipment == null:
+		return false
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id != ItemDatabase.ITEM_FLINT and held_id != ItemDatabase.ITEM_CHERT:
+		return false
+	var knapping_ui: KnappingUI = _player.knapping_ui
+	if knapping_ui == null:
+		return false
+	if knapping_ui.is_open():
+		return false
+	knapping_ui.open(held_id)
+	_player.set_input_locked(true)
+	return true
+
+
+# --- TFC structure interactions ---
+
+# Charcoal pit: place, add log, cover, light, collect
+@warning_ignore("unsafe_call_argument")
+func try_tfc_charcoal_pit(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
+	var mgr: CharcoalPitManager = _player.charcoal_pit_manager
+	if mgr == null:
+		return false
+	var equip: GDPlayerEquipment = _player.equipment
+	if equip == null:
+		return false
+	var held := equip.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var cell: Vector3i = target.get("cell", _player.get_current_cell())
+	var dim := _player.get_current_dimension()
+	var wood_log := ItemDatabase.mat_item(ItemDatabase.MATERIAL_WOOD, ItemDatabase.FORM_DUST)
+
+	# Light pit with flint and steel first, or collect if ready
+	if held == ItemDatabase.ITEM_FLINT_AND_STEEL and mgr.has_pit(dim, cell):
+		var collect_result: Dictionary = mgr.collect(dim, cell)
+		if bool(collect_result.get("ok", false)):
+			var count := int(collect_result.get("count", 0))
+			if count > 0:
+				var cmd := _player.get_command_server()
+				if cmd:
+					cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
+						"item_id": ItemDatabase.ITEM_CHARCOAL, "count": count,
+						"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+			return true
+		return mgr.light(dim, cell)
+
+	# Cover pit with dirt/block (any solid block item)
+	if mgr.has_pit(dim, cell):
+		var data: Dictionary = _get_cell_data(target, Vector3i.ZERO)
+		var mat := int(data.get("material", 0))
+		if mat > 0 and mat != BuiltinTerrainContent.MAT_AIR:
+			if mgr.cover(dim, cell):
+				return true
+		if held > 0 and mgr.cover(dim, cell):
+			return true
+
+	# Add log to pit
+	if held == wood_log and mgr.has_pit(dim, cell):
+		if mgr.add_log(dim, cell):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	# Place new pit with log
+	if held == wood_log:
+		if mgr.place_pit(dim, cell):
+			mgr.add_log(dim, cell)
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	return false
+
+
+# Pit kiln: place, add pottery, cover, light, collect
+@warning_ignore("unsafe_call_argument")
+func try_tfc_pit_kiln(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
+	var mgr: PitKilnManager = _player.pit_kiln_manager
+	if mgr == null:
+		return false
+	var equip: GDPlayerEquipment = _player.equipment
+	if equip == null:
+		return false
+	var held := equip.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var cell: Vector3i = target.get("cell", _player.get_current_cell())
+	var dim := _player.get_current_dimension()
+
+	# Light or collect
+	if mgr.has_kiln(dim, cell):
+		# Try collect first
+		var collect_result: Dictionary = mgr.collect(dim, cell)
+		if bool(collect_result.get("ok", false)):
+			var item_id := int(collect_result.get("item_id", 0))
+			var count := int(collect_result.get("count", 0))
+			if count > 0 and item_id > 0:
+				var cmd := _player.get_command_server()
+				if cmd:
+					cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
+						"item_id": item_id, "count": count,
+						"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+			return true
+		# Not ready — try light
+		if held == ItemDatabase.ITEM_FLINT_AND_STEEL:
+			return mgr.light(dim, cell)
+
+	# Cover with straw
+	if held == ItemDatabase.ITEM_STRAW and mgr.has_kiln(dim, cell):
+		if mgr.cover(dim, cell):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	# Insert unfired pottery
+	var is_unfired := held in [
+		ItemDatabase.ITEM_UNFIRED_BOWL, ItemDatabase.ITEM_UNFIRED_JUG,
+		ItemDatabase.ITEM_UNFIRED_CRUCIBLE, ItemDatabase.ITEM_UNFIRED_BRICK]
+	if is_unfired and mgr.has_kiln(dim, cell):
+		if mgr.insert_input(dim, cell, held):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	# Place new kiln with unfired pottery
+	if is_unfired:
+		if mgr.place_kiln(dim, cell):
+			mgr.insert_input(dim, cell, held)
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	return false
+
+
+# Bloomery: place, add ore/charcoal, light, bellows, break
+@warning_ignore("unsafe_call_argument")
+func try_tfc_bloomery(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
+	var mgr: BloomeryManager = _player.bloomery_manager
+	if mgr == null:
+		return false
+	var equip: GDPlayerEquipment = _player.equipment
+	if equip == null:
+		return false
+	var held := equip.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var cell: Vector3i = target.get("cell", _player.get_current_cell())
+	var dim := _player.get_current_dimension()
+	var ws := _player.world
+
+	# Break bloomery to collect iron bloom
+	if mgr.has_bloomery(dim, cell):
+		var break_result: Dictionary = mgr.break_bloomery(dim, cell)
+		if bool(break_result.get("ok", false)):
+			var yield_count := int(break_result.get("yield", 0))
+			if yield_count > 0:
+				var cmd := _player.get_command_server()
+				if cmd:
+					cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
+						"item_id": ItemDatabase.ITEM_IRON_BLOOM, "count": yield_count,
+						"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+			return true
+
+	# Use bellows
+	if held == ItemDatabase.ITEM_BELLOWS and mgr.has_bloomery(dim, cell):
+		return mgr.use_bellows(dim, cell)
+
+	# Light with flint and steel
+	if held == ItemDatabase.ITEM_FLINT_AND_STEEL and mgr.has_bloomery(dim, cell):
+		return mgr.light_bloomery(dim, cell)
+
+	# Add charcoal
+	if held == ItemDatabase.ITEM_CHARCOAL and mgr.has_bloomery(dim, cell):
+		if mgr.add_charcoal(dim, cell):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	# Add iron crushed
+	if held == ItemDatabase.iron_crushed() and mgr.has_bloomery(dim, cell):
+		if mgr.add_ore(dim, cell):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	# Place new bloomery controller
+	if held == ItemDatabase.ITEM_REFRACTORY_BRICK and not mgr.has_bloomery(dim, cell):
+		if mgr.place_bloomery(dim, cell):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	return false
+
+
+# Anvil: place, weld bloom into wrought iron
+@warning_ignore("unsafe_call_argument")
+func try_tfc_anvil(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
+	var mgr: AnvilManager = _player.anvil_manager
+	if mgr == null:
+		return false
+	var equip: GDPlayerEquipment = _player.equipment
+	if equip == null:
+		return false
+	var held := equip.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	var cell: Vector3i = target.get("cell", _player.get_current_cell())
+	var dim := _player.get_current_dimension()
+
+	# Weld: hold iron_bloom near anvil, hammer in inventory
+	if held == ItemDatabase.ITEM_IRON_BLOOM and mgr.has_anvil(dim, cell):
+		# Check if player has hammer in inventory
+		var has_hammer := false
+		var hammer_slot := -1
+		if _player.inventory:
+			for i in _player.inventory.slot_count():
+				var data: Dictionary = _player.inventory.get_slot(i)
+				if int(data.get("item_id", 0)) == ItemDatabase.ITEM_HAMMER and int(data.get("count", 0)) > 0:
+					has_hammer = true
+					hammer_slot = i
+					break
+		if not has_hammer:
+			return false
+		var weld_result: Dictionary = mgr.weld(dim, cell)
+		if bool(weld_result.get("ok", false)):
+			# Consume bloom
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+			# Grant wrought iron ingot
+			var cmd := _player.get_command_server()
+			if cmd:
+				cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
+					"item_id": ItemDatabase.ITEM_WROUGHT_IRON_INGOT, "count": 1,
+					"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+			_player.inventory_changed.emit()
+			return true
+
+	# Place anvil
+	if held == ItemDatabase.ITEM_ANVIL:
+		if mgr.place_anvil(dim, cell):
+			if not _is_creative() and _player.inventory:
+				var slot := _find_item_inv(held)
+				if slot >= 0:
+					_player.inventory.remove_from_slot(slot, 1)
+					_player.inventory_changed.emit()
+			return true
+
+	return false
+
+
+# Helper: find item slot in player inventory
+func _find_item_inv(item_id: int) -> int:
+	if _player.inventory == null:
+		return -1
+	for i in _player.inventory.slot_count():
+		var data: Dictionary = _player.inventory.get_slot(i)
+		if int(data.get("item_id", 0)) == item_id and int(data.get("count", 0)) > 0:
+			return i
+	return -1
 
 
 # --- Farming interactions (Tier 1 planting system) ---

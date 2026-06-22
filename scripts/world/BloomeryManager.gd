@@ -1,0 +1,2 @@
+class_name BloomeryManager
+extends GDBloomeryManager

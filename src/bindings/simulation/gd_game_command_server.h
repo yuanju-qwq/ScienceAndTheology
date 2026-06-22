@@ -74,6 +74,11 @@ private:
     godot::Dictionary cmd_furnace_take_output(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_insert_input(const godot::Dictionary& command);
     godot::Dictionary cmd_furnace_insert_fuel(const godot::Dictionary& command);
+
+    // TFC expansion commands
+    godot::Dictionary cmd_forage_wild(const godot::Dictionary& command);
+    godot::Dictionary cmd_knapping_pickup(const godot::Dictionary& command);
+
     godot::Dictionary sync_furnace(
         const godot::StringName& dimension, const godot::Vector3i& cell,
         const char* reason);
@@ -117,7 +122,6 @@ private:
     int32_t get_dirt_material_id() const;
 
     godot::Array get_terrain_drops(int32_t terrain_material) const;
-    static bool get_tool_stats_for_item(int64_t item_id, gt::ToolStats& out_stats);
     static bool tool_name_matches(int64_t item_id, const godot::String& tool_lower);
     static bool command_recipe_matches_registered_recipe(const godot::Dictionary& recipe);
 

@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=30 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -21,6 +21,11 @@
 [ext_resource type="Script" path="res://scripts/ui/ProbePanel.gd" id="19_probe_panel"]
 [ext_resource type="Script" path="res://scripts/world/PrototypeBaselineMonitor.gd" id="21_baseline_monitor"]
 [ext_resource type="Script" path="res://scripts/ui/Crosshair.gd" id="22_crosshair"]
+[ext_resource type="Script" path="res://scripts/world/CharcoalPitManager.gd" id="23_charcoal_pit"]
+[ext_resource type="Script" path="res://scripts/world/PitKilnManager.gd" id="24_pit_kiln"]
+[ext_resource type="Script" path="res://scripts/world/BloomeryManager.gd" id="25_bloomery"]
+[ext_resource type="Script" path="res://scripts/world/AnvilManager.gd" id="26_anvil"]
+[ext_resource type="Script" path="res://scripts/ui/KnappingUI.gd" id="27_knapping_ui"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -77,6 +82,18 @@ script = ExtResource("2_mechanism_manager")
 
 [node name="FurnaceManager" type="GDFurnaceManager" parent="."]
 script = ExtResource("4_furnace_manager")
+
+[node name="CharcoalPitManager" type="GDCharcoalPitManager" parent="."]
+script = ExtResource("23_charcoal_pit")
+
+[node name="PitKilnManager" type="GDPitKilnManager" parent="."]
+script = ExtResource("24_pit_kiln")
+
+[node name="BloomeryManager" type="GDBloomeryManager" parent="."]
+script = ExtResource("25_bloomery")
+
+[node name="AnvilManager" type="GDAnvilManager" parent="."]
+script = ExtResource("26_anvil")
 
 [node name="GameCommandServer" type="GDGameCommandServer" parent="."]
 script = ExtResource("6_command_server")
@@ -210,6 +227,11 @@ script = ExtResource("16_console_ui")
 
 [node name="QuestBookUI" type="Control" parent="UI"]
 script = ExtResource("20_quest_book_ui")
+visible = false
+mouse_filter = 2
+
+[node name="KnappingUI" type="Control" parent="UI"]
+script = ExtResource("27_knapping_ui")
 visible = false
 mouse_filter = 2
 

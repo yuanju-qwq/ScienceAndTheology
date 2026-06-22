@@ -4,6 +4,10 @@
 #include <cmath>
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/main_loop.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
@@ -12,6 +16,7 @@
 #include "bindings/player/gd_player_inventory.h"
 #include "bindings/world/gd_furnace_manager.h"
 #include "bindings/world/gd_world_data.h"
+#include "bindings/crafting/gd_crafting.h"
 #include "core/crafting/crafting.hpp"
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
@@ -39,6 +44,9 @@ StringName command_till_farmland() { return StringName("till_farmland"); }
 StringName command_plant_crop() { return StringName("plant_crop"); }
 StringName command_harvest_crop() { return StringName("harvest_crop"); }
 StringName command_fertilize() { return StringName("fertilize"); }
+
+StringName command_forage_wild() { return StringName("forage_wild"); }
+StringName command_knapping_pickup() { return StringName("knapping_pickup"); }
 
 StringName object_workbench() { return StringName("workbench"); }
 StringName object_furnace() { return StringName("furnace"); }
@@ -245,6 +253,8 @@ Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
     if (type == command_plant_crop()) return cmd_plant_crop(command);
     if (type == command_harvest_crop()) return cmd_harvest_crop(command);
     if (type == command_fertilize()) return cmd_fertilize(command);
+    if (type == command_forage_wild()) return cmd_forage_wild(command);
+    if (type == command_knapping_pickup()) return cmd_knapping_pickup(command);
     return reject(type, "unknown command");
 }
 
@@ -1228,6 +1238,128 @@ Dictionary GDGameCommandServer::cmd_fertilize(const Dictionary& command) {
     return accept(result);
 }
 
+// ============================================================
+// TFC expansion commands
+// ============================================================
+
+Dictionary GDGameCommandServer::cmd_forage_wild(const Dictionary& command) {
+    if (world_data_ == nullptr) {
+        return reject(command_forage_wild(), "world data is not available");
+    }
+
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    const Vector3i cell = command.get("cell", Vector3i());
+
+    WorldData* world = world_data_->get_world_ptr();
+    if (world == nullptr) {
+        return reject(command_forage_wild(), "world data is not available");
+    }
+
+    auto& registry = world->block_entity_registry();
+    const EntityId crop_owner = registry.find_owner_at(cell.x, cell.y, cell.z);
+    if (crop_owner.id == 0) {
+        return reject(command_forage_wild(), "no crop at this cell");
+    }
+    if (registry.get_entity_type(crop_owner) != BlockEntityType::CROP) {
+        return reject(command_forage_wild(), "entity at cell is not a crop");
+    }
+
+    const CropBlockEntityState* crop_state = registry.get_crop_state(crop_owner);
+    if (!crop_state) {
+        return reject(command_forage_wild(), "crop state is missing");
+    }
+    if (crop_state->growth_stage != CropGrowthStage::MATURE) {
+        return reject(command_forage_wild(), "crop is not mature");
+    }
+
+    // Check that the cell below is NOT farmland (wild crop).
+    const Vector3i below = cell + Vector3i(0, -1, 0);
+    const EntityId below_owner = registry.find_owner_at(below.x, below.y, below.z);
+    if (below_owner.id != 0 &&
+        registry.get_entity_type(below_owner) == BlockEntityType::FARMLAND) {
+        return reject(command_forage_wild(), "crop is on farmland, not wild");
+    }
+
+    const auto config = world->worldgen_config();
+    if (!config) {
+        return reject(command_forage_wild(), "worldgen config is not available");
+    }
+
+    const CropSpeciesDef* species = config->find_crop_species(crop_state->species_key);
+    if (!species) {
+        return reject(command_forage_wild(), "crop species not found");
+    }
+
+    // Reset crop to SPROUT stage for regrowth.
+    Vector3i chunk, local;
+    world_to_chunk_local(cell, chunk, local);
+    const int32_t sprout_material = static_cast<int32_t>(
+        config->material_id_or(species->stage_material_keys[1], 0));
+    if (sprout_material > 0) {
+        world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, sprout_material);
+    }
+
+    CropBlockEntityState* mut_state = registry.get_crop_state_mut(crop_owner);
+    if (mut_state) {
+        mut_state->growth_stage = CropGrowthStage::SPROUT;
+        mut_state->last_growth_tick = world->current_tick();
+        mut_state->last_harvest_tick = world->current_tick();
+    }
+
+    // Grant items: harvest signal so GDScript can handle item keys.
+    const int crop_count = species->crop_min;
+    emit_signal("crop_harvested", dimension, cell,
+                String(species->species_key.c_str()),
+                crop_count,
+                String(species->crop_item_key.c_str()),
+                String(species->byproduct_item_key.c_str()),
+                species->byproduct_count);
+    emit_signal("inventory_synced");
+
+    emit_signal("terrain_cell_synced", dimension, chunk, local,
+                get_air_material_id(), sprout_material);
+
+    Dictionary result;
+    result["type"] = command_forage_wild();
+    result["species_key"] = String(species->species_key.c_str());
+    result["crop_count"] = crop_count;
+    return accept(result);
+}
+
+
+Dictionary GDGameCommandServer::cmd_knapping_pickup(const Dictionary& command) {
+    const String tool_head_key = command.get("tool_head_key", "");
+    const int64_t stone_item_id = static_cast<int64_t>(command.get("stone_item_id", 0));
+    if (tool_head_key.is_empty()) {
+        return reject(command_knapping_pickup(), "no tool head key");
+    }
+
+    // Resolve tool head item ID from key via GDCraftingManager (GDScript bridge).
+    const int64_t head_id = GDCraftingManager::get_item_id_by_key(tool_head_key);
+    if (head_id <= 0) {
+        return reject(command_knapping_pickup(), "unknown tool head");
+    }
+
+    // Consume 1 stone from inventory.
+    if (stone_item_id > 0) {
+        if (!remove_inventory_item(stone_item_id, 1)) {
+            return reject(command_knapping_pickup(), "stone item not found");
+        }
+    }
+
+    // Grant tool head.
+    add_inventory_item(head_id, 1);
+    emit_signal("inventory_synced");
+
+    Dictionary result;
+    result["type"] = command_knapping_pickup();
+    result["tool_head_key"] = tool_head_key;
+    return accept(result);
+}
+
+
 Dictionary GDGameCommandServer::cmd_furnace_take_output(const Dictionary& command) {
     const StringName dimension = command.get("dimension", StringName("overworld"));
     const Vector3i cell = command.get("cell", Vector3i());
@@ -1486,10 +1618,42 @@ bool GDGameCommandServer::node_bool_call(
 gt::ToolStats GDGameCommandServer::get_mining_stats() const {
     const int64_t item_id = get_equipped_item();
     gt::ToolStats stats;
-    if (item_id > 0 && get_tool_stats_for_item(item_id, stats)) {
-        return stats;
-    }
     stats.speed_multiplier = 0.3f;
+    if (item_id <= 0) return stats;
+
+    // Query GDScript autoload singleton for tool stats.
+    // Use a simpler approach: try ClassDB singleton lookup.
+    Node* item_db = nullptr;
+    {
+        // Access autoload through the scene tree root.
+        MainLoop* loop = godot::Engine::get_singleton()->get_main_loop();
+        SceneTree* st = Object::cast_to<SceneTree>(loop);
+        if (st != nullptr) {
+            Window* root_win = st->get_root();
+            if (root_win != nullptr) {
+                item_db = root_win->get_node<godot::Node>(NodePath("/root/ItemDatabase"));
+            }
+        }
+    }
+    if (item_db == nullptr) return stats;
+
+    const Variant result = item_db->call("get_tool_stats", item_id);
+    if (result.get_type() != Variant::OBJECT) return stats;
+
+    godot::Ref<godot::Resource> res = result;
+    if (res.is_null()) return stats;
+
+    // Extract fields from the ToolDef Resource.
+    stats.mining_level = static_cast<uint8_t>(
+        static_cast<int64_t>(res->get("mining_level")));
+    stats.speed_multiplier = static_cast<float>(
+        static_cast<double>(res->get("speed")));
+    stats.attack_damage = static_cast<float>(
+        static_cast<double>(res->get("attack_damage")));
+
+    const int64_t tool_type_raw = static_cast<int64_t>(res->get("tool_type"));
+    stats.type = static_cast<gt::ToolType>(tool_type_raw);
+
     return stats;
 }
 
@@ -1646,50 +1810,6 @@ Array GDGameCommandServer::get_terrain_drops(int32_t terrain_material) const {
         drops.append(stack_dict(static_cast<int64_t>(drop.item_id), count));
     }
     return drops;
-}
-
-bool GDGameCommandServer::get_tool_stats_for_item(int64_t item_id,
-                                                  gt::ToolStats& out_stats) {
-    switch (static_cast<gt::ItemId>(item_id)) {
-        case gt::WOODEN_PICKAXE:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::PICKAXE, 0);
-            out_stats.mining_level = 0;
-            return true;
-        case gt::STONE_PICKAXE:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::PICKAXE, 1);
-            out_stats.mining_level = 1;
-            return true;
-        case gt::IRON_PICKAXE:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::PICKAXE, 2);
-            out_stats.mining_level = 2;
-            return true;
-        case gt::WOODEN_AXE:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::AXE, 0);
-            out_stats.mining_level = 0;
-            return true;
-        case gt::STONE_AXE:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::AXE, 1);
-            out_stats.mining_level = 1;
-            return true;
-        case gt::IRON_AXE:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::AXE, 2);
-            out_stats.mining_level = 2;
-            return true;
-        case gt::WOODEN_SHOVEL:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::SHOVEL, 0);
-            out_stats.mining_level = 0;
-            return true;
-        case gt::STONE_SHOVEL:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::SHOVEL, 1);
-            out_stats.mining_level = 1;
-            return true;
-        case gt::IRON_SHOVEL:
-            out_stats = gt::ToolStats::default_for(gt::ToolType::SHOVEL, 2);
-            out_stats.mining_level = 2;
-            return true;
-        default:
-            return false;
-    }
 }
 
 bool GDGameCommandServer::tool_name_matches(int64_t item_id,

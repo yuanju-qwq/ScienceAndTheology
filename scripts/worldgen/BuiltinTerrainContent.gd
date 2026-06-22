@@ -120,6 +120,15 @@ const MAT_PUMPKIN_MATURE := 102
 const MAT_SNOW := 103
 const MAT_ICE := 104
 
+# TFC expansion materials
+const MAT_CLAY := 105
+const MAT_LOG_PILE := 106
+const MAT_CHARCOAL := 107
+const MAT_STRAW := 108
+const MAT_BLOOMERY := 109
+const MAT_ANVIL := 110
+const MAT_PIT_KILN := 111
+
 # Crop category enum (must match C++ CropCategory).
 const CROP_GRAIN := 0
 const CROP_ROOT := 1
@@ -461,6 +470,74 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 0,
 	})
+	# TFC expansion materials
+	registry.register_material({
+		"id": MAT_CLAY,
+		"key": "snt:clay",
+		"title_key": "terrain.clay",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.4,
+		"required_tool_tag": "shovel",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "clay_ball", "count": 1, "min_count": 1, "max_count": 3 }],
+	})
+	registry.register_material({
+		"id": MAT_LOG_PILE,
+		"key": "snt:log_pile",
+		"title_key": "terrain.log_pile",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 0.6,
+		"required_tool_tag": "axe",
+		"required_mining_level": 0,
+	})
+	registry.register_material({
+		"id": MAT_CHARCOAL,
+		"key": "snt:charcoal",
+		"title_key": "terrain.charcoal",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 0.5,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 0,
+		"drops": [{ "item_key": "charcoal", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_STRAW,
+		"key": "snt:straw",
+		"title_key": "terrain.straw",
+		"flags": FLAG_WALKABLE | FLAG_MINEABLE,
+		"hardness": 0.1,
+		"required_tool_tag": "hoe",
+		"required_mining_level": 0,
+	})
+	registry.register_material({
+		"id": MAT_BLOOMERY,
+		"key": "snt:bloomery",
+		"title_key": "terrain.bloomery",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 3.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+		"drops": [{ "item_key": "refractory_brick", "count": 1 }],
+	})
+	registry.register_material({
+		"id": MAT_ANVIL,
+		"key": "snt:anvil",
+		"title_key": "terrain.anvil",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 4.0,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 3,
+	})
+	registry.register_material({
+		"id": MAT_PIT_KILN,
+		"key": "snt:pit_kiln",
+		"title_key": "terrain.pit_kiln",
+		"flags": FLAG_SOLID | FLAG_MINEABLE,
+		"hardness": 0.8,
+		"required_tool_tag": "pickaxe",
+		"required_mining_level": 0,
+	})
+
 	registry.register_material({
 		"id": MAT_ORE_IRON,
 		"key": "snt:ore_iron",
@@ -621,7 +698,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
-		"required_mining_level": 4,
+		"required_mining_level": 3,
 		"drops": [{ "item_key": "crushed.platinum", "count": 1 }],
 	})
 	# Cobalt: deep ore for superalloys.
@@ -646,7 +723,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
-		"required_mining_level": 4,
+		"required_mining_level": 3,
 		"drops": [{ "item_key": "crushed.uranium", "count": 1 }],
 	})
 	# Sulfur: volcanic zone ore for chemical processing.
@@ -671,7 +748,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"flags": FLAG_SOLID | FLAG_MINEABLE,
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
-		"required_mining_level": 4,
+		"required_mining_level": 3,
 		"drops": [{ "item_key": "gem.diamond", "count": 1 }],
 	})
 	# Ruby: deep chromium-based gemstone.
@@ -1361,6 +1438,21 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		{ "material_key": "snt:ice", "dimension": "overworld",
 		  "albedo_color": Color(0.62, 0.82, 0.95, 0.82),
 		  "transparent": true, "roughness": 0.12 },
+		# TFC expansion visuals
+		{ "material_key": "snt:clay", "dimension": "overworld",
+		  "albedo_color": Color(0.57, 0.50, 0.42) },
+		{ "material_key": "snt:log_pile", "dimension": "overworld",
+		  "albedo_color": Color(0.40, 0.25, 0.10) },
+		{ "material_key": "snt:charcoal", "dimension": "overworld",
+		  "albedo_color": Color(0.10, 0.10, 0.10) },
+		{ "material_key": "snt:straw", "dimension": "overworld",
+		  "albedo_color": Color(0.82, 0.75, 0.38) },
+		{ "material_key": "snt:bloomery", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.25, 0.18) },
+		{ "material_key": "snt:anvil", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.30, 0.32) },
+		{ "material_key": "snt:pit_kiln", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.40, 0.30) },
 		{ "material_key": "snt:ore_iron", "dimension": "overworld",
 		  "albedo_color": Color(0.65, 0.58, 0.50) },
 		{ "material_key": "snt:ore_copper", "dimension": "overworld",

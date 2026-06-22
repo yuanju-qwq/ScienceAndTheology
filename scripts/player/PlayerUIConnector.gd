@@ -15,6 +15,7 @@ func connect_ui() -> void:
 	var inventory_ui: InventoryUI = _player.inventory_ui
 	var crafting_ui: CraftingUI = _player.crafting_ui
 	var furnace_ui: FurnaceUI = _player.furnace_ui
+	var knapping_ui: KnappingUI = _player.knapping_ui
 
 	if hotbar_ui:
 		hotbar_ui.set_player(_player)
@@ -26,6 +27,10 @@ func connect_ui() -> void:
 		furnace_ui.set_player(_player)
 		if not furnace_ui.closed.is_connected(_on_furnace_ui_closed):
 			furnace_ui.closed.connect(_on_furnace_ui_closed)
+	if knapping_ui:
+		knapping_ui.set_player(_player)
+		if not knapping_ui.closed.is_connected(_on_knapping_ui_closed):
+			knapping_ui.closed.connect(_on_knapping_ui_closed)
 
 	# Wire quest book UI.
 	var quest_ui: QuestBookUI = _player.quest_ui
@@ -136,4 +141,8 @@ func _on_quest_book_closed() -> void:
 
 
 func _on_furnace_ui_closed() -> void:
+	_player.set_input_locked(false)
+
+
+func _on_knapping_ui_closed() -> void:
 	_player.set_input_locked(false)

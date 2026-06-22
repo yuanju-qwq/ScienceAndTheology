@@ -135,6 +135,7 @@ func _crafting_recipes() -> Array:
 	_add_machine_recipes(recipes)
 	_add_misc_recipes(recipes)
 	_add_crop_recipes(recipes)
+	_add_tfc_recipes(recipes)
 	return recipes
 
 func _add_material_compression_recipes(recipes: Array) -> void:
@@ -440,6 +441,68 @@ func _add_crop_recipes(recipes: Array) -> void:
 			[_item_key("fiber.cotton", 2)],
 			_item_key("cloth", 1)))
 
+# --- TFC expansion crafting recipes ---
+func _add_tfc_recipes(recipes: Array) -> void:
+	# Knapping tool assembly: tool head + stick → tool
+	_add_recipe_if_valid(recipes, _hand(
+			"assemble_stone_axe",
+			"tfc_tools",
+			[_item_key("stone_axe_head", 1), _mat("rod", "wood", 1)],
+			_item_key("stone_axe", 1)))
+	_add_recipe_if_valid(recipes, _hand(
+			"assemble_stone_shovel",
+			"tfc_tools",
+			[_item_key("stone_shovel_head", 1), _mat("rod", "wood", 1)],
+			_item_key("stone_shovel", 1)))
+	_add_recipe_if_valid(recipes, _hand(
+			"assemble_stone_hoe",
+			"tfc_tools",
+			[_item_key("stone_hoe_head", 1), _mat("rod", "wood", 1)],
+			_item_key("stone_hoe", 1)))
+	_add_recipe_if_valid(recipes, _hand(
+			"assemble_stone_knife",
+			"tfc_tools",
+			[_item_key("stone_knife_head", 1), _mat("rod", "wood", 1)],
+			_item_key("stone_knife", 1)))
+
+	# Clay ball → unfired pottery (hand shaping)
+	_add_recipe_if_valid(recipes, _hand(
+			"shape_clay_bowl",
+			"tfc_pottery",
+			[_item_key("clay_ball", 3)],
+			_item_key("unfired_bowl", 1)))
+	_add_recipe_if_valid(recipes, _hand(
+			"shape_clay_jug",
+			"tfc_pottery",
+			[_item_key("clay_ball", 5)],
+			_item_key("unfired_jug", 1)))
+	_add_recipe_if_valid(recipes, _hand(
+			"shape_clay_crucible",
+			"tfc_pottery",
+			[_item_key("clay_ball", 7)],
+			_item_key("unfired_crucible", 1)))
+	_add_recipe_if_valid(recipes, _hand(
+			"shape_clay_brick",
+			"tfc_pottery",
+			[_item_key("clay_ball", 2)],
+			_item_key("unfired_brick", 1)))
+
+	# Anvil forging: iron bloom + hammer → wrought iron ingot
+	_add_recipe_if_valid(recipes, _hand(
+			"forge_wrought_iron",
+			"tfc_metallurgy",
+			[_item_key("iron_bloom", 1)],
+			_item_key("wrought_iron_ingot", 1),
+			"hammer"))
+
+	# Crucible steel: wrought iron + coal dust → steel ingot
+	_add_recipe_if_valid(recipes, _hand(
+			"crucible_steel",
+			"tfc_metallurgy",
+			[_item_key("wrought_iron_ingot", 1), _item_key("coal_dust", 1)],
+			_item_key("steel_ingot", 1)))
+
+
 func _processing_recipes() -> Array:
 	# Processing recipe maps include fuel executors and electric machines.
 	# The furnace map is fuel-fired; electric machines consume EU separately.
@@ -494,5 +557,68 @@ func _processing_recipes() -> Array:
 			"duration_ticks": 80,
 			"inputs": [_item_key("flour", 1)],
 			"outputs": [_item_key("bread", 1)],
+		},
+		# TFC: charcoal pit (machine_type: "charcoal_pit")
+		{
+			"name": "charcoal_burn",
+			"machine_type": "charcoal_pit",
+			"category": "tfc_processing",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 24000,
+			"inputs": [_mat("dust", "wood", 16)],
+			"outputs": [_item_key("charcoal", 8)],
+		},
+		# TFC: pit kiln pottery firing
+		{
+			"name": "fire_unfired_bowl",
+			"machine_type": "pit_kiln",
+			"category": "tfc_processing",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 8000,
+			"inputs": [_item_key("unfired_bowl", 1)],
+			"outputs": [_item_key("fired_bowl", 1)],
+		},
+		{
+			"name": "fire_unfired_jug",
+			"machine_type": "pit_kiln",
+			"category": "tfc_processing",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 8000,
+			"inputs": [_item_key("unfired_jug", 1)],
+			"outputs": [_item_key("fired_jug", 1)],
+		},
+		{
+			"name": "fire_unfired_crucible",
+			"machine_type": "pit_kiln",
+			"category": "tfc_processing",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 12000,
+			"inputs": [_item_key("unfired_crucible", 1)],
+			"outputs": [_item_key("fired_crucible", 1)],
+		},
+		{
+			"name": "fire_unfired_brick",
+			"machine_type": "pit_kiln",
+			"category": "tfc_processing",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 6000,
+			"inputs": [_item_key("unfired_brick", 1)],
+			"outputs": [_item_key("refractory_brick", 1)],
+		},
+		# TFC: bloomery iron smelting
+		{
+			"name": "bloomery_iron",
+			"machine_type": "bloomery",
+			"category": "tfc_processing",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 12000,
+			"inputs": [_mat("crushed", "iron", 5), _item_key("charcoal", 5)],
+			"outputs": [_item_key("iron_bloom", 1)],
 		},
 	]

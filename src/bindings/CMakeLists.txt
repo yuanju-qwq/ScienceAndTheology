@@ -14,6 +14,10 @@ set(SOURCES
     world/gd_terrain_content_registry.cpp
     world/gd_terrain_generator.cpp
     world/gd_furnace_manager.cpp
+    world/gd_charcoal_pit.cpp
+    world/gd_pit_kiln.cpp
+    world/gd_bloomery.cpp
+    world/gd_anvil.cpp
     world/gd_chunk_helper.cpp
     world/gd_planet_lod.cpp
     world/gd_planet_build_frame.cpp
