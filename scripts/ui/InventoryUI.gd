@@ -5,8 +5,15 @@ const PADDING := 2
 const COLS := 9
 const ROWS := 4
 
+const PANEL_W := 520
+const PANEL_H := 420
+const TAB_H := 28
+
 var player: PlayerController
 var _is_open := false
+var _current_tab := 0
+var _tab_buttons: Array[Button] = []
+
 var inventory_slots: Array[SlotUI] = []
 var equip_slots: Array[SlotUI] = []
 
@@ -14,11 +21,17 @@ var _carried_item: ItemStack = null
 var _carried_icon: TextureRect
 var _carried_amount: Label
 
+var _backpack_page: Control
+var _sublimation_page: SublimationPanel
+var _combat_page: CombatStatsPanel
+var _content_pages: Array[Control] = []
+
 
 func _ready() -> void:
 	visible = false
 	_initialize_ui()
 	_setup_carried_visuals()
+	_switch_tab(0)
 	get_viewport().size_changed.connect(_center_in_viewport)
 
 
@@ -67,9 +80,7 @@ func _center_in_viewport() -> void:
 
 
 func _initialize_ui() -> void:
-	var total_w := COLS * (SLOT_SIZE + PADDING)
-	var total_h := ROWS * (SLOT_SIZE + PADDING) + 60
-	size = Vector2(total_w + 160, total_h)
+	size = Vector2(PANEL_W, PANEL_H)
 	_center_in_viewport()
 
 	var bg := ColorRect.new()
@@ -77,22 +88,34 @@ func _initialize_ui() -> void:
 	bg.color = Color(0.08, 0.08, 0.10, 0.92)
 	add_child(bg)
 
+	_build_tab_bar()
+
+	var content_y := TAB_H + 4
+	var content_h := PANEL_H - content_y - 4
+	var content_w := PANEL_W - 8
+
+	# ----- Tab 0: Backpack + Equipment -----
+	_backpack_page = Control.new()
+	_backpack_page.position = Vector2(4, content_y)
+	_backpack_page.size = Vector2(content_w, content_h)
+	add_child(_backpack_page)
+	_content_pages.append(_backpack_page)
+
 	var title := Label.new()
 	title.text = "Inventory"
-	title.position = Vector2(8, 8)
+	title.position = Vector2(4, 4)
 	title.size = Vector2(200, 24)
-	add_child(title)
+	_backpack_page.add_child(title)
 
-	var equip_label := Label.new()
-	equip_label.text = "Equipment"
-	equip_label.position = Vector2(COLS * (SLOT_SIZE + PADDING) + 8, 8)
-	equip_label.size = Vector2(120, 24)
-	add_child(equip_label)
+	var grid_x := 4
+	var grid_y := 32
+	var grid_w := COLS * (SLOT_SIZE + PADDING)
+	var grid_h := ROWS * (SLOT_SIZE + PADDING)
 
 	var grid_container := Control.new()
-	grid_container.position = Vector2(8, 36)
-	grid_container.size = Vector2(COLS * (SLOT_SIZE + PADDING), ROWS * (SLOT_SIZE + PADDING))
-	add_child(grid_container)
+	grid_container.position = Vector2(grid_x, grid_y)
+	grid_container.size = Vector2(grid_w, grid_h)
+	_backpack_page.add_child(grid_container)
 
 	for i in ROWS * COLS:
 		var col := i % COLS
@@ -106,10 +129,19 @@ func _initialize_ui() -> void:
 		grid_container.add_child(slot)
 		inventory_slots.append(slot)
 
+	var equip_x := grid_x + grid_w + 16
+	var equip_y := 32
+
+	var equip_label := Label.new()
+	equip_label.text = "Equipment"
+	equip_label.position = Vector2(equip_x, 4)
+	equip_label.size = Vector2(120, 24)
+	_backpack_page.add_child(equip_label)
+
 	var equip_container := Control.new()
-	equip_container.position = Vector2(COLS * (SLOT_SIZE + PADDING) + 8, 36)
+	equip_container.position = Vector2(equip_x, equip_y)
 	equip_container.size = Vector2(140, 6 * (SLOT_SIZE + PADDING))
-	add_child(equip_container)
+	_backpack_page.add_child(equip_container)
 
 	var equip_names := ["Main Hand", "Off Hand", "Head", "Chest", "Legs", "Feet"]
 	for i in 6:
@@ -127,6 +159,72 @@ func _initialize_ui() -> void:
 		label.size = Vector2(90, 20)
 		equip_container.add_child(label)
 
+	# ----- Tab 1: Sublimation -----
+	_sublimation_page = SublimationPanel.new()
+	_sublimation_page.name = "SublimationPanel"
+	_sublimation_page.position = Vector2(4, content_y)
+	_sublimation_page.size = Vector2(content_w, content_h)
+	add_child(_sublimation_page)
+	_content_pages.append(_sublimation_page)
+
+	# ----- Tab 2: Combat Stats -----
+	_combat_page = CombatStatsPanel.new()
+	_combat_page.name = "CombatStatsPanel"
+	_combat_page.position = Vector2(4, content_y)
+	_combat_page.size = Vector2(content_w, content_h)
+	add_child(_combat_page)
+	_content_pages.append(_combat_page)
+
+
+func _build_tab_bar() -> void:
+	var tab_names := ["Backpack", "Sublimation", "Combat Stats"]
+	var tab_w := PANEL_W / len(tab_names)
+	var bar_y := 2
+
+	var bar := HBoxContainer.new()
+	bar.position = Vector2(0, bar_y)
+	bar.size = Vector2(PANEL_W, TAB_H)
+	add_child(bar)
+
+	for i in len(tab_names):
+		var btn := Button.new()
+		btn.text = tab_names[i]
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(tab_w, TAB_H)
+		btn.toggle_mode = true
+		btn.pressed.connect(_on_tab_pressed.bind(i))
+		bar.add_child(btn)
+		_tab_buttons.append(btn)
+
+
+func _on_tab_pressed(index: int) -> void:
+	_switch_tab(index)
+
+
+func _switch_tab(index: int) -> void:
+	_current_tab = index
+	for i in len(_tab_buttons):
+		_tab_buttons[i].button_pressed = (i == index)
+	for i in len(_content_pages):
+		_content_pages[i].visible = (i == index)
+
+	if _is_open:
+		_refresh_current_tab()
+
+
+func _refresh_current_tab() -> void:
+	if player == null:
+		return
+	match _current_tab:
+		0:
+			_update_all_slots()
+		1:
+			var data = player.get_source_law_data()
+			if data != null:
+				_sublimation_page.setup(data)
+		2:
+			_combat_page.setup(player)
+
 
 func set_player(p: PlayerController) -> void:
 	player = p
@@ -143,11 +241,11 @@ func toggle() -> void:
 		_carried_item = null
 		_update_carried_visual()
 	if _is_open:
-		_update_all_slots()
+		_switch_tab(_current_tab)
 
 
 func _on_player_inventory_changed() -> void:
-	if _is_open:
+	if _is_open and _current_tab == 0:
 		_update_all_slots()
 
 

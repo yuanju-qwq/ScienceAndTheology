@@ -855,6 +855,10 @@ func _process_vitals(delta: float) -> void:
 	_health_current = clampi(_health_current, 0, _get_health_max())
 
 
+func get_source_law_data() -> GDPlayerSourceLawData:
+	return _source_law
+
+
 func _get_health_max() -> int:
 	if _source_law == null:
 		return 100

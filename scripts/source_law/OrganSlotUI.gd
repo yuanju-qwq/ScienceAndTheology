@@ -1,40 +1,84 @@
-# OrganSlotUI — displays a single organ slot in the sublimation panel
-extends Control
-
-@onready var slot_icon: TextureRect = $SlotIcon
-@onready var slot_name: Label = $SlotName
-@onready var sublimation_bar: ProgressBar = $SublimationBar
-@onready var element_label: Label = $ElementLabel
-@onready var quality_label: Label = $QualityLabel
-@onready var level_label: Label = $LevelLabel
+class_name OrganSlotUI extends Control
 
 var slot_index: int = 0
 var source_law_data: Resource = null
 
-# Slot names matching OrganSlot enum
 var SLOT_NAMES: Array = [
 	"Heart", "Bone", "Blood", "Lung", "Eye", "Nerve", "Skin"
 ]
 
-# Element names matching RuneElement enum
 var ELEMENT_NAMES: Array = [
 	"Fire", "Water", "Earth", "Air", "Light", "Dark", "Order", "Chaos"
 ]
 
-# Quality names matching OrganQuality enum
 var QUALITY_NAMES: Array = [
 	"Flawed", "Common", "Good", "Pure", "Ancient", "Perfect"
 ]
 
-# Quality colors for visual feedback
 var QUALITY_COLORS: Array = [
 	Color.GRAY, Color.WHITE, Color.GREEN, Color.CYAN, Color.MEDIUM_PURPLE, Color.GOLD
 ]
 
+var slot_icon: TextureRect
+var slot_name: Label
+var sublimation_bar: ProgressBar
+var element_label: Label
+var quality_label: Label
+var level_label: Label
+
 
 func _ready() -> void:
+	_build_ui()
 	slot_name.text = SLOT_NAMES[slot_index] if slot_index < SLOT_NAMES.size() else "Unknown"
 	_refresh_display()
+
+
+func _build_ui() -> void:
+	custom_minimum_size = Vector2(420, 28)
+	size = Vector2(420, 28)
+
+	var hbox := HBoxContainer.new()
+	hbox.anchors_preset = Control.PRESET_FULL_RECT
+	add_child(hbox)
+
+	slot_icon = TextureRect.new()
+	slot_icon.name = "SlotIcon"
+	slot_icon.custom_minimum_size = Vector2(24, 24)
+	slot_icon.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	slot_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(slot_icon)
+
+	slot_name = Label.new()
+	slot_name.name = "SlotName"
+	slot_name.custom_minimum_size = Vector2(70, 0)
+	slot_name.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	slot_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(slot_name)
+
+	element_label = Label.new()
+	element_label.name = "ElementLabel"
+	element_label.custom_minimum_size = Vector2(60, 0)
+	element_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(element_label)
+
+	quality_label = Label.new()
+	quality_label.name = "QualityLabel"
+	quality_label.custom_minimum_size = Vector2(70, 0)
+	quality_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(quality_label)
+
+	level_label = Label.new()
+	level_label.name = "LevelLabel"
+	level_label.custom_minimum_size = Vector2(50, 0)
+	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(level_label)
+
+	sublimation_bar = ProgressBar.new()
+	sublimation_bar.name = "SublimationBar"
+	sublimation_bar.custom_minimum_size = Vector2(100, 0)
+	sublimation_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sublimation_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(sublimation_bar)
 
 
 func setup(index: int, data: Resource) -> void:
