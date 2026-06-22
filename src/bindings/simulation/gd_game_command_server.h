@@ -96,7 +96,16 @@ private:
                         const godot::StringName& dimension,
                         const godot::Vector3i& cell) const;
 
-    bool has_required_tool(int32_t terrain_material) const;
+    struct MiningEligibility {
+        bool can_mine = false;
+        bool can_drop = false;
+        float effective_speed = 1.0f;
+        float hardness = 1.0f;
+        int32_t required_mining_level = 0;
+    };
+
+    MiningEligibility check_mining_eligibility(int32_t terrain_material) const;
+    gt::ToolStats get_mining_stats() const;
     bool player_has_tool_named(const godot::String& tool_name) const;
     int64_t get_equipped_item() const;
     int32_t get_air_material_id() const;

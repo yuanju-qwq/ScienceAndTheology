@@ -280,8 +280,9 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     if (static_cast<bool>(cell.get("is_indestructible", false))) {
         return reject(command_mine_block(), "target cell is indestructible");
     }
-    if (!has_required_tool(material)) {
-        return reject(command_mine_block(), "required tool is not equipped");
+    const auto eligibility = check_mining_eligibility(material);
+    if (!eligibility.can_mine) {
+        return reject(command_mine_block(), "mining level too low");
     }
 
     if (!world_data_->set_terrain_cell(
@@ -290,7 +291,10 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
         return reject(command_mine_block(), "failed to write terrain cell");
     }
 
-    Array drops = get_terrain_drops(material);
+    Array drops;
+    if (eligibility.can_drop) {
+        drops = get_terrain_drops(material);
+    }
     for (int64_t i = 0; i < drops.size(); ++i) {
         Variant drop_v = drops[i];
         if (drop_v.get_type() != Variant::DICTIONARY) continue;
@@ -315,10 +319,13 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
         world_data_->get_world_ptr()->push_physics_event(evt);
     }
 
+    const float mine_time = eligibility.hardness / std::max(eligibility.effective_speed, 0.01f);
+
     Dictionary result;
     result["type"] = command_mine_block();
     result["material"] = material;
     result["drops"] = drops;
+    result["mine_time"] = std::min(mine_time, 10.0f);
     return accept(result);
 }
 
@@ -1476,24 +1483,53 @@ bool GDGameCommandServer::node_bool_call(
     return static_cast<bool>(node->call(method, dimension, cell));
 }
 
-bool GDGameCommandServer::has_required_tool(int32_t terrain_material) const {
-    if (world_data_ == nullptr) return false;
+gt::ToolStats GDGameCommandServer::get_mining_stats() const {
+    const int64_t item_id = get_equipped_item();
+    gt::ToolStats stats;
+    if (item_id > 0 && get_tool_stats_for_item(item_id, stats)) {
+        return stats;
+    }
+    stats.speed_multiplier = 0.3f;
+    return stats;
+}
+
+GDGameCommandServer::MiningEligibility
+GDGameCommandServer::check_mining_eligibility(int32_t terrain_material) const {
+    MiningEligibility result;
+    if (world_data_ == nullptr) return result;
 
     const auto snapshot = world_data_->get_worldgen_snapshot();
     const auto* material = snapshot->find_material(
         static_cast<TerrainMaterialId>(terrain_material));
-    if (material == nullptr || material->required_tool_tag.empty()) {
-        return true;
+    if (material == nullptr) {
+        result.can_mine = true;
+        result.can_drop = true;
+        return result;
     }
 
-    const int64_t item_id = get_equipped_item();
-    if (item_id <= 0) return false;
+    result.required_mining_level = material->required_mining_level;
+    result.hardness = material->hardness;
 
-    gt::ToolStats stats;
-    if (!get_tool_stats_for_item(item_id, stats)) return false;
+    const gt::ToolStats stats = get_mining_stats();
 
-    return tool_tag_matches(material->required_tool_tag, stats.type)
-        && stats.mining_level >= material->required_mining_level;
+    if (stats.mining_level < material->required_mining_level) {
+        return result;
+    }
+
+    result.can_mine = true;
+
+    const bool tag_matches = tool_tag_matches(material->required_tool_tag, stats.type);
+
+    float speed = stats.speed_multiplier;
+    if (!material->required_tool_tag.empty() && !tag_matches
+        && stats.type != gt::ToolType::NONE) {
+        speed *= 0.3f;
+    }
+    result.effective_speed = std::max(speed, 0.01f);
+
+    result.can_drop = (material->required_mining_level == 0) || tag_matches;
+
+    return result;
 }
 
 bool GDGameCommandServer::player_has_tool_named(const String& tool_name) const {

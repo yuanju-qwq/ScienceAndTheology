@@ -198,6 +198,9 @@ func try_mine_target(target: Dictionary) -> bool:
 		_debug("mine rejected: %s" % str(result.get("reason", "unknown")))
 		return false
 
+	if not _is_creative():
+		_cooldown_remaining = float(result.get("mine_time", 0.5))
+
 	var world: ChunkRendererBridge = _player.world
 	if world:
 		var chunk: Vector3i = target.get("chunk", Vector3i.ZERO)
