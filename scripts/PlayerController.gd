@@ -133,6 +133,8 @@ var selected_hotbar := 0
 # Exit menu (pause menu) — created programmatically and added to the UI layer.
 var exit_menu: ExitMenu = null
 var _settings_ui: SettingsUI = null
+var creative_inventory_ui: CreativeInventoryUI = null
+var nei_panel: NeiPanel = null
 
 # Sub-modules for separated concerns.
 var interaction: PlayerInteraction
@@ -229,6 +231,8 @@ func _ready() -> void:
 		game_mode = universe_manager.player_game_mode
 		_health_current = universe_manager.player_health
 	_setup_inventory()
+	_setup_creative_inventory()
+	_setup_nei_panel()
 	_ui_connector.connect_ui()
 	_connect_console()
 	_connect_crosshair()
@@ -339,7 +343,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var key_event: InputEventKey = event
 		# Allow UI toggle keys even when input_locked so they can close UIs.
 		var key := key_event.keycode
-		if input_locked and key != KEY_E and key != KEY_C and key != KEY_B and key != KEY_J:
+		if input_locked and key != KEY_E and key != KEY_C and key != KEY_B and key != KEY_J and key != KEY_R:
 			return
 		_handle_key(key_event)
 		return
@@ -384,7 +388,10 @@ func _handle_key(event: InputEventKey) -> void:
 			wiki_ui.toggle()
 			set_input_locked(false)
 			return
-		_ui_connector.toggle_inventory()
+		if game_mode == GameMode.CREATIVE:
+			_ui_connector.toggle_creative_inventory()
+		else:
+			_ui_connector.toggle_inventory()
 	elif event.is_action_pressed(&"toggle_debug"):
 		if probe_panel:
 			probe_panel.toggle_mode()
@@ -392,6 +399,8 @@ func _handle_key(event: InputEventKey) -> void:
 		_toggle_build_mode()
 	elif event.is_action_pressed(&"toggle_quest_book"):
 		_ui_connector.toggle_quest_book()
+	elif event.is_action_pressed(&"toggle_nei_panel"):
+		_ui_connector.toggle_nei()
 
 
 func _toggle_build_mode() -> void:
@@ -1138,6 +1147,26 @@ func _setup_exit_menu() -> void:
 	exit_menu.settings_requested.connect(_on_exit_menu_settings)
 
 
+func _setup_creative_inventory() -> void:
+	creative_inventory_ui = CreativeInventoryUI.new()
+	creative_inventory_ui.name = "CreativeInventoryUI"
+	var ui_layer := get_node_or_null(^"../UI")
+	if ui_layer != null:
+		ui_layer.add_child(creative_inventory_ui)
+	else:
+		add_child(creative_inventory_ui)
+
+
+func _setup_nei_panel() -> void:
+	nei_panel = NeiPanel.new()
+	nei_panel.name = "NeiPanel"
+	var ui_layer := get_node_or_null(^"../UI")
+	if ui_layer != null:
+		ui_layer.add_child(nei_panel)
+	else:
+		add_child(nei_panel)
+
+
 func _open_exit_menu() -> void:
 	if exit_menu == null:
 		return
@@ -1155,11 +1184,17 @@ func _close_gameplay_ui() -> void:
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui._is_open = false
 		inventory_ui.visible = false
+	if creative_inventory_ui and creative_inventory_ui._is_open:
+		creative_inventory_ui._is_open = false
+		creative_inventory_ui.visible = false
 	if crafting_ui and crafting_ui.visible:
 		crafting_ui._is_open = false
 		crafting_ui.visible = false
 	if quest_ui and quest_ui.is_open():
 		quest_ui.toggle()
+	if nei_panel and nei_panel.visible:
+		nei_panel._is_open = false
+		nei_panel.visible = false
 	set_input_locked(false)
 
 

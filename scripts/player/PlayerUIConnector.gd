@@ -32,6 +32,10 @@ func connect_ui() -> void:
 		if not knapping_ui.closed.is_connected(_on_knapping_ui_closed):
 			knapping_ui.closed.connect(_on_knapping_ui_closed)
 
+	var creative_ui: CreativeInventoryUI = _player.creative_inventory_ui
+	if creative_ui:
+		creative_ui.set_player(_player)
+
 	# Wire quest book UI.
 	var quest_ui: QuestBookUI = _player.quest_ui
 	var quest_sys := _player.quest_system
@@ -49,6 +53,13 @@ func toggle_inventory() -> void:
 	if inventory_ui:
 		inventory_ui.toggle()
 		_player.set_input_locked(inventory_ui.visible)
+
+
+func toggle_creative_inventory() -> void:
+	var creative_ui: CreativeInventoryUI = _player.creative_inventory_ui
+	if creative_ui:
+		creative_ui.toggle()
+		_player.set_input_locked(creative_ui._is_open)
 
 
 func toggle_wiki() -> void:
@@ -76,6 +87,23 @@ func toggle_crafting(station: String = "") -> void:
 	crafting_ui.set_station(station)
 	crafting_ui.toggle()
 	_player.set_input_locked(crafting_ui.visible)
+
+
+func toggle_nei() -> void:
+	var nei_panel: NeiPanel = _player.nei_panel
+	if nei_panel == null:
+		return
+	var crafting_ui: CraftingUI = _player.crafting_ui
+	var inventory_ui: InventoryUI = _player.inventory_ui
+	var wiki_ui: WikiUI = _player.wiki_ui
+	if crafting_ui and crafting_ui.visible:
+		toggle_crafting()
+	if inventory_ui and inventory_ui.visible:
+		inventory_ui.toggle()
+	if wiki_ui and wiki_ui.visible:
+		wiki_ui.toggle()
+	nei_panel.toggle()
+	_player.set_input_locked(nei_panel.visible)
 
 
 func toggle_quest_book() -> void:

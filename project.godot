@@ -26,6 +26,7 @@ KeyBindings="*res://scripts/KeyBindings.gd"
 ItemDatabase="*res://scripts/item/ItemDatabase.gd"
 ContentDatabase="*res://scripts/content/ContentDatabase.gd"
 WikiDatabase="*res://scripts/wiki/WikiDatabase.gd"
+RecipeGraph="*res://scripts/nei/RecipeGraph.gd"
 
 [debug]
 

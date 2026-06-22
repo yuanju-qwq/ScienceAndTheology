@@ -606,6 +606,17 @@ item.hammer,铁锤
 item.bellows,风箱
 item.anvil,铁砧
 # Terrain material names
+# ============================================================
+# Creative inventory UI (创造模式物品栏)
+# ============================================================
+creative.inventory.title,创造模式物品栏
+creative.category.materials,材料
+creative.category.tools,工具
+creative.category.components,组件
+creative.category.placeables,装饰
+creative.category.resources,资源
+creative.category.food,食物
+creative.category.misc,其他
 terrain.clay,粘土
 terrain.log_pile,原木堆
 terrain.charcoal,木炭块
@@ -627,3 +638,12 @@ husbandry.pen_full,圈栏内生物已满
 husbandry.miss,未找到可投喂的生物
 husbandry.baby,幼崽
 husbandry.adult,成年
+
+# ============================================================
+# NEI Panel (物品配方查询)
+# ============================================================
+nei.title,物品配方查询
+nei.search_hint,搜索物品...
+nei.tab_recipes,合成配方
+nei.tab_usage,用途
+nei.no_recipes,未找到配方。

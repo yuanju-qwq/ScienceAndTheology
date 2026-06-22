@@ -567,6 +567,17 @@ item.cotton_fiber,Cotton Fiber
 item.cloth,Cloth
 
 # ============================================================
+# ============================================================
+# Creative inventory UI
+# ============================================================
+creative.inventory.title,Creative Inventory
+creative.category.materials,Materials
+creative.category.tools,Tools
+creative.category.components,Components
+creative.category.placeables,Placeables
+creative.category.resources,Resources
+creative.category.food,Food
+creative.category.misc,Misc
 # Captive breeding system
 # ============================================================
 husbandry.captured,Captured! The creature is now penned
@@ -579,3 +590,12 @@ husbandry.pen_full,The pen is full
 husbandry.miss,No creature found to feed
 husbandry.baby,Baby
 husbandry.adult,Adult
+
+# ============================================================
+# NEI Panel (recipe browser)
+# ============================================================
+nei.title,Item Browser
+nei.search_hint,Search items...
+nei.tab_recipes,Recipes
+nei.tab_usage,Usage
+nei.no_recipes,No recipes found.

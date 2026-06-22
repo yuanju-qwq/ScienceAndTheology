@@ -236,6 +236,8 @@ var _items: Dictionary = {}   # item_id -> ItemDef
 var _tool_stats: Dictionary = {}  # item_id -> ToolDef
 var _key_to_id: Dictionary = {}   # item_key (String) -> item_id (int)
 var _id_to_key: Dictionary = {}   # item_id (int) -> item_key (String)
+var _current_category: int = -1
+var _item_categories: Dictionary = {}  # item_id -> int (Category)
 
 func _ready() -> void:
 	_register_material_items()
@@ -246,6 +248,7 @@ func _ready() -> void:
 	_register_tree_species_items()
 	_register_source_law_drops()
 	_register_crop_items()
+	_set_category(-1)
 	_register_non_material_keys()
 	_register_material_item_keys()
 
@@ -257,6 +260,9 @@ func get_tool_stats(item_id: int) -> ToolDef:
 
 func is_valid_item(item_id: int) -> bool:
 	return _items.has(item_id)
+
+func get_all_item_ids() -> Array[int]:
+	return _items.keys() as Array[int]
 
 # Look up an item_id by its item_key string (e.g. "snt:glow_deer_antler").
 # Returns -1 if not found.
@@ -290,6 +296,8 @@ func _register(item_id: int, title_key: String, icon_color: Color, max_stack: in
 	_items[item_id] = def
 	if tool:
 		_tool_stats[item_id] = tool
+	if _current_category >= 0:
+		_item_categories[item_id] = _current_category
 	# Populate _id_to_key with key from C++ convention if known.
 	# Non-material items are populated in _register_drop() and
 	# the _register_non_material_keys() helper.
@@ -297,7 +305,20 @@ func _register(item_id: int, title_key: String, icon_color: Color, max_stack: in
 	# Material items use composite keys; they are handled separately
 	# if needed. For now, register_drop items are the primary sources.
 
+func _set_category(cat: int) -> void:
+	_current_category = cat
+
+
+func get_items_in_category(category: int) -> Array[int]:
+	var result: Array[int] = []
+	for item_id in _item_categories:
+		if _item_categories[item_id] == category:
+			result.append(item_id)
+	return result
+
+
 func _register_material_items() -> void:
+	_set_category(ItemDef.Category.MATERIALS)
 	_register(mat_item(MATERIAL_WOOD, FORM_DUST), "item.wood_log", Color(0.55, 0.35, 0.15),
 			64, null, "materials/wood_log_icon_32.png")
 	_register(mat_item(MATERIAL_WOOD, FORM_PLATE), "item.wood_plank", Color(0.70, 0.50, 0.25),
@@ -370,6 +391,7 @@ func _make_tool_def(
 	return t
 
 func _register_tool_items() -> void:
+	_set_category(ItemDef.Category.TOOLS)
 	var pick := ToolDef.ToolType.PICKAXE
 	var axe := ToolDef.ToolType.AXE
 	var shovel := ToolDef.ToolType.SHOVEL
@@ -456,6 +478,7 @@ func _register_tool_items() -> void:
 
 
 func _register_component_items() -> void:
+	_set_category(ItemDef.Category.COMPONENTS)
 	_register(ITEM_GT_HAMMER, "gt_hammer", Color(0.62, 0.62, 0.65),
 			1, null, "tools/gt_hammer_icon_32.png")
 	_register(ITEM_GT_WRENCH, "gt_wrench", Color(0.58, 0.60, 0.62),
@@ -524,6 +547,7 @@ func _register_component_items() -> void:
 			64, null, "components/blank_pattern_icon_32.png")
 
 func _register_survival_items() -> void:
+	_set_category(ItemDef.Category.PLACEABLES)
 	_register(ITEM_WORKBENCH, "workbench", Color(0.50, 0.35, 0.20),
 			64, null, "placeables/workbench_icon_32.png")
 	_register(ITEM_FURNACE, "stone_furnace", Color(0.45, 0.35, 0.25),
@@ -538,6 +562,7 @@ func _register_survival_items() -> void:
 
 # --- TFC expansion items ---
 func _register_tfc_items() -> void:
+	_set_category(ItemDef.Category.RESOURCES)
 	# Raw materials
 	_register(ITEM_CLAY_BALL, "item.clay_ball", Color(0.68, 0.62, 0.55), 64, null, "")
 	_register(ITEM_STRAW, "item.straw", Color(0.82, 0.75, 0.38), 64, null, "")
@@ -571,6 +596,7 @@ func _register_tfc_items() -> void:
 
 
 func _register_tree_species_items() -> void:
+	_set_category(ItemDef.Category.MATERIALS)
 	# Oak: brown wood, green leaves.
 	_register(ITEM_OAK_LOG, "log.oak", Color(0.45, 0.27, 0.12),
 			64, null, "trees/log_oak_icon_64.png")
@@ -643,6 +669,7 @@ func _register_tree_species_items() -> void:
 # --- Source law creature drop items ---
 
 func _register_source_law_drops() -> void:
+	_set_category(ItemDef.Category.RESOURCES)
 	# Helper to register a drop item and map its item_key.
 	var _register_drop := func(
 			item_id: int, item_key: String, title_key: String,
@@ -714,6 +741,7 @@ func _register_source_law_drops() -> void:
 # --- Crop items (Tier 1 planting system) ---
 
 func _register_crop_items() -> void:
+	_set_category(ItemDef.Category.FOOD)
 	# Helper to register a crop item and map its item_key.
 	var _register_crop := func(
 			item_id: int, item_key: String, title_key: String,
