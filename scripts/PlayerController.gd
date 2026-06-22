@@ -128,6 +128,7 @@ var selected_hotbar := 0
 @onready var quest_system: Node = get_node_or_null(quest_system_path)
 @onready var head: Node3D = get_node_or_null(head_path) as Node3D
 @onready var camera: Camera3D = get_node_or_null(camera_path) as Camera3D
+@onready var hand: HandController
 @onready var selection_box: Node3D = get_node_or_null(selection_path) as Node3D
 
 # Exit menu (pause menu) — created programmatically and added to the UI layer.
@@ -242,6 +243,9 @@ func _ready() -> void:
 	_connect_quest_system()
 	_setup_exit_menu()
 	_update_camera_rotation()
+	if camera:
+		hand = HandController.new()
+		camera.add_child(hand)
 	_select_hotbar(selected_hotbar)
 	last_cell = get_current_cell()
 	_update_gravity_direction()
@@ -351,9 +355,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and not input_locked:
 		var mouse_event: InputEventMouseButton = event
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			# Try creature attack first; fall back to block mining.
 			if not interaction.try_attack_creature():
-				interaction.try_mine_target(target)
+				if interaction.try_mine_target(target):
+					if hand:
+						hand.swing()
+			else:
+				if hand:
+					hand.swing()
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:
 			interaction.try_place_or_interact(target)
 		elif mouse_event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -982,6 +990,8 @@ func _select_hotbar(index: int) -> void:
 	var slot: Dictionary = inventory.get_slot(selected_hotbar) if inventory else {}
 	var item_id := int(slot.get("item_id", 0))
 	equipment.equip(GDPlayerEquipment.SLOT_MAIN_HAND, item_id)
+	if hand:
+		hand.set_item(item_id)
 	hotbar_changed.emit(selected_hotbar)
 	inventory_changed.emit()
 	_ui_connector.update_hotbar_display()
