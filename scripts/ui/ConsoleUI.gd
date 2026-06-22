@@ -7,6 +7,12 @@ extends Control
 signal console_opened
 signal console_closed
 
+enum PermissionLevel {
+	PLAYER = 0,
+	CHEATER = 1,
+	OP = 2,
+}
+
 const MAX_LOG_LINES := 200
 const COMMAND_PREFIX := "/"
 
@@ -16,6 +22,7 @@ var _is_open := false
 var _command_handlers: Dictionary = {}
 var _player: PlayerController = null
 var _perf_overlay: PerfOverlay
+var _permission_level: int = PermissionLevel.CHEATER
 
 
 func _ready() -> void:
@@ -50,6 +57,25 @@ func is_open() -> bool:
 	return _is_open
 
 
+func set_permission_level(level: int) -> void:
+	_permission_level = clampi(level, PermissionLevel.PLAYER, PermissionLevel.OP)
+
+
+func get_permission_level() -> int:
+	return _permission_level
+
+
+func _permission_name(level: int) -> String:
+	match level:
+		PermissionLevel.PLAYER:
+			return "player"
+		PermissionLevel.CHEATER:
+			return "cheater"
+		PermissionLevel.OP:
+			return "op"
+	return "unknown"
+
+
 func open() -> void:
 	if _is_open:
 		return
@@ -59,6 +85,8 @@ func open() -> void:
 	_input_box.caret_column = _input_box.text.length()
 	_input_box.grab_focus()
 	console_opened.emit()
+	print_line("[color=dim_gray]Console opened — permission: %s[/color]"
+		% _permission_name(_permission_level))
 
 
 func close() -> void:
@@ -82,10 +110,12 @@ func print_line(text: String) -> void:
 		_log_box.scroll_to_line(excess)
 
 
-func register_command(name: String, callback: Callable, description: String) -> void:
+func register_command(name: String, callback: Callable, description: String,
+		level: int = PermissionLevel.PLAYER) -> void:
 	_command_handlers[name] = {
 		"callback": callback,
 		"description": description,
+		"level": level,
 	}
 
 
@@ -135,16 +165,32 @@ func _build_ui() -> void:
 # --- Command registration ---
 
 func _register_default_commands() -> void:
-	register_command("fly", _cmd_fly, "Toggle flight in survival mode")
-	register_command("gamemode", _cmd_gamemode, "Set game mode (survival/creative/observer)")
-	register_command("gravity", _cmd_gravity, "Show current gravity direction and zone")
-	register_command("help", _cmd_help, "List available commands")
-	register_command("speed", _cmd_speed, "Set flight/observer speed (default 20/30)")
-	register_command("planets", _cmd_planets, "List all travelable planets with distances")
+	# PLAYER — basic info commands.
+	register_command("help", _cmd_help, "List available commands",
+		PermissionLevel.PLAYER)
+	register_command("gravity", _cmd_gravity, "Show current gravity direction and zone",
+		PermissionLevel.PLAYER)
+	register_command("planets", _cmd_planets, "List all travelable planets with distances",
+		PermissionLevel.PLAYER)
+	register_command("universe", _cmd_universe, "Show player's current universe position",
+		PermissionLevel.PLAYER)
+
+	# CHEATER — cheat/quality-of-life commands.
+	register_command("fly", _cmd_fly, "Toggle flight in survival mode",
+		PermissionLevel.CHEATER)
+	register_command("gamemode", _cmd_gamemode, "Set game mode (survival/creative/observer)",
+		PermissionLevel.CHEATER)
+	register_command("speed", _cmd_speed, "Set flight/observer speed (default 20/30)",
+		PermissionLevel.CHEATER)
 	register_command("travel", _cmd_travel,
-			"Debug teleport for dimension prototype (usage: /travel Mars)")
-	register_command("universe", _cmd_universe, "Show player's current universe position")
-	register_command("perf", _cmd_perf, "Toggle TPS and network data overlay")
+		"Debug teleport for dimension prototype (usage: /travel Mars)",
+		PermissionLevel.CHEATER)
+	register_command("perf", _cmd_perf, "Toggle TPS and network data overlay",
+		PermissionLevel.CHEATER)
+
+	# OP — debug/admin commands.
+	register_command("op", _cmd_op, "Set console permission level (usage: /op <player|cheater|op>)",
+		PermissionLevel.OP)
 
 
 # --- Command execution ---
@@ -171,8 +217,13 @@ func _submit_command() -> void:
 	if handler.is_empty():
 		print_line("[color=red]Unknown command: /%s[/color]" % cmd_name)
 	else:
-		var callback: Callable = handler["callback"]
-		callback.call(cmd_args)
+		var required_level: int = int(handler.get("level", PermissionLevel.PLAYER))
+		if _permission_level < required_level:
+			print_line("[color=red]Permission denied: requires %s, current is %s[/color]"
+				% [_permission_name(required_level), _permission_name(_permission_level)])
+		else:
+			var callback: Callable = handler["callback"]
+			callback.call(cmd_args)
 
 	_input_box.text = COMMAND_PREFIX
 	_input_box.caret_column = 1
@@ -243,10 +294,17 @@ func _cmd_gravity(_args: String) -> void:
 
 
 func _cmd_help(_args: String) -> void:
+	print_line("[color=cyan]Permission: %s[/color]" % _permission_name(_permission_level))
 	print_line("[color=cyan]Available commands:[/color]")
 	for cmd_name in _command_handlers.keys():
-		var desc: String = _command_handlers[cmd_name]["description"]
-		print_line("  /%s — %s" % [cmd_name, desc])
+		var handler: Dictionary = _command_handlers[cmd_name]
+		var desc: String = handler["description"]
+		var lvl: int = int(handler.get("level", 0))
+		var lvl_name := _permission_name(lvl)
+		var accessible := _permission_level >= lvl
+		var prefix := "  " if accessible else "[color=gray]* "
+		var suffix := "" if accessible else "[/color]"
+		print_line("%s/%s [%s] — %s%s" % [prefix, cmd_name, lvl_name, desc, suffix])
 
 
 func _cmd_speed(args: String) -> void:
@@ -350,6 +408,23 @@ func _cmd_universe(_args: String) -> void:
 		print_line("  local_center: %s" % planet.local_center)
 		print_line("  radius: %.1f, gravity: %.2f" % [
 				planet.planet_radius, planet.gravity_multiplier])
+
+
+# /op — 设置控制台权限等级。仅 OP 权限可用。
+func _cmd_op(args: String) -> void:
+	var mode_name := args.strip_edges().to_lower()
+	match mode_name:
+		"player", "0", "p":
+			set_permission_level(PermissionLevel.PLAYER)
+		"cheater", "1", "c":
+			set_permission_level(PermissionLevel.CHEATER)
+		"op", "2", "o":
+			set_permission_level(PermissionLevel.OP)
+		_:
+			print_line("[color=red]Usage: /op <player|cheater|op>[/color]")
+			return
+
+	print_line("[color=cyan]Permission set to: %s[/color]" % _permission_name(_permission_level))
 
 
 # /perf — 切换左上角 TPS 和网络数据传输量覆盖层。
