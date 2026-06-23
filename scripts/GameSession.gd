@@ -19,3 +19,18 @@ var universe_seed: int = 0
 # Fraction of grid cells that contain a star system (0.05 - 0.8).
 # Default: 0.0 (use SpatialUniverseGrid.DEFAULT_DENSITY).
 var system_density: float = 0.0
+
+# Initial game mode: 0=SURVIVAL, 1=CREATIVE, 2=OBSERVER.
+var game_mode: int = 0
+
+# GameplayConfig overrides applied on world init.
+# Keys match GDWorldData.set_gameplay_config() dictionary fields.
+var gameplay_config: Dictionary = {}
+
+# Default console permission level: 0=PLAYER, 1=CHEATER, 2=OP.
+var permission_level: int = 1
+
+# Planet generation overrides (random mode only).
+# Keys: size_preset, terrain_preset, sea_level_preset, cave_preset, atmosphere_preset.
+# Each value is a string: "default" or a preset name.
+var planet_overrides: Dictionary = {}

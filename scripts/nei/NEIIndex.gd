@@ -31,6 +31,16 @@ var _by_input_fluid: Dictionary = {}  # fluid_name -> Array[RecipeRef]
 var _by_machine: Dictionary = {}      # machine_type -> Array[RecipeRef]
 var _normalized_item_names: Dictionary = {} # item_id -> String
 var _item_keys: Dictionary = {}       # item_id -> String
+# Ore dictionary: ore_name -> Array[item_id]. Mirrors codechicken.nei OreDict.
+var _ore_dict: Dictionary = {}
+# Reverse ore dict: item_id -> Array[ore_name].
+var _item_ores: Dictionary = {}
+# Item category subset: ItemDef.Category -> Array[item_id].
+var _by_category: Dictionary = {}
+# Item mod/source tag: item_id -> String (e.g. "vanilla", "gregtech").
+var _item_sources: Dictionary = {}
+# Tooltip text cache: item_id -> String (normalized searchable tooltip).
+var _item_tooltips: Dictionary = {}
 
 
 func _ready() -> void:
@@ -53,7 +63,13 @@ func rebuild() -> void:
 	_by_machine.clear()
 	_normalized_item_names.clear()
 	_item_keys.clear()
+	_ore_dict.clear()
+	_item_ores.clear()
+	_by_category.clear()
+	_item_sources.clear()
+	_item_tooltips.clear()
 	_index_items()
+	_index_ore_dict()
 	_index_crafting_recipes()
 	_index_machine_recipes()
 	_built = true
@@ -139,6 +155,87 @@ func get_item_display_name(item_id: int) -> String:
 	return tr(def.title_key)
 
 
+# Return all ore dictionary names for an item.
+func get_ores_for_item(item_id: int) -> PackedStringArray:
+	ensure_built()
+	var result := PackedStringArray()
+	for ore in _item_ores.get(item_id, []) as Array:
+		result.append(str(ore))
+	return result
+
+
+# Return all item ids sharing an ore dictionary name.
+func get_items_for_ore(ore_name: String) -> Array[int]:
+	ensure_built()
+	return (_ore_dict.get(ore_name, []) as Array).duplicate()
+
+
+# Return all ore dictionary names (for subset dropdown).
+func get_all_ore_names() -> PackedStringArray:
+	ensure_built()
+	var result := PackedStringArray()
+	for key in _ore_dict.keys():
+		result.append(str(key))
+	result.sort()
+	return result
+
+
+# Return the source/mod tag for an item.
+func get_item_source(item_id: int) -> String:
+	ensure_built()
+	return str(_item_sources.get(item_id, "vanilla"))
+
+
+# Return all distinct source/mod tags.
+func get_all_sources() -> PackedStringArray:
+	ensure_built()
+	var seen := {}
+	var result := PackedStringArray()
+	for item_id in _item_sources.keys():
+		var src := str(_item_sources[item_id])
+		if not seen.has(src):
+			seen[src] = true
+			result.append(src)
+	result.sort()
+	return result
+
+
+# Return item ids in a category subset (ItemDef.Category).
+func get_items_in_category(category: int) -> Array[int]:
+	ensure_built()
+	return (_by_category.get(category, []) as Array).duplicate()
+
+
+# Return the cached tooltip text for an item (normalized, searchable).
+func get_item_tooltip_text(item_id: int) -> String:
+	ensure_built()
+	return str(_item_tooltips.get(item_id, ""))
+
+
+# Return the number of recipes that produce this item.
+func get_recipe_count_for_output(item_id: int) -> int:
+	ensure_built()
+	return (_by_output_item.get(item_id, []) as Array).size()
+
+
+# Return the number of recipes that consume this item.
+func get_recipe_count_for_input(item_id: int) -> int:
+	ensure_built()
+	return (_by_input_item.get(item_id, []) as Array).size()
+
+
+# Return a dictionary of item_id -> recipe/usage counts for batch tooltip display.
+func get_recipe_counts_batch(item_ids: Array[int]) -> Dictionary:
+	ensure_built()
+	var result := {}
+	for item_id in item_ids:
+		result[item_id] = {
+			"recipes": get_recipe_count_for_output(item_id),
+			"usages": get_recipe_count_for_input(item_id),
+		}
+	return result
+
+
 func _index_items() -> void:
 	var ids: Array[int] = ItemDatabase.get_all_item_ids()
 	ids.sort()
@@ -149,10 +246,72 @@ func _index_items() -> void:
 		var def = ItemDatabase.get_item(item_id)
 		if def != null:
 			_normalized_item_names[item_id] = _normalize(tr(def.title_key))
+			# Category subset — mirrors NEI item subset dropdown.
+			var cat: int = int(def.category)
+			if not _by_category.has(cat):
+				_by_category[cat] = []
+			(_by_category[cat] as Array).append(item_id)
+			# Tooltip text for #tooltip: search token.
+			var tooltip_lines: Array = def.get_tooltip_lines()
+			var tooltip_text := _normalize(" ".join(tooltip_lines))
+			_item_tooltips[item_id] = tooltip_text
+			# Source/mod tag — inferred from item key prefix.
+			_item_sources[item_id] = _infer_item_source(item_id)
 		var key := ""
 		if ItemDatabase.has_method("get_item_key_by_id"):
 			key = str(ItemDatabase.get_item_key_by_id(item_id))
 		_item_keys[item_id] = _normalize(key)
+
+
+# Infer the source/mod tag from the item key prefix.
+# Items whose key starts with "gt_" are GregTech; others are vanilla.
+func _infer_item_source(item_id: int) -> String:
+	var key := _item_keys.get(item_id, "")
+	if key.begins_with("gt_") or key.begins_with("gregtech"):
+		return "gregtech"
+	if key.begins_with("ae2") or key.begins_with("appeng"):
+		return "ae2"
+	if key.begins_with("minecraft") or key.is_empty():
+		return "vanilla"
+	return "mod"
+
+
+# Build the ore dictionary index from the C++ binding if available.
+# Ore dictionary lets different items share an ore name (e.g. oreCopper).
+func _index_ore_dict() -> void:
+	if ClassDB.class_exists("GDOreDictionary"):
+		var ore_names: PackedStringArray = GDOreDictionary.get_all_ore_names()
+		for ore_name in ore_names:
+			var item_ids: Array[int] = GDOreDictionary.get_item_ids_for_ore(ore_name)
+			_ore_dict[ore_name] = item_ids.duplicate()
+			for item_id in item_ids:
+				if not _item_ores.has(item_id):
+					_item_ores[item_id] = []
+				(_item_ores[item_id] as Array).append(ore_name)
+		return
+	# Fallback: derive ore entries from item keys (e.g. "oreCopper" -> material copper).
+	for item_id in _all_items:
+		var key := _item_keys.get(item_id, "")
+		var ore_name := _derive_ore_name_from_key(key)
+		if ore_name.is_empty():
+			continue
+		if not _ore_dict.has(ore_name):
+			_ore_dict[ore_name] = []
+		(_ore_dict[ore_name] as Array).append(item_id)
+		if not _item_ores.has(item_id):
+			_item_ores[item_id] = []
+		(_item_ores[item_id] as Array).append(ore_name)
+
+
+# Derive an ore dictionary name from an item key as a fallback.
+func _derive_ore_name_from_key(key: String) -> String:
+	if key.is_empty():
+		return ""
+	# Common material form patterns: ingotCopper, dustIron, plateGold, etc.
+	for prefix in ["ingot", "dust", "tinydust", "nugget", "plate", "rod", "wire", "block", "gem", "crushed"]:
+		if key.begins_with(prefix) and key.length() > prefix.length():
+			return key
+	return ""
 
 
 func _index_crafting_recipes() -> void:
@@ -327,12 +486,71 @@ func _item_matches_token(item_id: int, token: String) -> bool:
 		return _item_has_related_fluid(item_id, token.substr(6))
 	if token.begins_with("tier:"):
 		return _item_has_related_tier(item_id, token.substr(5))
+	# Ore dictionary search: $ingotCopper matches any item in that ore entry.
+	if token.begins_with("$"):
+		return _item_has_ore(item_id, token.substr(1))
+	if token.begins_with("ore:"):
+		return _item_has_ore(item_id, token.substr(4))
+	# Source/mod filter: %gregtech, %vanilla, %ae2.
+	if token.begins_with("%"):
+		return _item_sources.get(item_id, "vanilla") == token.substr(1)
+	if token.begins_with("source:"):
+		return _item_sources.get(item_id, "vanilla") == token.substr(7)
+	if token.begins_with("mod:"):
+		return _item_sources.get(item_id, "vanilla") == token.substr(4)
+	# Tooltip text search: #tooltip_text.
+	if token.begins_with("#"):
+		return _item_tooltips.get(item_id, "").contains(token.substr(1))
+	if token.begins_with("tooltip:"):
+		return _item_tooltips.get(item_id, "").contains(token.substr(8))
+	# Category subset: &materials, &tools, etc.
+	if token.begins_with("&"):
+		return _item_in_category_name(item_id, token.substr(1))
+	if token.begins_with("category:"):
+		return _item_in_category_name(item_id, token.substr(9))
+	# Bookmarked items only.
+	if token == "*bookmarked" or token == "*fav":
+		return NEISettings != null and NEISettings.is_bookmarked(item_id)
 
 	var name: String = _normalized_item_names.get(item_id, "")
 	var key: String = _item_keys.get(item_id, "")
 	if name.contains(token) or key.contains(token):
 		return true
 	return _item_has_related_text(item_id, token)
+
+
+# Check if an item belongs to an ore dictionary entry.
+func _item_has_ore(item_id: int, ore_name: String) -> bool:
+	ore_name = _normalize(ore_name)
+	if ore_name.is_empty():
+		return not _item_ores.get(item_id, []).is_empty()
+	for ore in _item_ores.get(item_id, []) as Array:
+		if _normalize(str(ore)).contains(ore_name):
+			return true
+	return false
+
+
+# Check if an item is in a category by name (e.g. "materials", "tools").
+func _item_in_category_name(item_id: int, category_name: String) -> bool:
+	category_name = _normalize(category_name)
+	var def = ItemDatabase.get_item(item_id)
+	if def == null:
+		return false
+	var cat_name := _category_name(int(def.category))
+	return _normalize(cat_name) == category_name or _normalize(cat_name).begins_with(category_name)
+
+
+# Map an ItemDef.Category enum value to a lowercase name.
+func _category_name(category: int) -> String:
+	match category:
+		ItemDef.Category.MATERIALS: return "materials"
+		ItemDef.Category.TOOLS: return "tools"
+		ItemDef.Category.COMPONENTS: return "components"
+		ItemDef.Category.PLACEABLES: return "placeables"
+		ItemDef.Category.RESOURCES: return "resources"
+		ItemDef.Category.FOOD: return "food"
+		ItemDef.Category.MISC: return "misc"
+	return "misc"
 
 
 func _item_has_related_machine(item_id: int, needle: String) -> bool:

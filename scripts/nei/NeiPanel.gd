@@ -24,12 +24,21 @@ var _item_page := 0
 var _recipe_page := 0
 var _machine_filter := MACHINE_FILTER_ALL
 
+# Recipe history navigation — mirrors NEI back/forward buttons.
+# Each entry: {item_id, mode, recipe_page, machine_filter}.
+var _history: Array[Dictionary] = []
+var _history_index := -1
+const MAX_HISTORY := 50
+
 var _search_box: LineEdit
 var _search_help: Label
 var _grid: GridContainer
 var _item_page_label: Label
 var _item_prev_btn: Button
 var _item_next_btn: Button
+var _back_btn: Button
+var _forward_btn: Button
+var _history_label: Label
 var _icon: TextureRect
 var _title: Label
 var _subtitle: Label
@@ -133,6 +142,23 @@ func _build_ui() -> void:
 	close_btn.size = Vector2(26, 26)
 	close_btn.pressed.connect(close)
 	add_child(close_btn)
+
+	# History navigation bar — back/forward through viewed items.
+	_back_btn = Button.new()
+	_back_btn.text = "< Back"
+	_back_btn.position = Vector2(size.x - 180, 4)
+	_back_btn.size = Vector2(70, 22)
+	_back_btn.disabled = true
+	_back_btn.pressed.connect(_on_history_back)
+	add_child(_back_btn)
+
+	_forward_btn = Button.new()
+	_forward_btn.text = "Fwd >"
+	_forward_btn.position = Vector2(size.x - 108, 4)
+	_forward_btn.size = Vector2(70, 22)
+	_forward_btn.disabled = true
+	_forward_btn.pressed.connect(_on_history_forward)
+	add_child(_forward_btn)
 
 	_search_box = LineEdit.new()
 	_search_box.position = Vector2(8, 38)
@@ -327,6 +353,11 @@ func _on_slot_right_clicked(item_id: int) -> void:
 
 
 func _select_item(item_id: int) -> void:
+	_select_item_tracked(item_id, true)
+
+
+# Select an item, optionally recording it in the history stack.
+func _select_item_tracked(item_id: int, record_history: bool) -> void:
 	_current_item_id = item_id
 	var def = ItemDatabase.get_item(item_id)
 	if def == null:
@@ -339,6 +370,70 @@ func _select_item(item_id: int) -> void:
 		_subtitle.text = _subtitle_for(item_id, def)
 	_rebuild_tabs()
 	_show_detail()
+	if record_history:
+		_push_history(item_id)
+
+
+# Push the current view onto the history stack.
+func _push_history(item_id: int) -> void:
+	var entry := {
+		"item_id": item_id,
+		"mode": _detail_mode,
+		"recipe_page": _recipe_page,
+		"machine_filter": _machine_filter,
+	}
+	# Truncate any forward history when navigating to a new item.
+	if _history_index < _history.size() - 1:
+		_history.resize(_history_index + 1)
+	_history.append(entry)
+	if _history.size() > MAX_HISTORY:
+		_history.pop_front()
+	else:
+		_history_index += 1
+	_update_history_buttons()
+
+
+# Navigate back in history.
+func _on_history_back() -> void:
+	if _history_index <= 0:
+		return
+	_history_index -= 1
+	_apply_history_entry(_history[_history_index])
+	_update_history_buttons()
+
+
+# Navigate forward in history.
+func _on_history_forward() -> void:
+	if _history_index >= _history.size() - 1:
+		return
+	_history_index += 1
+	_apply_history_entry(_history[_history_index])
+	_update_history_buttons()
+
+
+# Apply a history entry without pushing a new record.
+func _apply_history_entry(entry: Dictionary) -> void:
+	_current_item_id = int(entry.get("item_id", 0))
+	_detail_mode = str(entry.get("mode", "info"))
+	_recipe_page = int(entry.get("recipe_page", 0))
+	_machine_filter = str(entry.get("machine_filter", MACHINE_FILTER_ALL))
+	var def = ItemDatabase.get_item(_current_item_id)
+	if def != null:
+		_icon.texture = def.icon
+		_title.text = tr(def.title_key)
+		_subtitle.text = _subtitle_for(_current_item_id, def)
+	else:
+		_icon.texture = null
+		_title.text = "Item #%d" % _current_item_id
+		_subtitle.text = "Unregistered item"
+	_populate_machine_filter()
+	_rebuild_tabs()
+	_show_detail()
+
+
+func _update_history_buttons() -> void:
+	_back_btn.disabled = _history_index <= 0
+	_forward_btn.disabled = _history_index >= _history.size() - 1
 
 
 func _subtitle_for(item_id: int, def) -> String:
@@ -404,10 +499,22 @@ func _show_info() -> void:
 	var key := NEIIndex.get_item_key(_current_item_id)
 	_add_kv("Item Key", key if not key.is_empty() else "-")
 	_add_kv("Max Stack", str(def.max_stack))
+	# Source/mod tag — mirrors NEI's mod display.
+	var source := NEIIndex.get_item_source(_current_item_id)
+	_add_kv("Source", source)
+	# Category subset.
+	_add_kv("Category", NEIIndex.get_item_tooltip_text(_current_item_id).get_slice(" ", 0) if false else _category_label(int(def.category)))
+	# Ore dictionary entries — mirrors NEI's ore dict display.
+	var ores := NEIIndex.get_ores_for_item(_current_item_id)
+	if not ores.is_empty():
+		_add_kv("Ore Dict", ", ".join(ores))
+	# Bookmark status.
+	if NEISettings != null:
+		_add_kv("Bookmarked", "Yes (B to remove)" if NEISettings.is_bookmarked(_current_item_id) else "No (B to add)")
 	_add_section("Recipe Summary")
 	_add_kv("Recipes", str(NEIIndex.get_recipes_for_output(_current_item_id).size()))
 	_add_kv("Usages", str(NEIIndex.get_recipes_for_input(_current_item_id).size()))
-	_add_kv("Shortcuts", "Hover item + R/U/M. Creative: middle click or Shift+left gives one stack.")
+	_add_kv("Shortcuts", "Hover item + R/U/M. Creative: middle click or Shift+left gives one stack. B to bookmark.")
 
 	var related := _related_machine_text()
 	if not related.is_empty():
@@ -418,6 +525,19 @@ func _show_info() -> void:
 		_add_section("Tooltip")
 		for line in tooltip_lines:
 			_add_text(str(line), Color(0.78, 0.84, 0.92))
+
+
+# Map an ItemDef.Category enum value to a display label.
+func _category_label(category: int) -> String:
+	match category:
+		ItemDef.Category.MATERIALS: return "Materials"
+		ItemDef.Category.TOOLS: return "Tools"
+		ItemDef.Category.COMPONENTS: return "Components"
+		ItemDef.Category.PLACEABLES: return "Placeables"
+		ItemDef.Category.RESOURCES: return "Resources"
+		ItemDef.Category.FOOD: return "Food"
+		ItemDef.Category.MISC: return "Misc"
+	return "Misc"
 
 
 func _related_machine_text() -> String:
@@ -594,7 +714,42 @@ func _recipe_card(ref: NEIIndex.RecipeRef) -> Control:
 		_add_crafting_layout(box, ref)
 	else:
 		_add_linear_recipe_layout(box, ref)
+
+	# Recipe transfer button — crafts the recipe via command server.
+	# Mirrors NEI's "fill crafting grid" but adapted to this project's
+	# command-based crafting system.
+	if ref.recipe_type == "crafting":
+		var transfer_row := HBoxContainer.new()
+		transfer_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		box.add_child(transfer_row)
+		var craft_btn := Button.new()
+		craft_btn.text = "Craft (transfer)"
+		craft_btn.tooltip_text = "Attempt to craft this recipe using inventory items"
+		craft_btn.pressed.connect(_on_recipe_transfer.bind(ref))
+		transfer_row.add_child(craft_btn)
 	return card
+
+
+# Recipe transfer: attempt to craft a recipe via the command server.
+# This is the project's equivalent of NEI's "fill crafting grid" feature.
+func _on_recipe_transfer(ref: NEIIndex.RecipeRef) -> void:
+	if player == null:
+		return
+	var command_server: GameCommandServer = player.get_command_server()
+	if command_server == null:
+		return
+	var recipe := ref.data
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_CRAFT_RECIPE,
+		"recipe": recipe,
+		"station": ref.machine_type,
+		"dimension": player.get_current_dimension(),
+		"cell": player.get_current_cell(),
+	})
+	if bool(result.get("ok", false)):
+		_subtitle.text = "%s  |  Crafted x%d" % [_subtitle.text, int(result.get("crafted_count", 0))]
+	else:
+		_subtitle.text = "%s  |  Craft failed (missing items?)" % _subtitle.text
 
 
 func _add_linear_recipe_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> void:
@@ -821,6 +976,9 @@ func _on_search(query: String) -> void:
 		_title.text = "No item selected"
 		_subtitle.text = "No search results"
 		_icon.texture = null
+	# Record non-empty searches in the search history.
+	if not query.strip_edges().is_empty() and NEISettings != null:
+		NEISettings.push_search(query)
 
 
 func _add_section(text: String) -> void:

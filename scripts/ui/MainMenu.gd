@@ -32,7 +32,9 @@ const SUBTITLE_FONT_SIZE := 16
 const LIST_ITEM_HEIGHT := 40
 const LIST_ITEM_GAP := 4
 const PANEL_WIDTH := 500
-const PANEL_HEIGHT := 440
+const PANEL_HEIGHT := 480
+const SEARCH_HEIGHT := 30
+const SORT_WIDTH := 120
 
 # ── State ─────────────────────────────────────────────────────────────────────
 
@@ -40,17 +42,44 @@ enum State { MAIN_MENU, WORLD_LIST, NEW_WORLD_DIALOG, SETTINGS }
 
 var _state: State = State.MAIN_MENU
 var _world_list: Array[Dictionary] = []
+var _world_list_filtered: Array[Dictionary] = []
 var _selected_world_index: int = -1
+var _search_text: String = ""
+var _sort_mode: int = 0  # 0=date newest, 1=date oldest, 2=name a→z, 3=name z→a
 
 # ── Node references (built in _build_ui) ──────────────────────────────────────
 
 var _main_menu_vbox: VBoxContainer
 var _world_list_panel: Control
 var _world_list_container: VBoxContainer
+var _search_input: LineEdit
+var _sort_option: OptionButton
 var _new_world_panel: Control
 var _new_world_input: LineEdit
+var _game_mode_option: OptionButton
+var _permission_option: OptionButton
 var _universe_mode_option: OptionButton
 var _seed_input: LineEdit
+var _world_settings_btn: Button
+var _planet_settings_btn: Button
+var _rename_dialog: Window
+var _rename_input: LineEdit
+var _rename_world_folder: String = ""
+var _ws_window: Window
+var _ws_day_night: CheckBox
+var _ws_day_length: SpinBox
+var _ws_seasons: CheckBox
+var _ws_ecosystem: CheckBox
+var _ws_collapse: CheckBox
+var _ws_gravity: CheckBox
+var _ps_window: Window
+var _ps_size: OptionButton
+var _ps_terrain: OptionButton
+var _ps_sea_level: OptionButton
+var _ps_caves: OptionButton
+var _ps_atmosphere: OptionButton
+var _temp_gameplay_config: Dictionary = {}
+var _temp_planet_overrides: Dictionary = {}
 var _status_label: Label
 var _settings_ui: SettingsUI
 
@@ -114,6 +143,10 @@ func _load_world_meta(path: String, folder_name: String) -> Dictionary:
 		"date": str(data.get("created_at", "")),
 		"universe_mode": str(data.get("universe_mode", "solar_system")),
 		"universe_seed": int(data.get("universe_seed", 0) as int),
+		"game_mode": int(data.get("game_mode", 0)),
+		"permission_level": int(data.get("permission_level", 1)),
+		"gameplay_config": data.get("gameplay_config", {}),
+		"planet_overrides": data.get("planet_overrides", {}),
 	}
 
 
@@ -136,6 +169,10 @@ func _create_world(world_name: String, mode: String, seed_value: int) -> bool:
 		"created_at": Time.get_datetime_string_from_system(),
 		"universe_mode": mode,
 		"universe_seed": seed_value,
+		"game_mode": _get_selected_game_mode(),
+		"permission_level": _get_selected_permission_level(),
+		"gameplay_config": _temp_gameplay_config.duplicate(),
+		"planet_overrides": _temp_planet_overrides.duplicate(),
 	}
 	var json_text := JSON.stringify(meta, "\t")
 	var f := FileAccess.open(full_path + META_FILE, FileAccess.WRITE)
@@ -148,6 +185,10 @@ func _create_world(world_name: String, mode: String, seed_value: int) -> bool:
 	GameSession.save_path = full_path
 	GameSession.universe_mode = mode
 	GameSession.universe_seed = seed_value
+	GameSession.game_mode = meta["game_mode"]
+	GameSession.permission_level = meta["permission_level"]
+	GameSession.gameplay_config = meta["gameplay_config"]
+	GameSession.planet_overrides = meta["planet_overrides"]
 	return true
 
 
@@ -156,6 +197,14 @@ func _load_world(entry: Dictionary) -> void:
 	GameSession.save_path = SAVE_ROOT + str(entry.get("folder", "")) + "/"
 	GameSession.universe_mode = str(entry.get("universe_mode", "solar_system"))
 	GameSession.universe_seed = int(entry.get("universe_seed", 0) as int)
+	GameSession.game_mode = int(entry.get("game_mode", 0))
+	GameSession.permission_level = int(entry.get("permission_level", 1))
+	var gc: Dictionary = entry.get("gameplay_config", {})
+	if not gc.is_empty():
+		GameSession.gameplay_config = gc
+	var po: Dictionary = entry.get("planet_overrides", {})
+	if not po.is_empty():
+		GameSession.planet_overrides = po
 
 
 # ── Scene transition ──────────────────────────────────────────────────────────
@@ -293,6 +342,31 @@ func _build_world_list_panel() -> void:
 
 	vbox.add_child(title_row)
 
+	# Search row.
+	var search_row := HBoxContainer.new()
+	search_row.add_theme_constant_override("separation", 6)
+
+	_search_input = LineEdit.new()
+	_search_input.name = "SearchInput"
+	_search_input.placeholder_text = "搜索世界..."
+	_search_input.custom_minimum_size = Vector2(0, SEARCH_HEIGHT)
+	_search_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_search_input.text_changed.connect(_on_search_changed)
+	search_row.add_child(_search_input)
+
+	_sort_option = OptionButton.new()
+	_sort_option.name = "SortOption"
+	_sort_option.custom_minimum_size = Vector2(SORT_WIDTH, SEARCH_HEIGHT)
+	_sort_option.add_item("最新优先", 0)
+	_sort_option.add_item("最旧优先", 1)
+	_sort_option.add_item("名称 A→Z", 2)
+	_sort_option.add_item("名称 Z→A", 3)
+	_sort_option.selected = 0
+	_sort_option.item_selected.connect(_on_sort_changed)
+	search_row.add_child(_sort_option)
+
+	vbox.add_child(search_row)
+
 	# Scrollable world list.
 	var scroll := ScrollContainer.new()
 	scroll.name = "WorldScroll"
@@ -312,21 +386,25 @@ func _build_world_list_panel() -> void:
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var btn_new := _make_button("新建世界", 120, BUTTON_HEIGHT)
+	var btn_new := _make_button("新建世界", 100, BUTTON_HEIGHT)
 	btn_new.pressed.connect(_on_new_world)
 	btn_row.add_child(btn_new)
 
-	var btn_load := _make_button("加载世界", 120, BUTTON_HEIGHT)
+	var btn_load := _make_button("加载世界", 100, BUTTON_HEIGHT)
 	btn_load.pressed.connect(_on_load_world)
 	btn_row.add_child(btn_load)
 
-	var btn_delete := _make_button("删除世界", 120, BUTTON_HEIGHT)
+	var btn_rename := _make_button("重命名", 80, BUTTON_HEIGHT)
+	btn_rename.pressed.connect(_on_rename_world)
+	btn_row.add_child(btn_rename)
+
+	var btn_delete := _make_button("删除", 80, BUTTON_HEIGHT)
 	btn_delete.pressed.connect(_on_delete_world)
 	btn_delete.add_theme_color_override("font_color", Color(0.90, 0.45, 0.45, 1.0))
 	btn_delete.add_theme_color_override("font_hover_color", Color(1.0, 0.55, 0.55, 1.0))
 	btn_row.add_child(btn_delete)
 
-	var btn_back := _make_button("返回", 120, BUTTON_HEIGHT)
+	var btn_back := _make_button("返回", 80, BUTTON_HEIGHT)
 	btn_back.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	btn_back.pressed.connect(_show_main_menu)
 	btn_row.add_child(btn_back)
@@ -352,7 +430,7 @@ func _build_new_world_dialog() -> void:
 
 	var dialog_bg := PanelContainer.new()
 	dialog_bg.name = "DialogBg"
-	dialog_bg.custom_minimum_size = Vector2(400, 280)
+	dialog_bg.custom_minimum_size = Vector2(460, 340)
 	var dialog_style := StyleBoxFlat.new()
 	dialog_style.bg_color = COLOR_PANEL
 	dialog_style.border_color = Color(0.15, 0.16, 0.20, 1.0)
@@ -363,7 +441,7 @@ func _build_new_world_dialog() -> void:
 	_new_world_panel.add_child(dialog_bg)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.add_theme_constant_override("separation", 8)
 	dialog_bg.add_child(vbox)
 
 	# Dialog title.
@@ -373,37 +451,75 @@ func _build_new_world_dialog() -> void:
 	dialog_title.add_theme_color_override("font_color", COLOR_TEXT)
 	vbox.add_child(dialog_title)
 
+	# Separator.
+	vbox.add_child(_make_separator())
+
 	# World name input row.
 	var name_row := HBoxContainer.new()
 	name_row.add_theme_constant_override("separation", 8)
-
 	var name_label := Label.new()
 	name_label.text = "世界名称"
 	name_label.add_theme_font_size_override("font_size", 14)
 	name_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	name_label.custom_minimum_size = Vector2(80, 0)
 	name_row.add_child(name_label)
-
 	_new_world_input = LineEdit.new()
 	_new_world_input.name = "WorldNameInput"
 	_new_world_input.placeholder_text = "输入世界名称"
 	_new_world_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_new_world_input.custom_minimum_size = Vector2(0, 32)
 	name_row.add_child(_new_world_input)
-
 	vbox.add_child(name_row)
+
+	# Game mode selection row.
+	var gm_row := HBoxContainer.new()
+	gm_row.add_theme_constant_override("separation", 8)
+	var gm_label := Label.new()
+	gm_label.text = "游戏模式"
+	gm_label.add_theme_font_size_override("font_size", 14)
+	gm_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	gm_label.custom_minimum_size = Vector2(80, 0)
+	gm_row.add_child(gm_label)
+	_game_mode_option = OptionButton.new()
+	_game_mode_option.name = "GameModeOption"
+	_game_mode_option.add_item("生存模式", 0)
+	_game_mode_option.add_item("创造模式", 1)
+	_game_mode_option.add_item("观察者模式", 2)
+	_game_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_game_mode_option.custom_minimum_size = Vector2(0, 32)
+	_game_mode_option.selected = 0
+	gm_row.add_child(_game_mode_option)
+	vbox.add_child(gm_row)
+
+	# Permission level selection row.
+	var perm_row := HBoxContainer.new()
+	perm_row.add_theme_constant_override("separation", 8)
+	var perm_label := Label.new()
+	perm_label.text = "默认权限"
+	perm_label.add_theme_font_size_override("font_size", 14)
+	perm_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	perm_label.custom_minimum_size = Vector2(80, 0)
+	perm_row.add_child(perm_label)
+	_permission_option = OptionButton.new()
+	_permission_option.name = "PermissionOption"
+	_permission_option.add_item("玩家(禁止作弊)", 0)
+	_permission_option.add_item("作弊者(允许作弊)", 1)
+	_permission_option.add_item("管理员(完全控制)", 2)
+	_permission_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_permission_option.custom_minimum_size = Vector2(0, 32)
+	_permission_option.selected = 1
+	perm_row.add_child(_permission_option)
+	vbox.add_child(perm_row)
 
 	# Universe mode selection row.
 	var mode_row := HBoxContainer.new()
 	mode_row.add_theme_constant_override("separation", 8)
-
 	var mode_label := Label.new()
 	mode_label.text = "宇宙模式"
 	mode_label.add_theme_font_size_override("font_size", 14)
 	mode_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	mode_label.custom_minimum_size = Vector2(80, 0)
 	mode_row.add_child(mode_label)
-
 	_universe_mode_option = OptionButton.new()
 	_universe_mode_option.name = "UniverseModeOption"
 	_universe_mode_option.add_item("标准太阳系", 0)
@@ -412,40 +528,56 @@ func _build_new_world_dialog() -> void:
 	_universe_mode_option.custom_minimum_size = Vector2(0, 32)
 	_universe_mode_option.item_selected.connect(_on_universe_mode_changed)
 	mode_row.add_child(_universe_mode_option)
-
 	vbox.add_child(mode_row)
 
 	# Seed input row.
 	var seed_row := HBoxContainer.new()
 	seed_row.add_theme_constant_override("separation", 8)
-
 	var seed_label := Label.new()
 	seed_label.text = "世界种子"
 	seed_label.add_theme_font_size_override("font_size", 14)
 	seed_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	seed_label.custom_minimum_size = Vector2(80, 0)
 	seed_row.add_child(seed_label)
-
 	_seed_input = LineEdit.new()
 	_seed_input.name = "SeedInput"
 	_seed_input.placeholder_text = "留空则随机生成"
 	_seed_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_seed_input.custom_minimum_size = Vector2(0, 32)
 	seed_row.add_child(_seed_input)
-
 	var randomize_btn := _make_button("🎲", 36, 32)
 	randomize_btn.add_theme_font_size_override("font_size", 16)
 	randomize_btn.pressed.connect(_on_randomize_seed)
 	seed_row.add_child(randomize_btn)
-
 	vbox.add_child(seed_row)
+
+	# Separator.
+	vbox.add_child(_make_separator())
+
+	# Config buttons row.
+	var cfg_row := HBoxContainer.new()
+	cfg_row.add_theme_constant_override("separation", 10)
+	cfg_row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	_world_settings_btn = _make_button("📋 世界设置", 180, 36)
+	_world_settings_btn.pressed.connect(_open_world_settings)
+	cfg_row.add_child(_world_settings_btn)
+
+	_planet_settings_btn = _make_button("🪐 星球参数", 180, 36)
+	_planet_settings_btn.pressed.connect(_open_planet_settings)
+	cfg_row.add_child(_planet_settings_btn)
+
+	vbox.add_child(cfg_row)
+
+	# Separator.
+	vbox.add_child(_make_separator())
 
 	# Bottom button row.
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var btn_create := _make_button("创建", 120, BUTTON_HEIGHT)
+	var btn_create := _make_button("创建世界", 140, BUTTON_HEIGHT)
 	btn_create.pressed.connect(_on_create_world)
 	btn_row.add_child(btn_create)
 
@@ -455,6 +587,334 @@ func _build_new_world_dialog() -> void:
 	btn_row.add_child(btn_cancel)
 
 	vbox.add_child(btn_row)
+
+	# Build the two config popup windows.
+	_build_world_settings_window()
+	_build_planet_settings_window()
+
+
+# ── UI helper factories ──────────────────────────────────────────────────────
+
+
+func _make_separator() -> HSeparator:
+	var sep := HSeparator.new()
+	sep.modulate = Color(0.30, 0.32, 0.38, 0.5)
+	return sep
+
+
+func _make_label(text: String, width: int) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	if width > 0:
+		label.custom_minimum_size = Vector2(width, 0)
+	return label
+
+
+func _make_checkbox(label: String, default_value: bool) -> CheckBox:
+	var cb := CheckBox.new()
+	cb.text = label
+	cb.button_pressed = default_value
+	cb.add_theme_font_size_override("font_size", 13)
+	cb.add_theme_color_override("font_color", COLOR_TEXT)
+	return cb
+
+
+func _make_spinbox(min_val: float, max_val: float, default_val: float, step_val: float) -> SpinBox:
+	var sb := SpinBox.new()
+	sb.min_value = min_val
+	sb.max_value = max_val
+	sb.value = default_val
+	sb.step = step_val
+	sb.custom_minimum_size = Vector2(90, 28)
+	sb.add_theme_color_override("", COLOR_TEXT)
+	return sb
+
+
+# ── Config popup builders ─────────────────────────────────────────────────────
+
+
+func _build_world_settings_window() -> void:
+	_ws_window = Window.new()
+	_ws_window.title = "世界设置"
+	_ws_window.transient = true
+	_ws_window.exclusive = true
+	_ws_window.initial_position = Window.WINDOW_INITIAL_POSITION_CENTER_MAIN_WINDOW_SCREEN
+	_ws_window.close_requested.connect(_close_world_settings)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	_ws_window.add_child(vbox)
+
+	# Padding.
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(margin)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 8)
+	margin.add_child(inner)
+
+	# Day/night cycle.
+	var dn_row := HBoxContainer.new()
+	dn_row.add_theme_constant_override("separation", 8)
+	_ws_day_night = _make_checkbox("日夜循环", true)
+	dn_row.add_child(_ws_day_night)
+	dn_row.add_child(_make_label("白天长度(秒)", 100))
+	_ws_day_length = _make_spinbox(60, 3600, 600, 50)
+	dn_row.add_child(_ws_day_length)
+	dn_row.add_child(_make_label("", 0))
+	inner.add_child(dn_row)
+
+	# Seasons toggle.
+	var sn_row := HBoxContainer.new()
+	sn_row.add_theme_constant_override("separation", 8)
+	_ws_seasons = _make_checkbox("季节变化", true)
+	sn_row.add_child(_ws_seasons)
+	sn_row.add_child(_make_label("", 0))
+	inner.add_child(sn_row)
+
+	# Ecosystem toggle.
+	var ec_row := HBoxContainer.new()
+	ec_row.add_theme_constant_override("separation", 8)
+	_ws_ecosystem = _make_checkbox("生态系统", true)
+	ec_row.add_child(_ws_ecosystem)
+	ec_row.add_child(_make_label("", 0))
+	inner.add_child(ec_row)
+
+	# Collapse toggle.
+	var cl_row := HBoxContainer.new()
+	cl_row.add_theme_constant_override("separation", 8)
+	_ws_collapse = _make_checkbox("方块坍塌", true)
+	cl_row.add_child(_ws_collapse)
+	cl_row.add_child(_make_label("", 0))
+	inner.add_child(cl_row)
+
+	# Gravity toggle.
+	var gr_row := HBoxContainer.new()
+	gr_row.add_theme_constant_override("separation", 8)
+	_ws_gravity = _make_checkbox("重力掉落(沙砾)", true)
+	gr_row.add_child(_ws_gravity)
+	gr_row.add_child(_make_label("", 0))
+	inner.add_child(gr_row)
+
+	# Spacer.
+	inner.add_child(Control.new())
+
+	# Buttons.
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var save_btn := _make_button("保存", 100, 34)
+	save_btn.pressed.connect(_save_world_settings)
+	btn_row.add_child(save_btn)
+
+	var cancel_btn := _make_button("取消", 100, 34)
+	cancel_btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	cancel_btn.pressed.connect(_close_world_settings)
+	btn_row.add_child(cancel_btn)
+
+	inner.add_child(btn_row)
+
+
+func _open_world_settings() -> void:
+	# Populate from temp config (or defaults if empty).
+	_ws_day_night.button_pressed = _temp_gameplay_config.get("enable_day_night", true)
+	_ws_day_length.value = _temp_gameplay_config.get("day_length_seconds", 600.0)
+	_ws_seasons.button_pressed = _temp_gameplay_config.get("enable_season_colors", true)
+	_ws_ecosystem.button_pressed = _temp_gameplay_config.get("enable_ecosystem", true)
+	_ws_collapse.button_pressed = _temp_gameplay_config.get("enable_collapse", true)
+	_ws_gravity.button_pressed = _temp_gameplay_config.get("enable_gravity_fall", true)
+	add_child(_ws_window)
+	_ws_window.popup_centered(Vector2i(360, 320))
+
+
+func _save_world_settings() -> void:
+	_temp_gameplay_config = {
+		"enable_day_night": _ws_day_night.button_pressed,
+		"day_length_seconds": _ws_day_length.value,
+		"enable_season_colors": _ws_seasons.button_pressed,
+		"enable_ecosystem": _ws_ecosystem.button_pressed,
+		"enable_collapse": _ws_collapse.button_pressed,
+		"enable_gravity_fall": _ws_gravity.button_pressed,
+	}
+	_close_world_settings()
+
+
+func _close_world_settings() -> void:
+	if _ws_window and _ws_window.is_inside_tree():
+		_ws_window.queue_free()
+
+
+func _build_planet_settings_window() -> void:
+	_ps_window = Window.new()
+	_ps_window.title = "初始星球参数"
+	_ps_window.transient = true
+	_ps_window.exclusive = true
+	_ps_window.initial_position = Window.WINDOW_INITIAL_POSITION_CENTER_MAIN_WINDOW_SCREEN
+	_ps_window.close_requested.connect(_close_planet_settings)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	_ps_window.add_child(vbox)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(margin)
+
+	var inner := VBoxContainer.new()
+	inner.add_theme_constant_override("separation", 10)
+	margin.add_child(inner)
+
+	# Size preset.
+	var sz_row := HBoxContainer.new()
+	sz_row.add_theme_constant_override("separation", 8)
+	sz_row.add_child(_make_label("初始星球大小", 120))
+	_ps_size = OptionButton.new()
+	_ps_size.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ps_size.add_item("默认(种子随机)", 0)
+	_ps_size.add_item("小", 1)
+	_ps_size.add_item("中", 2)
+	_ps_size.add_item("大", 3)
+	_ps_size.add_item("巨大", 4)
+	_ps_size.selected = 0
+	sz_row.add_child(_ps_size)
+	inner.add_child(sz_row)
+
+	# Terrain preset.
+	var tr_row := HBoxContainer.new()
+	tr_row.add_theme_constant_override("separation", 8)
+	tr_row.add_child(_make_label("地形起伏", 120))
+	_ps_terrain = OptionButton.new()
+	_ps_terrain.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ps_terrain.add_item("默认(种子随机)", 0)
+	_ps_terrain.add_item("平坦", 1)
+	_ps_terrain.add_item("丘陵", 2)
+	_ps_terrain.add_item("山地", 3)
+	_ps_terrain.add_item("陡峭", 4)
+	_ps_terrain.selected = 0
+	tr_row.add_child(_ps_terrain)
+	inner.add_child(tr_row)
+
+	# Sea level preset.
+	var sl_row := HBoxContainer.new()
+	sl_row.add_theme_constant_override("separation", 8)
+	sl_row.add_child(_make_label("海平面", 120))
+	_ps_sea_level = OptionButton.new()
+	_ps_sea_level.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ps_sea_level.add_item("默认(种子随机)", 0)
+	_ps_sea_level.add_item("无海洋", 1)
+	_ps_sea_level.add_item("低", 2)
+	_ps_sea_level.add_item("中", 3)
+	_ps_sea_level.add_item("高", 4)
+	_ps_sea_level.selected = 0
+	sl_row.add_child(_ps_sea_level)
+	inner.add_child(sl_row)
+
+	# Cave density preset.
+	var cv_row := HBoxContainer.new()
+	cv_row.add_theme_constant_override("separation", 8)
+	cv_row.add_child(_make_label("洞穴密度", 120))
+	_ps_caves = OptionButton.new()
+	_ps_caves.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ps_caves.add_item("默认(种子随机)", 0)
+	_ps_caves.add_item("稀少", 1)
+	_ps_caves.add_item("正常", 2)
+	_ps_caves.add_item("密集", 3)
+	_ps_caves.selected = 0
+	cv_row.add_child(_ps_caves)
+	inner.add_child(cv_row)
+
+	# Atmosphere preset.
+	var at_row := HBoxContainer.new()
+	at_row.add_theme_constant_override("separation", 8)
+	at_row.add_child(_make_label("大气类型", 120))
+	_ps_atmosphere = OptionButton.new()
+	_ps_atmosphere.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ps_atmosphere.add_item("默认(种子随机)", 0)
+	_ps_atmosphere.add_item("真空", 1)
+	_ps_atmosphere.add_item("稀薄", 2)
+	_ps_atmosphere.add_item("可呼吸", 3)
+	_ps_atmosphere.add_item("有毒", 4)
+	_ps_atmosphere.add_item("腐蚀性", 5)
+	_ps_atmosphere.selected = 0
+	at_row.add_child(_ps_atmosphere)
+	inner.add_child(at_row)
+
+	# Spacer.
+	inner.add_child(Control.new())
+
+	# Buttons.
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var save_btn := _make_button("保存", 100, 34)
+	save_btn.pressed.connect(_save_planet_settings)
+	btn_row.add_child(save_btn)
+
+	var cancel_btn := _make_button("取消", 100, 34)
+	cancel_btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	cancel_btn.pressed.connect(_close_planet_settings)
+	btn_row.add_child(cancel_btn)
+
+	inner.add_child(btn_row)
+
+
+func _open_planet_settings() -> void:
+	var po := _temp_planet_overrides
+	_ps_size.selected = _preset_index(po.get("size_preset", "default"), ["default", "small", "medium", "large", "huge"])
+	_ps_terrain.selected = _preset_index(po.get("terrain_preset", "default"), ["default", "flat", "hilly", "mountainous", "extreme"])
+	_ps_sea_level.selected = _preset_index(po.get("sea_level_preset", "default"), ["default", "none", "low", "medium", "high"])
+	_ps_caves.selected = _preset_index(po.get("cave_preset", "default"), ["default", "sparse", "normal", "dense"])
+	_ps_atmosphere.selected = _preset_index(po.get("atmosphere_preset", "default"), ["default", "none", "thin", "breathable", "toxic", "corrosive"])
+	add_child(_ps_window)
+	_ps_window.popup_centered(Vector2i(360, 360))
+
+
+func _save_planet_settings() -> void:
+	_temp_planet_overrides = {
+		"size_preset": _preset_name(_ps_size.selected, ["default", "small", "medium", "large", "huge"]),
+		"terrain_preset": _preset_name(_ps_terrain.selected, ["default", "flat", "hilly", "mountainous", "extreme"]),
+		"sea_level_preset": _preset_name(_ps_sea_level.selected, ["default", "none", "low", "medium", "high"]),
+		"cave_preset": _preset_name(_ps_caves.selected, ["default", "sparse", "normal", "dense"]),
+		"atmosphere_preset": _preset_name(_ps_atmosphere.selected, ["default", "none", "thin", "breathable", "toxic", "corrosive"]),
+	}
+	_close_planet_settings()
+
+
+func _close_planet_settings() -> void:
+	if _ps_window and _ps_window.is_inside_tree():
+		_ps_window.queue_free()
+
+
+func _preset_index(value: String, options: Array[String]) -> int:
+	for i in options.size():
+		if options[i] == value:
+			return i
+	return 0
+
+
+func _preset_name(index: int, options: Array[String]) -> String:
+	if index >= 0 and index < options.size():
+		return options[index]
+	return "default"
 
 
 # ── Button factory ────────────────────────────────────────────────────────────
@@ -573,9 +1033,14 @@ func _show_new_world_dialog() -> void:
 	_state = State.NEW_WORLD_DIALOG
 	_new_world_panel.visible = true
 	_new_world_input.text = ""
+	_game_mode_option.select(0)
+	_permission_option.select(1)
 	_universe_mode_option.select(0)
 	_seed_input.text = ""
+	_temp_gameplay_config = {}
+	_temp_planet_overrides = {}
 	_new_world_input.grab_focus()
+	_on_universe_mode_changed(0)
 	_recenter_panels()
 
 
@@ -584,23 +1049,54 @@ func _show_new_world_dialog() -> void:
 
 func _refresh_world_list() -> void:
 	_world_list = _scan_worlds()
+	_world_list_filtered = _filter_and_sort_worlds()
 	_selected_world_index = -1
 
 	for child in _world_list_container.get_children():
 		child.queue_free()
 
-	if _world_list.is_empty():
+	if _world_list_filtered.is_empty():
 		var empty_label := Label.new()
-		empty_label.text = "暂无存档，请新建世界"
+		empty_label.text = "暂无存档，请新建世界" if _world_list.is_empty() else "没有匹配的世界"
 		empty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		empty_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 		empty_label.add_theme_font_size_override("font_size", 14)
 		_world_list_container.add_child(empty_label)
 		return
 
-	for i in _world_list.size():
-		var item := _make_world_list_item(_world_list[i], i)
+	for i in _world_list_filtered.size():
+		var item := _make_world_list_item(_world_list_filtered[i], i)
 		_world_list_container.add_child(item)
+
+
+func _filter_and_sort_worlds() -> Array[Dictionary]:
+	if _world_list.is_empty():
+		return []
+
+	var result: Array[Dictionary] = []
+
+	# Filter by search text.
+	if _search_text.is_empty():
+		result = _world_list.duplicate()
+	else:
+		var q := _search_text.strip_edges().to_lower()
+		for w in _world_list:
+			var name := str(w.get("name", "")).to_lower()
+			if q in name:
+				result.append(w)
+
+	# Sort.
+	match _sort_mode:
+		0: # Date newest first
+			result.sort_custom(func(a, b): return str(a.get("date", "")) > str(b.get("date", "")))
+		1: # Date oldest first
+			result.sort_custom(func(a, b): return str(a.get("date", "")) < str(b.get("date", "")))
+		2: # Name A→Z
+			result.sort_custom(func(a, b): return str(a.get("name", "")).to_lower() < str(b.get("name", "")).to_lower())
+		3: # Name Z→A
+			result.sort_custom(func(a, b): return str(a.get("name", "")).to_lower() > str(b.get("name", "")).to_lower())
+
+	return result
 
 
 func _update_world_list_selection() -> void:
@@ -633,7 +1129,8 @@ func _recenter_panels() -> void:
 	_world_list_panel.position = center - Vector2(PANEL_WIDTH / 2.0, PANEL_HEIGHT / 2.0)
 
 	# New world dialog.
-	_new_world_panel.position = center - Vector2(200, 140)
+	var new_world_size := _new_world_panel.get_child(0).custom_minimum_size if _new_world_panel.get_child_count() > 0 else Vector2(460, 440)
+	_new_world_panel.position = center - new_world_size / 2.0
 
 
 # ── Status label helper ───────────────────────────────────────────────────────
@@ -652,6 +1149,14 @@ func _get_selected_universe_mode() -> String:
 		0: return "solar_system"
 		1: return "random"
 		_: return "solar_system"
+
+
+func _get_selected_game_mode() -> int:
+	return _game_mode_option.get_selected_id()
+
+
+func _get_selected_permission_level() -> int:
+	return _permission_option.get_selected_id()
 
 
 func _parse_seed_value() -> int:
@@ -695,34 +1200,138 @@ func _on_new_world() -> void:
 
 
 func _on_load_world() -> void:
-	if _selected_world_index < 0 or _selected_world_index >= _world_list.size():
+	if _selected_world_index < 0 or _selected_world_index >= _world_list_filtered.size():
 		_set_status("请先选择一个世界")
 		return
-	var entry: Dictionary = _world_list[_selected_world_index]
+	var entry: Dictionary = _world_list_filtered[_selected_world_index]
 	_load_world(entry)
 	_start_game()
 
 
 func _on_delete_world() -> void:
-	if _selected_world_index < 0 or _selected_world_index >= _world_list.size():
+	if _selected_world_index < 0 or _selected_world_index >= _world_list_filtered.size():
 		_set_status("请先选择一个世界")
 		return
-	var entry: Dictionary = _world_list[_selected_world_index]
+	var entry: Dictionary = _world_list_filtered[_selected_world_index]
 	var world_name := str(entry.get("name", ""))
 	var folder := str(entry.get("folder", ""))
-	# Use a confirmation dialog to prevent accidental deletion.
 	var dialog := ConfirmationDialog.new()
 	dialog.title = "删除世界"
 	dialog.dialog_text = "确定要删除世界 \"%s\" 吗？\n此操作不可撤销！" % world_name
 	dialog.ok_button_text = "删除"
 	dialog.cancel_button_text = "取消"
-	# Style the OK button to signal destructive action.
 	dialog.confirmed.connect(_confirm_delete_world.bind(folder))
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(420, 140))
-	# Clean up the dialog after it closes.
 	dialog.canceled.connect(dialog.queue_free)
 	dialog.confirmed.connect(dialog.queue_free)
+
+
+func _on_rename_world() -> void:
+	if _selected_world_index < 0 or _selected_world_index >= _world_list_filtered.size():
+		_set_status("请先选择一个世界")
+		return
+	var entry: Dictionary = _world_list_filtered[_selected_world_index]
+	_rename_world_folder = str(entry.get("folder", ""))
+	var current_name := str(entry.get("name", ""))
+
+	_rename_dialog = Window.new()
+	_rename_dialog.title = "重命名世界"
+	_rename_dialog.transient = true
+	_rename_dialog.exclusive = true
+	_rename_dialog.initial_position = Window.WINDOW_INITIAL_POSITION_CENTER_MAIN_WINDOW_SCREEN
+	_rename_dialog.close_requested.connect(_on_rename_cancel)
+	add_child(_rename_dialog)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	vbox.anchor_right = 1.0
+	vbox.anchor_bottom = 1.0
+	vbox.add_theme_constant_override("margin", 12)
+	_rename_dialog.add_child(vbox)
+
+	var label := Label.new()
+	label.text = "输入新的世界名称："
+	label.add_theme_color_override("font_color", COLOR_TEXT)
+	vbox.add_child(label)
+
+	_rename_input = LineEdit.new()
+	_rename_input.text = current_name
+	_rename_input.custom_minimum_size = Vector2(300, 32)
+	_rename_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(_rename_input)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+
+	var confirm_btn := _make_button("确认", 100, 36)
+	confirm_btn.pressed.connect(_confirm_rename_world)
+	btn_row.add_child(confirm_btn)
+
+	var cancel_btn := _make_button("取消", 100, 36)
+	cancel_btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
+	cancel_btn.pressed.connect(_on_rename_cancel)
+	btn_row.add_child(cancel_btn)
+
+	vbox.add_child(btn_row)
+
+	_rename_dialog.popup_centered(Vector2i(340, 150))
+	_rename_input.grab_focus()
+	_rename_input.select_all()
+
+
+func _on_rename_cancel() -> void:
+	if _rename_dialog:
+		_rename_dialog.queue_free()
+		_rename_dialog = null
+	_rename_world_folder = ""
+
+
+func _confirm_rename_world() -> void:
+	if _rename_world_folder == "":
+		return
+	var new_name := _rename_input.text.strip_edges()
+	if new_name == "":
+		_set_status("世界名称不能为空")
+		return
+	var meta_path := SAVE_ROOT + _rename_world_folder + "/" + META_FILE
+	if not FileAccess.file_exists(meta_path):
+		_set_status("世界文件不存在")
+		_on_rename_cancel()
+		return
+	var f := FileAccess.open(meta_path, FileAccess.READ)
+	if f == null:
+		_on_rename_cancel()
+		return
+	var json_text := f.get_as_text()
+	f.close()
+	var json := JSON.new()
+	if json.parse(json_text) != OK:
+		_on_rename_cancel()
+		return
+	var data: Dictionary = json.data
+	data["name"] = new_name
+	var out := FileAccess.open(meta_path, FileAccess.WRITE)
+	if out == null:
+		_set_status("重命名失败！")
+		_on_rename_cancel()
+		return
+	out.store_string(JSON.stringify(data, "\t"))
+	out.close()
+	_set_status("世界已重命名")
+	_on_rename_cancel()
+	_refresh_world_list()
+
+
+func _on_search_changed(text: String) -> void:
+	_search_text = text
+	_refresh_world_list()
+
+
+func _on_sort_changed(index: int) -> void:
+	_sort_mode = index
+	_refresh_world_list()
 
 
 func _confirm_delete_world(folder: String) -> void:
@@ -775,8 +1384,10 @@ func _on_cancel_new_world() -> void:
 	_show_world_list()
 
 
-func _on_universe_mode_changed(_index: int) -> void:
-	pass
+func _on_universe_mode_changed(index: int) -> void:
+	_planet_settings_btn.visible = (index == 1)
+	if index == 0:
+		_temp_planet_overrides = {}
 
 
 func _on_randomize_seed() -> void:
@@ -792,3 +1403,5 @@ func _on_world_item_input(event: InputEvent, index: int) -> void:
 		if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 			_selected_world_index = index
 			_update_world_list_selection()
+			if mb.double_click:
+				_on_load_world()

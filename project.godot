@@ -26,6 +26,7 @@ KeyBindings="*res://scripts/KeyBindings.gd"
 ItemDatabase="*res://scripts/item/ItemDatabase.gd"
 ContentDatabase="*res://scripts/content/ContentDatabase.gd"
 NEIIndex="*res://scripts/nei/NEIIndex.gd"
+NEISettings="*res://scripts/nei/NEISettings.gd"
 
 [debug]
 

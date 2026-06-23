@@ -134,6 +134,8 @@ var exit_menu: ExitMenu = null
 var _settings_ui: SettingsUI = null
 var creative_inventory_ui: CreativeInventoryUI = null
 var nei_panel: NeiPanel = null
+var nei_sidebar: NEISidebar = null
+var nei_utility_bar: NEIUtilityBar = null
 
 # Sub-modules for separated concerns.
 var interaction: PlayerInteraction
@@ -1106,6 +1108,8 @@ func get_distance_to_planet(planet: PlanetDescriptor) -> float:
 func _connect_console() -> void:
 	if console_ui:
 		console_ui.set_player(self)
+		if universe_manager != null:
+			console_ui.set_permission_level(universe_manager.get_permission_level())
 		if not console_ui.console_opened.is_connected(_on_console_opened):
 			console_ui.console_opened.connect(_on_console_opened)
 		if not console_ui.console_closed.is_connected(_on_console_closed):
@@ -1159,11 +1163,46 @@ func _setup_creative_inventory() -> void:
 func _setup_nei_panel() -> void:
 	nei_panel = NeiPanel.new()
 	nei_panel.name = "NeiPanel"
+	nei_panel.set_player(self)
 	var ui_layer := get_node_or_null(^"../UI")
 	if ui_layer != null:
 		ui_layer.add_child(nei_panel)
 	else:
 		add_child(nei_panel)
+	_setup_nei_sidebar(ui_layer)
+	_setup_nei_utility_bar(ui_layer)
+
+
+# NEI sidebar — persistent item browser shown alongside the inventory.
+func _setup_nei_sidebar(ui_layer: Node) -> void:
+	nei_sidebar = NEISidebar.new()
+	nei_sidebar.name = "NEISidebar"
+	nei_sidebar.set_player(self)
+	nei_sidebar.item_activated.connect(_on_nei_sidebar_item_activated)
+	if ui_layer != null:
+		ui_layer.add_child(nei_sidebar)
+	else:
+		add_child(nei_sidebar)
+
+
+# NEI utility bar — cheat/utility buttons shown in UTILITY mode.
+func _setup_nei_utility_bar(ui_layer: Node) -> void:
+	nei_utility_bar = NEIUtilityBar.new()
+	nei_utility_bar.name = "NEIUtilityBar"
+	nei_utility_bar.set_player(self)
+	if ui_layer != null:
+		ui_layer.add_child(nei_utility_bar)
+	else:
+		add_child(nei_utility_bar)
+
+
+# Open the NEI panel for a specific item from the sidebar.
+func _on_nei_sidebar_item_activated(item_id: int, mode: String) -> void:
+	if nei_panel == null:
+		return
+	if not nei_panel.visible:
+		nei_panel.open()
+	nei_panel.open_for_item(item_id, mode)
 
 
 func _open_exit_menu() -> void:

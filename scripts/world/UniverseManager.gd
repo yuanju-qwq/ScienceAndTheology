@@ -155,6 +155,22 @@ var quest_system_initialized := false
 var _debug_elapsed := 0.0
 var _bridge_initialized := false
 
+# GameplayConfig overrides from GameSession, applied when world data is available.
+var _session_gameplay_config: Dictionary = {}
+
+# Planet generation overrides from GameSession (random mode only).
+var _planet_overrides: Dictionary = {}
+
+# Radius scale factor for newly realized planets (random mode size override).
+var _planet_radius_scale: float = 1.0
+
+# Default console permission level from world creation (0=PLAYER, 1=CHEATER, 2=OP).
+var _permission_level: int = 1
+
+# Expose permission level for PlayerController to read.
+func get_permission_level() -> int:
+	return _permission_level
+
 # 浮动原点：跟踪玩家的 double 精度宇宙坐标。
 # 解决多星球大尺度距离下的 float 精度问题。
 var floating_origin: FloatingOrigin = null
@@ -181,6 +197,7 @@ func _ready() -> void:
 	_generate_universe()
 	_load_player_game_mode()
 	_realize_initial_system()
+	_apply_planet_overrides()
 	_find_references()
 	_create_virtual_simulator()
 	_create_save_manager()
@@ -241,6 +258,10 @@ func _apply_game_session_overrides() -> void:
 		var session_seed := int(str(game_session.get("universe_seed")).to_int())
 		var session_density := float(str(game_session.get("system_density")).to_float())
 		var session_save_path := str(game_session.get("save_path"))
+		var session_game_mode := int(str(game_session.get("game_mode")).to_int())
+		var session_gameplay_config: Dictionary = game_session.get("gameplay_config", {})
+		var session_permission := int(str(game_session.get("permission_level")).to_int())
+		var session_planet_overrides: Dictionary = game_session.get("planet_overrides", {})
 		if session_mode != "":
 			universe_mode = session_mode
 		if session_seed != 0:
@@ -249,6 +270,14 @@ func _apply_game_session_overrides() -> void:
 			system_density = session_density
 		if session_save_path != "":
 			_save_dir = ProjectSettings.globalize_path(session_save_path)
+		if session_game_mode >= 0 and session_game_mode <= 2:
+			player_game_mode = session_game_mode
+		if session_permission >= 0 and session_permission <= 2:
+			_permission_level = session_permission
+		if not session_gameplay_config.is_empty():
+			_session_gameplay_config = session_gameplay_config
+		if not session_planet_overrides.is_empty() and universe_mode == "random":
+			_planet_overrides = session_planet_overrides
 
 	# U0 captures use a deterministic world without affecting normal sessions.
 	if OS.get_environment("SNT_U0_BASELINE") == "1":
@@ -300,6 +329,75 @@ func _load_player_game_mode() -> void:
 	player_health = float(meta.get("player_health", 100.0))
 	player_source_law_dict = meta.get("player_source_law", {})
 	player_satiation_dict = meta.get("player_satiation", {})
+
+
+func _apply_planet_overrides() -> void:
+	if _planet_overrides.is_empty():
+		return
+
+	# Find the spawn planet (breathable preferred).
+	var spawn := _find_spawn_planet()
+	if spawn == null:
+		return
+
+	# Apply terrain overrides to the spawn planet.
+	var tp := _planet_overrides.get("terrain_preset", "default")
+	if tp != "default":
+		match tp:
+			"flat": spawn.terrain_height_scale = 6.0
+			"hilly": spawn.terrain_height_scale = 14.0
+			"mountainous": spawn.terrain_height_scale = 24.0
+			"extreme": spawn.terrain_height_scale = 36.0
+
+	var sl := _planet_overrides.get("sea_level_preset", "default")
+	if sl != "default":
+		match sl:
+			"none": spawn.sea_level_fraction = 0.0
+			"low": spawn.sea_level_fraction = 0.1
+			"medium": spawn.sea_level_fraction = 0.3
+			"high": spawn.sea_level_fraction = 0.5
+
+	var cv := _planet_overrides.get("cave_preset", "default")
+	if cv != "default":
+		match cv:
+			"sparse": spawn.cave_threshold = 0.55
+			"normal": spawn.cave_threshold = 0.35
+			"dense": spawn.cave_threshold = 0.18
+
+	var at := _planet_overrides.get("atmosphere_preset", "default")
+	if at != "default":
+		match at:
+			"none": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
+			"thin": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.THIN
+			"breathable": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.BREATHABLE
+			"toxic": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
+			"corrosive": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.CORROSIVE
+
+	# Apply size override — compute scale factor for other planets.
+	var sz := _planet_overrides.get("size_preset", "default")
+	if sz != "default":
+		var original_radius := spawn.planet_radius
+		match sz:
+			"small": spawn.planet_radius *= 0.5
+			"medium": spawn.planet_radius *= 1.0
+			"large": spawn.planet_radius *= 1.8
+			"huge": spawn.planet_radius *= 3.0
+		spawn.local_center.y = -spawn.planet_radius
+
+		# Compute scale factor for other planets.
+		if original_radius > 0.0:
+			_planet_radius_scale = spawn.planet_radius / original_radius
+
+	# Scale all other realized planets by the radius factor.
+	if _planet_radius_scale != 1.0:
+		for sys in systems:
+			if not sys.is_realized():
+				continue
+			for planet in sys.planets:
+				if planet.dimension_id == spawn.dimension_id:
+					continue
+				planet.planet_radius *= _planet_radius_scale
+				planet.local_center.y = -planet.planet_radius
 
 
 # --- Initial system realization ---
@@ -427,6 +525,11 @@ func _update_system_realization() -> void:
 			SolarSystemPreset.realize(sys)
 		else:
 			StarSystemGenerator.realize(sys)
+		# Apply radius scale for newly realized planets.
+		if _planet_radius_scale != 1.0 and sys.system_id != &"sys_sol":
+			for planet in sys.planets:
+				planet.planet_radius *= _planet_radius_scale
+				planet.local_center.y = -planet.planet_radius
 		_create_lod_managers_for_system(sys)
 		system_realized.emit(sys)
 
@@ -1252,6 +1355,15 @@ func _initializetick_system() -> void:
 		return
 
 	tick_system.set_world_data(world_data)
+
+	# Apply gameplay config overrides from GameSession.
+	if not _session_gameplay_config.is_empty():
+		var current_config := world_data.get_gameplay_config()
+		for key in _session_gameplay_config:
+			if _session_gameplay_config.has(key):
+				current_config[key] = _session_gameplay_config[key]
+		world_data.set_gameplay_config(current_config)
+		_session_gameplay_config = {}
 
 	# Register subsystems in priority order.
 	# DayNight must be first (priority 0) so other systems can read is_daytime.

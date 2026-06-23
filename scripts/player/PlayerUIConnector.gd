@@ -93,6 +93,13 @@ func toggle_nei() -> void:
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui.toggle()
 	nei_panel.toggle()
+	# Show the NEI sidebar alongside the panel.
+	var sidebar: NEISidebar = _player.nei_sidebar
+	if sidebar != null:
+		if nei_panel.visible:
+			sidebar.show_sidebar()
+		else:
+			sidebar.hide_sidebar()
 	_player.set_input_locked(nei_panel.visible)
 
 
