@@ -58,7 +58,7 @@ void test_gravity_event_checks_origin_cell() {
     assert(terrain_events == 2); // source air + destination moved material
 }
 
-void test_collapse_event_checks_origin_cell() {
+void test_collapse_event_checks_origin_cell_and_deposits_debris() {
     std::srand(1);
 
     WorldData world;
@@ -69,6 +69,10 @@ void test_collapse_event_checks_origin_cell() {
         2, 2, 2,
         static_cast<TerrainMaterial>(1),
         TF_SOLID | TF_MINEABLE | TF_COLLAPSE_RISK);
+    chunk.terrain.set_cell(
+        2, 0, 2,
+        static_cast<TerrainMaterial>(9),
+        TF_SOLID | TF_MINEABLE);
     world.set_chunk(kDim, 0, 0, 0, std::move(chunk));
 
     EventBus bus;
@@ -89,7 +93,11 @@ void test_collapse_event_checks_origin_cell() {
     const ChunkData* out = world.get_chunk(kDim, 0, 0, 0);
     assert(out != nullptr);
     assert(out->terrain.cell_at(2, 2, 2).material == 0);
-    assert(terrain_events == 1);
+    // No explicit snt:collapsed_rock material exists in the minimal test config,
+    // so BlockPhysicsSystem falls back to depositing the source material.
+    assert(out->terrain.cell_at(2, 1, 2).material == 1);
+    assert(out->terrain.cell_at(2, 0, 2).material == 9);
+    assert(terrain_events == 2); // source air + debris placement
 }
 
 void test_support_beam_prevents_collapse() {
@@ -130,7 +138,7 @@ void test_support_beam_prevents_collapse() {
 
 int main() {
     test_gravity_event_checks_origin_cell();
-    test_collapse_event_checks_origin_cell();
+    test_collapse_event_checks_origin_cell_and_deposits_debris();
     test_support_beam_prevents_collapse();
     std::cout << "block_physics_system regression tests passed\n";
     return 0;
