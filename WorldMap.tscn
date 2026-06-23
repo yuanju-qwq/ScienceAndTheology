@@ -1,4 +1,4 @@
-[gd_scene load_steps=33 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=34 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -29,6 +29,7 @@
 [ext_resource type="Script" path="res://scripts/world/PhysicsTerrainSyncBridge.gd" id="28_physics_sync"]
 [ext_resource type="Script" path="res://scripts/world/ShipCommandBridge.gd" id="29_ship_command_bridge"]
 [ext_resource type="Script" path="res://scripts/world/DynamicStructureRenderer.gd" id="30_dynamic_structure_renderer"]
+[ext_resource type="Script" path="res://scripts/player/ShipCoreInteraction.gd" id="31_ship_core_interaction"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -157,6 +158,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.32, 0)
 current = true
 fov = 78.0
 far = 100000.0
+
+[node name="ShipCoreInteraction" type="Node" parent="Player"]
+script = ExtResource("31_ship_core_interaction")
+player_path = NodePath("..")
+ship_command_bridge_path = NodePath("../../ShipCommandBridge")
 
 [node name="UI" type="CanvasLayer" parent="."]
 
