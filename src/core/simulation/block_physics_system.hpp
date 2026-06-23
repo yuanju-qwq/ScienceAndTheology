@@ -17,10 +17,12 @@ namespace science_and_theology {
 //   - When a block is mined or placed, the caller enqueues a physics event in
 //     WorldData. The system expands that event into local pending checks.
 //   - Each tick, the system processes a bounded number of pending checks.
-//   - Gravity fall: TF_GRAVITY_FALL blocks move toward the planet center.
-//   - Collapse: TF_COLLAPSE_RISK blocks are removed when unsupported. Cave-in
-//     intentionally does not spawn rubble and does not move the block body;
-//     this keeps collapse cheap and avoids large terrain-delta cascades.
+//   - Gravity fall: TF_GRAVITY_FALL blocks move one step toward the planet center.
+//   - Collapse: TF_COLLAPSE_RISK blocks cave in when unsupported. Cave-in does
+//     not tick like sand and does not spawn a separate rubble material; it
+//     clears the source and settles the original material at the resting cell
+//     found along the gravity direction. This keeps cave-ins to one operation
+//     and usually two terrain deltas.
 //   - Terrain mutations are emitted through EventBus::TERRAIN_CHANGED so
 //     renderers and state-sync layers can rebuild affected chunks.
 //
@@ -87,6 +89,11 @@ public:
     // Prevents frame spikes from large cave-ins.
     static constexpr int kMaxChecksPerTick = 128;
 
+    // Maximum distance a collapsing block can search for a resting cell in one
+    // operation. This is not per-tick falling; it only bounds the instant settle
+    // scan to keep cave-ins local and predictable.
+    static constexpr int kMaxCollapseSettleDistance = 16;
+
     // Process pending checks up to the budget.
     void process_pending(int64_t current_tick);
 
@@ -115,7 +122,7 @@ public:
         int block_x, int block_y, int block_z);
 
     // Process a collapse check for a single block.
-    // Returns true if the block collapsed into air.
+    // Returns true if the block caved in and settled as the original material.
     bool process_collapse(
         const std::string& dimension_id,
         int block_x, int block_y, int block_z);
@@ -130,7 +137,20 @@ public:
     size_t pending_count() const { return pending_.size(); }
 
 private:
+    struct CollapseDestination {
+        bool valid = false;
+        int block_x = 0;
+        int block_y = 0;
+        int block_z = 0;
+    };
+
     bool is_empty_cell(const TerrainCell& cell, TerrainMaterialId air) const;
+
+    CollapseDestination find_collapse_settle_destination(
+        const std::string& dimension_id,
+        int block_x, int block_y, int block_z,
+        const GravityStep& gravity_step,
+        TerrainMaterialId air) const;
 
     void emit_terrain_changed(
         const std::string& dimension_id,
