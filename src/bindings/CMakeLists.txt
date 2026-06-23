@@ -23,6 +23,7 @@ set(SOURCES
     world/gd_planet_build_frame.cpp
     simulation/gd_game_command_server.cpp
     simulation/gd_tick_system.cpp
+    mobile_structure/gd_ship_command_bridge.cpp
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp
     player/gd_player_accessory.cpp
