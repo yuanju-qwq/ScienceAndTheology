@@ -14,22 +14,32 @@ std::shared_ptr<StructureDefinition> StructureDefinition::get_or_build(
     const std::string& key,
     std::function<std::shared_ptr<StructureDefinition>()> factory) {
 
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-
-    // Try to get from cache.
-    auto it = cache_.find(key);
-    if (it != cache_.end()) {
-        auto locked = it->second.lock();
-        if (locked) return locked;
-        // Expired — remove entry and fall through to factory.
-        cache_.erase(it);
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        auto it = cache_.find(key);
+        if (it != cache_.end()) {
+            auto locked = it->second.lock();
+            if (locked) return locked;
+            cache_.erase(it);
+        }
     }
 
-    // Build new definition.
+    // Build outside the cache mutex. Factories often call builder helpers that
+    // create StructureDefinitions too; holding the lock here would deadlock on
+    // recursive get_or_build() calls.
     auto def = factory();
-    if (def) {
+    if (!def) return nullptr;
+
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        auto it = cache_.find(key);
+        if (it != cache_.end()) {
+            auto existing = it->second.lock();
+            if (existing) return existing;
+        }
         cache_[key] = def;
     }
+
     return def;
 }
 
