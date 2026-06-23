@@ -127,6 +127,30 @@ public:
                               WorldData& world,
                               int* legacy_skipped = nullptr);
 
+    // --- Per-chunk save / load ---
+
+    // Saves one loaded chunk by reading its region file, replacing/adding that
+    // entry, and rewriting the compacted region. Does not rewrite planet summary
+    // unless planet_data.bin is missing.
+    static bool save_chunk(const std::string& planet_dir,
+                           int64_t seed,
+                           const std::string& dimension_id,
+                           const WorldData& world,
+                           int chunk_x, int chunk_y, int chunk_z);
+
+    // Loads one chunk from its region file into WorldData. Returns false if the
+    // region or chunk entry does not exist.
+    static bool load_chunk(const std::string& planet_dir,
+                           const std::string& dimension_id,
+                           WorldData& world,
+                           int chunk_x, int chunk_y, int chunk_z);
+
+    // Removes one chunk entry from a region file. If the region becomes empty,
+    // deletes the region file. This is the first safe region-level GC primitive.
+    static bool delete_chunk(const std::string& planet_dir,
+                             const std::string& dimension_id,
+                             int chunk_x, int chunk_y, int chunk_z);
+
     // --- Planet data (header + summary) ---
 
     // Writes a planet_data.bin file with header and optional summary.
