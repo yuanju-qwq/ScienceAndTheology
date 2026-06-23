@@ -1,5 +1,6 @@
 #include "machine_system.hpp"
 #include "event_bus.hpp"
+#include "../multiblock/multiblock_machine_service.hpp"
 #include "../world/world_data.hpp"
 
 namespace science_and_theology {
@@ -17,13 +18,16 @@ void MachineSystem::tick_active(const ChunkKey& chunk, float delta,
         chunk.dimension_id, chunk.chunk_x, chunk.chunk_y, chunk.chunk_z);
     if (!chunk_data) return;
 
-    // Iterate over all machines in this chunk and tick them.
+    // Iterate over all machines in this chunk and tick only formed machines.
     for (const auto& mid : chunk_data->machines) {
         auto it = machine_registry_.find(mid);
         if (it == machine_registry_.end()) continue;
 
         gt::Machine* machine = it->second;
         if (!machine) continue;
+        if (!multiblock::MultiblockMachineService::can_tick_machine(*world_, mid)) {
+            continue;
+        }
 
         // Power injection: machines draw power from their connected network.
         // This is mediated by the game loop; for now, assume power is set
@@ -33,6 +37,7 @@ void MachineSystem::tick_active(const ChunkKey& chunk, float delta,
 
     // Mark chunk as dirty for machine state sync.
     (void)delta;
+    (void)ctx;
 }
 
 void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta,
@@ -56,12 +61,16 @@ void MachineSystem::tick_sleeping(const ChunkKey& chunk, float delta,
 
         gt::Machine* machine = it->second;
         if (!machine) continue;
+        if (!multiblock::MultiblockMachineService::can_tick_machine(*world_, mid)) {
+            continue;
+        }
 
         // Sleeping machines advance by the accumulated tick count.
         // This keeps their production rate identical to active machines;
         // only the update frequency is lower.
         machine->tick_n(ticks_to_advance);
     }
+    (void)ctx;
 }
 
 void MachineSystem::shutdown() {
