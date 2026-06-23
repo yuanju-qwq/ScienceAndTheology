@@ -173,6 +173,10 @@ public:
     int64_t get_active_radius() const;
     void set_active_radius(int64_t radius);
 
+    // External ChunkData.state integration.
+    bool get_respect_external_chunk_state() const;
+    void set_respect_external_chunk_state(bool enabled);
+
     // --- Sleep interval configuration ---
 
     // Sleep interval for NEAR tier (in ticks).
@@ -203,6 +207,16 @@ public:
 
     // Returns the number of currently ACTIVE chunks.
     int64_t get_active_chunk_count() const;
+
+    // Returns sleeping chunk counts by tier.
+    int64_t get_sleep_near_chunk_count() const;
+    int64_t get_sleep_mid_chunk_count() const;
+    int64_t get_sleep_far_chunk_count() const;
+
+    // Returns diagnostic counts from external ChunkData.state integration.
+    int64_t get_external_active_chunk_count() const;
+    int64_t get_external_sleeping_chunk_count() const;
+    int64_t get_skipped_external_sleeping_chunk_count() const;
 
     // Returns active chunk keys as an Array of Dictionaries.
     godot::Array get_active_chunks() const;
