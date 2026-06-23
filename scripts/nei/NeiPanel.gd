@@ -221,10 +221,10 @@ func _populate_machine_filter() -> void:
 	_machine_filter_box.set_item_metadata(1, MACHINE_FILTER_CRAFTING)
 	for machine in NEIIndex.get_machine_types():
 		_machine_filter_box.add_item("Machine: %s" % machine)
-		_machine_filter_box.set_item_metadata(_machine_filter_box.item_count - 1, str(machine))
+		_machine_filter_box.set_item_metadata(_machine_filter_box.get_item_count() - 1, str(machine))
 
 	var selected_index := 0
-	for i in range(_machine_filter_box.item_count):
+	for i in range(_machine_filter_box.get_item_count()):
 		if str(_machine_filter_box.get_item_metadata(i)) == current:
 			selected_index = i
 			break
@@ -314,6 +314,7 @@ func _rebuild_tabs() -> void:
 	_add_tab("info", "Info")
 	_add_tab("recipes", "Recipes")
 	_add_tab("usage", "Usage")
+	_add_tab("machines", "Machines")
 
 
 func _add_tab(mode: String, label_text: String) -> void:
@@ -334,12 +335,15 @@ func _on_tab_pressed(mode: String) -> void:
 
 func _show_detail() -> void:
 	_clear_detail()
+	_machine_filter_box.visible = _detail_mode == "recipes" or _detail_mode == "usage"
 	if _detail_mode == "info":
 		_show_info()
 	elif _detail_mode == "recipes":
 		_show_recipes(NEIIndex.get_recipes_for_output(_current_item_id), "No recipes found.")
-	else:
+	elif _detail_mode == "usage":
 		_show_recipes(NEIIndex.get_recipes_for_input(_current_item_id), "No usages found.")
+	else:
+		_show_machines()
 
 
 func _clear_detail() -> void:
@@ -383,6 +387,82 @@ func _related_machine_text() -> String:
 		names.append(name)
 	names.sort()
 	return ", ".join(names)
+
+
+func _show_machines() -> void:
+	var groups := _machine_groups_for_current_item()
+	if groups.is_empty():
+		_add_text("No related machines.", Color(0.62, 0.64, 0.72))
+		return
+	_add_section("Related Machines")
+	for machine in groups.keys():
+		var group: Dictionary = groups[machine]
+		var card := PanelContainer.new()
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var box := VBoxContainer.new()
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.add_child(box)
+
+		var title := Label.new()
+		title.text = str(machine)
+		title.add_theme_color_override("font_color", Color(0.55, 0.82, 1.0))
+		box.add_child(title)
+
+		var meta := Label.new()
+		meta.text = "Recipes: %d | Usages: %d | Min tier: %s | EU/t: %s" % [
+			int(group.get("recipes", 0)),
+			int(group.get("usages", 0)),
+			str(group.get("min_tier", "-")),
+			str(group.get("max_eut", "-")),
+		]
+		meta.add_theme_color_override("font_color", Color(0.82, 0.78, 0.58))
+		box.add_child(meta)
+
+		var buttons := HBoxContainer.new()
+		var recipe_btn := Button.new()
+		recipe_btn.text = "Show Recipes"
+		recipe_btn.pressed.connect(_on_machine_jump.bind(str(machine), "recipes"))
+		buttons.add_child(recipe_btn)
+		var usage_btn := Button.new()
+		usage_btn.text = "Show Usages"
+		usage_btn.pressed.connect(_on_machine_jump.bind(str(machine), "usage"))
+		buttons.add_child(usage_btn)
+		box.add_child(buttons)
+		_list.add_child(card)
+
+
+func _machine_groups_for_current_item() -> Dictionary:
+	var groups := {}
+	for mode in ["recipes", "usages"]:
+		var refs: Array[NEIIndex.RecipeRef] = (
+			NEIIndex.get_recipes_for_output(_current_item_id)
+			if mode == "recipes"
+			else NEIIndex.get_recipes_for_input(_current_item_id))
+		for ref in refs:
+			var machine := ref.machine_type if not ref.machine_type.is_empty() else ref.recipe_type
+			if machine.is_empty():
+				machine = "unknown"
+			if not groups.has(machine):
+				groups[machine] = {"recipes": 0, "usages": 0, "min_tier": "-", "max_eut": "-"}
+			var group: Dictionary = groups[machine]
+			group[mode] = int(group.get(mode, 0)) + 1
+			if ref.min_tier > 0:
+				var current_tier := int(group.get("min_tier", ref.min_tier)) if str(group.get("min_tier", "-")).is_valid_int() else ref.min_tier
+				group["min_tier"] = mini(current_tier, ref.min_tier)
+			if ref.eu_per_tick > 0:
+				var current_eut := int(group.get("max_eut", 0)) if str(group.get("max_eut", "0")).is_valid_int() else 0
+				group["max_eut"] = maxi(current_eut, ref.eu_per_tick)
+			groups[machine] = group
+	return groups
+
+
+func _on_machine_jump(machine: String, mode: String) -> void:
+	_machine_filter = machine if machine != "crafting" else MACHINE_FILTER_CRAFTING
+	_populate_machine_filter()
+	_detail_mode = mode
+	_recipe_page = 0
+	_rebuild_tabs()
+	_show_detail()
 
 
 func _show_recipes(refs: Array[NEIIndex.RecipeRef], empty_text: String) -> void:
@@ -466,6 +546,14 @@ func _recipe_card(ref: NEIIndex.RecipeRef) -> Control:
 		meta_label.add_theme_color_override("font_color", Color(0.82, 0.78, 0.58))
 		box.add_child(meta_label)
 
+	if ref.recipe_type == "crafting":
+		_add_crafting_layout(box, ref)
+	else:
+		_add_linear_recipe_layout(box, ref)
+	return card
+
+
+func _add_linear_recipe_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> void:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(row)
@@ -476,7 +564,117 @@ func _recipe_card(ref: NEIIndex.RecipeRef) -> Control:
 	arrow.custom_minimum_size.y = SLOT_SIZE
 	row.add_child(arrow)
 	_add_stacks(row, ref.item_outputs, ref.fluid_outputs)
-	return card
+
+
+func _add_crafting_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> void:
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(row)
+
+	var grid := GridContainer.new()
+	grid.columns = 3
+	row.add_child(grid)
+	for entry in _crafting_grid_entries(ref):
+		_add_grid_entry(grid, entry)
+
+	var arrow := Label.new()
+	arrow.text = "  ->  "
+	arrow.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	arrow.custom_minimum_size.y = SLOT_SIZE * 3
+	row.add_child(arrow)
+
+	_add_stacks(row, ref.item_outputs, ref.fluid_outputs)
+
+
+func _crafting_grid_entries(ref: NEIIndex.RecipeRef) -> Array:
+	var data := ref.data
+	var entries: Array = []
+	for i in range(9):
+		entries.append({})
+
+	if data.has("grid") and data["grid"] is Array:
+		_fill_grid_from_array(entries, data["grid"] as Array)
+		return entries
+	if data.has("slots") and data["slots"] is Array:
+		_fill_grid_from_slots(entries, data["slots"] as Array)
+		return entries
+	if data.has("pattern") and data["pattern"] is Array:
+		_fill_grid_from_pattern(entries, data["pattern"] as Array, data)
+		return entries
+	if data.has("shape") and data["shape"] is Array:
+		_fill_grid_from_pattern(entries, data["shape"] as Array, data)
+		return entries
+
+	for i in range(mini(ref.item_inputs.size(), 9)):
+		entries[i] = ref.item_inputs[i]
+	return entries
+
+
+func _fill_grid_from_array(entries: Array, raw: Array) -> void:
+	for i in range(mini(raw.size(), 9)):
+		var value = raw[i]
+		if value is Dictionary:
+			entries[i] = _normalize_grid_stack(value as Dictionary)
+		elif int(value) > 0:
+			entries[i] = {"item_id": int(value), "count": 1}
+
+
+func _fill_grid_from_slots(entries: Array, raw: Array) -> void:
+	for value in raw:
+		if not (value is Dictionary):
+			continue
+		var slot := value as Dictionary
+		var index := int(slot.get("slot", slot.get("index", -1)))
+		if index < 0 or index >= 9:
+			continue
+		entries[index] = _normalize_grid_stack(slot)
+
+
+func _fill_grid_from_pattern(entries: Array, pattern: Array, data: Dictionary) -> void:
+	var key_map: Dictionary = data.get("keys", data.get("key", {}))
+	for y in range(mini(pattern.size(), 3)):
+		var row := str(pattern[y])
+		for x in range(mini(row.length(), 3)):
+			var ch := row.substr(x, 1)
+			if ch == " " or ch == ".":
+				continue
+			var raw = key_map.get(ch, {})
+			if raw is Dictionary:
+				entries[y * 3 + x] = _normalize_grid_stack(raw as Dictionary)
+
+
+func _normalize_grid_stack(raw: Dictionary) -> Dictionary:
+	var item_id := int(raw.get("item_id", 0))
+	if item_id <= 0 and raw.has("item_key"):
+		item_id = _item_id_from_key(str(raw.get("item_key", "")))
+	if item_id <= 0:
+		return {}
+	return {"item_id": item_id, "count": int(raw.get("amount", raw.get("count", 1)))}
+
+
+func _item_id_from_key(item_key: String) -> int:
+	if item_key.is_empty():
+		return -1
+	if ItemDatabase.has_method("get_item_id_by_key"):
+		return int(ItemDatabase.get_item_id_by_key(item_key))
+	return -1
+
+
+func _add_grid_entry(parent: GridContainer, entry: Dictionary) -> void:
+	if entry.is_empty():
+		var empty := Panel.new()
+		empty.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
+		parent.add_child(empty)
+		return
+	var item_id := int(entry.get("item_id", 0))
+	var slot := SlotUI.new()
+	slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
+	slot.size = Vector2(SLOT_SIZE, SLOT_SIZE)
+	slot.slot_index = item_id
+	slot.item_stack = ItemStack.new(item_id, int(entry.get("count", 1)))
+	slot.clicked.connect(_on_detail_slot_clicked)
+	slot.right_clicked.connect(_on_detail_slot_right_clicked)
+	parent.add_child(slot)
 
 
 func _recipe_meta(ref: NEIIndex.RecipeRef) -> String:
@@ -500,7 +698,6 @@ func _add_stacks(parent: HBoxContainer, items: Array[Dictionary], fluids: Array[
 		if item_id <= 0:
 			continue
 		var box := VBoxContainer.new()
-		box.alignment = BoxContainer.ALIGNMENT_CENTER
 		var slot := SlotUI.new()
 		slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
 		slot.size = Vector2(SLOT_SIZE, SLOT_SIZE)
