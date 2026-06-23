@@ -66,11 +66,6 @@ func toggle_creative_inventory() -> void:
 		_player.set_input_locked(creative_ui._is_open)
 
 
-func toggle_wiki() -> void:
-	# The old Wiki UI has been replaced by the NEI content browser.
-	toggle_nei()
-
-
 func toggle_crafting(station: String = "") -> void:
 	var crafting_ui: CraftingUI = _player.crafting_ui
 	var inventory_ui: InventoryUI = _player.inventory_ui
