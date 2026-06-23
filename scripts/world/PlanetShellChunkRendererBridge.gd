@@ -22,6 +22,12 @@ extends ChunkRendererBridge
 @export var shell_order_cache_enabled := true
 @export var shell_order_cache_max_entries := 128
 
+# Prune stale tracking metadata outside the current shell. This does not delete
+# saved chunk data; it only allows far-away chunks to be re-requested normally if
+# the player later returns to them.
+@export var prune_tracked_chunks_enabled := true
+@export var tracked_chunk_extra_radius := 2
+
 # Keep chunks that were directly modified/accessed by gameplay alive while the
 # player remains nearby. This is the first DeepUndergroundChunk on-demand hook:
 # a chunk outside the active surface shell can still be loaded/rendered when the
@@ -60,6 +66,7 @@ var _last_shell_visible_candidates := 0
 var _last_shell_load_candidates := 0
 var _last_shell_order_cache_hits := 0
 var _last_shell_order_cache_misses := 0
+var _last_tracked_chunks_pruned := 0
 var _last_forced_keepalive_chunks := 0
 var _last_deep_player_chunks := 0
 var _last_horizontal_lod0_chunks := 0
@@ -84,6 +91,8 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_order_cache_misses"] = _last_shell_order_cache_misses
 	metrics["shell_visible_candidates"] = _last_shell_visible_candidates
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
+	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
+	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
 	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
 	metrics["forced_shell_chunks"] = _forced_shell_chunks.size()
 	metrics["forced_keepalive_chunks"] = _last_forced_keepalive_chunks
@@ -101,6 +110,7 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
 	_last_shell_order_cache_hits = 0
 	_last_shell_order_cache_misses = 0
+	_last_tracked_chunks_pruned = 0
 	_last_forced_keepalive_chunks = 0
 	_last_deep_player_chunks = 0
 
@@ -167,6 +177,7 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 		if not _pending_view_queue.has(chunk):
 			_enqueue_chunk_view(chunk)
 
+	_prune_tracked_chunks(wanted_visible, load_order, player_chunk)
 	_process_visible_queue()
 
 
@@ -366,6 +377,32 @@ func _prune_forced_shell_chunks(max_entries: int) -> void:
 		if oldest_chunk == null:
 			break
 		_forced_shell_chunks.erase(oldest_chunk)
+
+
+func _prune_tracked_chunks(wanted_visible: Dictionary, load_order: Array,
+		player_chunk: Vector3i) -> void:
+	_last_tracked_chunks_pruned = 0
+	if not prune_tracked_chunks_enabled:
+		return
+	var keep: Dictionary = {}
+	for chunk: Vector3i in wanted_visible.keys():
+		keep[chunk] = true
+	for chunk in load_order:
+		keep[chunk] = true
+	for chunk: Vector3i in _visible_chunks.keys():
+		keep[chunk] = true
+	for chunk in _pending_view_queue:
+		keep[chunk] = true
+	for chunk in _pending_rebuild_queue:
+		keep[chunk] = true
+
+	for chunk: Vector3i in _tracked_chunks.keys():
+		if keep.has(chunk):
+			continue
+		if _is_chunk_near_player_chunk(chunk, player_chunk, tracked_chunk_extra_radius):
+			continue
+		_tracked_chunks.erase(chunk)
+		_last_tracked_chunks_pruned += 1
 
 
 func _is_chunk_near_player_chunk(chunk: Vector3i, player_chunk: Vector3i,
