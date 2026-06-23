@@ -85,6 +85,12 @@ target_sources(snt_core PRIVATE
     multiblock/multiblock_controller.cpp
 )
 
+# Dynamic mobile structure system (Create-style static blocks → moving entity → write-back)
+target_sources(snt_core PRIVATE
+    mobile_structure/dynamic_structure.hpp
+    mobile_structure/dynamic_structure.cpp
+)
+
 # World generation system
 target_sources(snt_core PRIVATE
     world_gen/world_seed.hpp
@@ -218,78 +224,4 @@ target_sources(snt_core PRIVATE
     universe/chunk_streaming_system.hpp
     universe/chunk_streaming_system.cpp
     universe/sparse_chunk_policy.hpp
-    universe/sparse_chunk_policy.cpp
-    universe/entity_sector_tracker.hpp
-    universe/entity_sector_tracker.cpp
-    universe/floating_origin_core.hpp
-    universe/floating_origin_core.cpp
-)
-
-# Universe navigation (U3: flight modes, celestial LOD, unified interest management)
-# Design: docs/unified_universe_world_design.md sections 9, 12, 18, 21.2 (U3)
-target_sources(snt_core PRIVATE
-    universe/flight_state_tracker.hpp
-    universe/flight_state_tracker.cpp
-    universe/celestial_lod_system.hpp
-    universe/celestial_lod_system.cpp
-    universe/interest_manager.hpp
-    universe/interest_manager.cpp
-)
-
-# Universe planets (U4: second real planet, continuous landing, gravity fields, LOD pipeline)
-# Design: docs/unified_universe_world_design.md sections 6, 7, 9, 21.2 (U4)
-target_sources(snt_core PRIVATE
-    universe/planet_environment.hpp
-    universe/gravity_field_manager.hpp
-    universe/gravity_field_manager.cpp
-    universe/celestial_lod_pipeline.hpp
-    universe/celestial_lod_pipeline.cpp
-    universe/sector_transition_manager.hpp
-    universe/sector_transition_manager.cpp
-)
-
-# Universe building (U5: cross-sector BlockSpace, structure anchors, space station sectors)
-# Design: docs/unified_universe_world_design.md sections 6.2, 8, 21.2 (U5)
-target_sources(snt_core PRIVATE
-    universe/planet_build_frame.hpp
-    universe/planet_build_frame.cpp
-    universe/block_space.hpp
-    universe/block_space.cpp
-    universe/structure_anchor_manager.hpp
-    universe/structure_anchor_manager.cpp
-    universe/space_station_sector.hpp
-    universe/space_station_sector.cpp
-)
-
-# Universe simulation (U6: sector-aware scheduling, cross-sector relays, network isolation, virtual planet sim)
-# Design: docs/unified_universe_world_design.md sections 4.4, 21.2 (U6)
-target_sources(snt_core PRIVATE
-    universe/sector_simulation_scheduler.hpp
-    universe/sector_simulation_scheduler.cpp
-    universe/cross_sector_relay.hpp
-    universe/cross_sector_relay.cpp
-    universe/network_isolation_guard.hpp
-    universe/network_isolation_guard.cpp
-    universe/virtual_planet_simulator.hpp
-    universe/virtual_planet_simulator.cpp
-)
-
-# Universe multiplayer (U7: per-observer AOI budget, sector-aware observer map, multi-sector sync)
-# Design: docs/unified_universe_world_design.md sections 12, 21.2 (U7)
-target_sources(snt_core PRIVATE
-    universe/aoi_budget_manager.hpp
-    universe/aoi_budget_manager.cpp
-    universe/sector_observer_map.hpp
-    universe/sector_observer_map.cpp
-    universe/multi_sector_sync_coordinator.hpp
-    universe/multi_sector_sync_coordinator.cpp
-)
-
-# Universe release (U8: performance budget monitor, save reliability, stress scenarios)
-# Design: docs/unified_universe_world_design.md sections 21.2 (U8)
-target_sources(snt_core PRIVATE
-    universe/performance_budget_monitor.hpp
-    universe/performance_budget_monitor.cpp
-    universe/save_reliability_manager.hpp
-    universe/save_reliability_manager.cpp
 )
