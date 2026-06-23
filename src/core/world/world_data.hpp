@@ -7,6 +7,7 @@
 #include "chunk_data.hpp"
 #include "gameplay_config.hpp"
 #include "block_entity_registry.hpp"
+#include "../mobile_structure/dynamic_structure.hpp"
 #include "../world_gen/world_gen_config.hpp"
 
 namespace science_and_theology {
@@ -106,6 +107,16 @@ public:
     BlockEntityRegistry& block_entity_registry() { return block_entity_registry_; }
     const BlockEntityRegistry& block_entity_registry() const { return block_entity_registry_; }
 
+    // --- Dynamic mobile structures ---
+
+    mobile_structure::DynamicStructureRegistry& mobile_structure_registry() {
+        return mobile_structure_registry_;
+    }
+
+    const mobile_structure::DynamicStructureRegistry& mobile_structure_registry() const {
+        return mobile_structure_registry_;
+    }
+
     // --- Block physics events ---
 
     // Enqueue a block physics event (e.g., after mining a block).
@@ -144,6 +155,9 @@ private:
 
     // Block entity registry (trees, machines, etc.).
     BlockEntityRegistry block_entity_registry_;
+
+    // Dynamic mobile structures (ships, contraptions, future stations).
+    mobile_structure::DynamicStructureRegistry mobile_structure_registry_;
 };
 
 // --- Inline implementations ---
@@ -201,6 +215,7 @@ inline std::vector<ChunkKey> WorldData::all_chunk_keys() const {
 
 inline void WorldData::clear() {
     chunks_.clear();
+    mobile_structure_registry_.clear();
 }
 
 } // namespace science_and_theology
