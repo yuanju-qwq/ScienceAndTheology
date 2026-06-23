@@ -3,6 +3,8 @@
 #include <utility>
 
 #include "core/mobile_structure/dynamic_structure.hpp"
+#include "core/mobile_structure/ship_local_grid.hpp"
+#include "core/mobile_structure/ship_structure.hpp"
 #include "core/world/world_data.hpp"
 
 using namespace science_and_theology;
@@ -149,6 +151,56 @@ void test_block_limit_fails_without_mutating_world() {
     assert(out->terrain.cell_at(3, 1, 1).material == kHull);
 }
 
+void test_ship_service_uses_world_registry() {
+    WorldData world;
+    world.set_current_tick(77);
+    ChunkData chunk = make_empty_chunk();
+    chunk.terrain.set_cell(4, 4, 4, kHull, TF_SOLID | TF_MINEABLE);
+    chunk.terrain.set_cell(5, 4, 4, kHull, TF_SOLID | TF_MINEABLE);
+    chunk.terrain.set_cell(6, 4, 4, kStone, TF_SOLID | TF_MINEABLE);
+    world.set_chunk(kDim, 0, 0, 0, std::move(chunk));
+
+    ShipAssembleOptions options;
+    options.max_blocks = 8;
+    options.allowed_materials = {kHull};
+
+    ShipAssembleResult result = ShipStructureService::assemble_ship_from_world(
+        world, kDim, 4, 4, 4, options);
+
+    assert(result.base.success);
+    assert(result.base.block_count == 2);
+    assert(world.mobile_structure_registry().count() == 1);
+    assert(result.transform_snapshot.tick == 77);
+
+    const ChunkData* out = world.get_chunk(kDim, 0, 0, 0);
+    assert(out != nullptr);
+    assert(out->terrain.cell_at(4, 4, 4).material == 0);
+    assert(out->terrain.cell_at(5, 4, 4).material == 0);
+    assert(out->terrain.cell_at(6, 4, 4).material == kStone);
+}
+
+void test_ship_local_grid_updates_snapshot_version() {
+    DynamicStructureEntity entity;
+    entity.id = 1;
+    entity.snapshot.blocks.push_back(LocalStructureBlock{0, 0, 0, kHull, TF_SOLID});
+    entity.snapshot.blocks.push_back(LocalStructureBlock{1, 0, 0, kHull, TF_SOLID});
+    entity.mass = 2.0;
+
+    ShipLocalGrid grid(entity);
+    assert(grid.block_count() == 2);
+    const TerrainCell* cell = grid.get_cell(1, 0, 0);
+    assert(cell != nullptr);
+    assert(cell->material == kHull);
+
+    const uint32_t before = grid.structure_version();
+    assert(grid.set_cell(1, 0, 0, kStone, TF_SOLID | TF_MINEABLE));
+    assert(grid.structure_version() == before + 1);
+    cell = grid.get_cell(1, 0, 0);
+    assert(cell != nullptr);
+    assert(cell->material == kStone);
+    assert(entity.dirty_mesh);
+}
+
 } // namespace
 
 int main() {
@@ -156,6 +208,8 @@ int main() {
     test_transform_snapshot_is_one_entity_payload();
     test_disassemble_writes_back_at_new_transform();
     test_block_limit_fails_without_mutating_world();
+    test_ship_service_uses_world_registry();
+    test_ship_local_grid_updates_snapshot_version();
     std::cout << "mobile_structure core tests passed\n";
     return 0;
 }
