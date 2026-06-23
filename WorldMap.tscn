@@ -1,4 +1,4 @@
-[gd_scene load_steps=31 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=33 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -27,6 +27,8 @@
 [ext_resource type="Script" path="res://scripts/world/AnvilManager.gd" id="26_anvil"]
 [ext_resource type="Script" path="res://scripts/ui/KnappingUI.gd" id="27_knapping_ui"]
 [ext_resource type="Script" path="res://scripts/world/PhysicsTerrainSyncBridge.gd" id="28_physics_sync"]
+[ext_resource type="Script" path="res://scripts/world/ShipCommandBridge.gd" id="29_ship_command_bridge"]
+[ext_resource type="Script" path="res://scripts/world/DynamicStructureRenderer.gd" id="30_dynamic_structure_renderer"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -103,6 +105,14 @@ script = ExtResource("6_command_server")
 script = ExtResource("7_chunk_bridge")
 debug_chunk_streaming = false
 
+[node name="ShipCommandBridge" type="GDShipCommandBridge" parent="."]
+script = ExtResource("29_ship_command_bridge")
+chunk_bridge_path = NodePath("../ChunkRendererBridge")
+
+[node name="DynamicStructureRenderer" type="Node3D" parent="."]
+script = ExtResource("30_dynamic_structure_renderer")
+ship_command_bridge_path = NodePath("../ShipCommandBridge")
+
 [node name="UniverseManager" type="Node3D" parent="."]
 script = ExtResource("17_universe_manager")
 universe_mode = "solar_system"
@@ -178,65 +188,3 @@ anchors_preset = 0
 offset_left = 12.0
 offset_top = 72.0
 offset_right = 232.0
-offset_bottom = 102.0
-
-[node name="Background" type="ColorRect" parent="UI/ConnectorPrompt"]
-layout_mode = 0
-offset_right = 220.0
-offset_bottom = 30.0
-color = Color(0.035, 0.04, 0.045, 0.72)
-
-[node name="Label" type="Label" parent="UI/ConnectorPrompt"]
-layout_mode = 0
-offset_left = 8.0
-offset_top = 4.0
-offset_right = 212.0
-offset_bottom = 26.0
-text = "E  Interact"
-
-[node name="HotbarUI" type="Control" parent="UI"]
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -162.0
-offset_top = -44.0
-offset_right = 162.0
-offset_bottom = -8.0
-mouse_filter = 2
-script = ExtResource("10_hotbar_ui")
-
-[node name="InventoryUI" type="Control" parent="UI"]
-script = ExtResource("11_inventory_ui")
-
-[node name="CraftingUI" type="Control" parent="UI"]
-script = ExtResource("12_crafting_ui")
-
-[node name="WikiUI" type="Control" parent="UI"]
-script = ExtResource("14_wiki_ui")
-
-[node name="FurnaceUI" parent="UI" instance=ExtResource("13_furnace_ui")]
-
-[node name="ConsoleUI" type="Control" parent="UI"]
-anchor_left = 0.0
-anchor_top = 0.0
-anchor_right = 1.0
-anchor_bottom = 0.5
-offset_left = 12.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = -12.0
-mouse_filter = 0
-script = ExtResource("16_console_ui")
-
-[node name="QuestBookUI" type="Control" parent="UI"]
-script = ExtResource("20_quest_book_ui")
-visible = false
-mouse_filter = 2
-
-[node name="KnappingUI" type="Control" parent="UI"]
-script = ExtResource("27_knapping_ui")
-visible = false
-mouse_filter = 2
-
-[connection signal="terrain_cell_synced" from="GameCommandServer" to="ChunkRendererBridge" method="on_terrain_cell_synced"]
