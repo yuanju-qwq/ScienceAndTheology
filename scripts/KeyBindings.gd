@@ -11,7 +11,6 @@ const SECTION := "bindings"
 const ACTION_DEFS: Array[Array] = [
 	[&"toggle_inventory",  "背包",       KEY_E],
 	[&"toggle_crafting",   "合成台",     KEY_C],
-	[&"toggle_wiki",       "百科",       KEY_B],
 	[&"toggle_quest_book", "任务书",     KEY_J],
 	[&"toggle_mouse",      "释放鼠标",   KEY_TAB],
 	[&"toggle_debug",      "调试面板",   KEY_F3],
