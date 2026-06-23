@@ -1,4 +1,4 @@
-[gd_scene load_steps=30 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=31 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -26,6 +26,7 @@
 [ext_resource type="Script" path="res://scripts/world/BloomeryManager.gd" id="25_bloomery"]
 [ext_resource type="Script" path="res://scripts/world/AnvilManager.gd" id="26_anvil"]
 [ext_resource type="Script" path="res://scripts/ui/KnappingUI.gd" id="27_knapping_ui"]
+[ext_resource type="Script" path="res://scripts/world/PhysicsTerrainSyncBridge.gd" id="28_physics_sync"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.34
@@ -92,7 +93,7 @@ script = ExtResource("24_pit_kiln")
 [node name="BloomeryManager" type="GDBloomeryManager" parent="."]
 script = ExtResource("25_bloomery")
 
-[node name="AnvilManager" type="GDAnvilManager" parent="."]
+[node name="AnvilManager" type="GDBloomeryManager" parent="."]
 script = ExtResource("26_anvil")
 
 [node name="GameCommandServer" type="GDGameCommandServer" parent="."]
@@ -114,6 +115,9 @@ tick_system_path = NodePath("../GDTickSystem")
 script = ExtResource("21_baseline_monitor")
 
 [node name="GDTickSystem" type="GDTickSystem" parent="."]
+
+[node name="PhysicsTerrainSyncBridge" type="Node" parent="."]
+script = ExtResource("28_physics_sync")
 
 [node name="GDQuestSystem" type="GDQuestSystem" parent="."]
 
