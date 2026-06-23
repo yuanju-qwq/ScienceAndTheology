@@ -86,6 +86,10 @@ public:
     // Prevents frame spikes from large cave-ins.
     static constexpr int kMaxChecksPerTick = 128;
 
+    // Maximum number of cells a cave-in debris block can fall before it is
+    // discarded. Keeps collapse processing bounded and loaded-chunk local.
+    static constexpr int kMaxCollapseDebrisFallDistance = 16;
+
     // Process pending checks up to the budget.
     void process_pending(int64_t current_tick);
 
@@ -129,6 +133,24 @@ public:
     size_t pending_count() const { return pending_.size(); }
 
 private:
+    struct DebrisDestination {
+        bool valid = false;
+        int block_x = 0;
+        int block_y = 0;
+        int block_z = 0;
+    };
+
+    bool is_empty_cell(const TerrainCell& cell, TerrainMaterialId air) const;
+
+    TerrainMaterialId collapse_debris_material(TerrainMaterialId source_material) const;
+    uint32_t material_flags_or(TerrainMaterialId material, uint32_t fallback) const;
+
+    DebrisDestination find_collapse_debris_destination(
+        const std::string& dimension_id,
+        int block_x, int block_y, int block_z,
+        const GravityStep& gravity_step,
+        TerrainMaterialId air) const;
+
     void emit_terrain_changed(
         const std::string& dimension_id,
         int chunk_x, int chunk_y, int chunk_z,
