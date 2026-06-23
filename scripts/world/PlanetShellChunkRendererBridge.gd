@@ -30,6 +30,11 @@ const CHUNK_STATE_SLEEPING := 4
 # still load the scene while the native extension is being rebuilt.
 @export var use_cpp_shell_helper := true
 
+# Prefer the native single-chunk persistence helper for save-before-unload and
+# restore-before-regenerate. The normal async generation path remains as fallback.
+@export var use_chunk_persistence_helper := true
+@export var persist_chunks_before_memory_unload := true
+
 # Keep a radial surface-column index for deep chunks touched by gameplay. Unlike
 # the short-lived forced keepalive set, this index records which surface column a
 # deep chunk belongs to, so returning to the same area can re-activate it.
@@ -42,6 +47,13 @@ const CHUNK_STATE_SLEEPING := 4
 @export var manage_deep_chunk_states := true
 @export var chunk_state_keep_radius := 2
 @export var max_chunk_state_updates_per_frame := 64
+
+# Remove safe sleeping chunks from GDWorldData memory after single-chunk save.
+# This does not delete region-file entries. Region GC is a separate explicit API.
+@export var unload_sleeping_chunks_from_memory := true
+@export var unload_sleeping_chunk_keep_radius := 8
+@export var max_chunk_memory_unloads_per_frame := 8
+@export var protect_indexed_chunks_from_memory_unload := false
 
 # Prune stale tracking metadata outside the current shell. This does not delete
 # saved chunk data; it only allows far-away chunks to be re-requested normally if
@@ -82,6 +94,10 @@ var _shell_order_cache: Dictionary = {}
 # still parse when the native class is not present in an older extension binary.
 var _planet_shell_helper: Object = null
 
+# Lazily-created GDChunkPersistenceHelper instance. Stored as Object so the script
+# can still parse when the native class is not present in an older extension binary.
+var _chunk_persistence_helper: Object = null
+
 # Runtime surface-column index for deep chunks. It is intentionally not cleared
 # on dimension switch because it stores data per dimension.
 var _surface_column_index: SurfaceColumnIndex = SurfaceColumnIndex.new()
@@ -89,6 +105,11 @@ var _surface_column_index: SurfaceColumnIndex = SurfaceColumnIndex.new()
 # Chunks explicitly touched by gameplay. These bypass surface-shell clipping while
 # the player stays close, then age out through the max-entry cap or dimension switch.
 var _forced_shell_chunks: Dictionary = {}
+
+# Chunks removed from GDWorldData memory after being written to the single-chunk
+# persistence path. They can be restored from disk before falling back to async
+# generation when they re-enter load_order.
+var _unloaded_shell_chunks: Dictionary = {}
 
 # Per-frame shell/horizontal LOD counters exposed through get_streaming_metrics().
 var _last_shell_visible_candidates := 0
@@ -98,6 +119,12 @@ var _last_shell_order_cache_misses := 0
 var _last_tracked_chunks_pruned := 0
 var _last_chunk_state_active_updates := 0
 var _last_chunk_state_sleeping_updates := 0
+var _last_memory_unloaded_chunks := 0
+var _last_memory_saved_chunks := 0
+var _last_memory_save_failures := 0
+var _last_memory_restore_completions := 0
+var _last_memory_load_hits := 0
+var _last_memory_load_misses := 0
 var _last_forced_keepalive_chunks := 0
 var _last_indexed_keepalive_chunks := 0
 var _last_deep_player_chunks := 0
@@ -110,6 +137,7 @@ func set_active_dimension(dimension_id: StringName) -> void:
 	_shell_wanted_visible.clear()
 	_shell_order_cache.clear()
 	_forced_shell_chunks.clear()
+	_unloaded_shell_chunks.clear()
 	super.set_active_dimension(dimension_id)
 
 
@@ -125,6 +153,8 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
 	metrics["cpp_shell_helper_enabled"] = use_cpp_shell_helper
 	metrics["cpp_shell_helper_available"] = _get_planet_shell_helper() != null
+	metrics["chunk_persistence_helper_enabled"] = use_chunk_persistence_helper
+	metrics["chunk_persistence_helper_available"] = _get_chunk_persistence_helper() != null
 	metrics["surface_column_index_enabled"] = use_surface_column_index
 	metrics["surface_column_count"] = _surface_column_index.get_column_count(active_dimension) if _surface_column_index else 0
 	metrics["surface_column_indexed_chunks"] = _surface_column_index.get_indexed_chunk_count(active_dimension) if _surface_column_index else 0
@@ -132,6 +162,14 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["manage_deep_chunk_states"] = manage_deep_chunk_states
 	metrics["chunk_state_active_updates"] = _last_chunk_state_active_updates
 	metrics["chunk_state_sleeping_updates"] = _last_chunk_state_sleeping_updates
+	metrics["unload_sleeping_chunks_from_memory"] = unload_sleeping_chunks_from_memory
+	metrics["memory_unloaded_chunks"] = _last_memory_unloaded_chunks
+	metrics["memory_saved_chunks"] = _last_memory_saved_chunks
+	metrics["memory_save_failures"] = _last_memory_save_failures
+	metrics["memory_restore_completions"] = _last_memory_restore_completions
+	metrics["memory_load_hits"] = _last_memory_load_hits
+	metrics["memory_load_misses"] = _last_memory_load_misses
+	metrics["tracked_memory_unloaded_chunks"] = _unloaded_shell_chunks.size()
 	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
 	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
 	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
@@ -170,6 +208,12 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_last_tracked_chunks_pruned = 0
 	_last_chunk_state_active_updates = 0
 	_last_chunk_state_sleeping_updates = 0
+	_last_memory_unloaded_chunks = 0
+	_last_memory_saved_chunks = 0
+	_last_memory_save_failures = 0
+	_last_memory_restore_completions = 0
+	_last_memory_load_hits = 0
+	_last_memory_load_misses = 0
 	_last_forced_keepalive_chunks = 0
 	_last_indexed_keepalive_chunks = 0
 	_last_deep_player_chunks = 0
@@ -222,8 +266,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 
 	_shell_wanted_visible = wanted_visible
 
-	# Request data for the larger loading shell. The overridden _on_chunk_ready()
-	# only enqueues a view when the chunk is currently in wanted_visible.
+	# Request data for the larger loading shell. The overridden _ensure_chunk_loaded()
+	# restores from single-chunk persistence before falling back to async generation.
 	for chunk in load_order:
 		_ensure_chunk_loaded(chunk)
 
@@ -238,8 +282,28 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 			_enqueue_chunk_view(chunk)
 
 	_update_chunk_sleep_states(wanted_visible, load_order, player_chunk)
+	_unload_stale_sleeping_chunks(wanted_visible, load_order, player_chunk)
 	_prune_tracked_chunks(wanted_visible, load_order, player_chunk)
 	_process_visible_queue()
+
+
+func _ensure_chunk_loaded(chunk: Vector3i) -> void:
+	if world_data == null:
+		return
+	if _tracked_chunks.has(chunk):
+		return
+	if world_data.has_chunk(active_dimension, chunk.x, chunk.y, chunk.z):
+		_tracked_chunks[chunk] = true
+		return
+	if _try_restore_chunk_from_persistence(chunk):
+		return
+	if world_data.is_chunk_async_pending(active_dimension, chunk.x, chunk.y, chunk.z):
+		return
+	if max_chunk_load_requests_per_frame > 0 \
+			and _chunk_request_count_this_frame >= max_chunk_load_requests_per_frame:
+		return
+	world_data.request_chunk_async(active_dimension, chunk.x, chunk.y, chunk.z)
+	_chunk_request_count_this_frame += 1
 
 
 # Keep prefetched chunks data-only until they enter the visible shell.
@@ -249,6 +313,9 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 	var chunk := Vector3i(chunk_x, chunk_y, chunk_z)
 	_tracked_chunks[chunk] = true
 	_set_chunk_state_if_loaded(chunk, CHUNK_STATE_ACTIVE)
+	if _unloaded_shell_chunks.has(chunk):
+		_unloaded_shell_chunks.erase(chunk)
+		_last_memory_restore_completions += 1
 
 	if _shell_wanted_visible.is_empty() or _shell_wanted_visible.has(chunk):
 		if not _pending_view_queue.has(chunk):
@@ -477,17 +544,7 @@ func _update_chunk_sleep_states(wanted_visible: Dictionary, load_order: Array,
 		player_chunk: Vector3i) -> void:
 	if not manage_deep_chunk_states or world_data == null:
 		return
-	var keep: Dictionary = {}
-	for chunk: Vector3i in wanted_visible.keys():
-		keep[chunk] = true
-	for chunk in load_order:
-		keep[chunk] = true
-	for chunk: Vector3i in _visible_chunks.keys():
-		keep[chunk] = true
-	for chunk in _pending_view_queue:
-		keep[chunk] = true
-	for chunk in _pending_rebuild_queue:
-		keep[chunk] = true
+	var keep := _build_chunk_keep_set(wanted_visible, load_order)
 
 	var state_updates := 0
 	for chunk in keep.keys():
@@ -509,6 +566,21 @@ func _update_chunk_sleep_states(wanted_visible: Dictionary, load_order: Array,
 			_last_chunk_state_sleeping_updates += 1
 
 
+func _build_chunk_keep_set(wanted_visible: Dictionary, load_order: Array) -> Dictionary:
+	var keep: Dictionary = {}
+	for chunk: Vector3i in wanted_visible.keys():
+		keep[chunk] = true
+	for chunk in load_order:
+		keep[chunk] = true
+	for chunk: Vector3i in _visible_chunks.keys():
+		keep[chunk] = true
+	for chunk in _pending_view_queue:
+		keep[chunk] = true
+	for chunk in _pending_rebuild_queue:
+		keep[chunk] = true
+	return keep
+
+
 func _has_chunk_state_update_budget(current_updates: int) -> bool:
 	return max_chunk_state_updates_per_frame <= 0 \
 			or current_updates < max_chunk_state_updates_per_frame
@@ -526,22 +598,131 @@ func _set_chunk_state_if_loaded(chunk: Vector3i, state: int) -> bool:
 	return true
 
 
+func _unload_stale_sleeping_chunks(wanted_visible: Dictionary, load_order: Array,
+		player_chunk: Vector3i) -> void:
+	if not unload_sleeping_chunks_from_memory or world_data == null:
+		return
+	var keep := _build_chunk_keep_set(wanted_visible, load_order)
+	var unloaded := 0
+	for chunk: Vector3i in _tracked_chunks.keys():
+		if max_chunk_memory_unloads_per_frame > 0 \
+				and unloaded >= max_chunk_memory_unloads_per_frame:
+			return
+		if keep.has(chunk):
+			continue
+		if _is_chunk_near_player_chunk(chunk, player_chunk, unload_sleeping_chunk_keep_radius):
+			continue
+		if not _is_loaded_chunk_sleeping(chunk):
+			continue
+		if not _is_chunk_safe_for_memory_unload(chunk):
+			continue
+		if not _persist_chunk_before_memory_unload(chunk):
+			continue
+		_unload_chunk_from_memory(chunk, &"persisted_sleeping")
+		unloaded += 1
+		_last_memory_unloaded_chunks += 1
+
+
+func _is_loaded_chunk_sleeping(chunk: Vector3i) -> bool:
+	if world_data == null:
+		return false
+	var dim := String(active_dimension)
+	if not world_data.has_chunk(dim, chunk.x, chunk.y, chunk.z):
+		return false
+	return int(world_data.get_chunk_state(dim, chunk.x, chunk.y, chunk.z)) == CHUNK_STATE_SLEEPING
+
+
+func _is_chunk_safe_for_memory_unload(chunk: Vector3i) -> bool:
+	if world_data == null:
+		return false
+	if _forced_shell_chunks.has(chunk):
+		return false
+	if protect_indexed_chunks_from_memory_unload \
+			and _surface_column_index != null \
+			and _surface_column_index.has_chunk(active_dimension, chunk):
+		return false
+	var dim := String(active_dimension)
+	if not world_data.has_chunk(dim, chunk.x, chunk.y, chunk.z):
+		return false
+	if not world_data.get_chunk_entities(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_machines(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_connector_ids(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_connectors(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_mechanisms(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	return true
+
+
+func _persist_chunk_before_memory_unload(chunk: Vector3i) -> bool:
+	if not persist_chunks_before_memory_unload:
+		return true
+	var helper := _get_chunk_persistence_helper()
+	var save_dir := _get_universe_save_dir()
+	if helper == null or save_dir == "":
+		_last_memory_save_failures += 1
+		return false
+	var ok := bool(helper.call(
+			"save_chunk",
+			save_dir,
+			world_data,
+			String(active_dimension),
+			chunk.x,
+			chunk.y,
+			chunk.z))
+	if ok:
+		_last_memory_saved_chunks += 1
+	else:
+		_last_memory_save_failures += 1
+	return ok
+
+
+func _try_restore_chunk_from_persistence(chunk: Vector3i) -> bool:
+	var helper := _get_chunk_persistence_helper()
+	var save_dir := _get_universe_save_dir()
+	if helper == null or save_dir == "":
+		return false
+	var ok := bool(helper.call(
+			"load_chunk",
+			save_dir,
+			world_data,
+			String(active_dimension),
+			chunk.x,
+			chunk.y,
+			chunk.z,
+			false))
+	if not ok:
+		_last_memory_load_misses += 1
+		return false
+	_last_memory_load_hits += 1
+	_on_chunk_ready(String(active_dimension), chunk.x, chunk.y, chunk.z)
+	return true
+
+
+func _unload_chunk_from_memory(chunk: Vector3i, reason: StringName) -> void:
+	if world_data == null:
+		return
+	if _visible_chunks.has(chunk):
+		_remove_chunk_view(chunk)
+	_pending_view_queue.erase(chunk)
+	_pending_rebuild_queue.erase(chunk)
+	_tracked_chunks.erase(chunk)
+	world_data.remove_chunk(String(active_dimension), chunk.x, chunk.y, chunk.z)
+	_unloaded_shell_chunks[chunk] = {
+		"reason": reason,
+		"time_msec": Time.get_ticks_msec(),
+	}
+
+
 func _prune_tracked_chunks(wanted_visible: Dictionary, load_order: Array,
 		player_chunk: Vector3i) -> void:
 	_last_tracked_chunks_pruned = 0
 	if not prune_tracked_chunks_enabled:
 		return
-	var keep: Dictionary = {}
-	for chunk: Vector3i in wanted_visible.keys():
-		keep[chunk] = true
-	for chunk in load_order:
-		keep[chunk] = true
-	for chunk: Vector3i in _visible_chunks.keys():
-		keep[chunk] = true
-	for chunk in _pending_view_queue:
-		keep[chunk] = true
-	for chunk in _pending_rebuild_queue:
-		keep[chunk] = true
+	var keep := _build_chunk_keep_set(wanted_visible, load_order)
 
 	for chunk: Vector3i in _tracked_chunks.keys():
 		if keep.has(chunk):
@@ -641,6 +822,25 @@ func _get_planet_shell_helper() -> Object:
 		return null
 	_planet_shell_helper = ClassDB.instantiate("GDPlanetShellHelper")
 	return _planet_shell_helper
+
+
+func _get_chunk_persistence_helper() -> Object:
+	if not use_chunk_persistence_helper:
+		return null
+	if _chunk_persistence_helper != null:
+		return _chunk_persistence_helper
+	if not ClassDB.class_exists("GDChunkPersistenceHelper"):
+		return null
+	_chunk_persistence_helper = ClassDB.instantiate("GDChunkPersistenceHelper")
+	return _chunk_persistence_helper
+
+
+func _get_universe_save_dir() -> String:
+	if _universe_manager == null:
+		_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+	if _universe_manager == null:
+		return ""
+	return String(_universe_manager.get("_save_dir"))
 
 
 func _compute_shell_chunk_order_gdscript(
