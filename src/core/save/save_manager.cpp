@@ -1,5 +1,6 @@
 #include "save_manager.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +24,47 @@ std::string path_to_utf8(const fs::path& path) {
     const auto encoded = path.u8string();
     return std::string(
         reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+std::string region_file_path(const std::string& planet_dir,
+                             const std::string& dimension_id,
+                             int region_x, int region_y, int region_z) {
+    return planet_dir + "/regions/" + RegionFile::region_file_name(
+        dimension_id, region_x, region_y, region_z);
+}
+
+bool ensure_planet_header_if_missing(const std::string& planet_dir,
+                                     int64_t seed,
+                                     const std::string& dimension_id) {
+    const std::string path = planet_dir + "/planet_data.bin";
+    if (fs::exists(utf8_path(path))) {
+        return true;
+    }
+    return SaveManager::write_planet_data(planet_dir, seed, dimension_id, nullptr);
+}
+
+bool read_existing_region(const std::string& file_path,
+                          const std::string& expected_dimension,
+                          int expected_rx, int expected_ry, int expected_rz,
+                          std::vector<RegionChunkEntry>& entries) {
+    entries.clear();
+    const fs::path path = utf8_path(file_path);
+    if (!fs::exists(path)) {
+        return true;
+    }
+
+    std::string file_dimension_id;
+    int file_rx = 0;
+    int file_ry = 0;
+    int file_rz = 0;
+    if (!RegionFile::read(file_path, file_dimension_id,
+                          file_rx, file_ry, file_rz, entries)) {
+        return false;
+    }
+    return file_dimension_id == expected_dimension
+        && file_rx == expected_rx
+        && file_ry == expected_ry
+        && file_rz == expected_rz;
 }
 
 } // namespace
@@ -246,6 +288,138 @@ int SaveManager::load_dimension(const std::string& planet_dir,
     }
 
     return loaded_count;
+}
+
+// --- Per-chunk save / load ---
+
+bool SaveManager::save_chunk(const std::string& planet_dir,
+                             int64_t seed,
+                             const std::string& dimension_id,
+                             const WorldData& world,
+                             int chunk_x, int chunk_y, int chunk_z) {
+    if (!ensure_directory(planet_dir)) {
+        return false;
+    }
+    const std::string regions_dir = planet_dir + "/regions";
+    if (!ensure_directory(regions_dir)) {
+        return false;
+    }
+    if (!ensure_planet_header_if_missing(planet_dir, seed, dimension_id)) {
+        return false;
+    }
+
+    const ChunkData* chunk = world.get_chunk(dimension_id, chunk_x, chunk_y, chunk_z);
+    if (chunk == nullptr) {
+        return false;
+    }
+
+    const int rx = RegionFile::to_region(chunk_x);
+    const int ry = RegionFile::to_region(chunk_y);
+    const int rz = RegionFile::to_region(chunk_z);
+    const uint8_t lx = static_cast<uint8_t>(RegionFile::to_local(chunk_x));
+    const uint8_t ly = static_cast<uint8_t>(RegionFile::to_local(chunk_y));
+    const uint8_t lz = static_cast<uint8_t>(RegionFile::to_local(chunk_z));
+    const std::string file_path = region_file_path(planet_dir, dimension_id, rx, ry, rz);
+
+    std::vector<RegionChunkEntry> entries;
+    if (!read_existing_region(file_path, dimension_id, rx, ry, rz, entries)) {
+        return false;
+    }
+
+    RegionChunkEntry replacement;
+    replacement.local_x = lx;
+    replacement.local_y = ly;
+    replacement.local_z = lz;
+    replacement.data = ChunkSerializer::serialize(dimension_id, *chunk);
+
+    bool replaced = false;
+    for (auto& entry : entries) {
+        if (entry.local_x == lx && entry.local_y == ly && entry.local_z == lz) {
+            entry = std::move(replacement);
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) {
+        entries.push_back(std::move(replacement));
+    }
+
+    return RegionFile::write(file_path, rx, ry, rz, dimension_id, entries);
+}
+
+bool SaveManager::load_chunk(const std::string& planet_dir,
+                             const std::string& dimension_id,
+                             WorldData& world,
+                             int chunk_x, int chunk_y, int chunk_z) {
+    const int rx = RegionFile::to_region(chunk_x);
+    const int ry = RegionFile::to_region(chunk_y);
+    const int rz = RegionFile::to_region(chunk_z);
+    const uint8_t lx = static_cast<uint8_t>(RegionFile::to_local(chunk_x));
+    const uint8_t ly = static_cast<uint8_t>(RegionFile::to_local(chunk_y));
+    const uint8_t lz = static_cast<uint8_t>(RegionFile::to_local(chunk_z));
+    const std::string file_path = region_file_path(planet_dir, dimension_id, rx, ry, rz);
+
+    std::vector<RegionChunkEntry> entries;
+    if (!read_existing_region(file_path, dimension_id, rx, ry, rz, entries)) {
+        return false;
+    }
+
+    for (const auto& entry : entries) {
+        if (entry.local_x != lx || entry.local_y != ly || entry.local_z != lz) {
+            continue;
+        }
+        std::string unused_dimension_id;
+        ChunkData chunk;
+        if (!ChunkSerializer::deserialize(entry.data, unused_dimension_id, chunk)) {
+            return false;
+        }
+        world.set_chunk(dimension_id, chunk_x, chunk_y, chunk_z, std::move(chunk));
+        return true;
+    }
+
+    return false;
+}
+
+bool SaveManager::delete_chunk(const std::string& planet_dir,
+                               const std::string& dimension_id,
+                               int chunk_x, int chunk_y, int chunk_z) {
+    const int rx = RegionFile::to_region(chunk_x);
+    const int ry = RegionFile::to_region(chunk_y);
+    const int rz = RegionFile::to_region(chunk_z);
+    const uint8_t lx = static_cast<uint8_t>(RegionFile::to_local(chunk_x));
+    const uint8_t ly = static_cast<uint8_t>(RegionFile::to_local(chunk_y));
+    const uint8_t lz = static_cast<uint8_t>(RegionFile::to_local(chunk_z));
+    const std::string file_path = region_file_path(planet_dir, dimension_id, rx, ry, rz);
+
+    const fs::path path = utf8_path(file_path);
+    if (!fs::exists(path)) {
+        return true;
+    }
+
+    std::vector<RegionChunkEntry> entries;
+    if (!read_existing_region(file_path, dimension_id, rx, ry, rz, entries)) {
+        return false;
+    }
+
+    const auto old_size = entries.size();
+    entries.erase(
+        std::remove_if(entries.begin(), entries.end(),
+            [lx, ly, lz](const RegionChunkEntry& entry) {
+                return entry.local_x == lx && entry.local_y == ly && entry.local_z == lz;
+            }),
+        entries.end());
+
+    if (entries.size() == old_size) {
+        return true;
+    }
+
+    if (entries.empty()) {
+        std::error_code ec;
+        fs::remove(path, ec);
+        return !ec;
+    }
+
+    return RegionFile::write(file_path, rx, ry, rz, dimension_id, entries);
 }
 
 // --- Planet data (header + summary) ---
