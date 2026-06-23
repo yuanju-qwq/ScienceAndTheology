@@ -36,6 +36,19 @@ endif()
 
 add_test(NAME snt.mobile_structure COMMAND snt_mobile_structure)
 
+# GT multiblock closure: controller -> formation -> hatch summary -> tick gate
+add_executable(snt_multiblock_machine_service
+    multiblock_machine_service.cpp
+)
+
+target_link_libraries(snt_multiblock_machine_service PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_multiblock_machine_service PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.multiblock_machine_service COMMAND snt_multiblock_machine_service)
+
 # M2: Multi-player local validation (no network)
 # Design: docs/多人游戏系统设计.md §6.2 M2
 add_executable(snt_m2_multi_player
