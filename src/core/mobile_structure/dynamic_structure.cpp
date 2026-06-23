@@ -4,6 +4,7 @@
 #include <limits>
 #include <queue>
 #include <unordered_set>
+#include <utility>
 
 #include "../world/chunk_data.hpp"
 #include "../world/world_data.hpp"
@@ -115,6 +116,14 @@ MobileTerrainDelta make_delta(const std::string& dimension_id,
 
 int32_t rounded_to_block(double value) {
     return static_cast<int32_t>(std::llround(value));
+}
+
+bool is_identity_rotation(const DynamicStructureTransform& transform) {
+    constexpr float kEpsilon = 0.0001f;
+    return std::abs(transform.rotation_x) <= kEpsilon
+        && std::abs(transform.rotation_y) <= kEpsilon
+        && std::abs(transform.rotation_z) <= kEpsilon
+        && std::abs(transform.rotation_w - 1.0f) <= kEpsilon;
 }
 
 } // namespace
@@ -310,6 +319,10 @@ DisassembleResult DynamicStructureAssembler::disassemble_to_world(
     }
     if (entity->snapshot.empty()) {
         result.error = "dynamic structure snapshot is empty";
+        return result;
+    }
+    if (!is_identity_rotation(entity->transform)) {
+        result.error = "rotated disassembly is not implemented yet";
         return result;
     }
 
