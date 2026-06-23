@@ -83,12 +83,18 @@ target_sources(snt_core PRIVATE
     multiblock/structure_runtime.cpp
     multiblock/multiblock_controller.hpp
     multiblock/multiblock_controller.cpp
+    multiblock/multiblock_machine_service.hpp
+    multiblock/multiblock_machine_service.cpp
 )
 
 # Dynamic mobile structure system (Create-style static blocks → moving entity → write-back)
 target_sources(snt_core PRIVATE
     mobile_structure/dynamic_structure.hpp
     mobile_structure/dynamic_structure.cpp
+    mobile_structure/ship_structure.hpp
+    mobile_structure/ship_structure.cpp
+    mobile_structure/ship_local_grid.hpp
+    mobile_structure/ship_local_grid.cpp
 )
 
 # World generation system
