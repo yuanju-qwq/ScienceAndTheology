@@ -136,6 +136,7 @@ private:
         int old_material, int new_material) const;
 
     std::queue<PendingCheck> pending_;
+    int64_t last_processed_tick_ = -1;
 };
 
 } // namespace science_and_theology
