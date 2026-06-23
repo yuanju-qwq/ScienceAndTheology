@@ -17,6 +17,18 @@ extends ChunkRendererBridge
 # creating views until they enter the visible shell.
 @export var shell_prefetch_loaded_radius := true
 
+# Enable per-chunk horizontal LOD inside the visible shell. Near chunks show
+# LOD0_Full with collision; outer chunks show LOD1_Simplified without collision.
+@export var horizontal_lod_enabled := true
+
+# Radius, in chunk units on the local tangent plane, that keeps full collision.
+# Chunks outside this radius remain visible but switch to simplified mesh.
+@export var horizontal_lod0_radius := 4
+
+# Optional visible mesh cap, in chunk units. 0 means use the current view_radius.
+# This is a safety valve for testing before a real heightfield/clipmap LOD exists.
+@export var horizontal_lod1_radius := 0
+
 # Last visible shell set. Used by _on_chunk_ready() to avoid meshing prefetched
 # chunks that are outside view_radius.
 var _shell_wanted_visible: Dictionary = {}
@@ -96,6 +108,61 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 		_enqueue_chunk_rebuild(neighbor)
 
 
+# Apply horizontal chunk LOD every frame because the local tangent distance changes
+# continuously as the player moves. Planet-level LOD 2+ still hides chunk roots so
+# the existing proxy sphere / low-poly / billboard system remains authoritative.
+func _update_chunk_visibility_for_lod() -> void:
+	if not horizontal_lod_enabled:
+		super._update_chunk_visibility_for_lod()
+		return
+
+	if _universe_manager != null:
+		_refresh_lod_manager_from_universe()
+
+	var planet_lod := PlanetLodManager.LOD_REAL_CHUNKS
+	if _planet_lod_manager != null:
+		planet_lod = _planet_lod_manager.get_current_lod_level()
+	_current_chunk_lod = planet_lod
+
+	if _planet_lod_manager != null and planet_lod >= PlanetLodManager.LOD_PROXY_SPHERE:
+		for chunk: Vector3i in _visible_chunks.keys():
+			var entry: Dictionary = _visible_chunks[chunk]
+			var root: Node3D = entry.get("root")
+			if root:
+				root.visible = false
+		return
+
+	var player := get_node_or_null(player_node_path) as Node3D
+	var planet := _get_active_streaming_planet()
+	if player == null or planet == null:
+		super._update_chunk_visibility_for_lod()
+		return
+
+	var full_radius_blocks := float(maxi(0, horizontal_lod0_radius) * CHUNK_SIZE)
+	var mesh_radius_chunks := horizontal_lod1_radius if horizontal_lod1_radius > 0 else view_radius
+	var mesh_radius_blocks := float(maxi(0, mesh_radius_chunks) * CHUNK_SIZE)
+
+	for chunk: Vector3i in _visible_chunks.keys():
+		var entry: Dictionary = _visible_chunks[chunk]
+		var root: Node3D = entry.get("root")
+		var full: Node3D = entry.get("full")
+		var simplified: Node3D = entry.get("simplified")
+		var tangent_distance := _chunk_tangent_distance(
+				chunk, player.global_position, planet)
+
+		var within_mesh_radius := tangent_distance <= mesh_radius_blocks + float(CHUNK_SIZE)
+		var show_full := planet_lod == PlanetLodManager.LOD_REAL_CHUNKS \
+				and tangent_distance <= full_radius_blocks + float(CHUNK_SIZE)
+		var show_simplified := within_mesh_radius and not show_full
+
+		if root:
+			root.visible = within_mesh_radius
+		if full:
+			full.visible = show_full
+		if simplified:
+			simplified.visible = show_simplified
+
+
 func _get_active_streaming_planet() -> PlanetDescriptor:
 	if _universe_manager == null:
 		_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
@@ -172,6 +239,23 @@ func _chunk_intersects_active_shell(chunk: Vector3i, planet: PlanetDescriptor) -
 	var half_diag := sqrt(3.0) * float(CHUNK_SIZE) * 0.5
 	return altitude >= -planet.active_shell_below - half_diag \
 			and altitude <= planet.active_shell_above + half_diag
+
+
+func _chunk_tangent_distance(
+		chunk: Vector3i,
+		player_pos: Vector3,
+		planet: PlanetDescriptor) -> float:
+	var center := planet.local_center
+	var up := player_pos - center
+	if up.length_squared() < 0.0001:
+		up = Vector3.UP
+	else:
+		up = up.normalized()
+	var surface_point := center + up * planet.planet_radius
+	var relative := _chunk_center(chunk) - surface_point
+	var radial_height := relative.dot(up)
+	var tangent := relative - up * radial_height
+	return tangent.length()
 
 
 func _chunk_center(chunk: Vector3i) -> Vector3:
