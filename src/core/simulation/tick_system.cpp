@@ -204,6 +204,9 @@ void TickSystem::rebuild_chunk_sets() {
     sleep_near_chunks_.clear();
     sleep_mid_chunks_.clear();
     sleep_far_chunks_.clear();
+    external_active_chunk_count_ = 0;
+    external_sleeping_chunk_count_ = 0;
+    skipped_external_sleeping_chunk_count_ = 0;
 
     player_chunks_dirty_ = false;
 
@@ -216,6 +219,10 @@ void TickSystem::rebuild_chunk_sets() {
     // for now this is a minor optimization.)
     auto all_keys = world_data_->all_chunk_keys();
     for (const auto& key : all_keys) {
+        const ChunkData* chunk = world_data_->get_chunk(
+            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+        if (chunk == nullptr) continue;
+
         // Compute the minimum Chebyshev distance to any player in the
         // same dimension. Players in other dimensions are ignored.
         int min_dist = INT32_MAX;
@@ -232,9 +239,47 @@ void TickSystem::rebuild_chunk_sets() {
         // No player in this dimension — skip the chunk.
         if (min_dist == INT32_MAX) continue;
 
+        const ChunkState state = chunk->state;
+        const bool external_active =
+            respect_external_chunk_state_ && state == ChunkState::ACTIVE;
+        const bool external_sleeping =
+            respect_external_chunk_state_ && state == ChunkState::SLEEPING;
+
+        // Renderer/shell streaming may explicitly keep a chunk ACTIVE even if
+        // it is outside the normal player radius, for example indexed deep
+        // chunks in a nearby surface column.
+        if (external_active) {
+            active_chunks_.push_back(key);
+            ++external_active_chunk_count_;
+            continue;
+        }
+
+        // Immediate player-neighborhood chunks remain active even if their last
+        // renderer state is SLEEPING. This prevents stale sleeping marks from
+        // blocking direct interaction when the player comes back.
         if (min_dist <= active_radius_) {
             active_chunks_.push_back(key);
-        } else if (min_dist <= active_radius_ * 2) {
+            continue;
+        }
+
+        // Chunks explicitly marked sleeping are never promoted to ACTIVE by the
+        // distance-only scheduler. They run only at sleeping cadence while still
+        // inside the simulation horizon.
+        if (external_sleeping) {
+            ++external_sleeping_chunk_count_;
+            if (min_dist <= active_radius_ * 2) {
+                sleep_near_chunks_.push_back(key);
+            } else if (min_dist <= active_radius_ * 3) {
+                sleep_mid_chunks_.push_back(key);
+            } else if (min_dist <= active_radius_ * 4) {
+                sleep_far_chunks_.push_back(key);
+            } else {
+                ++skipped_external_sleeping_chunk_count_;
+            }
+            continue;
+        }
+
+        if (min_dist <= active_radius_ * 2) {
             sleep_near_chunks_.push_back(key);
         } else if (min_dist <= active_radius_ * 3) {
             sleep_mid_chunks_.push_back(key);
