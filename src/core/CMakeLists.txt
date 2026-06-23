@@ -24,9 +24,7 @@ target_sources(snt_core PRIVATE
 target_sources(snt_core PRIVATE
     material/material_item.cpp
     material/material.cpp
-    machine/machine.cpp
     machine/recipe.cpp
-    machine/module.cpp
 )
 
 # Player systems

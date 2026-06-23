@@ -5,7 +5,6 @@
 #include <godot_cpp/classes/resource.hpp>
 
 #include "core/simulation/event_types.hpp"
-#include "core/simulation/machine_system.hpp"
 #include "core/simulation/block_physics_system.hpp"
 #include "core/simulation/tree_growth_system.hpp"
 #include "core/simulation/crop_growth_system.hpp"
@@ -42,12 +41,6 @@ void GDTickSystem::set_world_data(godot::Resource* gd_world) {
         tick_system_ = std::make_unique<TickSystem>(world_ptr);
         world_set = true;
         subscribe_to_event_bus();
-    }
-}
-
-void GDTickSystem::register_machine_system() {
-    if (tick_system_) {
-        tick_system_->register_subsystem(std::make_unique<MachineSystem>());
     }
 }
 
@@ -714,16 +707,6 @@ godot::Dictionary GDTickSystem::event_to_dict(const GameEvent& ev) const {
     return d;
 }
 
-godot::Dictionary GDTickSystem::error_to_dict(const MachineError& err) const {
-    godot::Dictionary d;
-    d["machine_id"] = static_cast<int64_t>(err.machine_id.id);
-    d["error_code"] = godot::String(err.error_code.c_str());
-    d["message"] = godot::String(err.message.c_str());
-    d["severity"] = static_cast<int64_t>(err.severity);
-    d["timestamp"] = err.timestamp;
-    return d;
-}
-
 godot::Dictionary GDTickSystem::chunk_key_to_dict(const ChunkKey& key) const {
     godot::Dictionary d;
     d["dimension"] = godot::String(key.dimension_id.c_str());
@@ -771,8 +754,6 @@ godot::Dictionary GDTickSystem::delta_to_dict(const StateDelta& delta) const {
 void GDTickSystem::_bind_methods() {
     godot::ClassDB::bind_method(godot::D_METHOD("set_world_data", "gd_world"),
         &GDTickSystem::set_world_data);
-    godot::ClassDB::bind_method(godot::D_METHOD("register_machine_system"),
-        &GDTickSystem::register_machine_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_block_physics_system"),
         &GDTickSystem::register_block_physics_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_tree_growth_system"),
@@ -895,17 +876,6 @@ void GDTickSystem::_bind_methods() {
 
     // --- Signals: real-time events bridged from EventBus ---
 
-    ADD_SIGNAL(godot::MethodInfo("machine_state_changed",
-        godot::PropertyInfo(godot::Variant::INT, "machine_id"),
-        godot::PropertyInfo(godot::Variant::INT, "old_state"),
-        godot::PropertyInfo(godot::Variant::INT, "new_state")));
-    ADD_SIGNAL(godot::MethodInfo("machine_recipe_completed",
-        godot::PropertyInfo(godot::Variant::INT, "machine_id"),
-        godot::PropertyInfo(godot::Variant::STRING, "recipe_name")));
-    ADD_SIGNAL(godot::MethodInfo("machine_error",
-        godot::PropertyInfo(godot::Variant::INT, "machine_id"),
-        godot::PropertyInfo(godot::Variant::STRING, "error_code"),
-        godot::PropertyInfo(godot::Variant::STRING, "message")));
     ADD_SIGNAL(godot::MethodInfo("power_overload",
         godot::PropertyInfo(godot::Variant::INT, "node_id"),
         godot::PropertyInfo(godot::Variant::INT, "demand"),
@@ -1101,32 +1071,6 @@ void GDTickSystem::subscribe_to_event_bus() {
     if (!tick_system_) return;
     auto* bus = tick_system_->event_bus();
     if (!bus) return;
-
-    event_subscriptions_.push_back(bus->subscribe(
-        GameEventType::MACHINE_STATE_CHANGED,
-        [this](const GameEvent& e) {
-            emit_signal("machine_state_changed",
-                static_cast<int64_t>(e.source_id),
-                e.int_data.at("old_state"),
-                e.int_data.at("new_state"));
-        }));
-
-    event_subscriptions_.push_back(bus->subscribe(
-        GameEventType::MACHINE_RECIPE_COMPLETED,
-        [this](const GameEvent& e) {
-            emit_signal("machine_recipe_completed",
-                static_cast<int64_t>(e.source_id),
-                godot::String(e.string_data.at("recipe_name").c_str()));
-        }));
-
-    event_subscriptions_.push_back(bus->subscribe(
-        GameEventType::MACHINE_ERROR,
-        [this](const GameEvent& e) {
-            emit_signal("machine_error",
-                static_cast<int64_t>(e.source_id),
-                godot::String(e.string_data.at("error_code").c_str()),
-                godot::String(e.string_data.at("message").c_str()));
-        }));
 
     event_subscriptions_.push_back(bus->subscribe(
         GameEventType::POWER_OVERLOAD,

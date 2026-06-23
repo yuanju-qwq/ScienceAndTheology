@@ -10,13 +10,6 @@ namespace science_and_theology {
 enum class GameEventType : uint32_t {
     NONE = 0,
 
-    // Machine events
-    MACHINE_STATE_CHANGED   = 1,
-    MACHINE_RECIPE_STARTED  = 2,
-    MACHINE_RECIPE_COMPLETED = 3,
-    MACHINE_RECIPE_ABORTED  = 4,
-    MACHINE_ERROR           = 5,
-
     // Power events
     POWER_OVERLOAD     = 100,
     POWER_RESTORED     = 101,

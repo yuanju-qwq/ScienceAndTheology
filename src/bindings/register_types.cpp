@@ -9,7 +9,6 @@
 #include "ae2/gd_me_network.h"
 #include "network/gd_fluid_network.h"
 #include "network/gd_item_pipe_network.h"
-#include "machine/gd_machine.h"
 #include "machine/gd_recipe_database.h"
 #include "world/gd_world_data.h"
 #include "world/gd_world_gen_config.h"
@@ -50,7 +49,6 @@
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
-#include "core/machine/module.hpp"
 #include "core/machine/recipe.hpp"
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
@@ -72,7 +70,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     }
 
     gt::FluidRegistry::initialize();
-    gt::ModuleRegistry::initialize();
     magic::RuneRegistry::initialize();
     magic::GlyphRegistry::initialize();
     magic::GlyphConversion::initialize();
@@ -89,7 +86,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDCraftingManager>();
     ClassDB::register_class<GDFluidNetwork>();
     ClassDB::register_class<GDItemPipeNetwork>();
-    ClassDB::register_class<GDMachine>();
     ClassDB::register_class<GDRecipeDatabase>();
     ClassDB::register_class<GDWorldData>();
     ClassDB::register_class<GDWorldGenConfig>();

@@ -59,7 +59,7 @@ public:
         const std::string& dimension_id,
         int32_t block_x, int32_t block_y, int32_t block_z);
 
-    // MachineSystem uses this before ticking a Machine*. If an EntityId has no
+    // Returns true if the machine entity can be ticked. If an EntityId has no
     // machine block entity state, allow it for backward compatibility.
     static bool can_tick_machine(const WorldData& world, EntityId machine_id);
 };

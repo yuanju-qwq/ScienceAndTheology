@@ -8,7 +8,6 @@ set(SOURCES
     ae2/gd_me_network.cpp
     network/gd_fluid_network.cpp
     network/gd_item_pipe_network.cpp
-    machine/gd_machine.cpp
     world/gd_world_data.cpp
     world/gd_world_gen_config.cpp
     world/gd_terrain_content_registry.cpp

@@ -14,7 +14,6 @@ namespace science_and_theology {
 TickSystem::TickSystem(WorldData* world_data)
     : world_data_(world_data)
     , event_bus_(std::make_unique<EventBus>())
-    , error_handler_(std::make_unique<ErrorHandler>())
     , state_sync_(std::make_unique<StateSyncServer>()) {
     state_sync_->set_world_data(world_data);
 }

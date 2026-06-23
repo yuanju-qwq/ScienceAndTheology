@@ -22,7 +22,6 @@ namespace science_and_theology {
 // Usage in GDScript:
 //   var tick_sys = GDTickSystem.new()
 //   tick_sys.set_world_data(gd_world_data)
-//   tick_sys.register_machine_system()
 //   tick_sys.add_player_chunk(1, "overworld", 0, 0, 0)
 //
 //   func _process(delta):
@@ -39,9 +38,6 @@ public:
 
     // Attach a GDWorldData (which owns the C++ WorldData).
     void set_world_data(godot::Resource* gd_world);
-
-    // Register the machine simulation subsystem.
-    void register_machine_system();
 
     // Register the block physics simulation subsystem.
     // Must be called after set_world_data(). Handles gravity fall
@@ -307,7 +303,6 @@ protected:
 
 private:
     godot::Dictionary event_to_dict(const GameEvent& ev) const;
-    godot::Dictionary error_to_dict(const MachineError& err) const;
     godot::Dictionary chunk_key_to_dict(const ChunkKey& key) const;
     godot::Dictionary delta_to_dict(const StateDelta& delta) const;
 

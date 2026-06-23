@@ -7,7 +7,6 @@
 
 #include "simulation_system.hpp"
 #include "event_bus.hpp"
-#include "error_handler.hpp"
 #include "state_sync_server.hpp"
 #include "../player/player_id.hpp"
 #include "../world/world_data.hpp"
@@ -15,7 +14,7 @@
 namespace science_and_theology {
 
 // Unified simulation orchestrator.
-// Owns the event bus, error handler, and state synchronizer.
+// Owns the event bus and state synchronizer.
 // Manages subsystems and drives the tick loop with per-chunk scheduling.
 //
 // Tick phases per frame:
@@ -149,8 +148,6 @@ public:
     // Access to shared services.
     EventBus* event_bus() { return event_bus_.get(); }
     const EventBus* event_bus() const { return event_bus_.get(); }
-    ErrorHandler* error_handler() { return error_handler_.get(); }
-    const ErrorHandler* error_handler() const { return error_handler_.get(); }
     StateSyncServer* state_sync() { return state_sync_.get(); }
     const StateSyncServer* state_sync() const { return state_sync_.get(); }
     WorldData* world_data() { return world_data_; }
@@ -217,7 +214,6 @@ private:
 
     WorldData* world_data_;
     std::unique_ptr<EventBus> event_bus_;
-    std::unique_ptr<ErrorHandler> error_handler_;
     std::unique_ptr<StateSyncServer> state_sync_;
 
     std::vector<std::unique_ptr<SimulationSystem>> subsystems_;

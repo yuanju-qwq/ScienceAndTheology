@@ -19,8 +19,6 @@ namespace science_and_theology {
 //   auto id = bus.subscribe(GameEventType::MACHINE_ERROR, [](const GameEvent& e) {
 //       // handle error
 //   });
-//   bus.emit(GameEvent::machine_error(...));  // immediate
-//   bus.enqueue(GameEvent::machine_error(...)); // deferred
 //   bus.process_queue();  // drain deferred queue (call once per tick)
 class EventBus {
 public:
