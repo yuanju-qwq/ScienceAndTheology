@@ -157,14 +157,16 @@ void BlockPhysicsSystem::schedule_gravity_fall_after_mine(
 
     // Schedule checks for the changed block itself plus the 6 neighbors.
     // The origin check is important for placement; neighbor checks are
-    // important for mining/removing support.
-    for (const auto& d : kNeighborDeltas) {
+    // important for mining/removing support. Neighbors are delayed by one
+    // extra tick so a block moved into a neighbor position cannot be processed
+    // again by an already-queued check in the same simulation tick.
+    for (int i = 0; i < 7; ++i) {
         PendingCheck check;
         check.dimension_id = dimension_id;
-        check.block_x = block_x + d[0];
-        check.block_y = block_y + d[1];
-        check.block_z = block_z + d[2];
-        check.target_tick = current_tick + 1;
+        check.block_x = block_x + kNeighborDeltas[i][0];
+        check.block_y = block_y + kNeighborDeltas[i][1];
+        check.block_z = block_z + kNeighborDeltas[i][2];
+        check.target_tick = current_tick + (i == 0 ? 1 : 2);
         check.check_type = 0;  // gravity fall
         check.chain_depth = chain_depth;
         schedule_check(check);
