@@ -369,22 +369,24 @@ bool BlockPhysicsSystem::process_collapse(
         dimension_id, block_x, block_y, block_z);
     if (gs.dx == 0 && gs.dy == 0 && gs.dz == 0) return false;
 
-    const TerrainCell* below_cell = resolve_const_cell(
-        world_, dimension_id,
-        block_x + gs.dx,
-        block_y + gs.dy,
-        block_z + gs.dz);
-    if (below_cell && below_cell->is_solid()) {
-        return false;
-    }
+    const int below_x = block_x + gs.dx;
+    const int below_y = block_y + gs.dy;
+    const int below_z = block_z + gs.dz;
+
+    ResolvedCell dst = resolve_cell(world_, dimension_id, below_x, below_y, below_z);
+    if (!dst.cell) return false;
+    if (dst.cell->is_solid()) return false;
+
+    auto config = world_->worldgen_config();
+    const TerrainMaterialId air = config ? config->roles.air : 0;
+    if (!is_empty_cell(*dst.cell, air)) return false;
 
     // No support: roll for collapse. Use the material's collapse_chance
     // multiplied by the runtime gameplay config multiplier.
     float base_chance = 0.3f;
-    auto wg_config = world_->worldgen_config();
-    if (wg_config) {
+    if (config) {
         const TerrainMaterialDef* mat_def =
-            wg_config->find_material(static_cast<TerrainMaterialId>(src.cell->material));
+            config->find_material(static_cast<TerrainMaterialId>(src.cell->material));
         if (mat_def) {
             base_chance = mat_def->collapse_chance;
         }
@@ -395,46 +397,28 @@ bool BlockPhysicsSystem::process_collapse(
 
     if (roll >= chance) return false;
 
-    const TerrainMaterialId source_material =
+    const TerrainMaterialId moved_material =
         static_cast<TerrainMaterialId>(src.cell->material);
-    auto config = world_->worldgen_config();
-    const TerrainMaterialId air = config ? config->roles.air : 0;
+    const uint32_t moved_flags = src.cell->flags;
+    const TerrainMaterialId dst_old_material =
+        static_cast<TerrainMaterialId>(dst.cell->material);
 
-    const DebrisDestination debris_dst = find_collapse_debris_destination(
-        dimension_id, block_x, block_y, block_z, gs, air);
-
-    // Collapse: remove the unstable rock from its original cell.
+    // Collapse now behaves like gravity fall: the original block moves one
+    // step downward instead of transforming into rubble/debris.
     src.chunk->terrain.set_cell(src.local_x, src.local_y, src.local_z, air, 0);
+    dst.chunk->terrain.set_cell(
+        dst.local_x, dst.local_y, dst.local_z, moved_material, moved_flags);
+
     emit_terrain_changed(
         dimension_id,
         src.chunk_x, src.chunk_y, src.chunk_z,
         src.local_x, src.local_y, src.local_z,
-        source_material, air);
-
-    // Deposit a rubble block where the falling debris comes to rest. If the
-    // scan leaves loaded terrain before finding a place, the rock is discarded
-    // as dust/debris instead of mutating unloaded chunks.
-    if (debris_dst.valid) {
-        ResolvedCell dst = resolve_cell(
-            world_, dimension_id,
-            debris_dst.block_x, debris_dst.block_y, debris_dst.block_z);
-        if (dst.cell && is_empty_cell(*dst.cell, air)) {
-            const TerrainMaterialId debris_material =
-                collapse_debris_material(source_material);
-            const uint32_t debris_flags = material_flags_or(
-                debris_material, TF_SOLID | TF_MINEABLE);
-            const TerrainMaterialId dst_old_material =
-                static_cast<TerrainMaterialId>(dst.cell->material);
-            dst.chunk->terrain.set_cell(
-                dst.local_x, dst.local_y, dst.local_z,
-                debris_material, debris_flags);
-            emit_terrain_changed(
-                dimension_id,
-                dst.chunk_x, dst.chunk_y, dst.chunk_z,
-                dst.local_x, dst.local_y, dst.local_z,
-                dst_old_material, debris_material);
-        }
-    }
+        moved_material, air);
+    emit_terrain_changed(
+        dimension_id,
+        dst.chunk_x, dst.chunk_y, dst.chunk_z,
+        dst.local_x, dst.local_y, dst.local_z,
+        dst_old_material, moved_material);
 
     return true;
 }
@@ -469,60 +453,6 @@ bool BlockPhysicsSystem::has_support_beam_nearby(
 bool BlockPhysicsSystem::is_empty_cell(
     const TerrainCell& cell, TerrainMaterialId air) const {
     return static_cast<TerrainMaterialId>(cell.material) == air && !cell.has_fluid();
-}
-
-TerrainMaterialId BlockPhysicsSystem::collapse_debris_material(
-    TerrainMaterialId source_material) const {
-    if (!world_) return source_material;
-    auto config = world_->worldgen_config();
-    if (!config) return source_material;
-    return config->material_id_or("snt:collapsed_rock", source_material);
-}
-
-uint32_t BlockPhysicsSystem::material_flags_or(
-    TerrainMaterialId material, uint32_t fallback) const {
-    if (!world_) return fallback;
-    auto config = world_->worldgen_config();
-    if (!config || !config->has_material(material)) return fallback;
-    return config->flags_for_material(material);
-}
-
-BlockPhysicsSystem::DebrisDestination
-BlockPhysicsSystem::find_collapse_debris_destination(
-    const std::string& dimension_id,
-    int block_x, int block_y, int block_z,
-    const GravityStep& gravity_step,
-    TerrainMaterialId air) const {
-    DebrisDestination last_empty;
-
-    if (!world_) return last_empty;
-    if (gravity_step.dx == 0 && gravity_step.dy == 0 && gravity_step.dz == 0) {
-        return last_empty;
-    }
-
-    for (int distance = 1;
-         distance <= kMaxCollapseDebrisFallDistance;
-         ++distance) {
-        const int x = block_x + gravity_step.dx * distance;
-        const int y = block_y + gravity_step.dy * distance;
-        const int z = block_z + gravity_step.dz * distance;
-        const TerrainCell* cell = resolve_const_cell(world_, dimension_id, x, y, z);
-        if (!cell) break;
-
-        if (is_empty_cell(*cell, air)) {
-            last_empty.valid = true;
-            last_empty.block_x = x;
-            last_empty.block_y = y;
-            last_empty.block_z = z;
-            continue;
-        }
-
-        // First occupied cell stops falling. Debris settles in the last empty
-        // cell just before it. If no empty cell existed, no debris is placed.
-        break;
-    }
-
-    return last_empty;
 }
 
 void BlockPhysicsSystem::emit_terrain_changed(
