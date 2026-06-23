@@ -22,21 +22,29 @@ extends ChunkRendererBridge
 var _shell_wanted_visible: Dictionary = {}
 
 
+func set_active_dimension(dimension_id: StringName) -> void:
+	_shell_wanted_visible.clear()
+	super.set_active_dimension(dimension_id)
+
+
 func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
 
 	# Space stations already use build-aware loading in the parent class.
 	if _is_station_dimension and _active_station != null:
+		_shell_wanted_visible.clear()
 		_refresh_station_chunks()
 		return
 
 	if not use_planet_shell_streaming:
+		_shell_wanted_visible.clear()
 		super._refresh_chunks(player_chunk)
 		return
 
 	var player := get_node_or_null(player_node_path) as Node3D
 	var planet := _get_active_streaming_planet()
 	if player == null or planet == null:
+		_shell_wanted_visible.clear()
 		super._refresh_chunks(player_chunk)
 		return
 
