@@ -22,6 +22,11 @@ extends ChunkRendererBridge
 @export var shell_order_cache_enabled := true
 @export var shell_order_cache_max_entries := 128
 
+# Prefer the native GDExtension helper for shell candidate enumeration. The
+# GDScript implementation below remains as a runtime fallback so an older DLL can
+# still load the scene while the native extension is being rebuilt.
+@export var use_cpp_shell_helper := true
+
 # Prune stale tracking metadata outside the current shell. This does not delete
 # saved chunk data; it only allows far-away chunks to be re-requested normally if
 # the player later returns to them.
@@ -57,6 +62,10 @@ var _shell_wanted_visible: Dictionary = {}
 # local center, and active shell band.
 var _shell_order_cache: Dictionary = {}
 
+# Lazily-created GDPlanetShellHelper instance. Stored as Object so the script can
+# still parse when the native class is not present in an older extension binary.
+var _planet_shell_helper: Object = null
+
 # Chunks explicitly touched by gameplay. These bypass surface-shell clipping while
 # the player stays close, then age out through the max-entry cap or dimension switch.
 var _forced_shell_chunks: Dictionary = {}
@@ -91,6 +100,8 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_order_cache_misses"] = _last_shell_order_cache_misses
 	metrics["shell_visible_candidates"] = _last_shell_visible_candidates
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
+	metrics["cpp_shell_helper_enabled"] = use_cpp_shell_helper
+	metrics["cpp_shell_helper_available"] = _get_planet_shell_helper() != null
 	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
 	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
 	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
@@ -451,6 +462,52 @@ func _make_shell_order_cache_key(
 
 
 func _compute_shell_chunk_order(
+		player_pos: Vector3,
+		planet: PlanetDescriptor,
+		radius_chunks: int) -> Array[Vector3i]:
+	var native_order := _compute_shell_chunk_order_native(player_pos, planet, radius_chunks)
+	if not native_order.is_empty():
+		return native_order
+	return _compute_shell_chunk_order_gdscript(player_pos, planet, radius_chunks)
+
+
+func _compute_shell_chunk_order_native(
+		player_pos: Vector3,
+		planet: PlanetDescriptor,
+		radius_chunks: int) -> Array[Vector3i]:
+	var result: Array[Vector3i] = []
+	var helper := _get_planet_shell_helper()
+	if helper == null:
+		return result
+	var order_variant: Variant = helper.call(
+		"compute_shell_chunk_order",
+		player_pos,
+		planet.local_center,
+		planet.planet_radius,
+		planet.active_shell_above,
+		planet.active_shell_below,
+		CHUNK_SIZE,
+		radius_chunks)
+	if not (order_variant is Array):
+		return result
+	var order: Array = order_variant
+	for item in order:
+		result.append(item)
+	return result
+
+
+func _get_planet_shell_helper() -> Object:
+	if not use_cpp_shell_helper:
+		return null
+	if _planet_shell_helper != null:
+		return _planet_shell_helper
+	if not ClassDB.class_exists("GDPlanetShellHelper"):
+		return null
+	_planet_shell_helper = ClassDB.instantiate("GDPlanetShellHelper")
+	return _planet_shell_helper
+
+
+func _compute_shell_chunk_order_gdscript(
 		player_pos: Vector3,
 		planet: PlanetDescriptor,
 		radius_chunks: int) -> Array[Vector3i]:
