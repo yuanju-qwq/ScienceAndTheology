@@ -184,6 +184,22 @@ public:
     // or invalid EntityId if no entity owns that cell.
     EntityId find_owner_at(int32_t block_x, int32_t block_y, int32_t block_z) const;
 
+    // Returns the MACHINE entity whose root/controller is exactly at the cell,
+    // or invalid EntityId when no machine root is present. Roots are separate
+    // from claimed-cell ownership so hatch/root lookups need this helper.
+    EntityId find_machine_root_at(int32_t block_x, int32_t block_y, int32_t block_z) const {
+        for (const auto& pair : entities_) {
+            const BlockEntityEntry& entry = pair.second;
+            if (entry.placement.entity_type != BlockEntityType::MACHINE) continue;
+            if (entry.placement.root_x == block_x &&
+                entry.placement.root_y == block_y &&
+                entry.placement.root_z == block_z) {
+                return pair.first;
+            }
+        }
+        return EntityId{};
+    }
+
     // Returns all entity IDs whose root is in the given chunk.
     std::vector<EntityId> entities_in_chunk(
         const std::string& dimension_id,
