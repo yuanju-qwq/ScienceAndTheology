@@ -2,6 +2,7 @@
 #include "piece_template.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <sstream>
 
@@ -11,18 +12,12 @@
 
 namespace science_and_theology::multiblock {
 
-// ============================================================
-// Internal helpers
-// ============================================================
-
 namespace {
 
-// Query terrain material at world block coordinates.
-// Returns 0 (air) for unloaded chunks or out-of-range cells.
 TerrainMaterialId query_material_at(const WorldData& world,
                                      const std::string& dimension_id,
                                      int bx, int by, int bz) {
-    constexpr int kChunkSize = ChunkData::kChunkSize;  // 32
+    constexpr int kChunkSize = ChunkData::kChunkSize;
 
     int cx = static_cast<int>(std::floor(static_cast<float>(bx) / kChunkSize));
     int cy = static_cast<int>(std::floor(static_cast<float>(by) / kChunkSize));
@@ -85,29 +80,14 @@ uint16_t hatch_mask_for_machine_type(const std::string& machine_type) {
 
 } // anonymous namespace
 
-// ============================================================
-// IStructureElement — default apply_to implementation
-// ============================================================
-
 void IStructureElement::apply_to(char symbol,
                                   PieceTemplateCompiler& compiler) const {
-    // The element registers itself under the given symbol.
-    // shared_from_this would be ideal, but IStructureElement doesn't
-    // inherit from enable_shared_from_this. Instead, the caller
-    // (DeclarativePatternBuilder) handles registration directly.
     (void)symbol;
     (void)compiler;
-    // Base implementation is a no-op. Concrete elements don't need
-    // to override this unless they register multiple symbols.
 }
-
-// ============================================================
-// Built-in element types
-// ============================================================
 
 namespace {
 
-// --- MaterialElement: match a specific terrain material ---
 class MaterialElement final : public IStructureElement {
 public:
     explicit MaterialElement(TerrainMaterialId mat) : mat_(mat) {}
@@ -130,7 +110,6 @@ private:
     TerrainMaterialId mat_;
 };
 
-// --- AirElement: match empty/non-solid cell ---
 class AirElement final : public IStructureElement {
 public:
     MatchResult check(StructureEvaluationContext& ctx) const override {
@@ -144,7 +123,6 @@ public:
     std::string describe() const override { return "air()"; }
 };
 
-// --- AnyElement: wildcard, matches anything ---
 class AnyElement final : public IStructureElement {
 public:
     MatchResult check(StructureEvaluationContext& /*ctx*/) const override {
@@ -154,7 +132,6 @@ public:
     std::string describe() const override { return "any()"; }
 };
 
-// --- SelfElement: the controller itself (marks center) ---
 class SelfElement final : public IStructureElement {
 public:
     MatchResult check(StructureEvaluationContext& ctx) const override {
@@ -169,11 +146,9 @@ public:
     }
 
     bool is_center() const override { return true; }
-
     std::string describe() const override { return "self()"; }
 };
 
-// --- HatchElement: a hatch machine entity (not the controller) ---
 class HatchElement final : public IStructureElement {
 public:
     explicit HatchElement(uint16_t type_mask) : type_mask_(type_mask) {}
@@ -216,7 +191,6 @@ private:
     uint16_t type_mask_;
 };
 
-// --- ChainElement: try each element in order, accept first match ---
 class ChainElement final : public IStructureElement {
 public:
     explicit ChainElement(std::vector<std::shared_ptr<IStructureElement>> elems)
@@ -257,7 +231,6 @@ private:
     std::vector<std::shared_ptr<IStructureElement>> elems_;
 };
 
-// --- LazyElement: defer construction until first use ---
 class LazyElement final : public IStructureElement {
 public:
     explicit LazyElement(std::function<std::shared_ptr<IStructureElement>()> factory)
@@ -293,10 +266,6 @@ private:
 };
 
 } // anonymous namespace
-
-// ============================================================
-// Elements factory
-// ============================================================
 
 namespace Elements {
 
