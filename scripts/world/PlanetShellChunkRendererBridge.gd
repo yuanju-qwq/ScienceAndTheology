@@ -17,6 +17,11 @@ extends ChunkRendererBridge
 # creating views until they enter the visible shell.
 @export var shell_prefetch_loaded_radius := true
 
+# Cache shell candidate orders while the player remains in the same chunk.
+# This avoids re-enumerating the tangent disk every frame.
+@export var shell_order_cache_enabled := true
+@export var shell_order_cache_max_entries := 128
+
 # Enable per-chunk horizontal LOD inside the visible shell. Near chunks show
 # LOD0_Full with collision; outer chunks show LOD1_Simplified without collision.
 @export var horizontal_lod_enabled := true
@@ -33,9 +38,15 @@ extends ChunkRendererBridge
 # chunks that are outside view_radius.
 var _shell_wanted_visible: Dictionary = {}
 
+# Candidate order cache. Keyed by dimension, player chunk, radius, planet radius,
+# local center, and active shell band.
+var _shell_order_cache: Dictionary = {}
+
 # Per-frame shell/horizontal LOD counters exposed through get_streaming_metrics().
 var _last_shell_visible_candidates := 0
 var _last_shell_load_candidates := 0
+var _last_shell_order_cache_hits := 0
+var _last_shell_order_cache_misses := 0
 var _last_horizontal_lod0_chunks := 0
 var _last_horizontal_lod1_chunks := 0
 var _last_horizontal_hidden_chunks := 0
@@ -43,6 +54,7 @@ var _last_horizontal_hidden_chunks := 0
 
 func set_active_dimension(dimension_id: StringName) -> void:
 	_shell_wanted_visible.clear()
+	_shell_order_cache.clear()
 	super.set_active_dimension(dimension_id)
 
 
@@ -50,6 +62,10 @@ func get_streaming_metrics() -> Dictionary:
 	var metrics := super.get_streaming_metrics()
 	metrics["shell_streaming_enabled"] = use_planet_shell_streaming
 	metrics["shell_prefetch_loaded_radius"] = shell_prefetch_loaded_radius
+	metrics["shell_order_cache_enabled"] = shell_order_cache_enabled
+	metrics["shell_order_cache_entries"] = _shell_order_cache.size()
+	metrics["shell_order_cache_hits"] = _last_shell_order_cache_hits
+	metrics["shell_order_cache_misses"] = _last_shell_order_cache_misses
 	metrics["shell_visible_candidates"] = _last_shell_visible_candidates
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
 	metrics["horizontal_lod_enabled"] = horizontal_lod_enabled
@@ -63,6 +79,8 @@ func get_streaming_metrics() -> Dictionary:
 
 func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
+	_last_shell_order_cache_hits = 0
+	_last_shell_order_cache_misses = 0
 
 	# Space stations already use build-aware loading in the parent class.
 	if _is_station_dimension and _active_station != null:
@@ -88,7 +106,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 		super._refresh_chunks(player_chunk)
 		return
 
-	var visible_order := _compute_shell_chunk_order(player.global_position, planet, view_radius)
+	var visible_order := _get_shell_chunk_order_cached(
+			player_chunk, player.global_position, planet, view_radius)
 	_last_shell_visible_candidates = visible_order.size()
 	var wanted_visible: Dictionary = {}
 	for chunk in visible_order:
@@ -97,7 +116,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 
 	var load_order := visible_order
 	if shell_prefetch_loaded_radius and loaded_radius > view_radius:
-		load_order = _compute_shell_chunk_order(player.global_position, planet, loaded_radius)
+		load_order = _get_shell_chunk_order_cached(
+				player_chunk, player.global_position, planet, loaded_radius)
 	_last_shell_load_candidates = load_order.size()
 
 	# Request data for the larger loading shell. The overridden _on_chunk_ready()
@@ -224,6 +244,43 @@ func _get_active_streaming_planet() -> PlanetDescriptor:
 	if planet.dimension_id != active_dimension:
 		return null
 	return planet
+
+
+func _get_shell_chunk_order_cached(
+		player_chunk: Vector3i,
+		player_pos: Vector3,
+		planet: PlanetDescriptor,
+		radius_chunks: int) -> Array[Vector3i]:
+	if not shell_order_cache_enabled:
+		_last_shell_order_cache_misses += 1
+		return _compute_shell_chunk_order(player_pos, planet, radius_chunks)
+
+	var key := _make_shell_order_cache_key(player_chunk, planet, radius_chunks)
+	if _shell_order_cache.has(key):
+		_last_shell_order_cache_hits += 1
+		return _shell_order_cache[key]
+
+	_last_shell_order_cache_misses += 1
+	var order := _compute_shell_chunk_order(player_pos, planet, radius_chunks)
+	if shell_order_cache_max_entries > 0 \
+			and _shell_order_cache.size() >= shell_order_cache_max_entries:
+		_shell_order_cache.clear()
+	_shell_order_cache[key] = order
+	return order
+
+
+func _make_shell_order_cache_key(
+		player_chunk: Vector3i,
+		planet: PlanetDescriptor,
+		radius_chunks: int) -> String:
+	return "%s|pc=%d,%d,%d|r=%d|pr=%.1f|lc=%.1f,%.1f,%.1f|shell=%.1f,%.1f" % [
+		String(active_dimension),
+		player_chunk.x, player_chunk.y, player_chunk.z,
+		radius_chunks,
+		planet.planet_radius,
+		planet.local_center.x, planet.local_center.y, planet.local_center.z,
+		planet.active_shell_above, planet.active_shell_below,
+	]
 
 
 func _compute_shell_chunk_order(
