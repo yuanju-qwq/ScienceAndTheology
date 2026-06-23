@@ -23,6 +23,19 @@ endif()
 
 add_test(NAME snt.block_physics_system COMMAND snt_block_physics_system)
 
+# Dynamic mobile structure: static terrain -> moving entity -> write-back
+add_executable(snt_mobile_structure
+    mobile_structure.cpp
+)
+
+target_link_libraries(snt_mobile_structure PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_mobile_structure PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.mobile_structure COMMAND snt_mobile_structure)
+
 # M2: Multi-player local validation (no network)
 # Design: docs/多人游戏系统设计.md §6.2 M2
 add_executable(snt_m2_multi_player
