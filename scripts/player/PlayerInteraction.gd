@@ -339,14 +339,16 @@ func try_place_world_object(target: Dictionary) -> bool:
 		_:
 			return false
 
-	var place_cell: Vector3i = target.get("place_cell", _player.get_current_cell())
 	var anchor_cell: Vector3i = target.get("build_anchor_cell", Vector3i.ZERO)
 	var build_direction: Vector3i = target.get("build_direction", Vector3i.ZERO)
-	var build_mode: int = int(target.get(
-		"build_mode", GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL))
-	var build_semantic: int = int(target.get("build_semantic", -1))
 	if not GDPlanetBuildFrame.is_axis_direction(build_direction):
 		return false
+
+	var place_cell := _resolve_global_adjacent_place_cell(
+		anchor_cell, build_direction)
+	var build_mode := GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
+	var build_semantic := -1
+
 	var world: ChunkRendererBridge = _player.world
 	if world and _player.global_position.distance_to(
 			world.cell_to_world_position(place_cell)) > REACH:
@@ -378,6 +380,17 @@ func try_place_world_object(target: Dictionary) -> bool:
 
 	_player.inventory_changed.emit()
 	return true
+
+
+# Resolve placement on the fixed global voxel lattice.
+# Gravity/planet-local rules must be handled by support/collapse checks, not by
+# changing which cell is adjacent to the clicked face.
+func _resolve_global_adjacent_place_cell(
+		anchor_cell: Vector3i, face_direction: Vector3i) -> Vector3i:
+	return Vector3i(
+		anchor_cell.x + face_direction.x,
+		anchor_cell.y + face_direction.y,
+		anchor_cell.z + face_direction.z)
 
 
 # --- TFC: Wild crop foraging ---

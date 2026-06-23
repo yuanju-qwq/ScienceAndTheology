@@ -162,9 +162,9 @@ var _is_quitting := false
 var gravity_direction := Vector3.DOWN
 var planet_center := Vector3.ZERO
 
-# Surface construction defaults to radial/tangent planet-local semantics.
-# Global axes remain available for precision and cross-sector construction.
-var build_mode := GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
+# Block construction uses the fixed global voxel lattice.
+# Planet-local gravity is for movement/support rules, not placement adjacency.
+var build_mode := GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
 
 # Per-planet gravity multiplier (1.0 = Earth-like, 0.38 = Mars-like).
 # Updated each frame by _update_gravity_direction().
@@ -412,26 +412,19 @@ func _handle_key(event: InputEventKey) -> void:
 
 
 func _toggle_build_mode() -> void:
-	build_mode = (
-		GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
-		if build_mode == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
-		else GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL)
+	# Planet-local placement was removed because it made block adjacency diverge
+	# from the fixed voxel lattice. Keep B as a harmless compatibility hotkey.
+	build_mode = GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
 	build_mode_changed.emit(build_mode)
-	print("[Player] build mode changed to %s" % _build_mode_name())
+	print("[Player] build mode fixed to %s" % _build_mode_name())
 
 
 func _effective_build_mode() -> int:
-	if build_mode == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL \
-			and gravity_direction != Vector3.ZERO:
-		return GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
 	return GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
 
 
 func _build_mode_name() -> String:
-	return (
-		"planet-local"
-		if _effective_build_mode() == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
-		else "global-xyz")
+	return "global-xyz"
 
 
 func _build_planet_center() -> Vector3:
@@ -948,16 +941,13 @@ func _update_target() -> void:
 	target = info
 	target["normal"] = normal
 	var build_direction := GDPlanetBuildFrame.snap_global_axis(normal)
-	var effective_mode := _effective_build_mode()
 	target["build_anchor_cell"] = cell
 	target["build_direction"] = build_direction
-	target["build_mode"] = effective_mode
-	target["build_semantic"] = (
-		GDPlanetBuildFrame.classify_direction(
-			cell, _build_planet_center(), build_direction)
-		if effective_mode == GDPlanetBuildFrame.BUILD_MODE_PLANET_LOCAL
-		else -1)
-	target["place_cell"] = cell + build_direction
+	# Do not cache a derived place_cell in the target. The target only describes
+	# the hit block and hit face; PlayerInteraction resolves the actual placement
+	# immediately before submitting the authoritative command.
+	target["build_mode"] = GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES
+	target["build_semantic"] = -1
 	target["position"] = hit_position
 	_set_selection_visible(true)
 	if selection_box:
