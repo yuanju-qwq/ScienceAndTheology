@@ -27,13 +27,33 @@ enum AtmosphereType {
 # This is the "big coordinate" used for inter-planet travel and LOD.
 @export var universe_position: Vector3 = Vector3.ZERO
 
-# Radius of the planet in voxel blocks.
-# Determines the spherical clipping boundary and gravity range.
+# Radius from the planet center to the average surface in voxel blocks.
+# This is the real gameplay/topology radius: it defines surface curvature,
+# around-the-world circumference, spherical terrain clipping, and the
+# center-to-surface mining distance. Do not use this value as the distance
+# from surface to space; surface altitude bands below define that separately.
 @export var planet_radius: float = 512.0
 
 # Center of the planet in local voxel coordinates.
 # The terrain generator uses this as the sphere center for chunk generation.
 @export var local_center: Vector3 = Vector3(0.0, -512.0, 0.0)
+
+# Surface-relative atmosphere height. This is the visual/environmental air band
+# above the average surface, not the planet's center-to-surface radius.
+@export var atmosphere_height: float = 512.0
+
+# Surface-relative altitude where gameplay should switch to space rules/visuals.
+# Players can build upward into this band without travelling another planet_radius.
+@export var space_start_altitude: float = 2048.0
+
+# Surface-relative altitude where the planet's gravity influence ends.
+# gravity_radius() returns planet_radius + this value.
+@export var gravity_influence_altitude: float = 2048.0
+
+# Active shell streaming hints. These are intentionally surface-relative depths;
+# they describe the real-time loaded band, not the planet's total mineable depth.
+@export var active_shell_above: float = 128.0
+@export var active_shell_below: float = 256.0
 
 # Per-planet seed for deterministic terrain generation.
 # If 0, the universe seed will be hashed with dimension_id.
@@ -139,11 +159,44 @@ func to_planet_config_dict() -> Dictionary:
 	}
 
 
+# Compute the radius of the visual/environmental atmosphere shell.
+func atmosphere_radius() -> float:
+	return planet_radius + atmosphere_height
+
+
+# Compute the radius where surface gameplay should switch to space rules.
+func space_start_radius() -> float:
+	return planet_radius + space_start_altitude
+
+
 # Compute the gravity influence radius for this planet.
-# Gravity extends beyond the surface; the default is 4x the planet radius
-# (matching the existing V20 milestone).
+# Gravity extends beyond the surface by a fixed altitude band instead of a
+# planet-radius multiplier, so large planets do not require flying hundreds of
+# thousands of blocks before reaching space.
 func gravity_radius() -> float:
-	return planet_radius * 4.0
+	return planet_radius + gravity_influence_altitude
+
+
+# Compute surface-relative altitude for a position against the given center.
+func surface_altitude_from_center(position: Vector3, center: Vector3) -> float:
+	return position.distance_to(center) - planet_radius
+
+
+# Compute surface-relative altitude for an active-planet local-space position.
+func local_surface_altitude_at(position: Vector3) -> float:
+	return surface_altitude_from_center(position, local_center)
+
+
+# Compute surface-relative altitude for a universe-space position.
+func universe_surface_altitude_at(position: Vector3) -> float:
+	return surface_altitude_from_center(position, universe_position)
+
+
+# Check whether a local-space position is inside the active shell streaming band.
+# Deep underground outside this band should be generated on demand.
+func is_in_active_shell_local(position: Vector3) -> bool:
+	var altitude := local_surface_altitude_at(position)
+	return altitude >= -active_shell_below and altitude <= active_shell_above
 
 
 # Check whether a given universe-space position is within the
