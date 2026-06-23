@@ -4,7 +4,7 @@
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
 [ext_resource type="Script" uid="uid://lvfn41gsf24d" path="res://scripts/world/FurnaceManager.gd" id="4_furnace_manager"]
 [ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="6_command_server"]
-[ext_resource type="Script" uid="uid://bg4dhk18xtpmi" path="res://scripts/ChunkRendererBridge.gd" id="7_chunk_bridge"]
+[ext_resource type="Script" path="res://scripts/world/PlanetShellChunkRendererBridge.gd" id="7_chunk_bridge"]
 [ext_resource type="Script" path="res://scripts/world/WorldObjectRenderer.gd" id="8_object_renderer"]
 [ext_resource type="Script" path="res://scripts/world/CreatureRenderer.gd" id="20_creature_renderer"]
 [ext_resource type="Script" uid="uid://dk4f2qoffbe2e" path="res://scripts/PlayerController.gd" id="9_player_controller"]
