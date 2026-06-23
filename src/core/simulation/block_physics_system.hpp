@@ -14,12 +14,14 @@ namespace science_and_theology {
 // Handles gravity-affected blocks (sand, gravel) and cave-in collapse.
 //
 // Design:
-//   - When a block is mined, the caller enqueues a physics check for
-//     neighboring blocks via schedule_check().
-//   - Each tick, the system processes a budget of pending checks.
-//   - Gravity fall: TF_GRAVITY_FALL blocks fall toward the planet center.
-//   - Collapse: TF_COLLAPSE_RISK blocks cave-in when unsupported, unless
+//   - When a block is mined or placed, the caller enqueues a physics event in
+//     WorldData. The system expands that event into local pending checks.
+//   - Each tick, the system processes a bounded number of pending checks.
+//   - Gravity fall: TF_GRAVITY_FALL blocks move toward the planet center.
+//   - Collapse: TF_COLLAPSE_RISK blocks cave in when unsupported, unless
 //     a TF_SUPPORT_BEAM block is within support_beam_radius.
+//   - Terrain mutations are emitted through EventBus::TERRAIN_CHANGED so
+//     renderers and state-sync layers can rebuild affected chunks.
 //
 // Thread safety: All methods must be called from the main thread only.
 // The pending queue is not thread-safe.
@@ -52,24 +54,31 @@ public:
         int64_t target_tick = 0;
         // Type of check: 0 = gravity fall, 1 = collapse risk.
         int check_type = 0;
+        // Chain depth of the current reaction. Used with gameplay_config caps.
+        int chain_depth = 0;
     };
 
     // Enqueue a block physics check. The check will be processed at
     // target_tick (or later if the budget is exhausted).
     void schedule_check(const PendingCheck& check);
 
-    // Enqueue gravity fall checks for blocks above the mined position.
-    // "Above" means in the anti-gravity direction (away from planet center).
+    // Enqueue gravity fall checks for the changed position and its neighbors.
+    // Including the changed position matters for placement: a newly placed
+    // gravity block in mid-air should be checked directly.
     void schedule_gravity_fall_after_mine(
         const std::string& dimension_id,
         int block_x, int block_y, int block_z,
-        int64_t current_tick);
+        int64_t current_tick,
+        int chain_depth = 0);
 
-    // Enqueue collapse checks for blocks around the mined position.
+    // Enqueue collapse checks for the changed position and its neighbors.
+    // Including the changed position is harmless for mining (it is air) and
+    // enables future generic block placement to validate collapse-risk blocks.
     void schedule_collapse_after_mine(
         const std::string& dimension_id,
         int block_x, int block_y, int block_z,
-        int64_t current_tick);
+        int64_t current_tick,
+        int chain_depth = 0);
 
     // --- Processing ---
 
@@ -120,6 +129,12 @@ public:
     size_t pending_count() const { return pending_.size(); }
 
 private:
+    void emit_terrain_changed(
+        const std::string& dimension_id,
+        int chunk_x, int chunk_y, int chunk_z,
+        int local_x, int local_y, int local_z,
+        int old_material, int new_material) const;
+
     std::queue<PendingCheck> pending_;
 };
 
