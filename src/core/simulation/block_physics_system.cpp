@@ -4,10 +4,84 @@
 #include <cmath>
 #include <cstdlib>
 
+#include "event_types.hpp"
 #include "../world/world_data.hpp"
 #include "../world_gen/world_gen_config.hpp"
 
 namespace science_and_theology {
+
+namespace {
+
+constexpr int kNeighborDeltas[][3] = {
+    {0, 0, 0},
+    {1, 0, 0}, {-1, 0, 0},
+    {0, 1, 0}, {0, -1, 0},
+    {0, 0, 1}, {0, 0, -1},
+};
+
+int floor_div_chunk(int value) {
+    return static_cast<int>(
+        std::floor(static_cast<float>(value) / ChunkData::kChunkSize));
+}
+
+struct ResolvedCell {
+    ChunkData* chunk = nullptr;
+    TerrainCell* cell = nullptr;
+    int chunk_x = 0;
+    int chunk_y = 0;
+    int chunk_z = 0;
+    int local_x = 0;
+    int local_y = 0;
+    int local_z = 0;
+};
+
+ResolvedCell resolve_cell(
+    WorldData* world,
+    const std::string& dimension_id,
+    int block_x, int block_y, int block_z) {
+    ResolvedCell out;
+    if (!world) return out;
+
+    out.chunk_x = floor_div_chunk(block_x);
+    out.chunk_y = floor_div_chunk(block_y);
+    out.chunk_z = floor_div_chunk(block_z);
+    out.local_x = block_x - out.chunk_x * ChunkData::kChunkSize;
+    out.local_y = block_y - out.chunk_y * ChunkData::kChunkSize;
+    out.local_z = block_z - out.chunk_z * ChunkData::kChunkSize;
+
+    out.chunk = world->get_chunk(
+        dimension_id, out.chunk_x, out.chunk_y, out.chunk_z);
+    if (!out.chunk) return out;
+    if (!out.chunk->terrain.is_valid_cell(
+            out.local_x, out.local_y, out.local_z)) {
+        out.chunk = nullptr;
+        return out;
+    }
+    out.cell = &out.chunk->terrain.cell_at(
+        out.local_x, out.local_y, out.local_z);
+    return out;
+}
+
+const TerrainCell* resolve_const_cell(
+    const WorldData* world,
+    const std::string& dimension_id,
+    int block_x, int block_y, int block_z) {
+    if (!world) return nullptr;
+
+    const int cx = floor_div_chunk(block_x);
+    const int cy = floor_div_chunk(block_y);
+    const int cz = floor_div_chunk(block_z);
+    const int lx = block_x - cx * ChunkData::kChunkSize;
+    const int ly = block_y - cy * ChunkData::kChunkSize;
+    const int lz = block_z - cz * ChunkData::kChunkSize;
+
+    const ChunkData* chunk = world->get_chunk(dimension_id, cx, cy, cz);
+    if (!chunk) return nullptr;
+    if (!chunk->terrain.is_valid_cell(lx, ly, lz)) return nullptr;
+    return &chunk->terrain.cell_at(lx, ly, lz);
+}
+
+} // namespace
 
 // --- SimulationSystem interface ---
 
@@ -20,13 +94,15 @@ void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta,
                                      const TickContext* ctx) {
     (void)chunk;
     (void)delta;
+    (void)ctx;
     if (!world_) return;
 
     // Read the current tick from WorldData (set by TickSystem each frame).
     const int64_t tick = world_->current_tick();
 
-    // Consume block physics events from the WorldData queue.
-    // These are enqueued by the command server when blocks are mined.
+    // Consume block physics events from the WorldData queue. These are
+    // enqueued by the authoritative command server when blocks are mined,
+    // placed, or otherwise mutated by gameplay commands.
     BlockPhysicsEvent event;
     while (world_->pop_physics_event(event)) {
         schedule_gravity_fall_after_mine(
@@ -46,7 +122,9 @@ void BlockPhysicsSystem::tick_sleeping(const ChunkKey& chunk, float delta,
                                        const TickContext* ctx) {
     (void)chunk;
     (void)delta;
-    // Sleeping chunks do not process block physics.
+    (void)ctx;
+    // Sleeping chunks do not process block physics. Physics is intentionally
+    // observer-local so distant cave-ins cannot mutate unloaded terrain.
 }
 
 void BlockPhysicsSystem::shutdown() {
@@ -65,19 +143,17 @@ void BlockPhysicsSystem::schedule_check(const PendingCheck& check) {
 void BlockPhysicsSystem::schedule_gravity_fall_after_mine(
     const std::string& dimension_id,
     int block_x, int block_y, int block_z,
-    int64_t current_tick) {
+    int64_t current_tick,
+    int chain_depth) {
     if (!world_) return;
     const auto& gc = world_->gameplay_config();
     if (!gc.is_gravity_fall_enabled(dimension_id)) return;
+    if (chain_depth > gc.get_max_gravity_fall_chain(dimension_id)) return;
 
-    // Schedule checks for the 6 neighbors, with slight delays
-    // so that chain reactions spread over multiple ticks.
-    constexpr int kDeltas[][3] = {
-        {1, 0, 0}, {-1, 0, 0},
-        {0, 1, 0}, {0, -1, 0},
-        {0, 0, 1}, {0, 0, -1},
-    };
-    for (const auto& d : kDeltas) {
+    // Schedule checks for the changed block itself plus the 6 neighbors.
+    // The origin check is important for placement; neighbor checks are
+    // important for mining/removing support.
+    for (const auto& d : kNeighborDeltas) {
         PendingCheck check;
         check.dimension_id = dimension_id;
         check.block_x = block_x + d[0];
@@ -85,6 +161,7 @@ void BlockPhysicsSystem::schedule_gravity_fall_after_mine(
         check.block_z = block_z + d[2];
         check.target_tick = current_tick + 1;
         check.check_type = 0;  // gravity fall
+        check.chain_depth = chain_depth;
         schedule_check(check);
     }
 }
@@ -92,26 +169,24 @@ void BlockPhysicsSystem::schedule_gravity_fall_after_mine(
 void BlockPhysicsSystem::schedule_collapse_after_mine(
     const std::string& dimension_id,
     int block_x, int block_y, int block_z,
-    int64_t current_tick) {
+    int64_t current_tick,
+    int chain_depth) {
     if (!world_) return;
     const auto& gc = world_->gameplay_config();
     if (!gc.is_collapse_enabled(dimension_id)) return;
+    if (chain_depth > gc.get_max_collapse_chain(dimension_id)) return;
 
-    // Schedule collapse checks for neighbors, with slightly longer
-    // delays to create a cascading cave-in effect.
-    constexpr int kDeltas[][3] = {
-        {1, 0, 0}, {-1, 0, 0},
-        {0, 1, 0}, {0, -1, 0},
-        {0, 0, 1}, {0, 0, -1},
-    };
-    for (int i = 0; i < 6; ++i) {
+    // Schedule collapse checks with staggered delays to create a cascading
+    // cave-in effect without producing a one-frame spike.
+    for (int i = 0; i < 7; ++i) {
         PendingCheck check;
         check.dimension_id = dimension_id;
-        check.block_x = block_x + kDeltas[i][0];
-        check.block_y = block_y + kDeltas[i][1];
-        check.block_z = block_z + kDeltas[i][2];
+        check.block_x = block_x + kNeighborDeltas[i][0];
+        check.block_y = block_y + kNeighborDeltas[i][1];
+        check.block_z = block_z + kNeighborDeltas[i][2];
         check.target_tick = current_tick + 2 + i;
         check.check_type = 1;  // collapse
+        check.chain_depth = chain_depth;
         schedule_check(check);
     }
 }
@@ -122,14 +197,19 @@ void BlockPhysicsSystem::process_pending(int64_t current_tick) {
     if (!world_) return;
 
     int processed = 0;
-    while (!pending_.empty() && processed < kMaxChecksPerTick) {
+    size_t scanned = pending_.size();
+
+    // Do not let one future-dated item at the front of the queue block ready
+    // items behind it. Rotate future checks to the back and process a snapshot
+    // of the queue at most once per tick.
+    while (!pending_.empty() && scanned > 0 && processed < kMaxChecksPerTick) {
         PendingCheck check = pending_.front();
         pending_.pop();
+        --scanned;
 
-        // Skip checks that are scheduled for the future.
         if (check.target_tick > current_tick) {
             pending_.push(check);
-            break;
+            continue;
         }
 
         bool acted = false;
@@ -143,17 +223,20 @@ void BlockPhysicsSystem::process_pending(int64_t current_tick) {
                 check.block_x, check.block_y, check.block_z);
         }
 
-        // If a block fell or collapsed, schedule more checks for
-        // its new neighbors (chain reaction).
+        // If a block fell or collapsed, schedule more checks for its new
+        // neighborhood. Chain depth caps prevent pathological cave-ins.
         if (acted) {
+            const int next_depth = check.chain_depth + 1;
             schedule_gravity_fall_after_mine(
                 check.dimension_id,
                 check.block_x, check.block_y, check.block_z,
-                current_tick);
+                current_tick,
+                next_depth);
             schedule_collapse_after_mine(
                 check.dimension_id,
                 check.block_x, check.block_y, check.block_z,
-                current_tick);
+                current_tick,
+                next_depth);
         }
 
         ++processed;
@@ -176,12 +259,11 @@ BlockPhysicsSystem::GravityStep BlockPhysicsSystem::compute_gravity_step(
     if (!planet || !planet->is_planet()) return step;
 
     // For spherical planet: gravity step is toward planet center,
-    // snapped to the nearest axis.
+    // snapped to the nearest axis on the fixed global voxel lattice.
     const float dx = static_cast<float>(block_x) - planet->center_x;
     const float dy = static_cast<float>(block_y) - planet->center_y;
     const float dz = static_cast<float>(block_z) - planet->center_z;
 
-    // Find the axis with the largest absolute component.
     const float adx = std::abs(dx);
     const float ady = std::abs(dy);
     const float adz = std::abs(dz);
@@ -208,61 +290,49 @@ bool BlockPhysicsSystem::process_gravity_fall(
     const auto& gc = world_->gameplay_config();
     if (!gc.is_gravity_fall_enabled(dimension_id)) return false;
 
-    // Convert world block position to chunk + local coordinates.
-    const int cx = static_cast<int>(
-        std::floor(static_cast<float>(block_x) / ChunkData::kChunkSize));
-    const int cy = static_cast<int>(
-        std::floor(static_cast<float>(block_y) / ChunkData::kChunkSize));
-    const int cz = static_cast<int>(
-        std::floor(static_cast<float>(block_z) / ChunkData::kChunkSize));
-    const int lx = block_x - cx * ChunkData::kChunkSize;
-    const int ly = block_y - cy * ChunkData::kChunkSize;
-    const int lz = block_z - cz * ChunkData::kChunkSize;
+    ResolvedCell src = resolve_cell(
+        world_, dimension_id, block_x, block_y, block_z);
+    if (!src.cell) return false;
+    if (!src.cell->is_gravity_fall()) return false;
 
-    ChunkData* chunk = world_->get_chunk(dimension_id, cx, cy, cz);
-    if (!chunk) return false;
-    if (!chunk->terrain.is_valid_cell(lx, ly, lz)) return false;
-
-    TerrainCell& cell = chunk->terrain.cell_at(lx, ly, lz);
-    if (!cell.is_gravity_fall()) return false;
-
-    // Check if the block below (in gravity direction) is empty.
+    // Check if the block below (in gravity direction) is empty/non-solid.
     const GravityStep gs = compute_gravity_step(
         dimension_id, block_x, block_y, block_z);
+    if (gs.dx == 0 && gs.dy == 0 && gs.dz == 0) return false;
+
     const int below_x = block_x + gs.dx;
     const int below_y = block_y + gs.dy;
     const int below_z = block_z + gs.dz;
 
-    const int bcx = static_cast<int>(
-        std::floor(static_cast<float>(below_x) / ChunkData::kChunkSize));
-    const int bcy = static_cast<int>(
-        std::floor(static_cast<float>(below_y) / ChunkData::kChunkSize));
-    const int bcz = static_cast<int>(
-        std::floor(static_cast<float>(below_z) / ChunkData::kChunkSize));
-    const int blx = below_x - bcx * ChunkData::kChunkSize;
-    const int bly = below_y - bcy * ChunkData::kChunkSize;
-    const int blz = below_z - bcz * ChunkData::kChunkSize;
+    ResolvedCell dst = resolve_cell(
+        world_, dimension_id, below_x, below_y, below_z);
+    if (!dst.cell) return false;
+    if (dst.cell->is_solid()) return false;
 
-    ChunkData* below_chunk = world_->get_chunk(dimension_id, bcx, bcy, bcz);
-    if (!below_chunk) return false;
-    if (!below_chunk->terrain.is_valid_cell(blx, bly, blz)) return false;
-
-    const TerrainCell& below_cell = below_chunk->terrain.cell_at(blx, bly, blz);
-    // Can fall into air or liquid.
-    if (below_cell.is_solid()) return false;
-
-    // Move the block down.
     const TerrainMaterialId moved_material =
-        static_cast<TerrainMaterialId>(cell.material);
-    const uint32_t moved_flags = cell.flags;
+        static_cast<TerrainMaterialId>(src.cell->material);
+    const uint32_t moved_flags = src.cell->flags;
+    const TerrainMaterialId dst_old_material =
+        static_cast<TerrainMaterialId>(dst.cell->material);
 
-    // Clear the source.
     auto config = world_->worldgen_config();
     const TerrainMaterialId air = config ? config->roles.air : 0;
-    chunk->terrain.set_cell(lx, ly, lz, air, 0);
 
-    // Place at the destination.
-    below_chunk->terrain.set_cell(blx, bly, blz, moved_material, moved_flags);
+    // Clear source and place at destination.
+    src.chunk->terrain.set_cell(src.local_x, src.local_y, src.local_z, air, 0);
+    dst.chunk->terrain.set_cell(
+        dst.local_x, dst.local_y, dst.local_z, moved_material, moved_flags);
+
+    emit_terrain_changed(
+        dimension_id,
+        src.chunk_x, src.chunk_y, src.chunk_z,
+        src.local_x, src.local_y, src.local_z,
+        moved_material, air);
+    emit_terrain_changed(
+        dimension_id,
+        dst.chunk_x, dst.chunk_y, dst.chunk_z,
+        dst.local_x, dst.local_y, dst.local_z,
+        dst_old_material, moved_material);
 
     return true;
 }
@@ -275,23 +345,10 @@ bool BlockPhysicsSystem::process_collapse(
     const auto& gc = world_->gameplay_config();
     if (!gc.is_collapse_enabled(dimension_id)) return false;
 
-    // Convert world block position to chunk + local coordinates.
-    const int cx = static_cast<int>(
-        std::floor(static_cast<float>(block_x) / ChunkData::kChunkSize));
-    const int cy = static_cast<int>(
-        std::floor(static_cast<float>(block_y) / ChunkData::kChunkSize));
-    const int cz = static_cast<int>(
-        std::floor(static_cast<float>(block_z) / ChunkData::kChunkSize));
-    const int lx = block_x - cx * ChunkData::kChunkSize;
-    const int ly = block_y - cy * ChunkData::kChunkSize;
-    const int lz = block_z - cz * ChunkData::kChunkSize;
-
-    ChunkData* chunk = world_->get_chunk(dimension_id, cx, cy, cz);
-    if (!chunk) return false;
-    if (!chunk->terrain.is_valid_cell(lx, ly, lz)) return false;
-
-    TerrainCell& cell = chunk->terrain.cell_at(lx, ly, lz);
-    if (!cell.is_collapse_risk()) return false;
+    ResolvedCell src = resolve_cell(
+        world_, dimension_id, block_x, block_y, block_z);
+    if (!src.cell) return false;
+    if (!src.cell->is_collapse_risk()) return false;
 
     // Check if a support beam is nearby.
     const int support_radius = gc.get_support_beam_radius(dimension_id);
@@ -303,37 +360,24 @@ bool BlockPhysicsSystem::process_collapse(
     // Check if the block has support below (in gravity direction).
     const GravityStep gs = compute_gravity_step(
         dimension_id, block_x, block_y, block_z);
-    const int below_x = block_x + gs.dx;
-    const int below_y = block_y + gs.dy;
-    const int below_z = block_z + gs.dz;
+    if (gs.dx == 0 && gs.dy == 0 && gs.dz == 0) return false;
 
-    const int bcx = static_cast<int>(
-        std::floor(static_cast<float>(below_x) / ChunkData::kChunkSize));
-    const int bcy = static_cast<int>(
-        std::floor(static_cast<float>(below_y) / ChunkData::kChunkSize));
-    const int bcz = static_cast<int>(
-        std::floor(static_cast<float>(below_z) / ChunkData::kChunkSize));
-    const int blx = below_x - bcx * ChunkData::kChunkSize;
-    const int bly = below_y - bcy * ChunkData::kChunkSize;
-    const int blz = below_z - bcz * ChunkData::kChunkSize;
-
-    ChunkData* below_chunk = world_->get_chunk(dimension_id, bcx, bcy, bcz);
-    if (below_chunk && below_chunk->terrain.is_valid_cell(blx, bly, blz)) {
-        const TerrainCell& below_cell =
-            below_chunk->terrain.cell_at(blx, bly, blz);
-        if (below_cell.is_solid()) {
-            // Has solid support below: no collapse.
-            return false;
-        }
+    const TerrainCell* below_cell = resolve_const_cell(
+        world_, dimension_id,
+        block_x + gs.dx,
+        block_y + gs.dy,
+        block_z + gs.dz);
+    if (below_cell && below_cell->is_solid()) {
+        return false;
     }
 
-    // No support: roll for collapse.
-    // Use the material's collapse_chance multiplied by the config multiplier.
+    // No support: roll for collapse. Use the material's collapse_chance
+    // multiplied by the runtime gameplay config multiplier.
     float base_chance = 0.3f;
     auto wg_config = world_->worldgen_config();
     if (wg_config) {
         const TerrainMaterialDef* mat_def =
-            wg_config->find_material(static_cast<TerrainMaterialId>(cell.material));
+            wg_config->find_material(static_cast<TerrainMaterialId>(src.cell->material));
         if (mat_def) {
             base_chance = mat_def->collapse_chance;
         }
@@ -344,10 +388,18 @@ bool BlockPhysicsSystem::process_collapse(
 
     if (roll >= chance) return false;
 
-    // Collapse: convert the block to air (it falls as debris).
+    // Collapse: convert the block to air (it falls as debris for now).
     auto config = world_->worldgen_config();
     const TerrainMaterialId air = config ? config->roles.air : 0;
-    chunk->terrain.set_cell(lx, ly, lz, air, 0);
+    const TerrainMaterialId old_material =
+        static_cast<TerrainMaterialId>(src.cell->material);
+    src.chunk->terrain.set_cell(src.local_x, src.local_y, src.local_z, air, 0);
+
+    emit_terrain_changed(
+        dimension_id,
+        src.chunk_x, src.chunk_y, src.chunk_z,
+        src.local_x, src.local_y, src.local_z,
+        old_material, air);
 
     return true;
 }
@@ -357,40 +409,39 @@ bool BlockPhysicsSystem::has_support_beam_nearby(
     int block_x, int block_y, int block_z,
     int radius) const {
     if (!world_) return false;
+    if (radius <= 0) return false;
 
     for (int dy = -radius; dy <= radius; ++dy) {
         for (int dz = -radius; dz <= radius; ++dz) {
             for (int dx = -radius; dx <= radius; ++dx) {
                 if (dx == 0 && dy == 0 && dz == 0) continue;
-                // Manhattan distance check for efficiency.
+                // Manhattan distance keeps the support volume cheap and
+                // predictable for gameplay: diamond-shaped support envelope.
                 if (std::abs(dx) + std::abs(dy) + std::abs(dz) > radius) continue;
 
-                const int nx = block_x + dx;
-                const int ny = block_y + dy;
-                const int nz = block_z + dz;
-
-                const int ncx = static_cast<int>(
-                    std::floor(static_cast<float>(nx) / ChunkData::kChunkSize));
-                const int ncy = static_cast<int>(
-                    std::floor(static_cast<float>(ny) / ChunkData::kChunkSize));
-                const int ncz = static_cast<int>(
-                    std::floor(static_cast<float>(nz) / ChunkData::kChunkSize));
-                const int nlx = nx - ncx * ChunkData::kChunkSize;
-                const int nly = ny - ncy * ChunkData::kChunkSize;
-                const int nlz = nz - ncz * ChunkData::kChunkSize;
-
-                const ChunkData* nchunk =
-                    world_->get_chunk(dimension_id, ncx, ncy, ncz);
-                if (!nchunk) continue;
-                if (!nchunk->terrain.is_valid_cell(nlx, nly, nlz)) continue;
-
-                if (nchunk->terrain.cell_at(nlx, nly, nlz).is_support_beam()) {
+                const TerrainCell* cell = resolve_const_cell(
+                    world_, dimension_id,
+                    block_x + dx, block_y + dy, block_z + dz);
+                if (cell && cell->is_support_beam()) {
                     return true;
                 }
             }
         }
     }
     return false;
+}
+
+void BlockPhysicsSystem::emit_terrain_changed(
+    const std::string& dimension_id,
+    int chunk_x, int chunk_y, int chunk_z,
+    int local_x, int local_y, int local_z,
+    int old_material, int new_material) const {
+    if (!event_bus_) return;
+    event_bus_->enqueue(GameEvent::terrain_changed(
+        dimension_id,
+        chunk_x, chunk_y, chunk_z,
+        local_x, local_y, local_z,
+        old_material, new_material));
 }
 
 } // namespace science_and_theology
