@@ -230,7 +230,7 @@ void BlockPhysicsSystem::process_pending(int64_t current_tick) {
                 check.block_x, check.block_y, check.block_z);
         }
 
-        // If a block fell or collapsed, schedule more checks for its new
+        // If a block fell or collapsed, schedule more checks for its old
         // neighborhood. Chain depth caps prevent pathological cave-ins.
         if (acted) {
             const int next_depth = check.chain_depth + 1;
@@ -364,22 +364,26 @@ bool BlockPhysicsSystem::process_collapse(
         return false;
     }
 
-    // Check if the block has support below (in gravity direction).
     const GravityStep gs = compute_gravity_step(
         dimension_id, block_x, block_y, block_z);
     if (gs.dx == 0 && gs.dy == 0 && gs.dz == 0) return false;
 
-    const int below_x = block_x + gs.dx;
-    const int below_y = block_y + gs.dy;
-    const int below_z = block_z + gs.dz;
-
-    ResolvedCell dst = resolve_cell(world_, dimension_id, below_x, below_y, below_z);
-    if (!dst.cell) return false;
-    if (dst.cell->is_solid()) return false;
-
     auto config = world_->worldgen_config();
     const TerrainMaterialId air = config ? config->roles.air : 0;
-    if (!is_empty_cell(*dst.cell, air)) return false;
+
+    // If directly supported by a solid block, no cave-in happens.
+    const TerrainCell* below_cell = resolve_const_cell(
+        world_, dimension_id,
+        block_x + gs.dx,
+        block_y + gs.dy,
+        block_z + gs.dz);
+    if (below_cell && below_cell->is_solid()) {
+        return false;
+    }
+
+    const CollapseDestination dst_pos = find_collapse_settle_destination(
+        dimension_id, block_x, block_y, block_z, gs, air);
+    if (!dst_pos.valid) return false;
 
     // No support: roll for collapse. Use the material's collapse_chance
     // multiplied by the runtime gameplay config multiplier.
@@ -397,14 +401,20 @@ bool BlockPhysicsSystem::process_collapse(
 
     if (roll >= chance) return false;
 
+    ResolvedCell dst = resolve_cell(
+        world_, dimension_id, dst_pos.block_x, dst_pos.block_y, dst_pos.block_z);
+    if (!dst.cell) return false;
+    if (!is_empty_cell(*dst.cell, air)) return false;
+
     const TerrainMaterialId moved_material =
         static_cast<TerrainMaterialId>(src.cell->material);
     const uint32_t moved_flags = src.cell->flags;
     const TerrainMaterialId dst_old_material =
         static_cast<TerrainMaterialId>(dst.cell->material);
 
-    // Collapse now behaves like gravity fall: the original block moves one
-    // step downward instead of transforming into rubble/debris.
+    // Cave-in is an instant settle operation: source becomes air and the
+    // original block material appears at the resting cell. It does not tick
+    // one voxel at a time like sand, so network traffic stays bounded.
     src.chunk->terrain.set_cell(src.local_x, src.local_y, src.local_z, air, 0);
     dst.chunk->terrain.set_cell(
         dst.local_x, dst.local_y, dst.local_z, moved_material, moved_flags);
@@ -453,6 +463,44 @@ bool BlockPhysicsSystem::has_support_beam_nearby(
 bool BlockPhysicsSystem::is_empty_cell(
     const TerrainCell& cell, TerrainMaterialId air) const {
     return static_cast<TerrainMaterialId>(cell.material) == air && !cell.has_fluid();
+}
+
+BlockPhysicsSystem::CollapseDestination
+BlockPhysicsSystem::find_collapse_settle_destination(
+    const std::string& dimension_id,
+    int block_x, int block_y, int block_z,
+    const GravityStep& gravity_step,
+    TerrainMaterialId air) const {
+    CollapseDestination last_empty;
+
+    if (!world_) return last_empty;
+    if (gravity_step.dx == 0 && gravity_step.dy == 0 && gravity_step.dz == 0) {
+        return last_empty;
+    }
+
+    for (int distance = 1;
+         distance <= kMaxCollapseSettleDistance;
+         ++distance) {
+        const int x = block_x + gravity_step.dx * distance;
+        const int y = block_y + gravity_step.dy * distance;
+        const int z = block_z + gravity_step.dz * distance;
+        const TerrainCell* cell = resolve_const_cell(world_, dimension_id, x, y, z);
+        if (!cell) break;
+
+        if (is_empty_cell(*cell, air)) {
+            last_empty.valid = true;
+            last_empty.block_x = x;
+            last_empty.block_y = y;
+            last_empty.block_z = z;
+            continue;
+        }
+
+        // First occupied cell stops the cave-in. The block body settles in the
+        // last empty cell immediately before that obstacle.
+        break;
+    }
+
+    return last_empty;
 }
 
 void BlockPhysicsSystem::emit_terrain_changed(
