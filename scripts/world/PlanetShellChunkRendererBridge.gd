@@ -22,6 +22,15 @@ extends ChunkRendererBridge
 @export var shell_order_cache_enabled := true
 @export var shell_order_cache_max_entries := 128
 
+# Keep chunks that were directly modified/accessed by gameplay alive while the
+# player remains nearby. This is the first DeepUndergroundChunk on-demand hook:
+# a chunk outside the active surface shell can still be loaded/rendered when the
+# player is digging or interacting with it.
+@export var deep_chunk_keepalive_enabled := true
+@export var deep_chunk_keepalive_radius := 4
+@export var deep_player_chunk_radius := 1
+@export var deep_chunk_max_forced_entries := 512
+
 # Enable per-chunk horizontal LOD inside the visible shell. Near chunks show
 # LOD0_Full with collision; outer chunks show LOD1_Simplified without collision.
 @export var horizontal_lod_enabled := true
@@ -42,11 +51,17 @@ var _shell_wanted_visible: Dictionary = {}
 # local center, and active shell band.
 var _shell_order_cache: Dictionary = {}
 
+# Chunks explicitly touched by gameplay. These bypass surface-shell clipping while
+# the player stays close, then age out through the max-entry cap or dimension switch.
+var _forced_shell_chunks: Dictionary = {}
+
 # Per-frame shell/horizontal LOD counters exposed through get_streaming_metrics().
 var _last_shell_visible_candidates := 0
 var _last_shell_load_candidates := 0
 var _last_shell_order_cache_hits := 0
 var _last_shell_order_cache_misses := 0
+var _last_forced_keepalive_chunks := 0
+var _last_deep_player_chunks := 0
 var _last_horizontal_lod0_chunks := 0
 var _last_horizontal_lod1_chunks := 0
 var _last_horizontal_hidden_chunks := 0
@@ -55,6 +70,7 @@ var _last_horizontal_hidden_chunks := 0
 func set_active_dimension(dimension_id: StringName) -> void:
 	_shell_wanted_visible.clear()
 	_shell_order_cache.clear()
+	_forced_shell_chunks.clear()
 	super.set_active_dimension(dimension_id)
 
 
@@ -68,6 +84,10 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_order_cache_misses"] = _last_shell_order_cache_misses
 	metrics["shell_visible_candidates"] = _last_shell_visible_candidates
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
+	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
+	metrics["forced_shell_chunks"] = _forced_shell_chunks.size()
+	metrics["forced_keepalive_chunks"] = _last_forced_keepalive_chunks
+	metrics["deep_player_chunks"] = _last_deep_player_chunks
 	metrics["horizontal_lod_enabled"] = horizontal_lod_enabled
 	metrics["horizontal_lod0_radius"] = horizontal_lod0_radius
 	metrics["horizontal_lod1_radius"] = horizontal_lod1_radius if horizontal_lod1_radius > 0 else view_radius
@@ -81,6 +101,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
 	_last_shell_order_cache_hits = 0
 	_last_shell_order_cache_misses = 0
+	_last_forced_keepalive_chunks = 0
+	_last_deep_player_chunks = 0
 
 	# Space stations already use build-aware loading in the parent class.
 	if _is_station_dimension and _active_station != null:
@@ -112,13 +134,23 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	var wanted_visible: Dictionary = {}
 	for chunk in visible_order:
 		wanted_visible[chunk] = true
-	_shell_wanted_visible = wanted_visible
 
 	var load_order := visible_order
 	if shell_prefetch_loaded_radius and loaded_radius > view_radius:
 		load_order = _get_shell_chunk_order_cached(
 				player_chunk, player.global_position, planet, loaded_radius)
 	_last_shell_load_candidates = load_order.size()
+
+	# Add on-demand deep chunks after the normal shell pass. These chunks are not
+	# required to intersect the surface shell, but they must remain close to the
+	# player so old tunnels do not stay rendered forever.
+	var keepalive_chunks := _collect_keepalive_chunks(player_chunk, player.global_position, planet)
+	for chunk in keepalive_chunks:
+		wanted_visible[chunk] = true
+		if not load_order.has(chunk):
+			load_order.append(chunk)
+
+	_shell_wanted_visible = wanted_visible
 
 	# Request data for the larger loading shell. The overridden _on_chunk_ready()
 	# only enqueues a view when the chunk is currently in wanted_visible.
@@ -129,7 +161,7 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 		if not wanted_visible.has(key):
 			_remove_chunk_view(key)
 
-	for chunk in visible_order:
+	for chunk: Vector3i in wanted_visible.keys():
 		if _visible_chunks.has(chunk):
 			continue
 		if not _pending_view_queue.has(chunk):
@@ -156,6 +188,26 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 		if not _visible_chunks.has(neighbor):
 			continue
 		_enqueue_chunk_rebuild(neighbor)
+
+
+func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vector3i,
+		old_material: int, new_material: int) -> void:
+	if deep_chunk_keepalive_enabled and dimension == active_dimension:
+		_mark_forced_shell_chunk(chunk, &"terrain_cell_synced")
+	super.on_terrain_cell_synced(dimension, chunk, local, old_material, new_material)
+
+
+func notify_deep_access_cell(dimension: StringName, cell: Vector3i,
+		radius_chunks: int = 0) -> void:
+	if not deep_chunk_keepalive_enabled or dimension != active_dimension:
+		return
+	var center_chunk := cell_to_chunk(cell)
+	var radius := maxi(0, radius_chunks)
+	for dx in range(-radius, radius + 1):
+		for dy in range(-radius, radius + 1):
+			for dz in range(-radius, radius + 1):
+				_mark_forced_shell_chunk(
+						center_chunk + Vector3i(dx, dy, dz), &"deep_access")
 
 
 # Apply horizontal chunk LOD every frame because the local tangent distance changes
@@ -244,6 +296,77 @@ func _get_active_streaming_planet() -> PlanetDescriptor:
 	if planet.dimension_id != active_dimension:
 		return null
 	return planet
+
+
+func _collect_keepalive_chunks(
+		player_chunk: Vector3i,
+		player_pos: Vector3,
+		planet: PlanetDescriptor) -> Array[Vector3i]:
+	var result: Array[Vector3i] = []
+	if not deep_chunk_keepalive_enabled:
+		return result
+
+	var seen: Dictionary = {}
+	for chunk: Vector3i in _forced_shell_chunks.keys():
+		if not _is_chunk_near_player_chunk(chunk, player_chunk, deep_chunk_keepalive_radius):
+			continue
+		seen[chunk] = true
+		result.append(chunk)
+	_last_forced_keepalive_chunks = result.size()
+
+	# When the player is already outside the active surface shell, keep a small
+	# cube around them loaded. This is the runtime path for tunnels below H_below
+	# or vertical towers above H_above.
+	var altitude := planet.local_surface_altitude_at(player_pos)
+	var outside_active_shell := altitude < -planet.active_shell_below \
+			or altitude > planet.active_shell_above
+	if outside_active_shell:
+		var radius := maxi(0, deep_player_chunk_radius)
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				for dz in range(-radius, radius + 1):
+					var chunk := player_chunk + Vector3i(dx, dy, dz)
+					if seen.has(chunk):
+						continue
+					seen[chunk] = true
+					result.append(chunk)
+					_last_deep_player_chunks += 1
+	return result
+
+
+func _mark_forced_shell_chunk(chunk: Vector3i, reason: StringName) -> void:
+	_forced_shell_chunks[chunk] = {
+		"reason": reason,
+		"time_msec": Time.get_ticks_msec(),
+	}
+	if deep_chunk_max_forced_entries <= 0:
+		return
+	if _forced_shell_chunks.size() <= deep_chunk_max_forced_entries:
+		return
+	_prune_forced_shell_chunks(deep_chunk_max_forced_entries)
+
+
+func _prune_forced_shell_chunks(max_entries: int) -> void:
+	while _forced_shell_chunks.size() > max_entries:
+		var oldest_chunk: Variant = null
+		var oldest_time := INF
+		for chunk in _forced_shell_chunks.keys():
+			var entry: Dictionary = _forced_shell_chunks[chunk]
+			var time_msec := float(entry.get("time_msec", 0.0))
+			if time_msec < oldest_time:
+				oldest_time = time_msec
+				oldest_chunk = chunk
+		if oldest_chunk == null:
+			break
+		_forced_shell_chunks.erase(oldest_chunk)
+
+
+func _is_chunk_near_player_chunk(chunk: Vector3i, player_chunk: Vector3i,
+		radius: int) -> bool:
+	var r := maxi(0, radius)
+	return abs(chunk.x - player_chunk.x) <= r \
+			and abs(chunk.y - player_chunk.y) <= r \
+			and abs(chunk.z - player_chunk.z) <= r
 
 
 func _get_shell_chunk_order_cached(
