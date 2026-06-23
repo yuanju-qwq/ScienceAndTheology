@@ -177,16 +177,25 @@ func gravity_radius() -> float:
 	return planet_radius + gravity_influence_altitude
 
 
-# Compute surface-relative altitude for a local or universe-space position.
-func surface_altitude_at(position: Vector3, center: Vector3 = universe_position) -> float:
+# Compute surface-relative altitude for a position against the given center.
+func surface_altitude_from_center(position: Vector3, center: Vector3) -> float:
 	return position.distance_to(center) - planet_radius
 
 
+# Compute surface-relative altitude for an active-planet local-space position.
+func local_surface_altitude_at(position: Vector3) -> float:
+	return surface_altitude_from_center(position, local_center)
+
+
+# Compute surface-relative altitude for a universe-space position.
+func universe_surface_altitude_at(position: Vector3) -> float:
+	return surface_altitude_from_center(position, universe_position)
+
+
 # Check whether a local-space position is inside the active shell streaming band.
-# Use local_center for active planets and the effective scene center for rendered
-# distant bodies. Deep underground outside this band should be generated on demand.
-func is_in_active_shell(position: Vector3, center: Vector3 = local_center) -> bool:
-	var altitude := surface_altitude_at(position, center)
+# Deep underground outside this band should be generated on demand.
+func is_in_active_shell_local(position: Vector3) -> bool:
+	var altitude := local_surface_altitude_at(position)
 	return altitude >= -active_shell_below and altitude <= active_shell_above
 
 
