@@ -1,6 +1,7 @@
 #include "structure_element.hpp"
 #include "piece_template.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 
@@ -39,6 +40,49 @@ TerrainMaterialId query_material_at(const WorldData& world,
     return terrain.cell_at(lx, ly, lz).material;
 }
 
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+uint16_t hatch_mask_for_machine_type(const std::string& machine_type) {
+    const std::string key = lower_copy(machine_type);
+    uint16_t mask = 0;
+
+    if (key.find("input_bus") != std::string::npos ||
+        key.find("item_input") != std::string::npos ||
+        key.find("input_item") != std::string::npos) {
+        mask |= HATCH_ITEM_INPUT;
+    }
+    if (key.find("output_bus") != std::string::npos ||
+        key.find("item_output") != std::string::npos ||
+        key.find("output_item") != std::string::npos) {
+        mask |= HATCH_ITEM_OUTPUT;
+    }
+    if (key.find("input_hatch") != std::string::npos ||
+        key.find("fluid_input") != std::string::npos ||
+        key.find("input_fluid") != std::string::npos) {
+        mask |= HATCH_FLUID_INPUT;
+    }
+    if (key.find("output_hatch") != std::string::npos ||
+        key.find("fluid_output") != std::string::npos ||
+        key.find("output_fluid") != std::string::npos) {
+        mask |= HATCH_FLUID_OUTPUT;
+    }
+    if (key.find("energy_input") != std::string::npos ||
+        key.find("energy_hatch") != std::string::npos ||
+        key.find("power_input") != std::string::npos) {
+        mask |= HATCH_ENERGY_INPUT;
+    }
+    if (key.find("energy_output") != std::string::npos ||
+        key.find("power_output") != std::string::npos) {
+        mask |= HATCH_ENERGY_OUTPUT;
+    }
+
+    return mask;
+}
+
 } // anonymous namespace
 
 // ============================================================
@@ -73,7 +117,6 @@ public:
         TerrainMaterialId m = query_material_at(
             *ctx.world, ctx.dimension_id, ctx.x, ctx.y, ctx.z);
         if (m != mat_) return MatchResult::REJECT;
-        // The runtime records the world position as a claimed cell.
         return MatchResult::ACCEPT;
     }
 
@@ -115,10 +158,13 @@ public:
 class SelfElement final : public IStructureElement {
 public:
     MatchResult check(StructureEvaluationContext& ctx) const override {
-        // The controller cell always matches (the controller exists
-        // at its own position by definition). The runtime skips
-        // recording this as a claimed cell (is_center() == true).
-        (void)ctx;
+        EntityId root;
+        if (ctx.registry != nullptr) {
+            root = ctx.registry->find_machine_root_at(ctx.x, ctx.y, ctx.z);
+        }
+        if (root.is_valid() && root != ctx.controller_id) {
+            return MatchResult::REJECT;
+        }
         return MatchResult::ACCEPT;
     }
 
@@ -134,18 +180,26 @@ public:
 
     MatchResult check(StructureEvaluationContext& ctx) const override {
         if (ctx.registry == nullptr) return MatchResult::REJECT;
+
         EntityId owner = ctx.registry->find_owner_at(ctx.x, ctx.y, ctx.z);
+        if (!owner.is_valid()) {
+            owner = ctx.registry->find_machine_root_at(ctx.x, ctx.y, ctx.z);
+        }
         if (!owner.is_valid() || owner == ctx.controller_id) {
             return MatchResult::REJECT;
         }
-        // Must be a MACHINE entity to count as a hatch.
         if (ctx.registry->get_entity_type(owner) != BlockEntityType::MACHINE) {
             return MatchResult::REJECT;
         }
-        // TODO: check hatch type_mask against the hatch's actual type
-        // once hatch subtypes are implemented. For now, any MACHINE
-        // entity at a non-controller cell counts as a hatch.
-        (void)type_mask_;
+
+        const MachineBlockEntityState* hatch_state = ctx.registry->get_machine_state(owner);
+        if (hatch_state == nullptr) return MatchResult::REJECT;
+
+        const uint16_t actual_mask = hatch_mask_for_machine_type(hatch_state->machine_type);
+        if (type_mask_ != HATCH_ANY && (actual_mask & type_mask_) == 0) {
+            return MatchResult::REJECT;
+        }
+
         if (ctx.collector) {
             ctx.collector->matched_hatches.push_back(owner);
         }
@@ -169,17 +223,14 @@ public:
         : elems_(std::move(elems)) {}
 
     MatchResult check(StructureEvaluationContext& ctx) const override {
-        // Save collector state for backtracking.
         MatchCheckpoint cp = ctx.checkpoint();
         for (const auto& elem : elems_) {
-            // Restore collector state before trying next alternative.
             ctx.restore(cp);
             MatchResult r = elem->check(ctx);
             if (r == MatchResult::ACCEPT || r == MatchResult::ACCEPT_STOP) {
                 return r;
             }
         }
-        // All alternatives rejected; restore to pre-chain state.
         ctx.restore(cp);
         return MatchResult::REJECT;
     }
@@ -254,7 +305,6 @@ std::shared_ptr<IStructureElement> material(TerrainMaterialId mat) {
 }
 
 std::shared_ptr<IStructureElement> air() {
-    // Cache: air() is used frequently, return the same instance.
     static auto instance = std::make_shared<AirElement>();
     return instance;
 }
