@@ -77,7 +77,6 @@ var _flight_enabled := false
 @export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
 @export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
 @export var furnace_ui_path: NodePath = ^"../UI/FurnaceUI"
-@export var wiki_ui_path: NodePath = ^"../UI/WikiUI"
 @export var console_ui_path: NodePath = ^"../UI/ConsoleUI"
 @export var crosshair_path: NodePath = ^"../UI/Crosshair"
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
@@ -118,7 +117,6 @@ var selected_hotbar := 0
 @onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
 @onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
 @onready var furnace_ui: FurnaceUI = get_node_or_null(furnace_ui_path) as FurnaceUI
-@onready var wiki_ui: WikiUI = get_node_or_null(wiki_ui_path) as WikiUI
 @onready var console_ui: ConsoleUI = get_node_or_null(console_ui_path) as ConsoleUI
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
@@ -385,16 +383,8 @@ func _handle_key(event: InputEventKey) -> void:
 
 	if event.is_action_pressed(&"toggle_crafting"):
 		_ui_connector.toggle_crafting()
-	elif event.is_action_pressed(&"toggle_wiki"):
-		if _ui_connector.close_furnace_if_open():
-			return
-		_ui_connector.toggle_wiki()
 	elif event.is_action_pressed(&"toggle_inventory"):
 		if _ui_connector.close_furnace_if_open():
-			return
-		if wiki_ui and wiki_ui.visible:
-			wiki_ui.toggle()
-			set_input_locked(false)
 			return
 		if game_mode == GameMode.CREATIVE:
 			_ui_connector.toggle_creative_inventory()
@@ -1187,9 +1177,6 @@ func _open_exit_menu() -> void:
 
 func _close_gameplay_ui() -> void:
 	_ui_connector.close_furnace_if_open()
-	if wiki_ui and wiki_ui.visible:
-		wiki_ui._is_open = false
-		wiki_ui.visible = false
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui._is_open = false
 		inventory_ui.visible = false

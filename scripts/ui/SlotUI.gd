@@ -118,4 +118,6 @@ func _gui_input(event: InputEvent) -> void:
 				clicked.emit(slot_index, MOUSE_BUTTON_LEFT)
 			MOUSE_BUTTON_RIGHT:
 				right_clicked.emit(slot_index)
+			MOUSE_BUTTON_MIDDLE:
+				clicked.emit(slot_index, MOUSE_BUTTON_MIDDLE)
 		accept_event()
