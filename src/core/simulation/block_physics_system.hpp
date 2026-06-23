@@ -18,8 +18,9 @@ namespace science_and_theology {
 //     WorldData. The system expands that event into local pending checks.
 //   - Each tick, the system processes a bounded number of pending checks.
 //   - Gravity fall: TF_GRAVITY_FALL blocks move toward the planet center.
-//   - Collapse: TF_COLLAPSE_RISK blocks also move as their original block when
-//     unsupported, unless a TF_SUPPORT_BEAM block is within support_beam_radius.
+//   - Collapse: TF_COLLAPSE_RISK blocks are removed when unsupported. Cave-in
+//     intentionally does not spawn rubble and does not move the block body;
+//     this keeps collapse cheap and avoids large terrain-delta cascades.
 //   - Terrain mutations are emitted through EventBus::TERRAIN_CHANGED so
 //     renderers and state-sync layers can rebuild affected chunks.
 //
@@ -114,7 +115,7 @@ public:
         int block_x, int block_y, int block_z);
 
     // Process a collapse check for a single block.
-    // Returns true if the block moved downward as part of a cave-in.
+    // Returns true if the block collapsed into air.
     bool process_collapse(
         const std::string& dimension_id,
         int block_x, int block_y, int block_z);
