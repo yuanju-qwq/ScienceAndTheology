@@ -197,6 +197,13 @@ func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vecto
 	super.on_terrain_cell_synced(dimension, chunk, local, old_material, new_material)
 
 
+func notify_block_placed(dimension: StringName, cell: Vector3i) -> void:
+	if deep_chunk_keepalive_enabled and dimension == active_dimension \
+			and not _is_station_dimension:
+		notify_deep_access_cell(dimension, cell, 0)
+	super.notify_block_placed(dimension, cell)
+
+
 func notify_deep_access_cell(dimension: StringName, cell: Vector3i,
 		radius_chunks: int = 0) -> void:
 	if not deep_chunk_keepalive_enabled or dimension != active_dimension:
