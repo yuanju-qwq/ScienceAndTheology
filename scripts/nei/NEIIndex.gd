@@ -66,15 +66,13 @@ func get_all_item_ids() -> Array[int]:
 
 func search_item_ids(query: String) -> Array[int]:
 	ensure_built()
-	var q := _normalize(query)
-	if q.is_empty():
+	var tokens := _tokenize(query)
+	if tokens.is_empty():
 		return _all_items.duplicate()
 
 	var results: Array[int] = []
 	for item_id in _all_items:
-		var name: String = _normalized_item_names.get(item_id, "")
-		var key: String = _item_keys.get(item_id, "")
-		if name.contains(q) or key.contains(q):
+		if _item_matches_all_tokens(item_id, tokens):
 			results.append(item_id)
 	return results
 
@@ -89,6 +87,16 @@ func get_recipes_for_input(item_id: int) -> Array[RecipeRef]:
 	return (_by_input_item.get(item_id, []) as Array).duplicate()
 
 
+func get_recipes_for_output_fluid(fluid_name: String) -> Array[RecipeRef]:
+	ensure_built()
+	return (_by_output_fluid.get(_normalize(fluid_name), []) as Array).duplicate()
+
+
+func get_recipes_for_input_fluid(fluid_name: String) -> Array[RecipeRef]:
+	ensure_built()
+	return (_by_input_fluid.get(_normalize(fluid_name), []) as Array).duplicate()
+
+
 func get_recipes_for_machine(machine_type: String) -> Array[RecipeRef]:
 	ensure_built()
 	return (_by_machine.get(machine_type, []) as Array).duplicate()
@@ -97,6 +105,26 @@ func get_recipes_for_machine(machine_type: String) -> Array[RecipeRef]:
 func get_all_recipes() -> Array[RecipeRef]:
 	ensure_built()
 	return _all_recipes.duplicate()
+
+
+func get_machine_types() -> PackedStringArray:
+	ensure_built()
+	var result := PackedStringArray()
+	for key in _by_machine.keys():
+		result.append(str(key))
+	result.sort()
+	return result
+
+
+func get_related_recipes(item_id: int) -> Array[RecipeRef]:
+	ensure_built()
+	var result: Array[RecipeRef] = []
+	var seen := {}
+	for ref in get_recipes_for_output(item_id):
+		_add_unique_recipe(result, seen, ref)
+	for ref in get_recipes_for_input(item_id):
+		_add_unique_recipe(result, seen, ref)
+	return result
 
 
 func get_item_key(item_id: int) -> String:
@@ -219,9 +247,9 @@ func _register_recipe(ref: RecipeRef) -> void:
 	for stack in ref.item_inputs:
 		_add_to_index(_by_input_item, int(stack.get("item_id", 0)), ref)
 	for stack in ref.fluid_outputs:
-		_add_to_index(_by_output_fluid, str(stack.get("fluid_name", "")), ref)
+		_add_to_index(_by_output_fluid, _normalize(str(stack.get("fluid_name", ""))), ref)
 	for stack in ref.fluid_inputs:
-		_add_to_index(_by_input_fluid, str(stack.get("fluid_name", "")), ref)
+		_add_to_index(_by_input_fluid, _normalize(str(stack.get("fluid_name", ""))), ref)
 
 
 func _add_to_index(index: Dictionary, key, ref: RecipeRef) -> void:
@@ -277,6 +305,122 @@ func _resolve_item_key(item_key: String) -> int:
 	if ClassDB.class_exists("GDCraftingManager") and GDCraftingManager.has_method("get_item_id_by_key"):
 		return int(GDCraftingManager.get_item_id_by_key(item_key))
 	return -1
+
+
+func _item_matches_all_tokens(item_id: int, tokens: PackedStringArray) -> bool:
+	for token in tokens:
+		if not _item_matches_token(item_id, token):
+			return false
+	return true
+
+
+func _item_matches_token(item_id: int, token: String) -> bool:
+	if token.begins_with("id:"):
+		return str(item_id) == token.substr(3)
+	if token.begins_with("key:"):
+		return _item_keys.get(item_id, "").contains(token.substr(4))
+	if token.begins_with("@"):
+		return _item_has_related_machine(item_id, token.substr(1))
+	if token.begins_with("machine:"):
+		return _item_has_related_machine(item_id, token.substr(8))
+	if token.begins_with("fluid:"):
+		return _item_has_related_fluid(item_id, token.substr(6))
+	if token.begins_with("tier:"):
+		return _item_has_related_tier(item_id, token.substr(5))
+
+	var name: String = _normalized_item_names.get(item_id, "")
+	var key: String = _item_keys.get(item_id, "")
+	if name.contains(token) or key.contains(token):
+		return true
+	return _item_has_related_text(item_id, token)
+
+
+func _item_has_related_machine(item_id: int, needle: String) -> bool:
+	needle = _normalize(needle)
+	if needle.is_empty():
+		return true
+	for ref in get_related_recipes(item_id):
+		if _normalize(ref.machine_type).contains(needle) or _normalize(ref.recipe_type).contains(needle):
+			return true
+	return false
+
+
+func _item_has_related_fluid(item_id: int, needle: String) -> bool:
+	needle = _normalize(needle)
+	if needle.is_empty():
+		return true
+	for ref in get_related_recipes(item_id):
+		if _fluid_list_contains(ref.fluid_inputs, needle) or _fluid_list_contains(ref.fluid_outputs, needle):
+			return true
+	return false
+
+
+func _item_has_related_tier(item_id: int, tier_text: String) -> bool:
+	var tier := _tier_to_int(tier_text)
+	for ref in get_related_recipes(item_id):
+		if ref.min_tier == tier:
+			return true
+	return false
+
+
+func _item_has_related_text(item_id: int, needle: String) -> bool:
+	for ref in get_related_recipes(item_id):
+		if _recipe_text(ref).contains(needle):
+			return true
+	return false
+
+
+func _recipe_text(ref: RecipeRef) -> String:
+	var parts := PackedStringArray()
+	parts.append(ref.id)
+	parts.append(ref.recipe_type)
+	parts.append(ref.machine_type)
+	parts.append(ref.display_name)
+	for fluid in ref.fluid_inputs:
+		parts.append(str(fluid.get("fluid_name", "")))
+	for fluid in ref.fluid_outputs:
+		parts.append(str(fluid.get("fluid_name", "")))
+	for tool in ref.tools:
+		parts.append(tool)
+	return _normalize(" ".join(parts))
+
+
+func _fluid_list_contains(list: Array[Dictionary], needle: String) -> bool:
+	for fluid in list:
+		if _normalize(str(fluid.get("fluid_name", ""))).contains(needle):
+			return true
+	return false
+
+
+func _add_unique_recipe(result: Array[RecipeRef], seen: Dictionary, ref: RecipeRef) -> void:
+	var key := "%s|%s|%s" % [ref.recipe_type, ref.machine_type, ref.id]
+	if seen.has(key):
+		return
+	seen[key] = true
+	result.append(ref)
+
+
+func _tier_to_int(text: String) -> int:
+	match _normalize(text):
+		"ulv": return 0
+		"lv": return 1
+		"mv": return 2
+		"hv": return 3
+		"ev": return 4
+		"iv": return 5
+		"luv": return 6
+		"zpm": return 7
+		"uv": return 8
+	return int(text)
+
+
+func _tokenize(query: String) -> PackedStringArray:
+	var tokens := PackedStringArray()
+	for raw in query.split(" ", false):
+		var token := _normalize(raw)
+		if not token.is_empty():
+			tokens.append(token)
+	return tokens
 
 
 func _normalize(text: String) -> String:
