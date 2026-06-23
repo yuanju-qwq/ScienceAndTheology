@@ -99,6 +99,15 @@ public:
     void set_active_radius(int radius) { active_radius_ = radius; }
     int active_radius() const { return active_radius_; }
 
+    // If enabled, ChunkData.state can override the distance-only scheduler:
+    // ACTIVE chunks are kept in active_chunks_, while SLEEPING chunks outside
+    // the immediate interaction radius are scheduled only in sleeping tiers.
+    void set_respect_external_chunk_state(bool enabled) {
+        respect_external_chunk_state_ = enabled;
+        player_chunks_dirty_ = true;
+    }
+    bool respect_external_chunk_state() const { return respect_external_chunk_state_; }
+
     // --- Sleep interval configuration ---
 
     // Sleep interval for NEAR tier (ticks between sleep ticks).
@@ -152,6 +161,16 @@ public:
 
     // Returns the set of chunk keys currently considered ACTIVE.
     const std::vector<ChunkKey>& active_chunks() const { return active_chunks_; }
+
+    // Returns the sleeping chunk sets currently scheduled by distance tier.
+    const std::vector<ChunkKey>& sleep_near_chunks() const { return sleep_near_chunks_; }
+    const std::vector<ChunkKey>& sleep_mid_chunks() const { return sleep_mid_chunks_; }
+    const std::vector<ChunkKey>& sleep_far_chunks() const { return sleep_far_chunks_; }
+
+    // Rebuild diagnostics for state-aware shell streaming.
+    int64_t external_active_chunk_count() const { return external_active_chunk_count_; }
+    int64_t external_sleeping_chunk_count() const { return external_sleeping_chunk_count_; }
+    int64_t skipped_external_sleeping_chunk_count() const { return skipped_external_sleeping_chunk_count_; }
 
 private:
     // Rebuild the active/sleeping chunk sets.
@@ -231,6 +250,13 @@ private:
     int sleep_near_interval_ = kDefaultSleepNearInterval;
     int sleep_mid_interval_ = kDefaultSleepMidInterval;
     int sleep_far_interval_ = kDefaultSleepFarInterval;
+
+    // External chunk state integration. PlanetShellChunkRendererBridge marks
+    // chunks ACTIVE/SLEEPING based on shell visibility and SurfaceColumnIndex.
+    bool respect_external_chunk_state_ = true;
+    int64_t external_active_chunk_count_ = 0;
+    int64_t external_sleeping_chunk_count_ = 0;
+    int64_t skipped_external_sleeping_chunk_count_ = 0;
 
     // Parallel execution control.
     bool parallel_enabled_ = false;
