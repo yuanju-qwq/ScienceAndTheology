@@ -30,6 +30,11 @@ const CHUNK_STATE_SLEEPING := 4
 # still load the scene while the native extension is being rebuilt.
 @export var use_cpp_shell_helper := true
 
+# Prefer the native single-chunk persistence helper for save-before-unload and
+# restore-before-regenerate. The normal async generation path remains as fallback.
+@export var use_chunk_persistence_helper := true
+@export var persist_chunks_before_memory_unload := true
+
 # Keep a radial surface-column index for deep chunks touched by gameplay. Unlike
 # the short-lived forced keepalive set, this index records which surface column a
 # deep chunk belongs to, so returning to the same area can re-activate it.
@@ -43,14 +48,12 @@ const CHUNK_STATE_SLEEPING := 4
 @export var chunk_state_keep_radius := 2
 @export var max_chunk_state_updates_per_frame := 64
 
-# Remove safe sleeping chunks from GDWorldData memory. This is intentionally more
-# conservative than state sleep: chunks that were touched by gameplay or that own
-# runtime entities, machines, connectors, or mechanisms stay in memory until a
-# future single-chunk persistence path exists.
+# Remove safe sleeping chunks from GDWorldData memory after single-chunk save.
+# This does not delete region-file entries. Region GC is a separate explicit API.
 @export var unload_sleeping_chunks_from_memory := true
 @export var unload_sleeping_chunk_keep_radius := 8
 @export var max_chunk_memory_unloads_per_frame := 8
-@export var protect_indexed_chunks_from_memory_unload := true
+@export var protect_indexed_chunks_from_memory_unload := false
 
 # Prune stale tracking metadata outside the current shell. This does not delete
 # saved chunk data; it only allows far-away chunks to be re-requested normally if
@@ -91,6 +94,10 @@ var _shell_order_cache: Dictionary = {}
 # still parse when the native class is not present in an older extension binary.
 var _planet_shell_helper: Object = null
 
+# Lazily-created GDChunkPersistenceHelper instance. Stored as Object so the script
+# can still parse when the native class is not present in an older extension binary.
+var _chunk_persistence_helper: Object = null
+
 # Runtime surface-column index for deep chunks. It is intentionally not cleared
 # on dimension switch because it stores data per dimension.
 var _surface_column_index: SurfaceColumnIndex = SurfaceColumnIndex.new()
@@ -99,8 +106,9 @@ var _surface_column_index: SurfaceColumnIndex = SurfaceColumnIndex.new()
 # the player stays close, then age out through the max-entry cap or dimension switch.
 var _forced_shell_chunks: Dictionary = {}
 
-# Safe chunks removed from GDWorldData memory. They can be regenerated through the
-# existing async request path when they re-enter load_order.
+# Chunks removed from GDWorldData memory after being written to the single-chunk
+# persistence path. They can be restored from disk before falling back to async
+# generation when they re-enter load_order.
 var _unloaded_shell_chunks: Dictionary = {}
 
 # Per-frame shell/horizontal LOD counters exposed through get_streaming_metrics().
@@ -112,7 +120,11 @@ var _last_tracked_chunks_pruned := 0
 var _last_chunk_state_active_updates := 0
 var _last_chunk_state_sleeping_updates := 0
 var _last_memory_unloaded_chunks := 0
+var _last_memory_saved_chunks := 0
+var _last_memory_save_failures := 0
 var _last_memory_restore_completions := 0
+var _last_memory_load_hits := 0
+var _last_memory_load_misses := 0
 var _last_forced_keepalive_chunks := 0
 var _last_indexed_keepalive_chunks := 0
 var _last_deep_player_chunks := 0
@@ -141,6 +153,8 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
 	metrics["cpp_shell_helper_enabled"] = use_cpp_shell_helper
 	metrics["cpp_shell_helper_available"] = _get_planet_shell_helper() != null
+	metrics["chunk_persistence_helper_enabled"] = use_chunk_persistence_helper
+	metrics["chunk_persistence_helper_available"] = _get_chunk_persistence_helper() != null
 	metrics["surface_column_index_enabled"] = use_surface_column_index
 	metrics["surface_column_count"] = _surface_column_index.get_column_count(active_dimension) if _surface_column_index else 0
 	metrics["surface_column_indexed_chunks"] = _surface_column_index.get_indexed_chunk_count(active_dimension) if _surface_column_index else 0
@@ -150,7 +164,11 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["chunk_state_sleeping_updates"] = _last_chunk_state_sleeping_updates
 	metrics["unload_sleeping_chunks_from_memory"] = unload_sleeping_chunks_from_memory
 	metrics["memory_unloaded_chunks"] = _last_memory_unloaded_chunks
+	metrics["memory_saved_chunks"] = _last_memory_saved_chunks
+	metrics["memory_save_failures"] = _last_memory_save_failures
 	metrics["memory_restore_completions"] = _last_memory_restore_completions
+	metrics["memory_load_hits"] = _last_memory_load_hits
+	metrics["memory_load_misses"] = _last_memory_load_misses
 	metrics["tracked_memory_unloaded_chunks"] = _unloaded_shell_chunks.size()
 	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
 	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
@@ -191,7 +209,11 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_last_chunk_state_active_updates = 0
 	_last_chunk_state_sleeping_updates = 0
 	_last_memory_unloaded_chunks = 0
+	_last_memory_saved_chunks = 0
+	_last_memory_save_failures = 0
 	_last_memory_restore_completions = 0
+	_last_memory_load_hits = 0
+	_last_memory_load_misses = 0
 	_last_forced_keepalive_chunks = 0
 	_last_indexed_keepalive_chunks = 0
 	_last_deep_player_chunks = 0
@@ -244,8 +266,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 
 	_shell_wanted_visible = wanted_visible
 
-	# Request data for the larger loading shell. The overridden _on_chunk_ready()
-	# only enqueues a view when the chunk is currently in wanted_visible.
+	# Request data for the larger loading shell. The overridden _ensure_chunk_loaded()
+	# restores from single-chunk persistence before falling back to async generation.
 	for chunk in load_order:
 		_ensure_chunk_loaded(chunk)
 
@@ -263,6 +285,25 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_unload_stale_sleeping_chunks(wanted_visible, load_order, player_chunk)
 	_prune_tracked_chunks(wanted_visible, load_order, player_chunk)
 	_process_visible_queue()
+
+
+func _ensure_chunk_loaded(chunk: Vector3i) -> void:
+	if world_data == null:
+		return
+	if _tracked_chunks.has(chunk):
+		return
+	if world_data.has_chunk(active_dimension, chunk.x, chunk.y, chunk.z):
+		_tracked_chunks[chunk] = true
+		return
+	if _try_restore_chunk_from_persistence(chunk):
+		return
+	if world_data.is_chunk_async_pending(active_dimension, chunk.x, chunk.y, chunk.z):
+		return
+	if max_chunk_load_requests_per_frame > 0 \
+			and _chunk_request_count_this_frame >= max_chunk_load_requests_per_frame:
+		return
+	world_data.request_chunk_async(active_dimension, chunk.x, chunk.y, chunk.z)
+	_chunk_request_count_this_frame += 1
 
 
 # Keep prefetched chunks data-only until they enter the visible shell.
@@ -575,7 +616,9 @@ func _unload_stale_sleeping_chunks(wanted_visible: Dictionary, load_order: Array
 			continue
 		if not _is_chunk_safe_for_memory_unload(chunk):
 			continue
-		_unload_chunk_from_memory(chunk, &"safe_sleeping")
+		if not _persist_chunk_before_memory_unload(chunk):
+			continue
+		_unload_chunk_from_memory(chunk, &"persisted_sleeping")
 		unloaded += 1
 		_last_memory_unloaded_chunks += 1
 
@@ -611,6 +654,51 @@ func _is_chunk_safe_for_memory_unload(chunk: Vector3i) -> bool:
 		return false
 	if not world_data.get_chunk_mechanisms(dim, chunk.x, chunk.y, chunk.z).is_empty():
 		return false
+	return true
+
+
+func _persist_chunk_before_memory_unload(chunk: Vector3i) -> bool:
+	if not persist_chunks_before_memory_unload:
+		return true
+	var helper := _get_chunk_persistence_helper()
+	var save_dir := _get_universe_save_dir()
+	if helper == null or save_dir == "":
+		_last_memory_save_failures += 1
+		return false
+	var ok := bool(helper.call(
+			"save_chunk",
+			save_dir,
+			world_data,
+			String(active_dimension),
+			chunk.x,
+			chunk.y,
+			chunk.z))
+	if ok:
+		_last_memory_saved_chunks += 1
+	else:
+		_last_memory_save_failures += 1
+	return ok
+
+
+func _try_restore_chunk_from_persistence(chunk: Vector3i) -> bool:
+	var helper := _get_chunk_persistence_helper()
+	var save_dir := _get_universe_save_dir()
+	if helper == null or save_dir == "":
+		return false
+	var ok := bool(helper.call(
+			"load_chunk",
+			save_dir,
+			world_data,
+			String(active_dimension),
+			chunk.x,
+			chunk.y,
+			chunk.z,
+			false))
+	if not ok:
+		_last_memory_load_misses += 1
+		return false
+	_last_memory_load_hits += 1
+	_on_chunk_ready(String(active_dimension), chunk.x, chunk.y, chunk.z)
 	return true
 
 
@@ -734,6 +822,25 @@ func _get_planet_shell_helper() -> Object:
 		return null
 	_planet_shell_helper = ClassDB.instantiate("GDPlanetShellHelper")
 	return _planet_shell_helper
+
+
+func _get_chunk_persistence_helper() -> Object:
+	if not use_chunk_persistence_helper:
+		return null
+	if _chunk_persistence_helper != null:
+		return _chunk_persistence_helper
+	if not ClassDB.class_exists("GDChunkPersistenceHelper"):
+		return null
+	_chunk_persistence_helper = ClassDB.instantiate("GDChunkPersistenceHelper")
+	return _chunk_persistence_helper
+
+
+func _get_universe_save_dir() -> String:
+	if _universe_manager == null:
+		_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+	if _universe_manager == null:
+		return ""
+	return String(_universe_manager.get("_save_dir"))
 
 
 func _compute_shell_chunk_order_gdscript(
