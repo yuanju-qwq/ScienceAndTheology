@@ -37,8 +37,10 @@ func connect_ui() -> void:
 		creative_ui.set_player(_player)
 
 	var nei_panel: NeiPanel = _player.nei_panel
-	if nei_panel and not nei_panel.closed.is_connected(_on_nei_closed):
-		nei_panel.closed.connect(_on_nei_closed)
+	if nei_panel:
+		nei_panel.set_player(_player)
+		if not nei_panel.closed.is_connected(_on_nei_closed):
+			nei_panel.closed.connect(_on_nei_closed)
 
 	# Wire quest book UI.
 	var quest_ui: QuestBookUI = _player.quest_ui
