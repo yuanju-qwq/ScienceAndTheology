@@ -151,7 +151,7 @@ func get_nearby_indexed_chunks(
 				var chunks: Dictionary = column.get("chunks", {})
 				for chunk_key in chunks.keys():
 					var entry: Dictionary = chunks[chunk_key]
-					var chunk: Vector3i = entry.get("chunk", Vector3i.ZERO)
+					var chunk: Vector3i = _entry_chunk(entry)
 					if seen.has(chunk):
 						continue
 					seen[chunk] = true
@@ -183,17 +183,74 @@ func project_chunk_to_surface_column(
 
 
 func to_dict() -> Dictionary:
+	var serial_columns: Dictionary = {}
+	for dim_key in _columns_by_dimension.keys():
+		var columns: Dictionary = _columns_by_dimension[dim_key]
+		var serial_dim: Dictionary = {}
+		for column_key in columns.keys():
+			serial_dim[column_key] = _column_to_dict(columns[column_key])
+		serial_columns[dim_key] = serial_dim
 	return {
 		"schema": 1,
-		"columns_by_dimension": _columns_by_dimension,
+		"columns_by_dimension": serial_columns,
 	}
 
 
 func from_dict(data: Dictionary) -> void:
 	clear()
 	var columns_data: Dictionary = data.get("columns_by_dimension", {})
-	_columns_by_dimension = columns_data.duplicate(true)
+	for dim_key in columns_data.keys():
+		var columns: Dictionary = columns_data[dim_key]
+		var restored_dim: Dictionary = {}
+		for column_key in columns.keys():
+			restored_dim[column_key] = _column_from_dict(columns[column_key])
+		_columns_by_dimension[dim_key] = restored_dim
 	_rebuild_chunk_lookup()
+
+
+func _column_to_dict(column: Dictionary) -> Dictionary:
+	var chunks: Dictionary = column.get("chunks", {})
+	var serial_chunks: Dictionary = {}
+	for chunk_key in chunks.keys():
+		var entry: Dictionary = chunks[chunk_key]
+		var chunk := _entry_chunk(entry)
+		serial_chunks[chunk_key] = {
+			"chunk": _vector3i_to_array(chunk),
+			"layer": int(entry.get("layer", 0)),
+			"altitude": float(entry.get("altitude", 0.0)),
+			"reason": String(entry.get("reason", "")),
+			"last_touched_msec": int(entry.get("last_touched_msec", 0)),
+		}
+	return {
+		"surface_chunk": _vector3i_to_array(_entry_surface_chunk(column)),
+		"min_layer": int(column.get("min_layer", 0)),
+		"max_layer": int(column.get("max_layer", 0)),
+		"last_touched_msec": int(column.get("last_touched_msec", 0)),
+		"layers": column.get("layers", {}).duplicate(true),
+		"chunks": serial_chunks,
+	}
+
+
+func _column_from_dict(data: Dictionary) -> Dictionary:
+	var chunks: Dictionary = data.get("chunks", {})
+	var restored_chunks: Dictionary = {}
+	for chunk_key in chunks.keys():
+		var entry: Dictionary = chunks[chunk_key]
+		restored_chunks[chunk_key] = {
+			"chunk": _array_to_vector3i(entry.get("chunk", [0, 0, 0])),
+			"layer": int(entry.get("layer", 0)),
+			"altitude": float(entry.get("altitude", 0.0)),
+			"reason": String(entry.get("reason", "")),
+			"last_touched_msec": int(entry.get("last_touched_msec", 0)),
+		}
+	return {
+		"surface_chunk": _array_to_vector3i(data.get("surface_chunk", [0, 0, 0])),
+		"min_layer": int(data.get("min_layer", 0)),
+		"max_layer": int(data.get("max_layer", 0)),
+		"last_touched_msec": int(data.get("last_touched_msec", 0)),
+		"layers": data.get("layers", {}).duplicate(true),
+		"chunks": restored_chunks,
+	}
 
 
 func _rebuild_chunk_lookup() -> void:
@@ -205,8 +262,37 @@ func _rebuild_chunk_lookup() -> void:
 			var chunks: Dictionary = column.get("chunks", {})
 			for chunk_key in chunks.keys():
 				var entry: Dictionary = chunks[chunk_key]
-				var chunk: Vector3i = entry.get("chunk", Vector3i.ZERO)
+				var chunk := _entry_chunk(entry)
 				_chunk_to_column["%s|%s" % [dim_key, _chunk_key(chunk)]] = column_key
+
+
+func _entry_chunk(entry: Dictionary) -> Vector3i:
+	var raw: Variant = entry.get("chunk", Vector3i.ZERO)
+	if raw is Vector3i:
+		return raw
+	return _array_to_vector3i(raw)
+
+
+func _entry_surface_chunk(entry: Dictionary) -> Vector3i:
+	var raw: Variant = entry.get("surface_chunk", Vector3i.ZERO)
+	if raw is Vector3i:
+		return raw
+	return _array_to_vector3i(raw)
+
+
+func _vector3i_to_array(v: Vector3i) -> Array:
+	return [v.x, v.y, v.z]
+
+
+func _array_to_vector3i(value: Variant) -> Vector3i:
+	if value is Vector3i:
+		return value
+	if not (value is Array):
+		return Vector3i.ZERO
+	var arr: Array = value
+	if arr.size() < 3:
+		return Vector3i.ZERO
+	return Vector3i(int(arr[0]), int(arr[1]), int(arr[2]))
 
 
 func _chunk_center(chunk: Vector3i, chunk_size: int) -> Vector3:
