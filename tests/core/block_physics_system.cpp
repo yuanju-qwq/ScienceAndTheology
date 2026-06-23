@@ -1,6 +1,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
+#include <utility>
 
 #include "core/simulation/block_physics_system.hpp"
 #include "core/simulation/event_bus.hpp"
