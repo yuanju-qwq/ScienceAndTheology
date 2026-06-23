@@ -13,8 +13,10 @@ const LEFT_W := 340
 const MACHINE_FILTER_ALL := "__all__"
 const MACHINE_FILTER_CRAFTING := "__crafting__"
 
+var player: PlayerController = null
 var _is_open := false
 var _current_item_id := 0
+var _hovered_item_id := 0
 var _detail_mode := "info"
 var _item_ids: Array[int] = []
 var _filtered_ids: Array[int] = []
@@ -41,6 +43,10 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build_ui()
 	get_viewport().size_changed.connect(_center)
+
+
+func set_player(p: PlayerController) -> void:
+	player = p
 
 
 func toggle() -> void:
@@ -70,6 +76,35 @@ func open_for_item(item_id: int, mode: String = "recipes") -> void:
 	_recipe_page = 0
 	_select_item(item_id)
 	_search_box.clear()
+
+
+func _input(event: InputEvent) -> void:
+	if not _is_open or not visible:
+		return
+	if not (event is InputEventKey):
+		return
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return
+	var target_item := _hovered_item_id if _hovered_item_id > 0 else _current_item_id
+	if target_item <= 0:
+		return
+	match key_event.keycode:
+		KEY_R:
+			_detail_mode = "recipes"
+			_recipe_page = 0
+			_select_item(target_item)
+			get_viewport().set_input_as_handled()
+		KEY_U:
+			_detail_mode = "usage"
+			_recipe_page = 0
+			_select_item(target_item)
+			get_viewport().set_input_as_handled()
+		KEY_M:
+			_detail_mode = "machines"
+			_recipe_page = 0
+			_select_item(target_item)
+			get_viewport().set_input_as_handled()
 
 
 func _center() -> void:
@@ -109,7 +144,7 @@ func _build_ui() -> void:
 	_search_help = Label.new()
 	_search_help.position = Vector2(8, 66)
 	_search_help.size = Vector2(LEFT_W - 16, 20)
-	_search_help.text = "Tokens: id:12 key:plate @machine fluid:water tier:lv"
+	_search_help.text = "Tokens: id:12 key:plate @machine fluid:water tier:lv | R/U/M on hovered item"
 	_search_help.add_theme_color_override("font_color", Color(0.55, 0.63, 0.72))
 	_search_help.add_theme_font_size_override("font_size", 10)
 	add_child(_search_help)
@@ -242,15 +277,21 @@ func _build_grid_current_page() -> void:
 	var last := mini(first + ITEMS_PER_PAGE, _filtered_ids.size())
 	for i in range(first, last):
 		var item_id := _filtered_ids[i]
-		var slot := SlotUI.new()
-		slot.slot_index = item_id
-		slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
-		slot.size = Vector2(SLOT_SIZE, SLOT_SIZE)
-		slot.item_stack = ItemStack.new(item_id, 1)
-		slot.clicked.connect(_on_slot_clicked)
-		slot.right_clicked.connect(_on_slot_right_clicked)
-		_grid.add_child(slot)
+		_grid.add_child(_make_item_slot(item_id, 1))
 	_update_item_pager()
+
+
+func _make_item_slot(item_id: int, count: int = 1) -> SlotUI:
+	var slot := SlotUI.new()
+	slot.slot_index = item_id
+	slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
+	slot.size = Vector2(SLOT_SIZE, SLOT_SIZE)
+	slot.item_stack = ItemStack.new(item_id, count)
+	slot.clicked.connect(_on_slot_clicked)
+	slot.right_clicked.connect(_on_slot_right_clicked)
+	slot.mouse_entered.connect(_on_item_hovered.bind(item_id))
+	slot.mouse_exited.connect(_on_item_unhovered.bind(item_id))
+	return slot
 
 
 func _item_total_pages() -> int:
@@ -271,7 +312,9 @@ func _on_item_page_delta(delta: int) -> void:
 	_build_grid_current_page()
 
 
-func _on_slot_clicked(item_id: int, _button: int) -> void:
+func _on_slot_clicked(item_id: int, button: int) -> void:
+	if _try_creative_pick(item_id, button):
+		return
 	_detail_mode = "recipes"
 	_recipe_page = 0
 	_select_item(item_id)
@@ -364,6 +407,7 @@ func _show_info() -> void:
 	_add_section("Recipe Summary")
 	_add_kv("Recipes", str(NEIIndex.get_recipes_for_output(_current_item_id).size()))
 	_add_kv("Usages", str(NEIIndex.get_recipes_for_input(_current_item_id).size()))
+	_add_kv("Shortcuts", "Hover item + R/U/M. Creative: middle click or Shift+left gives one stack.")
 
 	var related := _related_machine_text()
 	if not related.is_empty():
@@ -667,13 +711,7 @@ func _add_grid_entry(parent: GridContainer, entry: Dictionary) -> void:
 		parent.add_child(empty)
 		return
 	var item_id := int(entry.get("item_id", 0))
-	var slot := SlotUI.new()
-	slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
-	slot.size = Vector2(SLOT_SIZE, SLOT_SIZE)
-	slot.slot_index = item_id
-	slot.item_stack = ItemStack.new(item_id, int(entry.get("count", 1)))
-	slot.clicked.connect(_on_detail_slot_clicked)
-	slot.right_clicked.connect(_on_detail_slot_right_clicked)
+	var slot := _make_item_slot(item_id, int(entry.get("count", 1)))
 	parent.add_child(slot)
 
 
@@ -698,13 +736,7 @@ func _add_stacks(parent: HBoxContainer, items: Array[Dictionary], fluids: Array[
 		if item_id <= 0:
 			continue
 		var box := VBoxContainer.new()
-		var slot := SlotUI.new()
-		slot.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
-		slot.size = Vector2(SLOT_SIZE, SLOT_SIZE)
-		slot.slot_index = item_id
-		slot.item_stack = ItemStack.new(item_id, int(entry.get("count", 1)))
-		slot.clicked.connect(_on_detail_slot_clicked)
-		slot.right_clicked.connect(_on_detail_slot_right_clicked)
+		var slot := _make_item_slot(item_id, int(entry.get("count", 1)))
 		box.add_child(slot)
 		var probability := float(entry.get("probability", 1.0))
 		if probability < 0.999:
@@ -732,7 +764,25 @@ func _source_tag(ref: NEIIndex.RecipeRef) -> String:
 	return ref.recipe_type
 
 
-func _on_detail_slot_clicked(item_id: int, _button: int) -> void:
+func _try_creative_pick(item_id: int, button: int) -> bool:
+	if button != MOUSE_BUTTON_MIDDLE and not Input.is_key_pressed(KEY_SHIFT):
+		return false
+	if player == null or player.inventory == null:
+		return false
+	if player.game_mode != PlayerController.GameMode.CREATIVE:
+		return false
+	var stack := ItemStack.new(item_id, 1)
+	var count := stack.get_max_stack()
+	player.inventory.add_item(item_id, count)
+	player.inventory_changed.emit()
+	_select_item(item_id)
+	_subtitle.text = "%s  |  Added x%d" % [_subtitle.text, count]
+	return true
+
+
+func _on_detail_slot_clicked(item_id: int, button: int) -> void:
+	if _try_creative_pick(item_id, button):
+		return
 	_detail_mode = "recipes"
 	_recipe_page = 0
 	_select_item(item_id)
@@ -742,6 +792,15 @@ func _on_detail_slot_right_clicked(item_id: int) -> void:
 	_detail_mode = "usage"
 	_recipe_page = 0
 	_select_item(item_id)
+
+
+func _on_item_hovered(item_id: int) -> void:
+	_hovered_item_id = item_id
+
+
+func _on_item_unhovered(item_id: int) -> void:
+	if _hovered_item_id == item_id:
+		_hovered_item_id = 0
 
 
 func _on_machine_filter_selected(index: int) -> void:
