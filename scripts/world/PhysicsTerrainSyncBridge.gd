@@ -38,11 +38,11 @@ func _on_terrain_changed(dimension: String, cx: int, cy: int, cz: int,
 	var local := Vector3i(x, y, z)
 	_chunk_bridge.on_terrain_cell_synced(
 		dim, chunk, local, old_material, new_material)
-	_refresh_boundary_neighbors(dim, chunk, local, old_material, new_material)
+	_refresh_boundary_neighbors(dim, chunk, local)
 
 
 func _refresh_boundary_neighbors(dimension: StringName, chunk: Vector3i,
-		local: Vector3i, old_material: int, new_material: int) -> void:
+		local: Vector3i) -> void:
 	# Greedy mesh face culling depends on neighbor chunk boundary cells. When a
 	# physics update touches a border cell, rebuild the adjacent visible chunk too.
 	if local.x == 0:
