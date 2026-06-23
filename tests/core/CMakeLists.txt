@@ -10,6 +10,19 @@ endif()
 
 add_test(NAME snt.u0.world_data_smoke COMMAND snt_u0_world_data_smoke)
 
+# Block physics: origin-cell scheduling, event emission, support beam protection
+add_executable(snt_block_physics_system
+    block_physics_system.cpp
+)
+
+target_link_libraries(snt_block_physics_system PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_block_physics_system PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.block_physics_system COMMAND snt_block_physics_system)
+
 # M2: Multi-player local validation (no network)
 # Design: docs/多人游戏系统设计.md §6.2 M2
 add_executable(snt_m2_multi_player
