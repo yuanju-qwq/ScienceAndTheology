@@ -18,8 +18,8 @@ namespace science_and_theology {
 //     WorldData. The system expands that event into local pending checks.
 //   - Each tick, the system processes a bounded number of pending checks.
 //   - Gravity fall: TF_GRAVITY_FALL blocks move toward the planet center.
-//   - Collapse: TF_COLLAPSE_RISK blocks cave in when unsupported, unless
-//     a TF_SUPPORT_BEAM block is within support_beam_radius.
+//   - Collapse: TF_COLLAPSE_RISK blocks also move as their original block when
+//     unsupported, unless a TF_SUPPORT_BEAM block is within support_beam_radius.
 //   - Terrain mutations are emitted through EventBus::TERRAIN_CHANGED so
 //     renderers and state-sync layers can rebuild affected chunks.
 //
@@ -86,10 +86,6 @@ public:
     // Prevents frame spikes from large cave-ins.
     static constexpr int kMaxChecksPerTick = 128;
 
-    // Maximum number of cells a cave-in debris block can fall before it is
-    // discarded. Keeps collapse processing bounded and loaded-chunk local.
-    static constexpr int kMaxCollapseDebrisFallDistance = 16;
-
     // Process pending checks up to the budget.
     void process_pending(int64_t current_tick);
 
@@ -118,7 +114,7 @@ public:
         int block_x, int block_y, int block_z);
 
     // Process a collapse check for a single block.
-    // Returns true if the block collapsed.
+    // Returns true if the block moved downward as part of a cave-in.
     bool process_collapse(
         const std::string& dimension_id,
         int block_x, int block_y, int block_z);
@@ -133,23 +129,7 @@ public:
     size_t pending_count() const { return pending_.size(); }
 
 private:
-    struct DebrisDestination {
-        bool valid = false;
-        int block_x = 0;
-        int block_y = 0;
-        int block_z = 0;
-    };
-
     bool is_empty_cell(const TerrainCell& cell, TerrainMaterialId air) const;
-
-    TerrainMaterialId collapse_debris_material(TerrainMaterialId source_material) const;
-    uint32_t material_flags_or(TerrainMaterialId material, uint32_t fallback) const;
-
-    DebrisDestination find_collapse_debris_destination(
-        const std::string& dimension_id,
-        int block_x, int block_y, int block_z,
-        const GravityStep& gravity_step,
-        TerrainMaterialId air) const;
 
     void emit_terrain_changed(
         const std::string& dimension_id,
