@@ -88,6 +88,7 @@ const TerrainCell* resolve_const_cell(
 void BlockPhysicsSystem::initialize(WorldData* world, EventBus* bus) {
     world_ = world;
     event_bus_ = bus;
+    last_processed_tick_ = -1;
 }
 
 void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta,
@@ -97,8 +98,11 @@ void BlockPhysicsSystem::tick_active(const ChunkKey& chunk, float delta,
     (void)ctx;
     if (!world_) return;
 
-    // Read the current tick from WorldData (set by TickSystem each frame).
+    // TickSystem calls tick_active once per active chunk. Block physics owns a
+    // global pending queue, so process it only once per simulation tick.
     const int64_t tick = world_->current_tick();
+    if (last_processed_tick_ == tick) return;
+    last_processed_tick_ = tick;
 
     // Consume block physics events from the WorldData queue. These are
     // enqueued by the authoritative command server when blocks are mined,
@@ -132,6 +136,7 @@ void BlockPhysicsSystem::shutdown() {
     while (!pending_.empty()) {
         pending_.pop();
     }
+    last_processed_tick_ = -1;
 }
 
 // --- Scheduled block checks ---
