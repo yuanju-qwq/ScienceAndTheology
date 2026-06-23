@@ -93,7 +93,7 @@ script = ExtResource("24_pit_kiln")
 [node name="BloomeryManager" type="GDBloomeryManager" parent="."]
 script = ExtResource("25_bloomery")
 
-[node name="AnvilManager" type="GDBloomeryManager" parent="."]
+[node name="AnvilManager" type="GDAnvilManager" parent="."]
 script = ExtResource("26_anvil")
 
 [node name="GameCommandServer" type="GDGameCommandServer" parent="."]
