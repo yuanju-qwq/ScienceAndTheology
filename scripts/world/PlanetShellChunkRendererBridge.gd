@@ -8,6 +8,9 @@
 class_name PlanetShellChunkRendererBridge
 extends ChunkRendererBridge
 
+const CHUNK_STATE_ACTIVE := 3
+const CHUNK_STATE_SLEEPING := 4
+
 # Enable the large-planet shell streamer. Disable to use the parent bridge's
 # original GDChunkHelper.compute_visible_chunks() behavior.
 @export var use_planet_shell_streaming := true
@@ -32,6 +35,13 @@ extends ChunkRendererBridge
 # deep chunk belongs to, so returning to the same area can re-activate it.
 @export var use_surface_column_index := true
 @export var surface_column_keepalive_radius := 1
+
+# Manage C++ ChunkData state for shell streaming. This does not remove chunk data;
+# it only marks chunks outside the active shell as SLEEPING so simulation systems
+# can skip them without losing generated/saved terrain.
+@export var manage_deep_chunk_states := true
+@export var chunk_state_keep_radius := 2
+@export var max_chunk_state_updates_per_frame := 64
 
 # Prune stale tracking metadata outside the current shell. This does not delete
 # saved chunk data; it only allows far-away chunks to be re-requested normally if
@@ -86,6 +96,8 @@ var _last_shell_load_candidates := 0
 var _last_shell_order_cache_hits := 0
 var _last_shell_order_cache_misses := 0
 var _last_tracked_chunks_pruned := 0
+var _last_chunk_state_active_updates := 0
+var _last_chunk_state_sleeping_updates := 0
 var _last_forced_keepalive_chunks := 0
 var _last_indexed_keepalive_chunks := 0
 var _last_deep_player_chunks := 0
@@ -117,6 +129,9 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["surface_column_count"] = _surface_column_index.get_column_count(active_dimension) if _surface_column_index else 0
 	metrics["surface_column_indexed_chunks"] = _surface_column_index.get_indexed_chunk_count(active_dimension) if _surface_column_index else 0
 	metrics["surface_column_keepalive_chunks"] = _last_indexed_keepalive_chunks
+	metrics["manage_deep_chunk_states"] = manage_deep_chunk_states
+	metrics["chunk_state_active_updates"] = _last_chunk_state_active_updates
+	metrics["chunk_state_sleeping_updates"] = _last_chunk_state_sleeping_updates
 	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
 	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
 	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
@@ -153,6 +168,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_last_shell_order_cache_hits = 0
 	_last_shell_order_cache_misses = 0
 	_last_tracked_chunks_pruned = 0
+	_last_chunk_state_active_updates = 0
+	_last_chunk_state_sleeping_updates = 0
 	_last_forced_keepalive_chunks = 0
 	_last_indexed_keepalive_chunks = 0
 	_last_deep_player_chunks = 0
@@ -220,6 +237,7 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 		if not _pending_view_queue.has(chunk):
 			_enqueue_chunk_view(chunk)
 
+	_update_chunk_sleep_states(wanted_visible, load_order, player_chunk)
 	_prune_tracked_chunks(wanted_visible, load_order, player_chunk)
 	_process_visible_queue()
 
@@ -230,6 +248,7 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 		return
 	var chunk := Vector3i(chunk_x, chunk_y, chunk_z)
 	_tracked_chunks[chunk] = true
+	_set_chunk_state_if_loaded(chunk, CHUNK_STATE_ACTIVE)
 
 	if _shell_wanted_visible.is_empty() or _shell_wanted_visible.has(chunk):
 		if not _pending_view_queue.has(chunk):
@@ -416,6 +435,7 @@ func _mark_forced_shell_chunk(chunk: Vector3i, reason: StringName) -> void:
 		"time_msec": Time.get_ticks_msec(),
 	}
 	_record_surface_column_chunk(chunk, reason)
+	_set_chunk_state_if_loaded(chunk, CHUNK_STATE_ACTIVE)
 	if deep_chunk_max_forced_entries <= 0:
 		return
 	if _forced_shell_chunks.size() <= deep_chunk_max_forced_entries:
@@ -451,6 +471,59 @@ func _prune_forced_shell_chunks(max_entries: int) -> void:
 		if oldest_chunk == null:
 			break
 		_forced_shell_chunks.erase(oldest_chunk)
+
+
+func _update_chunk_sleep_states(wanted_visible: Dictionary, load_order: Array,
+		player_chunk: Vector3i) -> void:
+	if not manage_deep_chunk_states or world_data == null:
+		return
+	var keep: Dictionary = {}
+	for chunk: Vector3i in wanted_visible.keys():
+		keep[chunk] = true
+	for chunk in load_order:
+		keep[chunk] = true
+	for chunk: Vector3i in _visible_chunks.keys():
+		keep[chunk] = true
+	for chunk in _pending_view_queue:
+		keep[chunk] = true
+	for chunk in _pending_rebuild_queue:
+		keep[chunk] = true
+
+	var state_updates := 0
+	for chunk in keep.keys():
+		if not _has_chunk_state_update_budget(state_updates):
+			return
+		if _set_chunk_state_if_loaded(chunk, CHUNK_STATE_ACTIVE):
+			state_updates += 1
+			_last_chunk_state_active_updates += 1
+
+	for chunk: Vector3i in _tracked_chunks.keys():
+		if not _has_chunk_state_update_budget(state_updates):
+			return
+		if keep.has(chunk):
+			continue
+		if _is_chunk_near_player_chunk(chunk, player_chunk, chunk_state_keep_radius):
+			continue
+		if _set_chunk_state_if_loaded(chunk, CHUNK_STATE_SLEEPING):
+			state_updates += 1
+			_last_chunk_state_sleeping_updates += 1
+
+
+func _has_chunk_state_update_budget(current_updates: int) -> bool:
+	return max_chunk_state_updates_per_frame <= 0 \
+			or current_updates < max_chunk_state_updates_per_frame
+
+
+func _set_chunk_state_if_loaded(chunk: Vector3i, state: int) -> bool:
+	if world_data == null:
+		return false
+	var dim := String(active_dimension)
+	if not world_data.has_chunk(dim, chunk.x, chunk.y, chunk.z):
+		return false
+	if int(world_data.get_chunk_state(dim, chunk.x, chunk.y, chunk.z)) == state:
+		return false
+	world_data.set_chunk_state(dim, chunk.x, chunk.y, chunk.z, state)
+	return true
 
 
 func _prune_tracked_chunks(wanted_visible: Dictionary, load_order: Array,
