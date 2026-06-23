@@ -1,4 +1,7 @@
 #include "machine_system.hpp"
+
+#include <algorithm>
+
 #include "event_bus.hpp"
 #include "../multiblock/multiblock_machine_service.hpp"
 #include "../world/world_data.hpp"
