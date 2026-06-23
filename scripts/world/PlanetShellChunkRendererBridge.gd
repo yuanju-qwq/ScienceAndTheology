@@ -27,6 +27,12 @@ extends ChunkRendererBridge
 # still load the scene while the native extension is being rebuilt.
 @export var use_cpp_shell_helper := true
 
+# Keep a radial surface-column index for deep chunks touched by gameplay. Unlike
+# the short-lived forced keepalive set, this index records which surface column a
+# deep chunk belongs to, so returning to the same area can re-activate it.
+@export var use_surface_column_index := true
+@export var surface_column_keepalive_radius := 1
+
 # Prune stale tracking metadata outside the current shell. This does not delete
 # saved chunk data; it only allows far-away chunks to be re-requested normally if
 # the player later returns to them.
@@ -66,6 +72,10 @@ var _shell_order_cache: Dictionary = {}
 # still parse when the native class is not present in an older extension binary.
 var _planet_shell_helper: Object = null
 
+# Runtime surface-column index for deep chunks. It is intentionally not cleared
+# on dimension switch because it stores data per dimension.
+var _surface_column_index: SurfaceColumnIndex = SurfaceColumnIndex.new()
+
 # Chunks explicitly touched by gameplay. These bypass surface-shell clipping while
 # the player stays close, then age out through the max-entry cap or dimension switch.
 var _forced_shell_chunks: Dictionary = {}
@@ -77,6 +87,7 @@ var _last_shell_order_cache_hits := 0
 var _last_shell_order_cache_misses := 0
 var _last_tracked_chunks_pruned := 0
 var _last_forced_keepalive_chunks := 0
+var _last_indexed_keepalive_chunks := 0
 var _last_deep_player_chunks := 0
 var _last_horizontal_lod0_chunks := 0
 var _last_horizontal_lod1_chunks := 0
@@ -102,6 +113,10 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
 	metrics["cpp_shell_helper_enabled"] = use_cpp_shell_helper
 	metrics["cpp_shell_helper_available"] = _get_planet_shell_helper() != null
+	metrics["surface_column_index_enabled"] = use_surface_column_index
+	metrics["surface_column_count"] = _surface_column_index.get_column_count(active_dimension) if _surface_column_index else 0
+	metrics["surface_column_indexed_chunks"] = _surface_column_index.get_indexed_chunk_count(active_dimension) if _surface_column_index else 0
+	metrics["surface_column_keepalive_chunks"] = _last_indexed_keepalive_chunks
 	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
 	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
 	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
@@ -117,12 +132,29 @@ func get_streaming_metrics() -> Dictionary:
 	return metrics
 
 
+func get_surface_column_index() -> SurfaceColumnIndex:
+	return _surface_column_index
+
+
+func export_surface_column_index() -> Dictionary:
+	if _surface_column_index == null:
+		return {}
+	return _surface_column_index.to_dict()
+
+
+func import_surface_column_index(data: Dictionary) -> void:
+	if _surface_column_index == null:
+		_surface_column_index = SurfaceColumnIndex.new()
+	_surface_column_index.from_dict(data)
+
+
 func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_chunk_request_count_this_frame = 0
 	_last_shell_order_cache_hits = 0
 	_last_shell_order_cache_misses = 0
 	_last_tracked_chunks_pruned = 0
 	_last_forced_keepalive_chunks = 0
+	_last_indexed_keepalive_chunks = 0
 	_last_deep_player_chunks = 0
 
 	# Space stations already use build-aware loading in the parent class.
@@ -343,6 +375,21 @@ func _collect_keepalive_chunks(
 		result.append(chunk)
 	_last_forced_keepalive_chunks = result.size()
 
+	if use_surface_column_index and _surface_column_index != null:
+		var indexed_chunks := _surface_column_index.get_nearby_indexed_chunks(
+				active_dimension,
+				player_pos,
+				planet.local_center,
+				planet.planet_radius,
+				CHUNK_SIZE,
+				surface_column_keepalive_radius)
+		for chunk in indexed_chunks:
+			if seen.has(chunk):
+				continue
+			seen[chunk] = true
+			result.append(chunk)
+			_last_indexed_keepalive_chunks += 1
+
 	# When the player is already outside the active surface shell, keep a small
 	# cube around them loaded. This is the runtime path for tunnels below H_below
 	# or vertical towers above H_above.
@@ -368,11 +415,27 @@ func _mark_forced_shell_chunk(chunk: Vector3i, reason: StringName) -> void:
 		"reason": reason,
 		"time_msec": Time.get_ticks_msec(),
 	}
+	_record_surface_column_chunk(chunk, reason)
 	if deep_chunk_max_forced_entries <= 0:
 		return
 	if _forced_shell_chunks.size() <= deep_chunk_max_forced_entries:
 		return
 	_prune_forced_shell_chunks(deep_chunk_max_forced_entries)
+
+
+func _record_surface_column_chunk(chunk: Vector3i, reason: StringName) -> void:
+	if not use_surface_column_index or _surface_column_index == null:
+		return
+	var planet := _get_active_streaming_planet()
+	if planet == null:
+		return
+	_surface_column_index.record_chunk(
+			active_dimension,
+			chunk,
+			planet.local_center,
+			planet.planet_radius,
+			CHUNK_SIZE,
+			reason)
 
 
 func _prune_forced_shell_chunks(max_entries: int) -> void:
