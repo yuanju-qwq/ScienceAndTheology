@@ -33,10 +33,32 @@ extends ChunkRendererBridge
 # chunks that are outside view_radius.
 var _shell_wanted_visible: Dictionary = {}
 
+# Per-frame shell/horizontal LOD counters exposed through get_streaming_metrics().
+var _last_shell_visible_candidates := 0
+var _last_shell_load_candidates := 0
+var _last_horizontal_lod0_chunks := 0
+var _last_horizontal_lod1_chunks := 0
+var _last_horizontal_hidden_chunks := 0
+
 
 func set_active_dimension(dimension_id: StringName) -> void:
 	_shell_wanted_visible.clear()
 	super.set_active_dimension(dimension_id)
+
+
+func get_streaming_metrics() -> Dictionary:
+	var metrics := super.get_streaming_metrics()
+	metrics["shell_streaming_enabled"] = use_planet_shell_streaming
+	metrics["shell_prefetch_loaded_radius"] = shell_prefetch_loaded_radius
+	metrics["shell_visible_candidates"] = _last_shell_visible_candidates
+	metrics["shell_load_candidates"] = _last_shell_load_candidates
+	metrics["horizontal_lod_enabled"] = horizontal_lod_enabled
+	metrics["horizontal_lod0_radius"] = horizontal_lod0_radius
+	metrics["horizontal_lod1_radius"] = horizontal_lod1_radius if horizontal_lod1_radius > 0 else view_radius
+	metrics["horizontal_lod0_chunks"] = _last_horizontal_lod0_chunks
+	metrics["horizontal_lod1_chunks"] = _last_horizontal_lod1_chunks
+	metrics["horizontal_hidden_chunks"] = _last_horizontal_hidden_chunks
+	return metrics
 
 
 func _refresh_chunks(player_chunk: Vector3i) -> void:
@@ -45,11 +67,15 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	# Space stations already use build-aware loading in the parent class.
 	if _is_station_dimension and _active_station != null:
 		_shell_wanted_visible.clear()
+		_last_shell_visible_candidates = 0
+		_last_shell_load_candidates = 0
 		_refresh_station_chunks()
 		return
 
 	if not use_planet_shell_streaming:
 		_shell_wanted_visible.clear()
+		_last_shell_visible_candidates = 0
+		_last_shell_load_candidates = 0
 		super._refresh_chunks(player_chunk)
 		return
 
@@ -57,10 +83,13 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	var planet := _get_active_streaming_planet()
 	if player == null or planet == null:
 		_shell_wanted_visible.clear()
+		_last_shell_visible_candidates = 0
+		_last_shell_load_candidates = 0
 		super._refresh_chunks(player_chunk)
 		return
 
 	var visible_order := _compute_shell_chunk_order(player.global_position, planet, view_radius)
+	_last_shell_visible_candidates = visible_order.size()
 	var wanted_visible: Dictionary = {}
 	for chunk in visible_order:
 		wanted_visible[chunk] = true
@@ -69,6 +98,7 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	var load_order := visible_order
 	if shell_prefetch_loaded_radius and loaded_radius > view_radius:
 		load_order = _compute_shell_chunk_order(player.global_position, planet, loaded_radius)
+	_last_shell_load_candidates = load_order.size()
 
 	# Request data for the larger loading shell. The overridden _on_chunk_ready()
 	# only enqueues a view when the chunk is currently in wanted_visible.
@@ -113,6 +143,10 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 # the existing proxy sphere / low-poly / billboard system remains authoritative.
 func _update_chunk_visibility_for_lod() -> void:
 	if not horizontal_lod_enabled:
+		_last_horizontal_lod0_chunks = 0
+		_last_horizontal_lod1_chunks = 0
+		_last_horizontal_hidden_chunks = 0
+		_enable_all_visible_chunk_collisions()
 		super._update_chunk_visibility_for_lod()
 		return
 
@@ -124,17 +158,24 @@ func _update_chunk_visibility_for_lod() -> void:
 		planet_lod = _planet_lod_manager.get_current_lod_level()
 	_current_chunk_lod = planet_lod
 
+	_last_horizontal_lod0_chunks = 0
+	_last_horizontal_lod1_chunks = 0
+	_last_horizontal_hidden_chunks = 0
+
 	if _planet_lod_manager != null and planet_lod >= PlanetLodManager.LOD_PROXY_SPHERE:
 		for chunk: Vector3i in _visible_chunks.keys():
 			var entry: Dictionary = _visible_chunks[chunk]
 			var root: Node3D = entry.get("root")
 			if root:
 				root.visible = false
+			_set_entry_collision_enabled(chunk, entry, false)
+			_last_horizontal_hidden_chunks += 1
 		return
 
 	var player := get_node_or_null(player_node_path) as Node3D
 	var planet := _get_active_streaming_planet()
 	if player == null or planet == null:
+		_enable_all_visible_chunk_collisions()
 		super._update_chunk_visibility_for_lod()
 		return
 
@@ -161,6 +202,15 @@ func _update_chunk_visibility_for_lod() -> void:
 			full.visible = show_full
 		if simplified:
 			simplified.visible = show_simplified
+
+		_set_entry_collision_enabled(chunk, entry, show_full)
+
+		if show_full:
+			_last_horizontal_lod0_chunks += 1
+		elif show_simplified:
+			_last_horizontal_lod1_chunks += 1
+		else:
+			_last_horizontal_hidden_chunks += 1
 
 
 func _get_active_streaming_planet() -> PlanetDescriptor:
@@ -256,6 +306,32 @@ func _chunk_tangent_distance(
 	var radial_height := relative.dot(up)
 	var tangent := relative - up * radial_height
 	return tangent.length()
+
+
+func _enable_all_visible_chunk_collisions() -> void:
+	for chunk: Vector3i in _visible_chunks.keys():
+		var entry: Dictionary = _visible_chunks[chunk]
+		_set_entry_collision_enabled(chunk, entry, true)
+
+
+func _set_entry_collision_enabled(chunk: Vector3i, entry: Dictionary,
+		enabled: bool) -> void:
+	var current: Variant = entry.get("collision_enabled", null)
+	if current != null and bool(current) == enabled:
+		return
+	var full: Node3D = entry.get("full")
+	_set_collision_shapes_disabled(full, not enabled)
+	entry["collision_enabled"] = enabled
+	_visible_chunks[chunk] = entry
+
+
+func _set_collision_shapes_disabled(root: Node, disabled: bool) -> void:
+	if root == null:
+		return
+	if root is CollisionShape3D:
+		(root as CollisionShape3D).disabled = disabled
+	for child in root.get_children():
+		_set_collision_shapes_disabled(child, disabled)
 
 
 func _chunk_center(chunk: Vector3i) -> Vector3:
