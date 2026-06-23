@@ -43,6 +43,15 @@ const CHUNK_STATE_SLEEPING := 4
 @export var chunk_state_keep_radius := 2
 @export var max_chunk_state_updates_per_frame := 64
 
+# Remove safe sleeping chunks from GDWorldData memory. This is intentionally more
+# conservative than state sleep: chunks that were touched by gameplay or that own
+# runtime entities, machines, connectors, or mechanisms stay in memory until a
+# future single-chunk persistence path exists.
+@export var unload_sleeping_chunks_from_memory := true
+@export var unload_sleeping_chunk_keep_radius := 8
+@export var max_chunk_memory_unloads_per_frame := 8
+@export var protect_indexed_chunks_from_memory_unload := true
+
 # Prune stale tracking metadata outside the current shell. This does not delete
 # saved chunk data; it only allows far-away chunks to be re-requested normally if
 # the player later returns to them.
@@ -90,6 +99,10 @@ var _surface_column_index: SurfaceColumnIndex = SurfaceColumnIndex.new()
 # the player stays close, then age out through the max-entry cap or dimension switch.
 var _forced_shell_chunks: Dictionary = {}
 
+# Safe chunks removed from GDWorldData memory. They can be regenerated through the
+# existing async request path when they re-enter load_order.
+var _unloaded_shell_chunks: Dictionary = {}
+
 # Per-frame shell/horizontal LOD counters exposed through get_streaming_metrics().
 var _last_shell_visible_candidates := 0
 var _last_shell_load_candidates := 0
@@ -98,6 +111,8 @@ var _last_shell_order_cache_misses := 0
 var _last_tracked_chunks_pruned := 0
 var _last_chunk_state_active_updates := 0
 var _last_chunk_state_sleeping_updates := 0
+var _last_memory_unloaded_chunks := 0
+var _last_memory_restore_completions := 0
 var _last_forced_keepalive_chunks := 0
 var _last_indexed_keepalive_chunks := 0
 var _last_deep_player_chunks := 0
@@ -110,6 +125,7 @@ func set_active_dimension(dimension_id: StringName) -> void:
 	_shell_wanted_visible.clear()
 	_shell_order_cache.clear()
 	_forced_shell_chunks.clear()
+	_unloaded_shell_chunks.clear()
 	super.set_active_dimension(dimension_id)
 
 
@@ -132,6 +148,10 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["manage_deep_chunk_states"] = manage_deep_chunk_states
 	metrics["chunk_state_active_updates"] = _last_chunk_state_active_updates
 	metrics["chunk_state_sleeping_updates"] = _last_chunk_state_sleeping_updates
+	metrics["unload_sleeping_chunks_from_memory"] = unload_sleeping_chunks_from_memory
+	metrics["memory_unloaded_chunks"] = _last_memory_unloaded_chunks
+	metrics["memory_restore_completions"] = _last_memory_restore_completions
+	metrics["tracked_memory_unloaded_chunks"] = _unloaded_shell_chunks.size()
 	metrics["prune_tracked_chunks_enabled"] = prune_tracked_chunks_enabled
 	metrics["tracked_chunks_pruned"] = _last_tracked_chunks_pruned
 	metrics["deep_chunk_keepalive_enabled"] = deep_chunk_keepalive_enabled
@@ -170,6 +190,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_last_tracked_chunks_pruned = 0
 	_last_chunk_state_active_updates = 0
 	_last_chunk_state_sleeping_updates = 0
+	_last_memory_unloaded_chunks = 0
+	_last_memory_restore_completions = 0
 	_last_forced_keepalive_chunks = 0
 	_last_indexed_keepalive_chunks = 0
 	_last_deep_player_chunks = 0
@@ -238,6 +260,7 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 			_enqueue_chunk_view(chunk)
 
 	_update_chunk_sleep_states(wanted_visible, load_order, player_chunk)
+	_unload_stale_sleeping_chunks(wanted_visible, load_order, player_chunk)
 	_prune_tracked_chunks(wanted_visible, load_order, player_chunk)
 	_process_visible_queue()
 
@@ -249,6 +272,9 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 	var chunk := Vector3i(chunk_x, chunk_y, chunk_z)
 	_tracked_chunks[chunk] = true
 	_set_chunk_state_if_loaded(chunk, CHUNK_STATE_ACTIVE)
+	if _unloaded_shell_chunks.has(chunk):
+		_unloaded_shell_chunks.erase(chunk)
+		_last_memory_restore_completions += 1
 
 	if _shell_wanted_visible.is_empty() or _shell_wanted_visible.has(chunk):
 		if not _pending_view_queue.has(chunk):
@@ -477,17 +503,7 @@ func _update_chunk_sleep_states(wanted_visible: Dictionary, load_order: Array,
 		player_chunk: Vector3i) -> void:
 	if not manage_deep_chunk_states or world_data == null:
 		return
-	var keep: Dictionary = {}
-	for chunk: Vector3i in wanted_visible.keys():
-		keep[chunk] = true
-	for chunk in load_order:
-		keep[chunk] = true
-	for chunk: Vector3i in _visible_chunks.keys():
-		keep[chunk] = true
-	for chunk in _pending_view_queue:
-		keep[chunk] = true
-	for chunk in _pending_rebuild_queue:
-		keep[chunk] = true
+	var keep := _build_chunk_keep_set(wanted_visible, load_order)
 
 	var state_updates := 0
 	for chunk in keep.keys():
@@ -509,6 +525,21 @@ func _update_chunk_sleep_states(wanted_visible: Dictionary, load_order: Array,
 			_last_chunk_state_sleeping_updates += 1
 
 
+func _build_chunk_keep_set(wanted_visible: Dictionary, load_order: Array) -> Dictionary:
+	var keep: Dictionary = {}
+	for chunk: Vector3i in wanted_visible.keys():
+		keep[chunk] = true
+	for chunk in load_order:
+		keep[chunk] = true
+	for chunk: Vector3i in _visible_chunks.keys():
+		keep[chunk] = true
+	for chunk in _pending_view_queue:
+		keep[chunk] = true
+	for chunk in _pending_rebuild_queue:
+		keep[chunk] = true
+	return keep
+
+
 func _has_chunk_state_update_budget(current_updates: int) -> bool:
 	return max_chunk_state_updates_per_frame <= 0 \
 			or current_updates < max_chunk_state_updates_per_frame
@@ -526,22 +557,84 @@ func _set_chunk_state_if_loaded(chunk: Vector3i, state: int) -> bool:
 	return true
 
 
+func _unload_stale_sleeping_chunks(wanted_visible: Dictionary, load_order: Array,
+		player_chunk: Vector3i) -> void:
+	if not unload_sleeping_chunks_from_memory or world_data == null:
+		return
+	var keep := _build_chunk_keep_set(wanted_visible, load_order)
+	var unloaded := 0
+	for chunk: Vector3i in _tracked_chunks.keys():
+		if max_chunk_memory_unloads_per_frame > 0 \
+				and unloaded >= max_chunk_memory_unloads_per_frame:
+			return
+		if keep.has(chunk):
+			continue
+		if _is_chunk_near_player_chunk(chunk, player_chunk, unload_sleeping_chunk_keep_radius):
+			continue
+		if not _is_loaded_chunk_sleeping(chunk):
+			continue
+		if not _is_chunk_safe_for_memory_unload(chunk):
+			continue
+		_unload_chunk_from_memory(chunk, &"safe_sleeping")
+		unloaded += 1
+		_last_memory_unloaded_chunks += 1
+
+
+func _is_loaded_chunk_sleeping(chunk: Vector3i) -> bool:
+	if world_data == null:
+		return false
+	var dim := String(active_dimension)
+	if not world_data.has_chunk(dim, chunk.x, chunk.y, chunk.z):
+		return false
+	return int(world_data.get_chunk_state(dim, chunk.x, chunk.y, chunk.z)) == CHUNK_STATE_SLEEPING
+
+
+func _is_chunk_safe_for_memory_unload(chunk: Vector3i) -> bool:
+	if world_data == null:
+		return false
+	if _forced_shell_chunks.has(chunk):
+		return false
+	if protect_indexed_chunks_from_memory_unload \
+			and _surface_column_index != null \
+			and _surface_column_index.has_chunk(active_dimension, chunk):
+		return false
+	var dim := String(active_dimension)
+	if not world_data.has_chunk(dim, chunk.x, chunk.y, chunk.z):
+		return false
+	if not world_data.get_chunk_entities(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_machines(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_connector_ids(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_connectors(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	if not world_data.get_chunk_mechanisms(dim, chunk.x, chunk.y, chunk.z).is_empty():
+		return false
+	return true
+
+
+func _unload_chunk_from_memory(chunk: Vector3i, reason: StringName) -> void:
+	if world_data == null:
+		return
+	if _visible_chunks.has(chunk):
+		_remove_chunk_view(chunk)
+	_pending_view_queue.erase(chunk)
+	_pending_rebuild_queue.erase(chunk)
+	_tracked_chunks.erase(chunk)
+	world_data.remove_chunk(String(active_dimension), chunk.x, chunk.y, chunk.z)
+	_unloaded_shell_chunks[chunk] = {
+		"reason": reason,
+		"time_msec": Time.get_ticks_msec(),
+	}
+
+
 func _prune_tracked_chunks(wanted_visible: Dictionary, load_order: Array,
 		player_chunk: Vector3i) -> void:
 	_last_tracked_chunks_pruned = 0
 	if not prune_tracked_chunks_enabled:
 		return
-	var keep: Dictionary = {}
-	for chunk: Vector3i in wanted_visible.keys():
-		keep[chunk] = true
-	for chunk in load_order:
-		keep[chunk] = true
-	for chunk: Vector3i in _visible_chunks.keys():
-		keep[chunk] = true
-	for chunk in _pending_view_queue:
-		keep[chunk] = true
-	for chunk in _pending_rebuild_queue:
-		keep[chunk] = true
+	var keep := _build_chunk_keep_set(wanted_visible, load_order)
 
 	for chunk: Vector3i in _tracked_chunks.keys():
 		if keep.has(chunk):
