@@ -60,7 +60,7 @@ func _try_assemble_target() -> bool:
 	if material_id <= 0:
 		return false
 
-	var dimension: StringName = target.get("dimension", _player.get_current_dimension())
+	var dimension: StringName = target.get("dimension", PlayerController.OVERWORLD)
 	var seed_cell: Vector3i = target.get("cell", Vector3i.ZERO)
 	var result: Dictionary = _ship_bridge.assemble_from_cell(
 		dimension, seed_cell, [material_id], max_ship_blocks)
