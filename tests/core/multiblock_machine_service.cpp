@@ -25,6 +25,7 @@ ChunkData make_empty_chunk() {
 std::shared_ptr<StructureDefinition> build_input_hatch_definition() {
     return DeclarativePatternBuilder::start()
         .aisle({"~H"})
+        .self('~')
         .where('H', Elements::hatch(HATCH_ITEM_INPUT))
         .build_structure_definition("svc_input_machine");
 }
