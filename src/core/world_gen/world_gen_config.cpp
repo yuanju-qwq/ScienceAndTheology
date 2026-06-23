@@ -240,6 +240,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_scale * 100000.0f));
         hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_octaves));
         hash_combine(hash, static_cast<uint64_t>(planet.core_boundary_noise_amplitude * 100000.0f));
+        hash_combine(hash, static_cast<uint64_t>(planet.atmosphere_type));
     }
     for (const auto& species : config.tree_species) {
         hash_combine(hash, string_hash(species.species_key));
