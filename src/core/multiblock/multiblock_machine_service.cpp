@@ -1,6 +1,8 @@
 #include "multiblock_machine_service.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdlib>
 
 #include "multiblock_controller.hpp"
 #include "../world/block_entity_registry.hpp"
