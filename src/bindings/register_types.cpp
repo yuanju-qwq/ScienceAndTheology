@@ -26,6 +26,7 @@
 #include "world/gd_planet_build_frame.h"
 #include "simulation/gd_game_command_server.h"
 #include "simulation/gd_tick_system.h"
+#include "mobile_structure/gd_ship_command_bridge.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
 #include "player/gd_player_accessory.h"
@@ -107,6 +108,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDPlanetLod>();
     ClassDB::register_class<GDPlanetBuildFrame>();
     ClassDB::register_class<GDGameCommandServer>();
+    ClassDB::register_class<GDShipCommandBridge>();
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
     ClassDB::register_class<GDMENetwork>();
