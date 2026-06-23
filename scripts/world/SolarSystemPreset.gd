@@ -13,12 +13,24 @@ class_name SolarSystemPreset
 extends RefCounted
 
 # Scale factor: 1 unit in universe space = 1 voxel block.
-# Orbital distances are compressed so inter-planet travel is feasible.
-# Real solar system distances are far too large for voxel-scale gameplay.
-const ORBIT_SCALE := 3000.0
+# Orbit distances are deliberately compressed, but they must still be much
+# larger than planet radii now that Earth-class bodies use R=131072 blocks.
+const ORBIT_SCALE := 2000000.0
+
+# Gameplay planet radii. Earth uses the target large-planet radius: one full
+# equatorial circumnavigation is about 823k blocks, making it a multi-day goal.
+const SUN_RADIUS := 65536.0
+const MERCURY_RADIUS := 32768.0
+const VENUS_RADIUS := 120000.0
+const EARTH_RADIUS := 131072.0
+const MARS_RADIUS := 70000.0
+const JUPITER_RADIUS := 300000.0
+const SATURN_RADIUS := 260000.0
+const URANUS_RADIUS := 180000.0
+const NEPTUNE_RADIUS := 170000.0
 
 # Estimated system radius for the placeholder (Neptune orbit + padding).
-const ESTIMATED_SYSTEM_RADIUS := ORBIT_SCALE * 30.0 + 2000.0
+const ESTIMATED_SYSTEM_RADIUS := ORBIT_SCALE * 30.0 + NEPTUNE_RADIUS + 500000.0
 
 
 # --- Placeholder API ---
@@ -95,6 +107,27 @@ static func generate_flat(universe_seed: int) -> Array[PlanetDescriptor]:
 	return planets
 
 
+# --- Shared scale helpers ---
+
+static func _apply_radius(desc: PlanetDescriptor, radius: float) -> void:
+	desc.planet_radius = radius
+	desc.local_center = Vector3(0.0, -radius, 0.0)
+
+
+static func _apply_surface_altitude_bands(
+		desc: PlanetDescriptor,
+		atmosphere_height: float,
+		space_start_altitude: float,
+		gravity_influence_altitude: float,
+		active_shell_above: float = 128.0,
+		active_shell_below: float = 256.0) -> void:
+	desc.atmosphere_height = atmosphere_height
+	desc.space_start_altitude = space_start_altitude
+	desc.gravity_influence_altitude = gravity_influence_altitude
+	desc.active_shell_above = active_shell_above
+	desc.active_shell_below = active_shell_below
+
+
 # --- Star ---
 
 static func _create_sun(_universe_seed: int) -> PlanetDescriptor:
@@ -102,8 +135,8 @@ static func _create_sun(_universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"star_sun"
 	desc.display_name = "Sun"
 	desc.universe_position = Vector3.ZERO
-	desc.planet_radius = 256.0
-	desc.local_center = Vector3(0.0, -256.0, 0.0)
+	_apply_radius(desc, SUN_RADIUS)
+	_apply_surface_altitude_bands(desc, 0.0, 0.0, ORBIT_SCALE * 40.0)
 	desc.seed = 1
 	desc.is_star = true
 	desc.star_spectral_type = StarSpectralType.Type.G
@@ -124,8 +157,8 @@ static func _create_mercury(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_mercury"
 	desc.display_name = "Mercury"
 	desc.universe_position = Vector3(ORBIT_SCALE * 0.39, 0.0, 0.0)
-	desc.planet_radius = 128.0
-	desc.local_center = Vector3(0.0, -128.0, 0.0)
+	_apply_radius(desc, MERCURY_RADIUS)
+	_apply_surface_altitude_bands(desc, 512.0, 2048.0, 8192.0, 96.0, 192.0)
 	desc.seed = _hash_planet_seed(universe_seed, "mercury")
 	desc.gravity_multiplier = 0.38
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
@@ -147,8 +180,8 @@ static func _create_venus(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_venus"
 	desc.display_name = "Venus"
 	desc.universe_position = Vector3(ORBIT_SCALE * 0.72, 0.0, 0.0)
-	desc.planet_radius = 480.0
-	desc.local_center = Vector3(0.0, -480.0, 0.0)
+	_apply_radius(desc, VENUS_RADIUS)
+	_apply_surface_altitude_bands(desc, 6144.0, 12288.0, 49152.0, 160.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "venus")
 	desc.gravity_multiplier = 0.9
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
@@ -173,8 +206,8 @@ static func _create_earth(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_earth"
 	desc.display_name = "Earth"
 	desc.universe_position = Vector3(ORBIT_SCALE * 1.0, 0.0, 0.0)
-	desc.planet_radius = 512.0
-	desc.local_center = Vector3(0.0, -512.0, 0.0)
+	_apply_radius(desc, EARTH_RADIUS)
+	_apply_surface_altitude_bands(desc, 4096.0, 8192.0, 32768.0, 128.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "earth")
 	desc.gravity_multiplier = 1.0
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.BREATHABLE
@@ -202,8 +235,8 @@ static func _create_mars(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_mars"
 	desc.display_name = "Mars"
 	desc.universe_position = Vector3(ORBIT_SCALE * 1.52, 0.0, 0.0)
-	desc.planet_radius = 320.0
-	desc.local_center = Vector3(0.0, -320.0, 0.0)
+	_apply_radius(desc, MARS_RADIUS)
+	_apply_surface_altitude_bands(desc, 2048.0, 6144.0, 24576.0, 128.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "mars")
 	desc.gravity_multiplier = 0.38
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.THIN
@@ -231,8 +264,8 @@ static func _create_jupiter(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_jupiter"
 	desc.display_name = "Jupiter"
 	desc.universe_position = Vector3(ORBIT_SCALE * 5.2, 0.0, 0.0)
-	desc.planet_radius = 768.0
-	desc.local_center = Vector3(0.0, -768.0, 0.0)
+	_apply_radius(desc, JUPITER_RADIUS)
+	_apply_surface_altitude_bands(desc, 16384.0, 32768.0, 131072.0, 256.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "jupiter")
 	desc.gravity_multiplier = 2.5
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
@@ -259,8 +292,8 @@ static func _create_saturn(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_saturn"
 	desc.display_name = "Saturn"
 	desc.universe_position = Vector3(ORBIT_SCALE * 9.5, 0.0, 0.0)
-	desc.planet_radius = 640.0
-	desc.local_center = Vector3(0.0, -640.0, 0.0)
+	_apply_radius(desc, SATURN_RADIUS)
+	_apply_surface_altitude_bands(desc, 12288.0, 28672.0, 114688.0, 256.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "saturn")
 	desc.gravity_multiplier = 1.07
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
@@ -287,8 +320,8 @@ static func _create_uranus(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_uranus"
 	desc.display_name = "Uranus"
 	desc.universe_position = Vector3(ORBIT_SCALE * 19.2, 0.0, 0.0)
-	desc.planet_radius = 448.0
-	desc.local_center = Vector3(0.0, -448.0, 0.0)
+	_apply_radius(desc, URANUS_RADIUS)
+	_apply_surface_altitude_bands(desc, 8192.0, 20480.0, 81920.0, 192.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "uranus")
 	desc.gravity_multiplier = 0.89
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
@@ -315,8 +348,8 @@ static func _create_neptune(universe_seed: int) -> PlanetDescriptor:
 	desc.dimension_id = &"planet_neptune"
 	desc.display_name = "Neptune"
 	desc.universe_position = Vector3(ORBIT_SCALE * 30.0, 0.0, 0.0)
-	desc.planet_radius = 432.0
-	desc.local_center = Vector3(0.0, -432.0, 0.0)
+	_apply_radius(desc, NEPTUNE_RADIUS)
+	_apply_surface_altitude_bands(desc, 8192.0, 20480.0, 81920.0, 192.0, 256.0)
 	desc.seed = _hash_planet_seed(universe_seed, "neptune")
 	desc.gravity_multiplier = 1.14
 	desc.atmosphere_type = PlanetDescriptor.AtmosphereType.TOXIC
