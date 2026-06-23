@@ -311,7 +311,8 @@ func _save_universe_meta(save_dir: String) -> void:
 		"player_health": _universe_manager.player_health,
 		"player_source_law": _universe_manager.player_source_law_dict,
 		"player_satiation": _universe_manager.player_satiation_dict,
-		"format_version": 4,
+		"surface_column_index": _export_surface_column_index(),
+		"format_version": 5,
 		"systems": [],
 		"planets": [],
 		"stations": [],
@@ -412,6 +413,8 @@ func _load_universe_meta(save_dir: String) -> void:
 	_universe_manager.player_source_law_dict = meta.get("player_source_law", {})
 	_universe_manager.player_satiation_dict = meta.get("player_satiation", {})
 
+	_import_surface_column_index(meta.get("surface_column_index", {}))
+
 	# Restore space stations.
 	var stations_data: Array = meta.get("stations", [])
 	for sd in stations_data:
@@ -419,6 +422,30 @@ func _load_universe_meta(save_dir: String) -> void:
 		_universe_manager.stations.append(station)
 	_universe_manager.set_station_counter(int(meta.get("station_counter",
 		_universe_manager.stations.size())))
+
+
+func _export_surface_column_index() -> Dictionary:
+	var bridge := _get_shell_chunk_bridge()
+	if bridge == null:
+		return {}
+	return bridge.export_surface_column_index()
+
+
+func _import_surface_column_index(data: Dictionary) -> void:
+	if data.is_empty():
+		return
+	var bridge := _get_shell_chunk_bridge()
+	if bridge == null:
+		return
+	bridge.import_surface_column_index(data)
+
+
+func _get_shell_chunk_bridge() -> PlanetShellChunkRendererBridge:
+	if _universe_manager == null:
+		return null
+	var bridge_node := _universe_manager.get_node_or_null(
+			_universe_manager.chunk_renderer_bridge_path)
+	return bridge_node as PlanetShellChunkRendererBridge
 
 
 # --- Utility ---
