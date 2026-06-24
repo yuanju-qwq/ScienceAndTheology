@@ -117,8 +117,6 @@ target_sources(snt_core PRIVATE
     simulation/simulation_system.hpp
     simulation/tick_system.hpp
     simulation/tick_system.cpp
-    simulation/machine_system.hpp
-    simulation/machine_system.cpp
     simulation/block_physics_system.hpp
     simulation/block_physics_system.cpp
     simulation/tree_growth_system.hpp
@@ -137,8 +135,6 @@ target_sources(snt_core PRIVATE
     simulation/day_night_def.hpp
     simulation/day_night_system.hpp
     simulation/day_night_system.cpp
-    simulation/error_handler.hpp
-    simulation/error_handler.cpp
     simulation/region_graph.hpp
     simulation/region_graph.cpp
     simulation/region_system.hpp
@@ -228,4 +224,26 @@ target_sources(snt_core PRIVATE
     universe/chunk_streaming_system.hpp
     universe/chunk_streaming_system.cpp
     universe/sparse_chunk_policy.hpp
+)
+
+# SFM (Steve's Factory Manager) — visual flow-programming logistics system
+# Design: node-based editor controlling item/fluid/energy/redstone transfer
+# between containers connected via cables to a Manager block.
+target_sources(snt_core PRIVATE
+    sfm/flow_types.hpp
+    sfm/flow_node.hpp
+    sfm/flow_node_factory.hpp
+    sfm/flow_node_factory.cpp
+    sfm/flow_program.hpp
+    sfm/flow_program.cpp
+    sfm/flow_variable.hpp
+    sfm/flow_variable.cpp
+    sfm/i_container_access.hpp
+    sfm/i_container_access.cpp
+    sfm/flow_executor.hpp
+    sfm/flow_executor.cpp
+    sfm/cable_graph.hpp
+    sfm/cable_graph.cpp
+    sfm/sfm_manager.hpp
+    sfm/sfm_manager.cpp
 )

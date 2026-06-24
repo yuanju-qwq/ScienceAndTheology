@@ -136,7 +136,26 @@ func _crafting_recipes() -> Array:
 	_add_misc_recipes(recipes)
 	_add_crop_recipes(recipes)
 	_add_tfc_recipes(recipes)
+	_add_sfm_recipes(recipes)
 	return recipes
+
+# SFM (Steve's Factory Manager) — Manager block and inventory cable recipes.
+func _add_sfm_recipes(recipes: Array) -> void:
+	# Flow Manager: crafted on a workbench using iron plates, a circuit, and redstone.
+	_add_recipe_if_valid(recipes, _bench(
+			"craft_sfm_manager",
+			"misc",
+			[_mat("plate", "iron", 4),
+			 _item_key("circuit.basic", 1),
+			 _mat("dust", "redstone", 2)],
+			_item_key("sfm_manager", 1)))
+	# Inventory Cable: crafted by hand using iron nuggets and string.
+	_add_recipe_if_valid(recipes, _hand(
+			"craft_sfm_cable",
+			"misc",
+			[_mat("nugget", "iron", 3),
+			 _mat("rod", "wood", 1)],
+			_item_key("sfm_cable", 4)))
 
 func _add_material_compression_recipes(recipes: Array) -> void:
 	var compressible_metals := [

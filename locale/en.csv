@@ -658,6 +658,40 @@ nei.info.item_key,Item Key
 nei.info.max_stack,Max Stack
 nei.info.source,Source
 nei.info.category,Category
+sfm.block.manager,Flow Manager
+sfm.block.cable,Inventory Cable
+sfm.editor.title,Flow Program Editor
+sfm.editor.add_node,Add Node
+sfm.editor.delete_selected,Delete Selected
+sfm.editor.save,Save
+sfm.editor.load,Load
+sfm.editor.refresh_containers,Refresh Containers
+sfm.editor.clear_all,Clear All
+sfm.editor.palette,Node Palette
+sfm.editor.containers,Containers
+sfm.editor.ready,Ready
+sfm.node.trigger_timer,Timer Trigger
+sfm.node.trigger_redstone,Redstone Trigger
+sfm.node.trigger_item,Item Trigger
+sfm.node.item_input,Item Input
+sfm.node.item_output,Item Output
+sfm.node.fluid_input,Fluid Input
+sfm.node.fluid_output,Fluid Output
+sfm.node.energy_input,Energy Input
+sfm.node.energy_output,Energy Output
+sfm.node.redstone_input,Redstone Input
+sfm.node.redstone_output,Redstone Output
+sfm.node.item_filter,Item Filter
+sfm.node.fluid_filter,Fluid Filter
+sfm.node.condition,Condition
+sfm.node.loop,Loop
+sfm.node.group_input,Group Input
+sfm.node.group_output,Group Output
+sfm.node.variable_get,Variable Get
+sfm.node.variable_set,Variable Set
+sfm.node.math,Math
+sfm.node.text_label,Text Label
+sfm.node.count,Count
 nei.info.ore_dict,Ore Dict
 nei.info.bookmarked,Bookmarked
 nei.info.bookmarked_yes,Yes (B to remove)

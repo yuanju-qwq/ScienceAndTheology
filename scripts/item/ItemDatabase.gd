@@ -208,6 +208,10 @@ const ITEM_BREAD         = K_NON_MAT_BASE + 134
 const ITEM_COTTON_FIBER  = K_NON_MAT_BASE + 135
 const ITEM_CLOTH         = K_NON_MAT_BASE + 136
 
+# SFM (Steve's Factory Manager) placeable items.
+const ITEM_SFM_MANAGER   = K_NON_MAT_BASE + 140
+const ITEM_SFM_CABLE     = K_NON_MAT_BASE + 141
+
 static func mat_item(mat_id: int, form: int) -> int:
 	return K_MAT_ITEM_BASE + mat_id * K_FORM_COUNT + form
 
@@ -558,6 +562,11 @@ func _register_survival_items() -> void:
 			64, null, "")
 	_register(ITEM_STATION_BLUEPRINT, "station_blueprint", Color(0.20, 0.50, 0.80),
 			1, null, "")
+	# SFM placeables: Flow Manager block and Inventory Cable.
+	_register(ITEM_SFM_MANAGER, "sfm.block.manager", Color(0.30, 0.50, 0.70),
+			64, null, "")
+	_register(ITEM_SFM_CABLE, "sfm.block.cable", Color(0.40, 0.40, 0.45),
+			64, null, "")
 
 
 # --- TFC expansion items ---
@@ -869,6 +878,10 @@ func _register_non_material_keys() -> void:
 		ITEM_OLIVE_SAPLING: "sapling.olive",
 		ITEM_OLIVE_FRUIT: "fruit.olive",
 		ITEM_STATION_BLUEPRINT: "station_blueprint",
+
+		# SFM placeables
+		ITEM_SFM_MANAGER: "sfm_manager",
+		ITEM_SFM_CABLE: "sfm_cable",
 
 		# TFC expansion
 		ITEM_COPPER_PICKAXE: "copper_pickaxe",
