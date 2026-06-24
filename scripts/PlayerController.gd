@@ -401,6 +401,17 @@ func _handle_key(event: InputEventKey) -> void:
 		_ui_connector.toggle_quest_book()
 	elif event.is_action_pressed(&"toggle_nei_panel"):
 		_ui_connector.toggle_nei()
+	elif event.is_action_pressed(&"toggle_nei_mode"):
+		_toggle_nei_mode()
+
+
+# Cycle NEI mode: RECIPE -> UTILITY -> RECIPE.
+# Mirrors NEI's O key that toggles between recipe/utility/hidden modes.
+func _toggle_nei_mode() -> void:
+	if NEISettings == null:
+		return
+	NEISettings.cycle_mode()
+	print("[NEI] mode cycled to: %d" % NEISettings.mode)
 
 
 func _toggle_build_mode() -> void:
@@ -1230,6 +1241,8 @@ func _close_gameplay_ui() -> void:
 	if nei_panel and nei_panel.visible:
 		nei_panel._is_open = false
 		nei_panel.visible = false
+	if nei_sidebar and nei_sidebar.visible:
+		nei_sidebar.hide_sidebar()
 	set_input_locked(false)
 
 

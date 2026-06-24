@@ -647,3 +647,88 @@ nei.search_hint,搜索物品...
 nei.tab_recipes,合成配方
 nei.tab_usage,用途
 nei.no_recipes,未找到配方。
+
+# ============================================================
+# NEI Sidebar (侧边栏物品浏览器)
+# ============================================================
+nei.sidebar.bookmarks,收藏
+nei.sidebar.mode_recipe,配方模式
+nei.sidebar.mode_utility,工具模式
+nei.sidebar.page,页
+nei.sidebar.empty,无物品
+
+# ============================================================
+# NEI Utility Bar (工具栏)
+# ============================================================
+nei.util.magnet,磁铁
+nei.util.magnet_tip,磁铁：将掉落物吸引到玩家
+nei.util.delete,删除
+nei.util.delete_tip,删除：点击物品栏中的物品以移除
+nei.util.infinite,无限
+nei.util.infinite_tip,无限：放置方块不消耗
+nei.util.chunk_loader,区块加载
+nei.util.chunk_loader_tip,区块加载：保持附近区块加载
+nei.util.block_highlight,高亮
+nei.util.block_highlight_tip,方块高亮：显示边界框
+nei.util.entity_radar,实体雷达
+nei.util.entity_radar_tip,实体雷达：显示附近实体
+nei.util.time_dawn,黎明
+nei.util.time_dawn_tip,设置时间为黎明
+nei.util.time_noon,正午
+nei.util.time_noon_tip,设置时间为正午
+nei.util.time_dusk,黄昏
+nei.util.time_dusk_tip,设置时间为黄昏
+nei.util.time_midnight,午夜
+nei.util.time_midnight_tip,设置时间为午夜
+nei.util.rain,降雨
+nei.util.rain_tip,切换降雨
+
+# ============================================================
+# NEI History Navigation (历史导航)
+# ============================================================
+nei.history.back,后退
+nei.history.forward,前进
+
+# ============================================================
+# NEI Recipe Transfer (配方转移)
+# ============================================================
+nei.transfer.craft,合成（转移）
+nei.transfer.craft_tip,尝试使用物品栏中的材料合成此配方
+nei.transfer.success,合成成功 x%d
+nei.transfer.failed,合成失败（材料不足？）
+
+# ============================================================
+# NEI Info Panel (信息面板)
+# ============================================================
+nei.info.base,基础信息
+nei.info.item_id,物品ID
+nei.info.item_key,物品键
+nei.info.max_stack,最大堆叠
+nei.info.source,来源
+nei.info.category,类别
+nei.info.ore_dict,矿物词典
+nei.info.bookmarked,已收藏
+nei.info.bookmarked_yes,是（B 移除）
+nei.info.bookmarked_no,否（B 添加）
+nei.info.recipe_summary,配方摘要
+nei.info.recipes,配方数
+nei.info.usages,用途数
+nei.info.shortcuts,快捷键
+nei.info.machines,相关机器
+nei.info.tooltip,提示
+
+# ============================================================
+# NEI Tooltip (悬停提示)
+# ============================================================
+nei.tooltip.key,键
+nei.tooltip.source,来源
+nei.tooltip.ore,矿物
+nei.tooltip.recipes,配方
+nei.tooltip.usages,用途
+nei.tooltip.hint,R:配方 U:用途 M:机器 B:收藏
+
+# ============================================================
+# NEI Key Bindings (按键绑定)
+# ============================================================
+nei.key.toggle_nei_panel,NEI物品查询
+nei.key.toggle_nei_mode,NEI模式切换

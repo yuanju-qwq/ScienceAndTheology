@@ -599,3 +599,88 @@ nei.search_hint,Search items...
 nei.tab_recipes,Recipes
 nei.tab_usage,Usage
 nei.no_recipes,No recipes found.
+
+# ============================================================
+# NEI Sidebar (item browser sidebar)
+# ============================================================
+nei.sidebar.bookmarks,Bookmarks
+nei.sidebar.mode_recipe,Recipe Mode
+nei.sidebar.mode_utility,Utility Mode
+nei.sidebar.page,Page
+nei.sidebar.empty,No items
+
+# ============================================================
+# NEI Utility Bar (utility buttons)
+# ============================================================
+nei.util.magnet,Magnet
+nei.util.magnet_tip,Magnet: pull dropped items to player
+nei.util.delete,Delete
+nei.util.delete_tip,Delete: click inventory items to remove
+nei.util.infinite,Infinite
+nei.util.infinite_tip,Infinite: placed blocks are not consumed
+nei.util.chunk_loader,Chunk
+nei.util.chunk_loader_tip,Chunk loader: keep nearby chunks loaded
+nei.util.block_highlight,Box
+nei.util.block_highlight_tip,Block highlight: show bounding boxes
+nei.util.entity_radar,Entity
+nei.util.entity_radar_tip,Entity radar: show nearby entities
+nei.util.time_dawn,Dawn
+nei.util.time_dawn_tip,Set time to dawn
+nei.util.time_noon,Noon
+nei.util.time_noon_tip,Set time to noon
+nei.util.time_dusk,Dusk
+nei.util.time_dusk_tip,Set time to dusk
+nei.util.time_midnight,Night
+nei.util.time_midnight_tip,Set time to midnight
+nei.util.rain,Rain
+nei.util.rain_tip,Toggle rain
+
+# ============================================================
+# NEI History Navigation
+# ============================================================
+nei.history.back,Back
+nei.history.forward,Forward
+
+# ============================================================
+# NEI Recipe Transfer
+# ============================================================
+nei.transfer.craft,Craft (transfer)
+nei.transfer.craft_tip,Attempt to craft this recipe using inventory items
+nei.transfer.success,Crafted x%d
+nei.transfer.failed,Craft failed (missing items?)
+
+# ============================================================
+# NEI Info Panel
+# ============================================================
+nei.info.base,Base
+nei.info.item_id,Item ID
+nei.info.item_key,Item Key
+nei.info.max_stack,Max Stack
+nei.info.source,Source
+nei.info.category,Category
+nei.info.ore_dict,Ore Dict
+nei.info.bookmarked,Bookmarked
+nei.info.bookmarked_yes,Yes (B to remove)
+nei.info.bookmarked_no,No (B to add)
+nei.info.recipe_summary,Recipe Summary
+nei.info.recipes,Recipes
+nei.info.usages,Usages
+nei.info.shortcuts,Shortcuts
+nei.info.machines,Machines
+nei.info.tooltip,Tooltip
+
+# ============================================================
+# NEI Tooltip
+# ============================================================
+nei.tooltip.key,Key
+nei.tooltip.source,Source
+nei.tooltip.ore,Ore
+nei.tooltip.recipes,Recipes
+nei.tooltip.usages,Usages
+nei.tooltip.hint,R: recipes  U: usage  M: machines  B: bookmark
+
+# ============================================================
+# NEI Key Bindings
+# ============================================================
+nei.key.toggle_nei_panel,NEI Item Browser
+nei.key.toggle_nei_mode,NEI Mode Toggle

@@ -16,6 +16,7 @@ const ACTION_DEFS: Array[Array] = [
 	[&"toggle_debug",      "调试面板",   KEY_F3],
 	[&"toggle_build_mode", "建造坐标",   KEY_G],
 	[&"toggle_nei_panel",  "NEI物品查询", KEY_R],
+	[&"toggle_nei_mode",   "NEI模式切换", KEY_O],
 ]
 
 
