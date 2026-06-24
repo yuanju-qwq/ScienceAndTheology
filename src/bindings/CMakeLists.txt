@@ -18,6 +18,8 @@ set(SOURCES
     world/gd_bloomery.cpp
     world/gd_anvil.cpp
     world/gd_chunk_helper.cpp
+    world/gd_planet_shell_helper.cpp
+    world/gd_chunk_persistence_helper.cpp
     world/gd_planet_lod.cpp
     world/gd_planet_build_frame.cpp
     simulation/gd_game_command_server.cpp

@@ -158,6 +158,8 @@ target_sources(snt_core PRIVATE
     save/chunk_serializer.cpp
     save/region_file.hpp
     save/region_file.cpp
+    save/region_compactor.hpp
+    save/region_compactor.cpp
     save/save_manager.hpp
     save/save_manager.cpp
 )
@@ -216,6 +218,8 @@ target_sources(snt_core PRIVATE
     universe/sector_manager.cpp
     universe/universe_world_core.hpp
     universe/universe_world_core.cpp
+    universe/planet_build_frame.hpp
+    universe/planet_build_frame.cpp
 )
 
 # Universe streaming (U2: Sector-aware chunk streaming, sparse chunks, entity migration, floating origin)
