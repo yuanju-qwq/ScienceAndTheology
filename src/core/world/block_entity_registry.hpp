@@ -40,6 +40,7 @@ public:
         CableBlockEntityState cable_state;
         FarmlandBlockEntityState farmland_state;
         CropBlockEntityState crop_state;
+        SignalWireBlockEntityState signal_wire_state;
     };
 
     BlockEntityRegistry() = default;
@@ -131,6 +132,15 @@ public:
         int64_t planted_tick,
         const std::vector<OwnedCell>& owned_cells);
 
+    // Register a signal wire block entity. Returns its assigned EntityId.
+    // connections: 6-face bitmask (BlockEntityConnectionMask).
+    // is_source: true if this wire emits signal itself (e.g. attached to lever).
+    EntityId register_signal_wire_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        uint8_t connections,
+        bool is_source);
+
     // Remove a block entity by ID. Also removes its spatial index entries.
     void remove_entity(EntityId id);
 
@@ -171,6 +181,10 @@ public:
     // Returns the crop state for a given entity, or nullptr if not a crop.
     const CropBlockEntityState* get_crop_state(EntityId id) const;
     CropBlockEntityState* get_crop_state_mut(EntityId id);
+
+    // Returns the signal wire state for a given entity, or nullptr if not a signal wire.
+    const SignalWireBlockEntityState* get_signal_wire_state(EntityId id) const;
+    SignalWireBlockEntityState* get_signal_wire_state_mut(EntityId id);
 
     // Returns the placement data for a given entity.
     const BlockEntityPlacement* get_placement(EntityId id) const;
@@ -237,6 +251,15 @@ public:
     // Update the connection bitmask for a cable entity.
     void update_cable_connections(EntityId id, uint8_t connections);
 
+    // Update the connection bitmask for a signal wire entity.
+    void update_signal_wire_connections(EntityId id, uint8_t connections);
+
+    // Update the cached signal strength for a signal wire entity.
+    void update_signal_wire_strength(EntityId id, int32_t strength);
+
+    // Update the is_source flag for a signal wire entity.
+    void update_signal_wire_source(EntityId id, bool is_source);
+
     // --- Iteration ---
 
     // Iterate over all tree entities. Callback receives (EntityId, TreeBlockEntityState).
@@ -262,6 +285,10 @@ public:
     // Iterate over all farmland entities.
     void for_each_farmland(
         std::function<void(EntityId, const FarmlandBlockEntityState&)> fn) const;
+
+    // Iterate over all signal wire entities.
+    void for_each_signal_wire(
+        std::function<void(EntityId, const SignalWireBlockEntityState&)> fn) const;
 
     // Returns the total number of registered entities.
     size_t size() const { return entities_.size(); }

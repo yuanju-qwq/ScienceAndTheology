@@ -2,99 +2,105 @@
 
 #include <cstdint>
 #include <functional>
-#include <list>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "power/power_node.hpp"
+#include "voxel_network_graph.hpp"
+#include "../config/gt_values.hpp"
+#include "../power/power_node.hpp"  // MapPosition, OverloadInfo
 
 namespace science_and_theology::gt {
 
-// Callback type for overload notifications.
-// Parameters: node_id, overload_info
-using OverloadCallback = std::function<void(PowerNodeId, const OverloadInfo&)>;
-
-// The power network: a graph of PowerNodes connected by PowerEdges.
+// ============================================================
+// PowerNetwork — per-block cable conduction network
+// ============================================================
 //
-// Design principles (per gt_factorio_power_system_design.md):
-// 1. Node-based (pole network), NOT per-tile cables like Minecraft GT.
-// 2. Only recalculates on topology changes, not every tick.
-// 3. Capacity-based instead of amperage/packet-based.
-// 4. Overload detection: over-voltage -> machine explosion,
-//    over-capacity -> wire burn.
-// 5. Cable material determines capacity and distance-based loss.
+// Replaces the old point-to-point pole network with a per-tile cable
+// model: every cable block is a conductor, connectivity is implicit
+// 6-face adjacency (like Minecraft GT cables, not Factorio poles).
+//
+// Conduction model: CONNECTED-COMPONENT SHARED POOL + PER-TILE LOSS.
+// Within a connected component of cables:
+//   1. All generators feed a shared supply pool (sum of capacities,
+//      capped by the component's min cable voltage tier).
+//   2. All consumers draw from that pool (sum of demands).
+//   3. Per-tile loss accumulates along the BFS tree from each
+//      generator to each consumer; effective delivered power is
+//      reduced by cable loss_per_tile * path length.
+//   4. A cable block is OVER_CAPACITY if the current flowing through
+//      it exceeds its voltage*amperage capacity -> cable burns.
+//   5. A consumer is OVER_VOLTAGE if the component's voltage tier
+//      exceeds the consumer's max input voltage -> machine explodes.
+//
+// Generators and consumers are NON-CABLE blocks adjacent (6-face)
+// to at least one cable in a component. They register their
+// position, capacity/demand, and voltage tier here.
+//
+// Topology is maintained via VoxelNetworkGraph. Recompute by calling
+// update_network() after any cable/generator/consumer change.
+
+// Callback type for overload notifications.
+// Parameters: position, overload_info
+using PowerOverloadCallback = std::function<void(MapPosition, const OverloadInfo&)>;
+
 class PowerNetwork {
 public:
     PowerNetwork() = default;
     ~PowerNetwork() = default;
 
-    // --- Node lifecycle ---
+    // --- Cable block lifecycle ---
 
-    // Adds a new power node. Returns the assigned node ID.
-    // Returns kInvalidNodeId if a node already exists at the given position.
-    PowerNodeId add_node(VoltageTier tier, MapPosition position);
+    // Adds a cable conductor block at the given position with the
+    // given tier (determines capacity and loss via CableProperties).
+    void add_cable(MapPosition pos, VoltageTier tier);
 
-    // Removes a node and all its connections. Returns true if the node existed.
-    bool remove_node(PowerNodeId node_id);
+    // Removes a cable conductor block at the given position.
+    void remove_cable(MapPosition pos);
 
-    // Returns a pointer to the node, or nullptr if not found.
-    PowerNode* get_node(PowerNodeId node_id);
-    const PowerNode* get_node(PowerNodeId node_id) const;
+    // Returns whether a cable block exists at the given position.
+    bool has_cable(MapPosition pos) const { return graph_.has_block(pos); }
 
-    // Returns the node ID at a given position, or kInvalidNodeId.
-    PowerNodeId get_node_at(MapPosition position) const;
+    // Returns the number of cable blocks.
+    size_t cable_count() const { return graph_.block_count(); }
 
-    // Returns the total number of nodes.
-    size_t node_count() const { return nodes_.size(); }
+    // --- Generator / consumer lifecycle ---
 
-    // --- Edge lifecycle ---
+    // Sets or updates a generator at the given position.
+    // capacity: max power it can supply per tick.
+    // tier: voltage tier the generator outputs.
+    void set_generator(MapPosition pos, int64_t capacity, VoltageTier tier);
 
-    // Connects two nodes with a wire of the given cable material.
-    // The distance between nodes is computed automatically from their positions.
-    // Returns true if the connection was created.
-    bool connect(PowerNodeId node_a, PowerNodeId node_b,
-                 const CableProperties& cable);
+    // Removes a generator.
+    void remove_generator(MapPosition pos);
 
-    // Disconnects two nodes. Returns true if the edge existed.
-    bool disconnect(PowerNodeId node_a, PowerNodeId node_b);
+    // Sets or updates a consumer at the given position.
+    // demand: power it wants to draw per tick.
+    // max_input_voltage: highest voltage it can safely accept.
+    void set_consumer(MapPosition pos, int64_t demand, int64_t max_input_voltage);
 
-    // Returns all edges connected to a given node.
-    std::vector<const PowerEdge*> get_edges_for_node(PowerNodeId node_id) const;
+    // Removes a consumer.
+    void remove_consumer(MapPosition pos);
 
-    // Returns the total number of edges.
-    size_t edge_count() const { return edges_.size(); }
+    // --- Network recomputation ---
 
-    // --- Network topology ---
-
-    // Recalculates the network state after topology changes.
-    // This triggers: connected component discovery, power distribution,
-    // voltage propagation, loss calculation, overload detection.
-    // Should be called once after a batch of add/remove/connect/disconnect
-    // operations, not every tick.
+    // Recomputes power distribution across all cable components.
+    // Call once after a batch of cable/generator/consumer changes.
     void update_network();
-
-    // Finds all nodes in the same connected component as the given node.
-    // Uses BFS.
-    std::vector<PowerNodeId> find_connected_component(
-            PowerNodeId start_id) const;
-
-    // Returns all disjoint connected components.
-    std::vector<std::vector<PowerNodeId>> find_all_components() const;
 
     // --- Power state queries ---
 
-    // Sets the power demand (consumption) for a node (typically a machine pole).
-    void set_power_demand(PowerNodeId node_id, int64_t demand);
+    // Returns the power available to a consumer at the given position
+    // (after losses). Returns 0 if the position is not a registered
+    // consumer or receives no power.
+    int64_t get_power_at(MapPosition pos) const;
 
-    // Sets the generation capacity for a node (typically a generator pole).
-    void set_generation_capacity(PowerNodeId node_id, int64_t capacity);
+    // Returns whether the cable or consumer at the given position is
+    // currently overloaded.
+    bool is_overloaded(MapPosition pos) const;
 
-    // Returns whether the given node is currently overloaded.
-    bool is_overloaded(PowerNodeId node_id) const;
-
-    // Returns the overload info for a node.
-    OverloadInfo get_overload_info(PowerNodeId node_id) const;
+    // Returns the overload info for a cable or consumer position.
+    OverloadInfo get_overload_info(MapPosition pos) const;
 
     // Returns the total power loss across the entire network.
     int64_t get_total_power_loss() const { return total_power_loss_; }
@@ -105,98 +111,56 @@ public:
     // Returns the total demand across the entire network.
     int64_t get_total_demand() const { return total_demand_; }
 
+    // Returns whether two positions are in the same cable component
+    // (i.e., power can flow between them via cables).
+    bool are_in_same_network(MapPosition a, MapPosition b) const;
+
     // --- Callbacks ---
 
-    // Sets a callback invoked when a node enters or exits overload.
-    void set_overload_callback(OverloadCallback callback);
+    // Sets a callback invoked when a cable or consumer enters/exits
+    // overload. Position identifies the affected block.
+    void set_overload_callback(PowerOverloadCallback callback);
 
-    // --- Queries ---
-
-    // Returns whether two nodes are directly connected.
-    bool are_connected(PowerNodeId node_a, PowerNodeId node_b) const;
-
-    // Returns whether two nodes are in the same connected component
-    // (i.e., power can flow between them).
-    bool are_in_same_network(PowerNodeId node_a, PowerNodeId node_b) const;
-
-    // Clears all nodes and edges.
+    // Clears all cables, generators, and consumers.
     void clear();
 
 private:
-    using NodeMap = std::unordered_map<PowerNodeId, PowerNode>;
-    using PositionIndex = std::unordered_map<MapPosition, PowerNodeId>;
-    using EdgeIterator = std::list<PowerEdge>::iterator;
-    using AdjacencyList = std::unordered_map<PowerNodeId,
-                                              std::vector<EdgeIterator>>;
+    // Per-cable material properties, keyed by position.
+    // Derived from the tier passed to add_cable().
+    std::unordered_map<MapPosition, CableProperties> cable_props_;
 
-    // Per-component statistics used during update_network().
-    struct ComponentStats {
-        VoltageTier network_tier = VoltageTier::ULV;
-        int64_t total_generation = 0;
-        int64_t total_demand = 0;
-        int64_t total_loss = 0;
-        int64_t transferred_in = 0;    // power received from transformers
-        int64_t transferred_out = 0;   // power sent out via transformers
+    // The cable topology graph.
+    VoxelNetworkGraph graph_;
+
+    // Registered generators: position -> (capacity, tier).
+    struct GeneratorEntry {
+        int64_t capacity = 0;
+        VoltageTier tier = VoltageTier::ULV;
     };
+    std::unordered_map<MapPosition, GeneratorEntry> generators_;
 
-    // Helper: returns a raw pointer from an edge iterator.
-    // list iterators are stable on push_back/erase of other elements.
-    static PowerEdge* edge_ptr(EdgeIterator it) { return &(*it); }
-    static const PowerEdge* edge_cptr(EdgeIterator it) { return &(*it); }
+    // Registered consumers: position -> (demand, max_input_voltage).
+    struct ConsumerEntry {
+        int64_t demand = 0;
+        int64_t max_input_voltage = 0;
+    };
+    std::unordered_map<MapPosition, ConsumerEntry> consumers_;
 
-    // Adds to the adjacency list.
-    void add_adjacency(PowerNodeId node_id, EdgeIterator edge_it);
-    void remove_adjacency(PowerNodeId node_id, EdgeIterator edge_it);
+    // Recomputed by update_network():
+    //   power_at_: delivered power per consumer position.
+    //   overload_: overload info per cable/consumer position.
+    std::unordered_map<MapPosition, int64_t> power_at_;
+    std::unordered_map<MapPosition, OverloadInfo> overload_;
 
-    // Phase 1: compute generation, demand, loss, and tier for a component.
-    ComponentStats compute_component_stats(
-            const std::vector<PowerNodeId>& component) const;
-
-    // Phase 2: transfer surplus power through transformers.
-    // Sorts transformers by tier descending, validates max_step,
-    // computes per-step loss, distributes surplus to output components.
-    void transfer_transformer_power(
-            const std::vector<std::vector<PowerNodeId>>& components,
-            std::vector<ComponentStats>& comp_stats);
-
-    // Phase 3: request-based edge flow computation via BFS tree.
-    // Builds a BFS tree from all generators, propagates demand from
-    // leaves to roots, and sets per-edge current_load accurately.
-    void compute_edge_flows(const std::vector<PowerNodeId>& component);
-
-    // Checks a single node for overload conditions.
-    void check_node_overload(PowerNode& node, int64_t supplied_voltage);
-
-    // Checks a single edge for overload conditions (capacity + loss).
-    void check_edge_overload(PowerEdge& edge);
-
-    // Resets overload state for all nodes and edges.
-    void reset_overloads();
-
-    // ID counter for new nodes.
-    PowerNodeId next_id_ = 1;
-
-    // Owning storage. Use list for stable iterators/references on push_back.
-    NodeMap nodes_;
-    std::list<PowerEdge> edges_;
-
-    // Position -> node ID lookup.
-    PositionIndex position_index_;
-
-    // Node ID -> list of incident edges for fast traversal.
-    AdjacencyList adjacency_;
-
-    // Component cache: node ID -> component index.
-    // Rebuilt on each update_network() call.
-    std::unordered_map<PowerNodeId, int> component_index_;
-
-    // Network-wide aggregate statistics (updated by update_network()).
     int64_t total_power_loss_ = 0;
     int64_t total_generation_ = 0;
     int64_t total_demand_ = 0;
 
-    // Overload notification callback.
-    OverloadCallback overload_callback_;
+    PowerOverloadCallback overload_callback_;
+
+    // Resolves CableProperties for a given voltage tier.
+    // Uses the first matching material in kCableMaterials.
+    static CableProperties cable_for_tier(VoltageTier tier);
 };
 
 } // namespace science_and_theology::gt

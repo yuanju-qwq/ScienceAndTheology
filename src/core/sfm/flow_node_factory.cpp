@@ -28,6 +28,11 @@ FlowNode FlowNodeFactory::create(FlowNodeId id, FlowNodeType type) {
             add_out(0, FlowPortType::FLOW, "Trigger");
             node.params["threshold"] = "1";
             break;
+        case FlowNodeType::TRIGGER_SIGNAL:
+            add_out(0, FlowPortType::FLOW, "Trigger");
+            node.params["container_index"] = "0";
+            node.params["signal_mode"] = "any";  // rising|falling|any
+            break;
 
         // --- Item I/O ---
         case FlowNodeType::ITEM_INPUT:
@@ -62,6 +67,16 @@ FlowNode FlowNodeFactory::create(FlowNodeId id, FlowNodeType type) {
             break;
         case FlowNodeType::REDSTONE_OUTPUT:
             add_in(0, FlowPortType::REDSTONE, "Signal");
+            break;
+
+        // --- Signal I/O ---
+        case FlowNodeType::SIGNAL_INPUT:
+            add_out(0, FlowPortType::SIGNAL, "Signal");
+            node.params["container_index"] = "0";
+            break;
+        case FlowNodeType::SIGNAL_OUTPUT:
+            add_in(0, FlowPortType::SIGNAL, "Signal");
+            node.params["container_index"] = "0";
             break;
 
         // --- Filters ---

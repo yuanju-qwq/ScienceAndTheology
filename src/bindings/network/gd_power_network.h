@@ -3,7 +3,6 @@
 #include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
-#include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
@@ -11,16 +10,21 @@
 
 namespace science_and_theology {
 
-// GDExtension wrapper for the GT power network.
-// Exposes the C++ PowerNetwork to GDScript with proper type conversions.
+// ============================================================
+// GDPowerNetwork — GDExtension wrapper for the per-block power network
+// ============================================================
+//
+// Exposes the C++ PowerNetwork (per-tile cable model) to GDScript.
 //
 // Usage in GDScript:
 //   var net = GDPowerNetwork.new()
-//   var node_id = net.add_node(GDPowerNetwork.TIER_LV, Vector3i(10, 5, 0))
-//   net.connect_nodes(a, b, "copper")
+//   net.add_cable(Vector3i(10, 5, 0), GDPowerNetwork.TIER_LV)
+//   net.set_generator(Vector3i(10, 6, 0), 128, GDPowerNetwork.TIER_LV)
+//   net.set_consumer(Vector3i(12, 5, 0), 32, 32)
 //   net.update_network()
-//   if net.is_overloaded(node_id):
-//       print(net.get_overload_info(node_id))
+//   var power = net.get_power_at(Vector3i(12, 5, 0))
+//   if net.is_overloaded(Vector3i(10, 5, 0)):
+//       print(net.get_overload_info(Vector3i(10, 5, 0)))
 class GDPowerNetwork : public godot::Resource {
     GDCLASS(GDPowerNetwork, godot::Resource)
 
@@ -28,44 +32,38 @@ public:
     GDPowerNetwork();
     ~GDPowerNetwork() override;
 
-    // --- Node lifecycle ---
-    int64_t add_node(int tier, godot::Vector3i position);
-    bool remove_node(int64_t node_id);
-    godot::Dictionary get_node_info(int64_t node_id) const;
-    int64_t get_node_at(godot::Vector3i position) const;
-    int64_t get_node_count() const;
+    // --- Cable block lifecycle ---
+    void add_cable(godot::Vector3i position, int tier);
+    void remove_cable(godot::Vector3i position);
+    bool has_cable(godot::Vector3i position) const;
+    int64_t get_cable_count() const;
 
-    // --- Edge lifecycle ---
-    bool connect_nodes(int64_t node_a, int64_t node_b, const godot::String& cable_material);
-    bool disconnect_nodes(int64_t node_a, int64_t node_b);
-    godot::Array get_edges_for_node(int64_t node_id) const;
+    // --- Generator / consumer lifecycle ---
+    void set_generator(godot::Vector3i position, int64_t capacity, int tier);
+    void remove_generator(godot::Vector3i position);
+    void set_consumer(godot::Vector3i position, int64_t demand,
+                      int64_t max_input_voltage);
+    void remove_consumer(godot::Vector3i position);
 
-    // --- Network topology ---
+    // --- Network recomputation ---
     void update_network();
-    godot::PackedInt32Array find_connected_component(int64_t start_id) const;
-    godot::Array find_all_components() const;
-    bool are_in_same_network(int64_t node_a, int64_t node_b) const;
-    bool are_connected(int64_t node_a, int64_t node_b) const;
 
-    // --- Power state ---
-    void set_power_demand(int64_t node_id, int64_t demand);
-    void set_generation_capacity(int64_t node_id, int64_t capacity);
-    bool is_overloaded(int64_t node_id) const;
-    godot::Dictionary get_overload_info(int64_t node_id) const;
+    // --- Power state queries ---
+    int64_t get_power_at(godot::Vector3i position) const;
+    bool is_overloaded(godot::Vector3i position) const;
+    godot::Dictionary get_overload_info(godot::Vector3i position) const;
     int64_t get_total_power_loss() const;
     int64_t get_total_generation() const;
     int64_t get_total_demand() const;
+    bool are_in_same_network(godot::Vector3i a, godot::Vector3i b) const;
 
     // --- Lifecycle ---
     void clear();
 
     // --- Static helpers for GDScript ---
-    static godot::Dictionary get_cable_material_info(const godot::String& name);
-    static godot::PackedStringArray get_all_cable_materials();
     static int64_t get_voltage_for_tier(int tier);
     static godot::String get_tier_name(int tier);
-    static int64_t manhattan_dist(godot::Vector3i a, godot::Vector3i b);
-    static int64_t get_transformer_loss_per_step();
+    static godot::String get_cable_material_for_tier(int tier);
 
     // --- Voltage tier constants for GDScript ---
     enum VoltageTierConst {
@@ -99,14 +97,13 @@ protected:
 private:
     gt::PowerNetwork network_;
 
-    // Forward the C++ overload callback to Godot signals.
-    void _on_overload(gt::PowerNodeId node_id, const gt::OverloadInfo& info);
+    // Forward the C++ overload callback to a Godot signal.
+    void _on_overload(gt::MapPosition pos, const gt::OverloadInfo& info);
 
     // Convert C++ types to Godot variants.
     static godot::Vector3i _to_godot(const gt::MapPosition& pos);
     static gt::MapPosition _from_godot(godot::Vector3i pos);
     static godot::Dictionary _to_godot(const gt::OverloadInfo& info);
-    static const gt::CableProperties* _find_cable(const godot::String& name);
 };
 
 } // namespace science_and_theology

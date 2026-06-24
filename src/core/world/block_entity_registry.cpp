@@ -259,6 +259,38 @@ EntityId BlockEntityRegistry::register_crop_entity(
     return id;
 }
 
+EntityId BlockEntityRegistry::register_signal_wire_entity(
+    const std::string& dimension_id,
+    int32_t root_x, int32_t root_y, int32_t root_z,
+    uint8_t connections,
+    bool is_source) {
+    EntityId id = next_id();
+
+    BlockEntityEntry entry;
+    entry.dimension_id = dimension_id;
+    entry.placement.id = id;
+    entry.placement.entity_type = BlockEntityType::SIGNAL_WIRE;
+    entry.placement.root_x = root_x;
+    entry.placement.root_y = root_y;
+    entry.placement.root_z = root_z;
+    entry.placement.owned_cell_count = 0;
+
+    // Encode as "connections|is_source".
+    entry.placement.type_data_json =
+        std::to_string(static_cast<int>(connections)) + "|" +
+        std::to_string(is_source ? 1 : 0);
+
+    entry.signal_wire_state.connections = connections;
+    entry.signal_wire_state.is_source = is_source;
+    entry.signal_wire_state.signal_strength = 0;
+
+    ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
+    chunk_entities_[ck].push_back(id);
+
+    entities_[id] = std::move(entry);
+    return id;
+}
+
 void BlockEntityRegistry::remove_entity(EntityId id) {
     auto it = entities_.find(id);
     if (it == entities_.end()) return;
@@ -426,6 +458,22 @@ CropBlockEntityState* BlockEntityRegistry::get_crop_state_mut(
     return &it->second.crop_state;
 }
 
+const SignalWireBlockEntityState* BlockEntityRegistry::get_signal_wire_state(
+    EntityId id) const {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return nullptr;
+    if (it->second.placement.entity_type != BlockEntityType::SIGNAL_WIRE) return nullptr;
+    return &it->second.signal_wire_state;
+}
+
+SignalWireBlockEntityState* BlockEntityRegistry::get_signal_wire_state_mut(
+    EntityId id) {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return nullptr;
+    if (it->second.placement.entity_type != BlockEntityType::SIGNAL_WIRE) return nullptr;
+    return &it->second.signal_wire_state;
+}
+
 const BlockEntityPlacement* BlockEntityRegistry::get_placement(
     EntityId id) const {
     auto it = entities_.find(id);
@@ -542,6 +590,33 @@ void BlockEntityRegistry::update_cable_connections(EntityId id, uint8_t connecti
         std::to_string(static_cast<int>(connections));
 }
 
+void BlockEntityRegistry::update_signal_wire_connections(EntityId id, uint8_t connections) {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return;
+    if (it->second.placement.entity_type != BlockEntityType::SIGNAL_WIRE) return;
+    it->second.signal_wire_state.connections = connections;
+    it->second.placement.type_data_json =
+        std::to_string(static_cast<int>(connections)) + "|" +
+        std::to_string(it->second.signal_wire_state.is_source ? 1 : 0);
+}
+
+void BlockEntityRegistry::update_signal_wire_strength(EntityId id, int32_t strength) {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return;
+    if (it->second.placement.entity_type != BlockEntityType::SIGNAL_WIRE) return;
+    it->second.signal_wire_state.signal_strength = strength;
+}
+
+void BlockEntityRegistry::update_signal_wire_source(EntityId id, bool is_source) {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return;
+    if (it->second.placement.entity_type != BlockEntityType::SIGNAL_WIRE) return;
+    it->second.signal_wire_state.is_source = is_source;
+    it->second.placement.type_data_json =
+        std::to_string(static_cast<int>(it->second.signal_wire_state.connections)) + "|" +
+        std::to_string(is_source ? 1 : 0);
+}
+
 // --- Iteration ---
 
 void BlockEntityRegistry::for_each_tree(
@@ -594,6 +669,15 @@ void BlockEntityRegistry::for_each_farmland(
     for (const auto& pair : entities_) {
         if (pair.second.placement.entity_type == BlockEntityType::FARMLAND) {
             fn(pair.first, pair.second.farmland_state);
+        }
+    }
+}
+
+void BlockEntityRegistry::for_each_signal_wire(
+    std::function<void(EntityId, const SignalWireBlockEntityState&)> fn) const {
+    for (const auto& pair : entities_) {
+        if (pair.second.placement.entity_type == BlockEntityType::SIGNAL_WIRE) {
+            fn(pair.first, pair.second.signal_wire_state);
         }
     }
 }

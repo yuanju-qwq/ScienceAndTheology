@@ -92,6 +92,8 @@ private:
     void exec_energy_output(const FlowNode& node);
     void exec_redstone_input(const FlowNode& node);
     void exec_redstone_output(const FlowNode& node);
+    void exec_signal_input(const FlowNode& node);
+    void exec_signal_output(const FlowNode& node);
     void exec_item_filter(const FlowNode& node);
     void exec_fluid_filter(const FlowNode& node);
     void exec_condition(const FlowNode& node);
@@ -138,6 +140,8 @@ private:
     std::unordered_map<FlowNodeId, int64_t> last_timer_fire_;
     // Last redstone signal seen per redstone trigger (for edge detection).
     std::unordered_map<FlowNodeId, int32_t> last_redstone_signal_;
+    // Last signal strength seen per signal trigger (for edge detection).
+    std::unordered_map<FlowNodeId, int32_t> last_signal_strength_;
 };
 
 } // namespace science_and_theology::sfm

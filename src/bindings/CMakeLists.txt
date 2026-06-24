@@ -3,6 +3,7 @@
 set(SOURCES
     register_types.cpp
     network/gd_power_network.cpp
+    network/gd_signal_network.cpp
     crafting/gd_crafting.cpp
     ae2/gd_ae2_autocrafting.cpp
     ae2/gd_me_network.cpp

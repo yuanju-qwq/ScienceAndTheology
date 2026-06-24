@@ -54,12 +54,13 @@ enum class BlockEntityType : uint8_t {
     CABLE       = 5,
     FARMLAND    = 6,   // Tilled farmland (holds moisture/fertility)
     CROP        = 7,   // Crop planted on farmland
-    COUNT       = 8,
+    SIGNAL_WIRE = 8,   // Signal wire segment (per-block signal network)
+    COUNT       = 9,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
     "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
-    "Farmland", "Crop",
+    "Farmland", "Crop", "SignalWire",
 };
 
 // 6-face connection bitmask used by PIPE and CABLE entities.
@@ -256,6 +257,27 @@ struct PipeBlockEntityState {
 struct CableBlockEntityState {
     gt::VoltageTier cable_tier = gt::VoltageTier::ULV;
     uint8_t connections = 0;          // BlockEntityConnectionMask bitmask
+    std::vector<OwnedCell> owned_cells;  // usually empty (single cell)
+};
+
+// ============================================================
+// SignalWireBlockEntityState — voxel-anchored signal wire segment
+// ============================================================
+//
+// A signal wire segment occupies a single voxel cell. Signal wires
+// form a digital (non-attenuating) network: any source adjacent to
+// the connected component powers the entire component.
+//
+// `connections` follows the same bitmask convention as pipes/cables.
+// `signal_strength` is the cached signal value at this cell after the
+// last SignalNetwork::update_network() pass; 0 = unpowered.
+// `is_source` marks wires that emit signal themselves (e.g. a wire
+// attached to a lever); the network treats them as signal sources.
+
+struct SignalWireBlockEntityState {
+    uint8_t connections = 0;          // BlockEntityConnectionMask bitmask
+    int32_t signal_strength = 0;      // Cached signal value (0 = unpowered)
+    bool is_source = false;           // True if this wire emits signal
     std::vector<OwnedCell> owned_cells;  // usually empty (single cell)
 };
 

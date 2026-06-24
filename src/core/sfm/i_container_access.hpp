@@ -40,6 +40,7 @@ public:
     virtual bool has_fluids() const { return false; }
     virtual bool has_energy() const { return false; }
     virtual bool has_redstone() const { return false; }
+    virtual bool has_signal() const { return false; }
 
     // --- Item inventory ---
     // Returns how many of item_id are currently stored.
@@ -76,6 +77,12 @@ public:
     // --- Redstone ---
     virtual int32_t get_redstone_signal() const { return 0; }
     virtual void set_redstone_signal(int32_t signal) { (void)signal; }
+
+    // --- Signal network ---
+    // Returns the signal strength at this container's position (0 = unpowered).
+    virtual int32_t get_signal_strength() const { return 0; }
+    // Sets whether this container emits signal to the network.
+    virtual void set_signal_source(bool is_source) { (void)is_source; }
 };
 
 // ============================================================

@@ -64,6 +64,7 @@ void FlowExecutor::execute_node(const FlowNode& node) {
         case FlowNodeType::TRIGGER_TIMER:
         case FlowNodeType::TRIGGER_REDSTONE:
         case FlowNodeType::TRIGGER_ITEM:
+        case FlowNodeType::TRIGGER_SIGNAL:
             // Triggers only produce a FLOW signal.
             mark_flow_active(node.id, 0);
             break;
@@ -75,6 +76,8 @@ void FlowExecutor::execute_node(const FlowNode& node) {
         case FlowNodeType::ENERGY_OUTPUT: exec_energy_output(node); break;
         case FlowNodeType::REDSTONE_INPUT:  exec_redstone_input(node); break;
         case FlowNodeType::REDSTONE_OUTPUT: exec_redstone_output(node); break;
+        case FlowNodeType::SIGNAL_INPUT:    exec_signal_input(node); break;
+        case FlowNodeType::SIGNAL_OUTPUT:   exec_signal_output(node); break;
         case FlowNodeType::ITEM_FILTER:   exec_item_filter(node); break;
         case FlowNodeType::FLUID_FILTER:  exec_fluid_filter(node); break;
         case FlowNodeType::CONDITION:     exec_condition(node); break;
@@ -134,6 +137,19 @@ bool FlowExecutor::should_trigger(const FlowNode& trigger, int64_t tick) {
             int64_t item_id = get_param_int(trigger, "item_id", 0);
             int64_t threshold = get_param_int(trigger, "threshold", 1);
             return c->count_item(static_cast<gt::ItemId>(item_id)) >= threshold;
+        }
+        case FlowNodeType::TRIGGER_SIGNAL: {
+            IContainerAccess* c = get_container(trigger);
+            if (!c || !c->has_signal()) return false;
+            int32_t signal = c->get_signal_strength();
+            int32_t prev = last_signal_strength_[trigger.id];
+            last_signal_strength_[trigger.id] = signal;
+            std::string mode = trigger.params.count("signal_mode")
+                ? trigger.params.at("signal_mode") : std::string("any");
+            if (mode == "rising")  return signal > 0 && prev == 0;
+            if (mode == "falling") return signal == 0 && prev > 0;
+            // "any" — fire on any change.
+            return signal != prev;
         }
         default:
             return false;
@@ -296,6 +312,32 @@ void FlowExecutor::exec_redstone_output(const FlowNode& node) {
     FlowValue val = evaluate_input(node, 0);
     if (c && c->has_redstone() && val.type == FlowPortType::REDSTONE) {
         c->set_redstone_signal(val.redstone);
+    }
+    mark_flow_active(node.id, 0);
+}
+
+// ============================================================
+// Signal I/O
+// ============================================================
+
+void FlowExecutor::exec_signal_input(const FlowNode& node) {
+    IContainerAccess* c = get_container(node);
+    int32_t signal = 0;
+    if (c && c->has_signal()) {
+        signal = c->get_signal_strength();
+    }
+    FlowValue out = FlowValue::make_signal(signal);
+    set_output_value(node.id, 0, std::move(out));
+    mark_flow_active(node.id, 0);
+}
+
+void FlowExecutor::exec_signal_output(const FlowNode& node) {
+    IContainerAccess* c = get_container(node);
+    FlowValue val = evaluate_input(node, 0);
+    if (c && c->has_signal() && val.type == FlowPortType::SIGNAL) {
+        // A non-zero signal value makes the container a signal source;
+        // zero clears the source flag.
+        c->set_signal_source(val.signal > 0);
     }
     mark_flow_active(node.id, 0);
 }

@@ -60,6 +60,9 @@ struct FlowNode {
     //   ENERGY_OUTPUT:   "container_index" = N
     //   REDSTONE_INPUT:  "container_index" = N
     //   REDSTONE_OUTPUT: "container_index" = N
+    //   TRIGGER_SIGNAL:  "container_index" = N, "signal_mode" = "rising"|"falling"|"any"
+    //   SIGNAL_INPUT:    "container_index" = N
+    //   SIGNAL_OUTPUT:   "container_index" = N
     //   CONDITION:       "compare_op" = CompareOp index
     //   LOOP:            "iterations" = N
     //   MATH:            "op" = MathOp index

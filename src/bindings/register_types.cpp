@@ -4,6 +4,7 @@
 #include <godot_cpp/godot.hpp>
 
 #include "network/gd_power_network.h"
+#include "network/gd_signal_network.h"
 #include "crafting/gd_crafting.h"
 #include "ae2/gd_ae2_autocrafting.h"
 #include "ae2/gd_me_network.h"
@@ -84,6 +85,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     source_law::SublimationPathRegistry::initialize();
 
     ClassDB::register_class<GDPowerNetwork>();
+    ClassDB::register_class<GDSignalNetwork>();
     ClassDB::register_class<GDCraftingManager>();
     ClassDB::register_class<GDFluidNetwork>();
     ClassDB::register_class<GDItemPipeNetwork>();

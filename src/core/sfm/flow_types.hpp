@@ -63,6 +63,7 @@ enum class FlowPortType : uint8_t {
     NUMBER        = 6,  // Integer
     STRING        = 7,  // Text
     BOOLEAN       = 8,  // Bool
+    SIGNAL        = 9,  // Signal network strength (digital, 0 or 1+)
 };
 
 // ============================================================
@@ -74,6 +75,7 @@ enum class FlowNodeType : uint16_t {
     TRIGGER_TIMER     = 0,
     TRIGGER_REDSTONE  = 1,
     TRIGGER_ITEM      = 2,
+    TRIGGER_SIGNAL    = 3,  // Fires based on signal network state
 
     // --- Item I/O ---
     ITEM_INPUT        = 10,
@@ -90,6 +92,10 @@ enum class FlowNodeType : uint16_t {
     // --- Redstone I/O ---
     REDSTONE_INPUT    = 40,
     REDSTONE_OUTPUT   = 41,
+
+    // --- Signal I/O ---
+    SIGNAL_INPUT      = 42,  // Reads signal strength from a container/network
+    SIGNAL_OUTPUT     = 43,  // Emits signal to the network (sets a source)
 
     // --- Filters (pass-through, modify a stream) ---
     ITEM_FILTER       = 50,
@@ -111,21 +117,21 @@ enum class FlowNodeType : uint16_t {
 };
 
 inline constexpr const char* kFlowNodeTypeNames[] = {
-    "Timer Trigger", "Redstone Trigger", "Item Trigger",        // 0-2
-    "", "", "", "", "", "", "",                                  // 3-9
-    "Item Input", "Item Output",                                 // 10-11
-    "", "", "", "", "", "", "", "",                              // 12-19
-    "Fluid Input", "Fluid Output",                               // 20-21
-    "", "", "", "", "", "", "", "",                              // 22-29
-    "Energy Input", "Energy Output",                             // 30-31
-    "", "", "", "", "", "", "", "",                              // 32-39
-    "Redstone Input", "Redstone Output",                         // 40-41
-    "", "", "", "", "", "", "", "",                              // 42-49
-    "Item Filter", "Fluid Filter",                               // 50-51
-    "", "", "", "", "", "", "", "",                              // 52-59
-    "Condition", "Loop", "Group Input", "Group Output",          // 60-63
-    "", "", "", "", "", "",                                      // 64-69
-    "Variable Get", "Variable Set", "Math", "Text Label",        // 70-73
+    "Timer Trigger", "Redstone Trigger", "Item Trigger", "Signal Trigger",  // 0-3
+    "", "", "", "", "", "", "",                                             // 4-9
+    "Item Input", "Item Output",                                            // 10-11
+    "", "", "", "", "", "", "", "",                                         // 12-19
+    "Fluid Input", "Fluid Output",                                          // 20-21
+    "", "", "", "", "", "", "", "",                                         // 22-29
+    "Energy Input", "Energy Output",                                        // 30-31
+    "", "", "", "", "", "", "", "",                                         // 32-39
+    "Redstone Input", "Redstone Output", "Signal Input", "Signal Output",   // 40-43
+    "", "", "", "", "", "",                                                 // 44-49
+    "Item Filter", "Fluid Filter",                                          // 50-51
+    "", "", "", "", "", "", "", "",                                         // 52-59
+    "Condition", "Loop", "Group Input", "Group Output",                     // 60-63
+    "", "", "", "", "", "",                                                 // 64-69
+    "Variable Get", "Variable Set", "Math", "Text Label",                   // 70-73
 };
 
 inline const char* get_node_type_name(FlowNodeType t) {
@@ -168,6 +174,8 @@ struct FlowValue {
     int64_t energy = 0;
     // REDSTONE
     int32_t redstone = 0;
+    // SIGNAL (digital signal network strength; 0 = unpowered)
+    int32_t signal = 0;
     // NUMBER
     int64_t number = 0;
     // STRING
@@ -193,6 +201,9 @@ struct FlowValue {
     }
     static FlowValue make_energy(int64_t e) {
         FlowValue v; v.type = FlowPortType::ENERGY; v.energy = e; return v;
+    }
+    static FlowValue make_signal(int32_t s) {
+        FlowValue v; v.type = FlowPortType::SIGNAL; v.signal = s; return v;
     }
 
     bool is_flow() const { return type == FlowPortType::FLOW; }

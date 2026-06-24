@@ -50,9 +50,16 @@ target_sources(snt_core PRIVATE
     crafting/crafting.cpp
 )
 
-# Network systems (power, fluid, item transport)
+# Network systems (power, fluid, item transport, signal)
 target_sources(snt_core PRIVATE
+    network/voxel_network_graph.hpp
+    network/voxel_network_graph.cpp
+    network/signal_network.hpp
+    network/signal_network.cpp
+    network/power_network.hpp
     network/power_network.cpp
+    network/network_topology_builder.hpp
+    network/network_topology_builder.cpp
     network/fluid_network.cpp
     network/item_pipe_network.cpp
 )
