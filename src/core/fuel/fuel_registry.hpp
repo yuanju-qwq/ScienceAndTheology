@@ -24,7 +24,8 @@ public:
     static const std::vector<FuelDefinition>& get_all();
     static size_t get_fuel_count();
 
-    static void register_builtin_fuels();
+    static void register_builtin_fuels();  // No-op (migrated to GDScript).
+    static void register_builtin_fluid_fuels();
 
 private:
     static std::vector<FuelDefinition>& registry();

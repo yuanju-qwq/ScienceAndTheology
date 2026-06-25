@@ -32,6 +32,7 @@
 #include "world/gd_custom_block_entity_registry.h"
 #include "simulation/gd_game_command_server.h"
 #include "simulation/gd_tick_system.h"
+#include "simulation/gd_species_registry.hpp"
 #include "mobile_structure/gd_ship_command_bridge.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
@@ -80,15 +81,17 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     }
 
     gt::FluidRegistry::initialize();
+    // Initialize fuel registry (clear) then register fluid fuels.
+    gt::FuelRegistry::initialize();
+    gt::FuelRegistry::register_builtin_fluid_fuels();
     magic::RuneRegistry::initialize();
     magic::GlyphRegistry::initialize();
     magic::GlyphConversion::initialize();
     magic::RitualRecipeRegistry::initialize();
     // Materials & items are registered from GDScript via GDMaterialRegistry.
-    // FuelRegistry is initialized during MaterialRegistry::finalize(),
-    // after materials and items exist, so solid fuels (coal, wood) can
-    // resolve their ItemIds. Fluid fuels work too because FluidRegistry
-    // was already initialized above.
+    // FuelRegistry is initialized during MaterialRegistry::finalize();
+    // solid fuels (coal, wood) are registered from GDScript via GDFuelRegistry
+    // after MaterialRegistry::finalize() and item registration.
     gt::LootTableRegistry::initialize();
     gt::MachineDefinitionRegistry::initialize();
     gt::CraftingManager::initialize();
@@ -130,6 +133,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
     ClassDB::register_class<GDMENetwork>();
+    ClassDB::register_class<GDSpeciesRegistry>();
     ClassDB::register_class<GDTickSystem>();
     ClassDB::register_class<GDPlayerInventory>();
     ClassDB::register_class<GDPlayerEquipment>();

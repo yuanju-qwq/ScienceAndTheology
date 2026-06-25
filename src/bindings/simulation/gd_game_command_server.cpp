@@ -20,7 +20,6 @@
 #include "core/crafting/crafting.hpp"
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
-#include "core/material/tool_items.hpp"
 #include "core/universe/planet_build_frame.hpp"
 #include "core/world/world_data.hpp"
 

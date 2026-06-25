@@ -1,5 +1,5 @@
 #include "ae2_pattern_cache.hpp"
-#include "material/tool_items.hpp"
+#include "material/material_item.hpp"
 
 #include <algorithm>
 #include <cstring>

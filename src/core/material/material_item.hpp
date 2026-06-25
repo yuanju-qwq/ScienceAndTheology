@@ -24,6 +24,12 @@ inline constexpr ItemId kMaterialItemMax =
 // Non-material items (tools, machine blocks, etc.) start here.
 inline constexpr ItemId kNonMaterialItemBase = kMaterialItemMax + 1;
 
+// Upper bound of the builtin non-material item range (256 reserved slots).
+inline constexpr ItemId kNonMaterialItemMax = kNonMaterialItemBase + 256;
+
+// Encoded patterns use dynamic IDs starting here.
+inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemMax;
+
 // ============================================================
 // Mod-registered items
 // ============================================================
@@ -128,17 +134,24 @@ public:
     static bool is_valid_item(ItemId item_id);
 
     // ============================================================
-    // Mod item registration
+    // Non-material item registration (auto-assigned ID)
     // ============================================================
     //
-    // Registers a non-material item from a content pack. The item_key
-    // must be globally unique (e.g. "my_mod:custom_widget"). Returns
-    // the assigned ItemId, or kInvalidItemId on failure (duplicate key
-    // or registry full).
+    // Registers a non-material item with an auto-assigned ItemId from
+    // the builtin range [kNonMaterialItemBase, kNonMaterialItemMax).
+    // The item_key must be globally unique. The caller must keep
+    // name_key and title_key strings alive for the lifetime of the
+    // process.
     //
-    // The caller must keep the name_key and title_key strings alive
-    // for the lifetime of the process (typically by storing them in a
-    // persistent string pool owned by the GD binding layer).
+    // Returns the ItemId on success, or kInvalidItemId on failure
+    // (duplicate key or range full). For content pack items with IDs
+    // in the mod range, use register_mod_item() instead.
+    static ItemId register_item(const char* item_key,
+                                 const char* title_key);
+
+    // ============================================================
+    // Mod item registration (mod range, auto-assigned ID)
+    // ============================================================
     static ItemId register_mod_item(const char* item_key,
                                      const char* title_key);
 

@@ -39,7 +39,7 @@ int64_t GDItemRegistry::register_item(const Dictionary& def) {
         : intern_string(std::string(title.utf8().get_data()));
 
     const char* key_ptr = intern_string(key_str);
-    gt::ItemId id = gt::ItemRegistry::register_mod_item(key_ptr, title_ptr);
+    gt::ItemId id = gt::ItemRegistry::register_item(key_ptr, title_ptr);
     return static_cast<int64_t>(id);
 }
 

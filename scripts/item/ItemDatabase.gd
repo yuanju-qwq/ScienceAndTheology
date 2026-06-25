@@ -172,6 +172,21 @@ const ITEM_HAMMER           = K_NON_MAT_BASE + 260
 const ITEM_BELLOWS          = K_NON_MAT_BASE + 261
 const ITEM_ANVIL            = K_NON_MAT_BASE + 262
 
+# Food items: raw and cooked meat per creature species.
+const ITEM_RAW_GLOW_DEER      = K_NON_MAT_BASE + 150
+const ITEM_COOKED_GLOW_DEER   = K_NON_MAT_BASE + 151
+const ITEM_RAW_ROCK_LIZARD    = K_NON_MAT_BASE + 152
+const ITEM_COOKED_ROCK_LIZARD = K_NON_MAT_BASE + 153
+const ITEM_RAW_THUNDERBIRD    = K_NON_MAT_BASE + 154
+const ITEM_COOKED_THUNDERBIRD = K_NON_MAT_BASE + 155
+const ITEM_RAW_SEA_SERPENT    = K_NON_MAT_BASE + 156
+const ITEM_COOKED_SEA_SERPENT = K_NON_MAT_BASE + 157
+const ITEM_RAW_BLAZE_BEAST    = K_NON_MAT_BASE + 158
+const ITEM_COOKED_BLAZE_BEAST = K_NON_MAT_BASE + 159
+
+# Campfire placeable block.
+const ITEM_CAMPFIRE           = K_NON_MAT_BASE + 170
+
 const ITEM_WORKBENCH   = K_NON_MAT_BASE + 52
 const ITEM_FURNACE     = K_NON_MAT_BASE + 53
 const ITEM_LADDER      = K_NON_MAT_BASE + 54
@@ -290,6 +305,7 @@ func _ready() -> void:
 	_register_tree_species_items()
 	_register_source_law_drops()
 	_register_crop_items()
+	_register_food_items()
 	_set_category(-1)
 	_register_non_material_keys()
 	_register_material_item_keys()
@@ -647,6 +663,8 @@ func _register_survival_items() -> void:
 			64, null, "placeables/workbench_icon_32.png")
 	_register(ITEM_FURNACE, "stone_furnace", Color(0.45, 0.35, 0.25),
 			64, null, "placeables/stone_furnace_icon_32.png")
+	_register(ITEM_CAMPFIRE, "campfire", Color(0.85, 0.40, 0.10),
+			1, null, "")
 	_register(ITEM_LADDER, "ladder", Color(0.55, 0.30, 0.15),
 			64, null, "placeables/ladder_icon_32.png")
 	_register(ITEM_FENCE, "fence", Color(0.50, 0.32, 0.16),
@@ -837,6 +855,14 @@ func _register_source_law_drops() -> void:
 			"snt:polluted_source_essence",
 			Color(0.40, 0.15, 0.35))
 
+	# Raw meat creature drops (snt: keys for C++ CreatureDropDef lookup).
+	# Items themselves are registered in _register_food_items().
+	_key_to_id["snt:raw_meat.glow_deer"] = ITEM_RAW_GLOW_DEER
+	_key_to_id["snt:raw_meat.rock_lizard"] = ITEM_RAW_ROCK_LIZARD
+	_key_to_id["snt:raw_meat.thunderbird"] = ITEM_RAW_THUNDERBIRD
+	_key_to_id["snt:raw_meat.sea_serpent"] = ITEM_RAW_SEA_SERPENT
+	_key_to_id["snt:raw_meat.blaze_beast"] = ITEM_RAW_BLAZE_BEAST
+
 
 # --- Crop items (Tier 1 planting system) ---
 
@@ -892,6 +918,48 @@ func _register_crop_items() -> void:
 			"item.cotton_fiber", Color(0.90, 0.88, 0.82))
 	_register_crop.call(ITEM_CLOTH, "cloth",
 			"item.cloth", Color(0.75, 0.70, 0.65))
+
+
+# --- Food items: raw and cooked meat ---
+
+func _register_food_items() -> void:
+	_set_category(ItemDef.Category.FOOD)
+	var _register_food := func(
+			item_id: int, item_key: String, title_key: String,
+			color: Color, max_stack: int = 64) -> void:
+		_register(item_id, title_key, color, max_stack)
+		_key_to_id[item_key] = item_id
+		_id_to_key[item_id] = item_key
+
+	# Glow Deer (LIGHT element)
+	_register_food.call(ITEM_RAW_GLOW_DEER, "meat.raw.glow_deer",
+			"item.meat.raw.glow_deer", Color(0.78, 0.50, 0.50))
+	_register_food.call(ITEM_COOKED_GLOW_DEER, "meat.cooked.glow_deer",
+			"item.meat.cooked.glow_deer", Color(0.62, 0.38, 0.28))
+
+	# Rock Lizard (EARTH element)
+	_register_food.call(ITEM_RAW_ROCK_LIZARD, "meat.raw.rock_lizard",
+			"item.meat.raw.rock_lizard", Color(0.65, 0.55, 0.40))
+	_register_food.call(ITEM_COOKED_ROCK_LIZARD, "meat.cooked.rock_lizard",
+			"item.meat.cooked.rock_lizard", Color(0.50, 0.40, 0.25))
+
+	# Thunderbird (AIR element)
+	_register_food.call(ITEM_RAW_THUNDERBIRD, "meat.raw.thunderbird",
+			"item.meat.raw.thunderbird", Color(0.55, 0.60, 0.75))
+	_register_food.call(ITEM_COOKED_THUNDERBIRD, "meat.cooked.thunderbird",
+			"item.meat.cooked.thunderbird", Color(0.52, 0.42, 0.35))
+
+	# Sea Serpent (WATER element)
+	_register_food.call(ITEM_RAW_SEA_SERPENT, "meat.raw.sea_serpent",
+			"item.meat.raw.sea_serpent", Color(0.40, 0.60, 0.65))
+	_register_food.call(ITEM_COOKED_SEA_SERPENT, "meat.cooked.sea_serpent",
+			"item.meat.cooked.sea_serpent", Color(0.50, 0.42, 0.30))
+
+	# Blaze Beast (FIRE element)
+	_register_food.call(ITEM_RAW_BLAZE_BEAST, "meat.raw.blaze_beast",
+			"item.meat.raw.blaze_beast", Color(0.80, 0.35, 0.20))
+	_register_food.call(ITEM_COOKED_BLAZE_BEAST, "meat.cooked.blaze_beast",
+			"item.meat.cooked.blaze_beast", Color(0.55, 0.30, 0.18))
 
 
 # Register reverse mappings for non-material items (tools, components, etc.)
@@ -1015,6 +1083,19 @@ func _register_non_material_keys() -> void:
 		ITEM_HAMMER: "hammer",
 		ITEM_BELLOWS: "bellows",
 		ITEM_ANVIL: "anvil",
+
+		# Food items
+		ITEM_CAMPFIRE: "campfire",
+		ITEM_RAW_GLOW_DEER: "meat.raw.glow_deer",
+		ITEM_COOKED_GLOW_DEER: "meat.cooked.glow_deer",
+		ITEM_RAW_ROCK_LIZARD: "meat.raw.rock_lizard",
+		ITEM_COOKED_ROCK_LIZARD: "meat.cooked.rock_lizard",
+		ITEM_RAW_THUNDERBIRD: "meat.raw.thunderbird",
+		ITEM_COOKED_THUNDERBIRD: "meat.cooked.thunderbird",
+		ITEM_RAW_SEA_SERPENT: "meat.raw.sea_serpent",
+		ITEM_COOKED_SEA_SERPENT: "meat.cooked.sea_serpent",
+		ITEM_RAW_BLAZE_BEAST: "meat.raw.blaze_beast",
+		ITEM_COOKED_BLAZE_BEAST: "meat.cooked.blaze_beast",
 	}
 	for id: int in entries:
 		var key: String = entries[id]

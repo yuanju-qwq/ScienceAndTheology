@@ -101,16 +101,17 @@ struct CreatureSpeciesDef {
 // ============================================================
 //
 // Provides O(1) lookup by species_id and by species_key.
-// Built-in species are registered in register_builtin_species().
+// Built-in species are registered from GDScript via GDSpeciesRegistry.
 // Additional species can be loaded from JSON (future).
 
 class CreatureSpeciesRegistry {
 public:
     CreatureSpeciesRegistry() = default;
 
-    // Register a species definition. Returns false if species_id
-    // is already registered.
-    bool register_species(const CreatureSpeciesDef& def);
+    // Register a species definition.
+    // If def.species_id == 0, auto-assigns the next sequential ID.
+    // Returns false if species_key is already registered.
+    bool register_species(CreatureSpeciesDef& def);
 
     // Get species definition by ID, or nullptr if not found.
     const CreatureSpeciesDef* get_species(uint16_t species_id) const;
@@ -125,42 +126,20 @@ public:
     // Returns all registered species IDs.
     std::vector<uint16_t> all_species_ids() const;
 
-    // Register built-in V0.6 species definitions.
-    // Called once during initialization.
-    void register_builtin_species();
-
     // Clear all registered species.
     void clear();
+
+    // Import species from another registry (skips duplicates).
+    void import_from(const CreatureSpeciesRegistry& other);
+
+    // Global instance for GDScript registration.
+    // GDSpeciesRegistry writes here; EcosystemSystem imports from here
+    // on initialization if its own registry is empty.
+    static CreatureSpeciesRegistry& staging();
 
 private:
     std::unordered_map<uint16_t, CreatureSpeciesDef> species_by_id_;
     std::unordered_map<std::string, uint16_t> id_by_key_;
 };
-
-// ============================================================
-// Built-in species ID constants
-// ============================================================
-//
-// These IDs are stable and must not change between versions.
-// New species should be appended with incrementing IDs.
-
-namespace creature_species {
-    constexpr uint16_t kNone        = 0;
-
-    // Herbivores
-    constexpr uint16_t kGlowDeer    = 1;   // 辉光鹿
-    constexpr uint16_t kRockLizard  = 2;   // 岩蜥
-
-    // Predators
-    constexpr uint16_t kThunderbird = 3;   // 雷鸟
-    constexpr uint16_t kSeaSerpent  = 4;   // 海蛇
-    constexpr uint16_t kBlazeBeast  = 5;   // 炽核兽
-
-    // Special / Boss-tier
-    constexpr uint16_t kAetherWraith   = 6;   // 以太幽影
-    constexpr uint16_t kAberrantAscended = 7; // 畸变升华者
-
-    constexpr uint16_t kMaxBuiltinId = 7;
-} // namespace creature_species
 
 } // namespace science_and_theology

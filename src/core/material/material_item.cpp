@@ -1,5 +1,4 @@
 #include "material_item.hpp"
-#include "tool_items.hpp"
 
 #include "ae2/ae2_pattern_cache.hpp"
 
@@ -34,6 +33,25 @@ std::vector<ModItemEntry> g_mod_items;
 std::unordered_map<std::string, ItemId> g_mod_item_key_to_id;
 std::unordered_map<ItemId, size_t> g_mod_item_id_to_index;
 ItemId g_next_mod_item_id = kModItemBase;
+} // namespace
+
+// ============================================================
+// Builtin non-material item registry (dynamic)
+// ============================================================
+//
+// Non-material items (tools, machines, food, campfire, etc.) use
+// pre-determined IDs in [kNonMaterialItemBase, kNonMaterialItemMax).
+// Storage is dynamic; lookups by id and key are O(1) via maps.
+namespace {
+struct NonMaterialEntry {
+    ItemId id = kInvalidItemId;
+    const char* name_key = "";
+    const char* title_key = "";
+};
+
+std::unordered_map<std::string, ItemId> g_non_mat_key_to_id;
+std::unordered_map<ItemId, NonMaterialEntry> g_non_mat_id_to_entry;
+ItemId g_next_non_material_item_id = kNonMaterialItemBase;
 } // namespace
 
 void ItemRegistry::initialize() {
@@ -131,16 +149,19 @@ ItemId ItemRegistry::get_item_id(const Material* material, MaterialForm form) {
 }
 
 ItemId ItemRegistry::get_item_id_by_key(const char* key) {
+    if (key == nullptr || key[0] == '\0') return kInvalidItemId;
+
     const MaterialItem* item = get_item_by_key(key);
     if (item != nullptr) return item->id;
-    ItemId non_mat = get_non_material_item_id_by_key(key);
-    if (non_mat != kInvalidItemId) return non_mat;
+
+    // Check non-material items.
+    auto it = g_non_mat_key_to_id.find(key);
+    if (it != g_non_mat_key_to_id.end()) return it->second;
 
     // Check mod items.
-    if (key != nullptr && key[0] != '\0') {
-        auto it = g_mod_item_key_to_id.find(key);
-        if (it != g_mod_item_key_to_id.end()) return it->second;
-    }
+    auto mit = g_mod_item_key_to_id.find(key);
+    if (mit != g_mod_item_key_to_id.end()) return mit->second;
+
     return kInvalidItemId;
 }
 
@@ -148,8 +169,9 @@ const char* ItemRegistry::get_item_key(ItemId item_id) {
     const MaterialItem* item = get_item(item_id);
     if (item != nullptr) return item->name_key;
 
-    const char* key = get_non_material_item_key(item_id);
-    if (key != nullptr) return key;
+    // Check non-material items.
+    auto it = g_non_mat_id_to_entry.find(item_id);
+    if (it != g_non_mat_id_to_entry.end()) return it->second.name_key;
 
     // Check mod items.
     auto mod_it = g_mod_item_id_to_index.find(item_id);
@@ -175,8 +197,10 @@ const char* ItemRegistry::get_item_title_key(ItemId item_id) {
     if (item != nullptr) return item->title_key;
 
     // Check non-material items.
-    const char* key = get_non_material_item_title_key(item_id);
-    if (key != nullptr) return key;
+    {
+        auto it = g_non_mat_id_to_entry.find(item_id);
+        if (it != g_non_mat_id_to_entry.end()) return it->second.title_key;
+    }
 
     // Check encoded patterns.
     const char* pattern_key = PatternDataCache::get_pattern_title_key(item_id);
@@ -200,7 +224,7 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
     }
     // Non-material items.
     if (item_id >= kNonMaterialItemBase && item_id < kNonMaterialItemMax) {
-        return get_non_material_item_title_key(item_id) != nullptr;
+        return g_non_mat_id_to_entry.count(item_id) > 0;
     }
     // Encoded patterns.
     if (PatternDataCache::is_encoded_pattern(item_id)) {
@@ -211,6 +235,29 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
         return g_mod_item_id_to_index.count(item_id) > 0;
     }
     return false;
+}
+
+ItemId ItemRegistry::register_item(const char* item_key,
+                                    const char* title_key) {
+    if (item_key == nullptr || item_key[0] == '\0') {
+        return kInvalidItemId;
+    }
+    // Reject duplicates (including mod items).
+    if (get_item_id_by_key(item_key) != kInvalidItemId) {
+        return kInvalidItemId;
+    }
+    if (g_next_non_material_item_id >= kNonMaterialItemMax) {
+        return kInvalidItemId;
+    }
+
+    ItemId id = g_next_non_material_item_id++;
+    NonMaterialEntry entry;
+    entry.id = id;
+    entry.name_key = item_key;
+    entry.title_key = title_key != nullptr ? title_key : item_key;
+    g_non_mat_key_to_id[item_key] = id;
+    g_non_mat_id_to_entry[id] = entry;
+    return id;
 }
 
 ItemId ItemRegistry::register_mod_item(const char* item_key,

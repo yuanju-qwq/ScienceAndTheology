@@ -50,6 +50,7 @@ workbench,Workbench
 stone_furnace,Stone Furnace
 ladder,Ladder
 fence,Fence
+campfire,Campfire
 # Tree species items
 log.oak,Oak Log
 plank.oak,Oak Plank
@@ -565,6 +566,16 @@ item.flour,Flour
 item.bread,Bread
 item.cotton_fiber,Cotton Fiber
 item.cloth,Cloth
+item.meat.raw.glow_deer,Raw Glow Deer Meat
+item.meat.cooked.glow_deer,Cooked Glow Deer Meat
+item.meat.raw.rock_lizard,Raw Rock Lizard Meat
+item.meat.cooked.rock_lizard,Cooked Rock Lizard Meat
+item.meat.raw.thunderbird,Raw Thunderbird Meat
+item.meat.cooked.thunderbird,Cooked Thunderbird Meat
+item.meat.raw.sea_serpent,Raw Sea Serpent Meat
+item.meat.cooked.sea_serpent,Cooked Sea Serpent Meat
+item.meat.raw.blaze_beast,Raw Blaze Beast Meat
+item.meat.cooked.blaze_beast,Cooked Blaze Beast Meat
 
 # ============================================================
 # ============================================================

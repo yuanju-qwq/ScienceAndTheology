@@ -140,5 +140,6 @@ bool GDMaterialRegistry::register_compound(const String& p_item_key, const Strin
 void GDMaterialRegistry::finalize() {
     gt::MaterialRegistry::lock();
     gt::ItemRegistry::initialize();
-    gt::FuelRegistry::initialize();
+    // Solid fuels are registered from GDScript via GDFuelRegistry after
+    // finalize(). Fluid fuels were already registered in C++ init.
 }

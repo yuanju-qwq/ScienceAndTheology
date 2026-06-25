@@ -50,6 +50,7 @@ workbench,工作台
 stone_furnace,石炉
 ladder,梯子
 fence,围栏
+campfire,篝火
 # Tree species items
 log.oak,橡木原木
 plank.oak,橡木板
@@ -561,6 +562,16 @@ item.flour,面粉
 item.bread,面包
 item.cotton_fiber,棉纤维
 item.cloth,布料
+item.meat.raw.glow_deer,生辉光鹿肉
+item.meat.cooked.glow_deer,熟辉光鹿肉
+item.meat.raw.rock_lizard,生岩蜥肉
+item.meat.cooked.rock_lizard,熟岩蜥肉
+item.meat.raw.thunderbird,生雷鸟肉
+item.meat.cooked.thunderbird,熟雷鸟肉
+item.meat.raw.sea_serpent,生海蛇肉
+item.meat.cooked.sea_serpent,熟海蛇肉
+item.meat.raw.blaze_beast,生炽核兽肉
+item.meat.cooked.blaze_beast,熟炽核兽肉
 
 # ============================================================
 # TFC expansion items

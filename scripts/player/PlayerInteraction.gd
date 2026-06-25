@@ -332,6 +332,8 @@ func try_place_world_object(target: Dictionary) -> bool:
 			object_type = GameCommandServer.OBJECT_WORKBENCH
 		ItemDatabase.ITEM_FURNACE:
 			object_type = GameCommandServer.OBJECT_FURNACE
+		ItemDatabase.ITEM_CAMPFIRE:
+			object_type = GameCommandServer.OBJECT_FURNACE
 		ItemDatabase.ITEM_LADDER:
 			object_type = GameCommandServer.OBJECT_LADDER
 		ItemDatabase.ITEM_FENCE:
@@ -1087,6 +1089,8 @@ func _resolve_machine_type(item_id: int) -> String:
 			return "workbench"
 		ItemDatabase.ITEM_FURNACE:
 			return "stone_furnace"
+		ItemDatabase.ITEM_CAMPFIRE:
+			return "campfire"
 		ItemDatabase.ITEM_LADDER:
 			return "ladder"
 	return ""

@@ -12,6 +12,7 @@ extends RefCounted
 static func build_registry() -> Dictionary:
 	var registry: Dictionary = {}
 	registry[&"furnace"] = _make_furnace_model()
+	registry[&"campfire"] = _make_campfire_model()
 	registry[&"magic_structure"] = _make_magic_structure_model()
 	return registry
 
@@ -31,6 +32,31 @@ static func _make_furnace_model() -> BlockModelResource:
 		{ "position": Vector3(0.0, 0.32, 0.0), "size": Vector3(0.96, 0.72, 0.96) },
 	]
 	return BlockModelResource.create(&"furnace", boxes, [], collision)
+
+
+# Campfire model: a small log pile with a flame on top.
+static func _make_campfire_model() -> BlockModelResource:
+	var boxes: Array[Dictionary] = [
+		# Log base (two crossed logs).
+		{ "position": Vector3(-0.20, 0.05, 0.0), "size": Vector3(0.40, 0.12, 0.12),
+		  "color": Color(0.45, 0.25, 0.10) },
+		{ "position": Vector3(0.20, 0.05, 0.0), "size": Vector3(0.40, 0.12, 0.12),
+		  "color": Color(0.50, 0.28, 0.12) },
+		{ "position": Vector3(0.0, 0.05, -0.20), "size": Vector3(0.12, 0.12, 0.40),
+		  "color": Color(0.48, 0.26, 0.11) },
+		{ "position": Vector3(0.0, 0.05, 0.20), "size": Vector3(0.12, 0.12, 0.40),
+		  "color": Color(0.52, 0.30, 0.13) },
+		# Fire (emissive orange).
+		{ "position": Vector3(0.0, 0.20, 0.0), "size": Vector3(0.30, 0.24, 0.30),
+		  "color": Color(1.0, 0.45, 0.10) },
+		# Inner fire (brighter).
+		{ "position": Vector3(0.0, 0.22, 0.0), "size": Vector3(0.18, 0.16, 0.18),
+		  "color": Color(1.0, 0.70, 0.20) },
+	]
+	var collision: Array[Dictionary] = [
+		{ "position": Vector3(0.0, 0.05, 0.0), "size": Vector3(0.50, 0.20, 0.50) },
+	]
+	return BlockModelResource.create(&"campfire", boxes, [], collision)
 
 
 # Magic structure model: a placeholder runic pedestal with a floating crystal.

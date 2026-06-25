@@ -13,6 +13,10 @@ func load_content() -> void:
 		return
 	_loaded = true
 
+	_register_fuels()
+	_register_species()
+	_register_machine_types()
+
 	GDCraftingManager.clear_load_report()
 	GDRecipeDatabase.clear_load_report()
 
@@ -31,6 +35,47 @@ func load_content() -> void:
 	var machine_report: Array = GDRecipeDatabase.get_load_report()
 	if not machine_report.is_empty():
 		push_warning("ContentDatabase processing load report: %s" % str(machine_report))
+
+# Register solid item fuels (coal, wood) from GDScript.
+# These were previously hardcoded in C++ FuelRegistry::register_builtin_fuels().
+func _register_fuels() -> void:
+	var _reg := func(item_key: String, name: String, title_key: String, burn_ticks: int) -> void:
+		var item_id := GDCraftingManager.get_item_id_by_key(item_key)
+		if item_id <= 0:
+			push_warning("ContentDatabase: fuel item_key '%s' not found" % item_key)
+			return
+		GDFuelRegistry.register_fuel({
+			"name": name,
+			"item_id": item_id,
+			"burn_ticks": burn_ticks,
+			"title_key": title_key,
+			"category": 0,  # SOLID
+		})
+
+	# Coal gem
+	_reg.call("gem.coal", "coal", "fuel.coal", 200)
+	# Wood items — log (dust.wood), plank (plate.wood), stick (rod.wood)
+	_reg.call("dust.wood", "wood_log", "fuel.wood_log", 120)
+	_reg.call("plate.wood", "wood_plank", "fuel.wood_plank", 60)
+	_reg.call("rod.wood", "stick", "fuel.stick", 30)
+
+
+# Register all built-in creature species via GDScript.
+func _register_species() -> void:
+	BuiltinSpecies.register_all()
+
+
+# Register machine type metadata for built-in machines.
+func _register_machine_types() -> void:
+	# Campfire: uses furnace processing logic but with campfire GUI.
+	if not GDMachineDefinitionRegistry.has_definition("campfire"):
+		GDMachineDefinitionRegistry.register_definition({
+			"type_key": "campfire",
+			"display_name": "Campfire",
+			"input_slots": 1,
+			"output_slots": 1,
+		})
+
 
 func _item(item_id: int, count: int = 1) -> Dictionary:
 	return {
@@ -405,6 +450,11 @@ func _add_misc_recipes(recipes: Array) -> void:
 			[_mat("dust", "stone", 8)],
 			_item_key("stone_furnace", 1)))
 	_add_recipe_if_valid(recipes, _hand(
+			"craft_campfire",
+			"misc",
+			[_mat("rod", "wood", 4), _mat("dust", "coal", 1)],
+			_item_key("campfire", 1)))
+	_add_recipe_if_valid(recipes, _hand(
 			"craft_ladder",
 			"misc",
 			[_mat("rod", "wood", 4)],
@@ -576,6 +626,57 @@ func _processing_recipes() -> Array:
 			"duration_ticks": 80,
 			"inputs": [_item_key("flour", 1)],
 			"outputs": [_item_key("bread", 1)],
+		},
+		# Campfire cooking: raw meat → cooked meat (furnace machine_type).
+		{
+			"name": "cook_glow_deer",
+			"machine_type": "furnace",
+			"category": "food",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 200,
+			"inputs": [_item_key("meat.raw.glow_deer", 1)],
+			"outputs": [_item_key("meat.cooked.glow_deer", 1)],
+		},
+		{
+			"name": "cook_rock_lizard",
+			"machine_type": "furnace",
+			"category": "food",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 300,
+			"inputs": [_item_key("meat.raw.rock_lizard", 1)],
+			"outputs": [_item_key("meat.cooked.rock_lizard", 1)],
+		},
+		{
+			"name": "cook_thunderbird",
+			"machine_type": "furnace",
+			"category": "food",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 200,
+			"inputs": [_item_key("meat.raw.thunderbird", 1)],
+			"outputs": [_item_key("meat.cooked.thunderbird", 1)],
+		},
+		{
+			"name": "cook_sea_serpent",
+			"machine_type": "furnace",
+			"category": "food",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 400,
+			"inputs": [_item_key("meat.raw.sea_serpent", 1)],
+			"outputs": [_item_key("meat.cooked.sea_serpent", 1)],
+		},
+		{
+			"name": "cook_blaze_beast",
+			"machine_type": "furnace",
+			"category": "food",
+			"min_tier": TIER_ULV,
+			"eu_per_tick": 0,
+			"duration_ticks": 300,
+			"inputs": [_item_key("meat.raw.blaze_beast", 1)],
+			"outputs": [_item_key("meat.cooked.blaze_beast", 1)],
 		},
 		# TFC: charcoal pit (machine_type: "charcoal_pit")
 		{

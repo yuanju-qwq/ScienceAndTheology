@@ -16,9 +16,9 @@ void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
     world_ = world;
     event_bus_ = bus;
 
-    // Register built-in species definitions.
+    // Import species from GDScript staging registry (if not yet loaded).
     if (species_registry_.species_count() == 0) {
-        species_registry_.register_builtin_species();
+        species_registry_.import_from(CreatureSpeciesRegistry::staging());
     }
 
     // Register default biome overrides with species lists.
@@ -676,18 +676,20 @@ uint16_t EcosystemSystem::pick_species_for_biome(
     const EcosystemParams::BiomeOverride* bo =
         params_.find_biome_override(biome_type);
     if (bo) {
-        const auto& species_list = (role == CreatureRole::PREDATOR)
-            ? bo->pred_species_ids : bo->herb_species_ids;
-        if (!species_list.empty()) {
+        const auto& species_keys = (role == CreatureRole::PREDATOR)
+            ? bo->pred_species_keys : bo->herb_species_keys;
+        if (!species_keys.empty()) {
             // Simple deterministic pick using tick-based hash.
             const int64_t tick = world_ ? world_->current_tick() : 0;
-            const size_t idx = static_cast<size_t>(tick) % species_list.size();
-            return species_list[idx];
+            const size_t idx = static_cast<size_t>(tick) % species_keys.size();
+            const CreatureSpeciesDef* def =
+                species_registry_.get_species_by_key(species_keys[idx]);
+            if (def) return def->species_id;
         }
     }
 
     // Fallback: find first registered species of the requested role.
-    for (uint16_t id = 1; id <= creature_species::kMaxBuiltinId; ++id) {
+    for (uint16_t id : species_registry_.all_species_ids()) {
         const CreatureSpeciesDef* def = species_registry_.get_species(id);
         if (def && def->role == role) return id;
     }
@@ -1574,7 +1576,6 @@ uint8_t EcosystemSystem::infer_biome_type(const ChunkKey& key) const {
 
 void EcosystemSystem::register_default_biome_overrides() {
     using namespace ecosystem_biome;
-    using namespace creature_species;
 
     // Plains (0): temperate, balanced ecosystem.
     {
@@ -1587,8 +1588,8 @@ void EcosystemSystem::register_default_biome_overrides() {
         bo.max_vegetation = 1.0f;
         bo.max_herbivore = 1.0f;
         bo.max_predator = 1.0f;
-        bo.herb_species_ids = {kGlowDeer, kRockLizard};
-        bo.pred_species_ids = {kThunderbird, kBlazeBeast};
+        bo.herb_species_keys = {"glow_deer", "rock_lizard"};
+        bo.pred_species_keys = {"thunderbird", "blaze_beast"};
     }
 
     // Desert (1): low water, sparse vegetation, heat-adapted species.
@@ -1602,8 +1603,8 @@ void EcosystemSystem::register_default_biome_overrides() {
         bo.max_vegetation = 0.4f;
         bo.max_herbivore = 0.5f;
         bo.max_predator = 0.4f;
-        bo.herb_species_ids = {kRockLizard};
-        bo.pred_species_ids = {kThunderbird};
+        bo.herb_species_keys = {"rock_lizard"};
+        bo.pred_species_keys = {"thunderbird"};
     }
 
     // Rocky (2): low fertility, hardy species only.
@@ -1617,8 +1618,8 @@ void EcosystemSystem::register_default_biome_overrides() {
         bo.max_vegetation = 0.5f;
         bo.max_herbivore = 0.4f;
         bo.max_predator = 0.5f;
-        bo.herb_species_ids = {kRockLizard};
-        bo.pred_species_ids = {kThunderbird, kBlazeBeast};
+        bo.herb_species_keys = {"rock_lizard"};
+        bo.pred_species_keys = {"thunderbird", "blaze_beast"};
     }
 
     // Ocean (3): water-dominated, aquatic species only.
@@ -1632,8 +1633,8 @@ void EcosystemSystem::register_default_biome_overrides() {
         bo.max_vegetation = 0.2f;
         bo.max_herbivore = 0.1f;
         bo.max_predator = 0.6f;
-        bo.herb_species_ids = {};
-        bo.pred_species_ids = {kSeaSerpent};
+        bo.herb_species_keys = {};
+        bo.pred_species_keys = {"sea_serpent"};
     }
 
     // Barren (4): toxic/corrosive, no natural fauna.

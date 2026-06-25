@@ -237,11 +237,11 @@ struct EcosystemParams {
 
         // Species that spawn as herbivores in this biome.
         // Empty = use default (first registered herbivore species).
-        std::vector<uint16_t> herb_species_ids;
+        // Stored as species_key strings; resolved to IDs at runtime.
+        std::vector<std::string> herb_species_keys;
 
         // Species that spawn as predators in this biome.
-        // Empty = use default (first registered predator species).
-        std::vector<uint16_t> pred_species_ids;
+        std::vector<std::string> pred_species_keys;
     };
 
     static constexpr int kMaxBiomeOverrides = 16;

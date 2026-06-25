@@ -6,7 +6,6 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include "core/material/material_item.hpp"
-#include "core/material/tool_items.hpp"
 
 #include <deque>
 #include <string>

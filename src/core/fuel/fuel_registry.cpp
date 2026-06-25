@@ -102,23 +102,11 @@ size_t FuelRegistry::get_fuel_count() {
 // ============================================================
 
 void FuelRegistry::register_builtin_fuels() {
-    auto reg_item = [](const char* mat_name, int form_id,
-                        const char* title_key, int64_t burn_ticks,
-                        FuelCategory cat = FuelCategory::SOLID) {
-        const Material* mat = get_material(mat_name);
-        if (mat == nullptr) return;
-        ItemId id = ItemRegistry::get_item_id(mat, static_cast<MaterialForm>(form_id));
-        if (id == kInvalidItemId) return;
+    // No-op: solid fuels are now registered from GDScript.
+    // Fluid fuels are registered in register_builtin_fluid_fuels().
+}
 
-        FuelDefinition def;
-        def.name = mat_name;
-        def.title_key = title_key;
-        def.category = cat;
-        def.item_id = id;
-        def.burn_ticks = burn_ticks;
-        register_fuel(def);
-    };
-
+void FuelRegistry::register_builtin_fluid_fuels() {
     auto reg_fluid = [](const char* fluid_name, const char* title_key,
                          int64_t burn_ticks, FuelCategory cat) {
         FluidId id = FluidRegistry::get_fluid_id(fluid_name);
@@ -132,20 +120,6 @@ void FuelRegistry::register_builtin_fuels() {
         def.burn_ticks = burn_ticks;
         register_fuel(def);
     };
-
-    // --- Solid fuels ---
-    // Coal gem = material "coal", form GEM (8)
-    reg_item("coal", 8, "fuel.coal", 200, FuelCategory::SOLID);
-
-    // Charcoal would go here if added as a material.
-
-    // Wood items = material "wood"
-    // Log = DUST (0)
-    reg_item("wood", 0, "fuel.wood_log", 120, FuelCategory::SOLID);
-    // Plank = PLATE (16)
-    reg_item("wood", 16, "fuel.wood_plank", 60, FuelCategory::SOLID);
-    // Stick = ROD (19)
-    reg_item("wood", 19, "fuel.stick", 30, FuelCategory::SOLID);
 
     // --- Liquid fuels ---
     reg_fluid("lava", "fuel.lava", 10000, FuelCategory::LIQUID);

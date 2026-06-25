@@ -29,13 +29,12 @@ public:
     GDItemRegistry() = default;
     ~GDItemRegistry() override = default;
 
-    // Register a new mod item. Returns the assigned ItemId, or 0 on
-    // failure (duplicate key or registry full).
+    // Register a non-material item with auto-assigned ID.
+    // Returns the assigned ItemId (builtin range), or 0 on failure.
     // Dictionary fields:
-    //   item_key (String, required): globally unique stable key,
-    //       e.g. "my_mod:custom_widget".
-    //   title_key (String, optional): localization key. Defaults to
-    //       item_key if omitted.
+    //   item_key (String, required): globally unique stable key.
+    //   title_key (String, optional): localization key.
+    // For registering mod items (mod range 0x80000000+), use GDItemRegistry directly.
     static int64_t register_item(const godot::Dictionary& def);
 
     // Look up an item by stable key. Returns ItemId or 0 if not found.
