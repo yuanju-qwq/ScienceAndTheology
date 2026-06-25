@@ -24,6 +24,18 @@ inline constexpr ItemId kMaterialItemMax =
 // Non-material items (tools, machine blocks, etc.) start here.
 inline constexpr ItemId kNonMaterialItemBase = kMaterialItemMax + 1;
 
+// ============================================================
+// Mod-registered items
+// ============================================================
+//
+// Mod items use a dedicated high ID range starting at kModItemBase
+// to avoid colliding with builtin material/non-material items and
+// encoded patterns. IDs are assigned sequentially on registration.
+// This keeps builtin ID ranges stable across mod changes, preserving
+// save compatibility when mods are added or removed.
+inline constexpr ItemId kModItemBase = 0x80000000u;
+inline constexpr ItemId kModItemMax  = 0xFFFFFFFEu;
+
 // Compute a deterministic item ID from a material and form.
 // This mirrors GT5's approach: item ID = base + material_id * form_count + form_id.
 inline constexpr ItemId make_material_item_id(uint16_t material_id,
@@ -113,6 +125,24 @@ public:
 
     // Returns true if this item ID refers to a valid (registered) item.
     static bool is_valid_item(ItemId item_id);
+
+    // ============================================================
+    // Mod item registration
+    // ============================================================
+    //
+    // Registers a non-material item from a content pack. The item_key
+    // must be globally unique (e.g. "my_mod:custom_widget"). Returns
+    // the assigned ItemId, or kInvalidItemId on failure (duplicate key
+    // or registry full).
+    //
+    // The caller must keep the name_key and title_key strings alive
+    // for the lifetime of the process (typically by storing them in a
+    // persistent string pool owned by the GD binding layer).
+    static ItemId register_mod_item(const char* item_key,
+                                     const char* title_key);
+
+    // Returns true if this item ID is in the mod item range.
+    static bool is_mod_item(ItemId item_id);
 
 private:
     static void register_material_item(const Material* material, MaterialForm form,

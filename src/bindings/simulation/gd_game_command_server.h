@@ -3,12 +3,14 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
 
 #include <cstdint>
+#include <unordered_map>
 
 #include "core/player/player_id.hpp"
 #include "core/player/player_manager.hpp"
@@ -48,6 +50,16 @@ public:
     void set_furnace_manager(godot::Node* manager);
 
     godot::Dictionary submit_command(const godot::Dictionary& command);
+
+    // Register a custom command handler from GDScript (for content packs).
+    // command_name must be unique; returns false if already registered.
+    // The callback receives the full command Dictionary and must return
+    // a Dictionary with at least {"ok": bool}.
+    bool register_command(const godot::String& command_name,
+                          const godot::Callable& callback);
+
+    // Unregister a custom command handler.
+    bool unregister_command(const godot::String& command_name);
 
 protected:
     static void _bind_methods();
@@ -142,6 +154,10 @@ private:
     // The player resolved for the current submit_command call.
     // Set by resolve_command_player, used by the helper methods.
     PlayerState* current_player_ = nullptr;
+
+    // Custom command handlers registered by content packs.
+    // Keyed by command name (lowercased StringName).
+    std::unordered_map<std::string, godot::Callable> custom_commands_;
 };
 
 } // namespace science_and_theology

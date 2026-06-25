@@ -9,8 +9,11 @@
 #include "ae2/gd_ae2_autocrafting.h"
 #include "ae2/gd_me_network.h"
 #include "network/gd_fluid_network.h"
+#include "fluid/gd_fluid_registry.h"
+#include "item/gd_item_registry.h"
 #include "network/gd_item_pipe_network.h"
 #include "machine/gd_recipe_database.h"
+#include "machine/gd_machine_definition_registry.h"
 #include "world/gd_world_data.h"
 #include "world/gd_world_gen_config.h"
 #include "world/gd_terrain_content_registry.h"
@@ -25,6 +28,7 @@
 #include "world/gd_chunk_persistence_helper.h"
 #include "world/gd_planet_lod.hpp"
 #include "world/gd_planet_build_frame.h"
+#include "world/gd_custom_block_entity_registry.h"
 #include "simulation/gd_game_command_server.h"
 #include "simulation/gd_tick_system.h"
 #include "mobile_structure/gd_ship_command_bridge.h"
@@ -39,6 +43,7 @@
 #include "magic/gd_spell_book.hpp"
 #include "magic/gd_mana_pool.hpp"
 #include "fuel/gd_fuel_registry.hpp"
+#include "loot/gd_loot_table_registry.h"
 #include "source_law/gd_player_source_law_data.hpp"
 #include "player/gd_satiation_data.hpp"
 #include "quest/gd_quest_system.hpp"
@@ -51,7 +56,9 @@
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
+#include "core/loot/loot_table_registry.hpp"
 #include "core/machine/recipe.hpp"
+#include "core/machine/machine_definition_registry.hpp"
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
 #include "core/magic/glyph_conversion.hpp"
@@ -79,6 +86,8 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     gt::initialize_materials();
     gt::ItemRegistry::initialize();
     gt::FuelRegistry::initialize();
+    gt::LootTableRegistry::initialize();
+    gt::MachineDefinitionRegistry::initialize();
     gt::CraftingManager::initialize();
     gt::RecipeDatabase::initialize();
     source_law::ElixirRegistry::initialize();
@@ -88,8 +97,11 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDSignalNetwork>();
     ClassDB::register_class<GDCraftingManager>();
     ClassDB::register_class<GDFluidNetwork>();
+    ClassDB::register_class<GDFluidRegistry>();
+    ClassDB::register_class<GDItemRegistry>();
     ClassDB::register_class<GDItemPipeNetwork>();
     ClassDB::register_class<GDRecipeDatabase>();
+    ClassDB::register_class<GDMachineDefinitionRegistry>();
     ClassDB::register_class<GDWorldData>();
     ClassDB::register_class<GDWorldGenConfig>();
     ClassDB::register_class<GDTerrainContentRegistry>();
@@ -108,6 +120,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDChunkPersistenceHelper>();
     ClassDB::register_class<GDPlanetLod>();
     ClassDB::register_class<GDPlanetBuildFrame>();
+    ClassDB::register_class<GDCustomBlockEntityRegistry>();
     ClassDB::register_class<GDGameCommandServer>();
     ClassDB::register_class<GDShipCommandBridge>();
     ClassDB::register_class<GDAutocraftingCPU>();
@@ -125,6 +138,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDSpellBook>();
     ClassDB::register_class<GDManaPool>();
     ClassDB::register_class<GDFuelRegistry>();
+    ClassDB::register_class<GDLootTableRegistry>();
     ClassDB::register_class<GDPlayerSourceLawData>();
     ClassDB::register_class<GDSatiationData>();
     ClassDB::register_class<GDQuestSystem>();

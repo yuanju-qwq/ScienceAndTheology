@@ -55,12 +55,13 @@ enum class BlockEntityType : uint8_t {
     FARMLAND    = 6,   // Tilled farmland (holds moisture/fertility)
     CROP        = 7,   // Crop planted on farmland
     SIGNAL_WIRE = 8,   // Signal wire segment (per-block signal network)
-    COUNT       = 9,
+    CUSTOM      = 9,   // Mod-registered block entity type
+    COUNT       = 10,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
     "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
-    "Farmland", "Crop", "SignalWire",
+    "Farmland", "Crop", "SignalWire", "Custom",
 };
 
 // 6-face connection bitmask used by PIPE and CABLE entities.
@@ -335,6 +336,20 @@ struct CropBlockEntityState {
     // Regrow timer for repeat-harvest crops.
     int64_t last_harvest_tick = 0;
     // Cells occupied by the crop (usually 1, large crops may use more).
+    std::vector<OwnedCell> owned_cells;
+};
+
+// ============================================================
+// CustomBlockEntityState — runtime state for mod-registered entities
+// ============================================================
+//
+// Mod block entities store their state as an opaque JSON blob plus a
+// stable type_key that identifies the mod-defined handler. The GD
+// binding layer dispatches tick/serialize/deserialize calls to the
+// mod's GDScript handler based on type_key.
+struct CustomBlockEntityState {
+    std::string type_key;        // e.g. "my_mod:custom_furnace"
+    std::string state_json;      // opaque mod-controlled state blob
     std::vector<OwnedCell> owned_cells;
 };
 

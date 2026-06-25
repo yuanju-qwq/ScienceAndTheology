@@ -41,6 +41,7 @@ public:
         FarmlandBlockEntityState farmland_state;
         CropBlockEntityState crop_state;
         SignalWireBlockEntityState signal_wire_state;
+        CustomBlockEntityState custom_state;
     };
 
     BlockEntityRegistry() = default;
@@ -141,6 +142,17 @@ public:
         uint8_t connections,
         bool is_source);
 
+    // Register a CUSTOM (mod-defined) block entity. Returns its assigned EntityId.
+    // type_key: stable mod-defined key, e.g. "my_mod:custom_furnace".
+    // initial_state_json: opaque initial state blob (mod-controlled format).
+    // owned_cells: cells owned by this entity (may be empty for 1x1x1).
+    EntityId register_custom_entity(
+        const std::string& dimension_id,
+        int32_t root_x, int32_t root_y, int32_t root_z,
+        const std::string& type_key,
+        const std::string& initial_state_json,
+        const std::vector<OwnedCell>& owned_cells);
+
     // Remove a block entity by ID. Also removes its spatial index entries.
     void remove_entity(EntityId id);
 
@@ -185,6 +197,10 @@ public:
     // Returns the signal wire state for a given entity, or nullptr if not a signal wire.
     const SignalWireBlockEntityState* get_signal_wire_state(EntityId id) const;
     SignalWireBlockEntityState* get_signal_wire_state_mut(EntityId id);
+
+    // Returns the custom state for a given entity, or nullptr if not a CUSTOM entity.
+    const CustomBlockEntityState* get_custom_state(EntityId id) const;
+    CustomBlockEntityState* get_custom_state_mut(EntityId id);
 
     // Returns the placement data for a given entity.
     const BlockEntityPlacement* get_placement(EntityId id) const;
@@ -289,6 +305,10 @@ public:
     // Iterate over all signal wire entities.
     void for_each_signal_wire(
         std::function<void(EntityId, const SignalWireBlockEntityState&)> fn) const;
+
+    // Iterate over all custom (mod-defined) entities.
+    void for_each_custom(
+        std::function<void(EntityId, const CustomBlockEntityState&)> fn) const;
 
     // Returns the total number of registered entities.
     size_t size() const { return entities_.size(); }

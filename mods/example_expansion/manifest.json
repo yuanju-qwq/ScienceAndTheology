@@ -1,0 +1,9 @@
+{
+	"mod_id": "example_expansion",
+	"display_name": "Example Expansion",
+	"version": "1.0.0",
+	"author": "ScienceAndTheology Team",
+	"description": "Reference content pack demonstrating the mod system. Adds a decorative gilded iron block recipe.",
+	"entry_script": "mod.gd",
+	"min_game_version": "0.14.0"
+}

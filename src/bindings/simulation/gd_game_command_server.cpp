@@ -255,7 +255,39 @@ Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
     if (type == command_fertilize()) return cmd_fertilize(command);
     if (type == command_forage_wild()) return cmd_forage_wild(command);
     if (type == command_knapping_pickup()) return cmd_knapping_pickup(command);
+
+    // Custom mod commands.
+    std::string type_str = String(type).utf8().get_data();
+    auto it = custom_commands_.find(type_str);
+    if (it != custom_commands_.end()) {
+        const Callable& cb = it->second;
+        if (cb.is_valid()) {
+            Variant result = cb.call(command);
+            if (result.get_type() == Variant::DICTIONARY) {
+                return result;
+            }
+        }
+        return reject(type, "custom command handler returned invalid result");
+    }
     return reject(type, "unknown command");
+}
+
+bool GDGameCommandServer::register_command(const String& command_name,
+                                             const Callable& callback) {
+    if (command_name.is_empty() || !callback.is_valid()) {
+        return false;
+    }
+    std::string key = command_name.utf8().get_data();
+    if (custom_commands_.count(key) > 0) {
+        return false;
+    }
+    custom_commands_[key] = callback;
+    return true;
+}
+
+bool GDGameCommandServer::unregister_command(const String& command_name) {
+    std::string key = command_name.utf8().get_data();
+    return custom_commands_.erase(key) > 0;
 }
 
 Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
@@ -1866,6 +1898,10 @@ void GDGameCommandServer::_bind_methods() {
                          &GDGameCommandServer::set_furnace_manager);
     ClassDB::bind_method(D_METHOD("submit_command", "command"),
                          &GDGameCommandServer::submit_command);
+    ClassDB::bind_method(D_METHOD("register_command", "command_name", "callback"),
+                         &GDGameCommandServer::register_command);
+    ClassDB::bind_method(D_METHOD("unregister_command", "command_name"),
+                         &GDGameCommandServer::unregister_command);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "world_data",
                               PROPERTY_HINT_RESOURCE_TYPE, "GDWorldData"),

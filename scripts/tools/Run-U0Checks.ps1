@@ -101,7 +101,8 @@ try {
         "res://scripts/test/test_furnace_command_server.gd",
         "res://scripts/test/test_player_helper.gd",
         "res://scripts/test/test_planet_build_frame.gd",
-        "res://scripts/test/test_chunk_mesh_helper.gd"
+        "res://scripts/test/test_chunk_mesh_helper.gd",
+        "res://scripts/test/test_mod_loader.gd"
     )
     foreach ($TestScript in $GDScriptTests) {
         Invoke-GodotChecked "Run $TestScript" @(

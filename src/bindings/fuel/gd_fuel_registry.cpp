@@ -1,6 +1,7 @@
 #include "gd_fuel_registry.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <unordered_set>
 
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
@@ -10,7 +11,24 @@ namespace science_and_theology {
 using namespace godot;
 using namespace gt;
 
+namespace {
+// Persistent string storage for fuel names/keys from GDScript.
+std::unordered_set<std::string> g_string_pool;
+
+const char* intern_string(const std::string& s) {
+    auto it = g_string_pool.find(s);
+    if (it != g_string_pool.end()) {
+        return it->c_str();
+    }
+    auto result = g_string_pool.insert(s);
+    return result.first->c_str();
+}
+} // namespace
+
 void GDFuelRegistry::_bind_methods() {
+    ClassDB::bind_static_method("GDFuelRegistry",
+        D_METHOD("register_fuel", "def"),
+        &GDFuelRegistry::register_fuel);
     ClassDB::bind_static_method("GDFuelRegistry",
         D_METHOD("is_fuel", "item_id"),
         &GDFuelRegistry::is_fuel);
@@ -23,6 +41,34 @@ void GDFuelRegistry::_bind_methods() {
     ClassDB::bind_static_method("GDFuelRegistry",
         D_METHOD("get_burn_ticks_formatted", "item_id"),
         &GDFuelRegistry::get_burn_ticks_formatted);
+}
+
+bool GDFuelRegistry::register_fuel(const Dictionary& def) {
+    String name = def.get("name", "");
+    if (name.is_empty()) return false;
+
+    Variant item_id_v = def.get("item_id", Variant());
+    if (item_id_v.get_type() == Variant::NIL) return false;
+    ItemId item_id = static_cast<ItemId>(static_cast<int64_t>(item_id_v));
+
+    Variant burn_v = def.get("burn_ticks", Variant());
+    if (burn_v.get_type() == Variant::NIL) return false;
+    int64_t burn_ticks = static_cast<int64_t>(burn_v);
+    if (burn_ticks <= 0) return false;
+
+    FuelDefinition fuel_def;
+    fuel_def.name = intern_string(std::string(name.utf8().get_data()));
+    String title = def.get("title_key", "");
+    fuel_def.title_key = title.is_empty()
+        ? fuel_def.name
+        : intern_string(std::string(title.utf8().get_data()));
+    fuel_def.item_id = item_id;
+    fuel_def.burn_ticks = burn_ticks;
+    fuel_def.category = static_cast<FuelCategory>(
+        static_cast<int>(def.get("category", 0)));
+
+    FuelRegistry::register_fuel(fuel_def);
+    return true;
 }
 
 bool GDFuelRegistry::is_fuel(int64_t item_id) {

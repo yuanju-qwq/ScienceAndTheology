@@ -6,6 +6,8 @@
 #include <cassert>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
+#include <vector>
 
 namespace science_and_theology::gt {
 
@@ -14,6 +16,25 @@ namespace science_and_theology::gt {
 static MaterialItem g_item_registry[kMaterialItemMax - kMaterialItemBase];
 static size_t g_registered_item_count = 0;
 static bool g_items_initialized = false;
+
+// ============================================================
+// Mod item registry (dynamic)
+// ============================================================
+//
+// Mod items use dynamic storage because their count is not known at
+// compile time. Lookups by id and by key are O(1) via maps.
+namespace {
+struct ModItemEntry {
+    ItemId id = kInvalidItemId;
+    const char* name_key = "";
+    const char* title_key = "";
+};
+
+std::vector<ModItemEntry> g_mod_items;
+std::unordered_map<std::string, ItemId> g_mod_item_key_to_id;
+std::unordered_map<ItemId, size_t> g_mod_item_id_to_index;
+ItemId g_next_mod_item_id = kModItemBase;
+} // namespace
 
 void ItemRegistry::initialize() {
     if (g_items_initialized) return;
@@ -112,7 +133,15 @@ ItemId ItemRegistry::get_item_id(const Material* material, MaterialForm form) {
 ItemId ItemRegistry::get_item_id_by_key(const char* key) {
     const MaterialItem* item = get_item_by_key(key);
     if (item != nullptr) return item->id;
-    return get_non_material_item_id_by_key(key);
+    ItemId non_mat = get_non_material_item_id_by_key(key);
+    if (non_mat != kInvalidItemId) return non_mat;
+
+    // Check mod items.
+    if (key != nullptr && key[0] != '\0') {
+        auto it = g_mod_item_key_to_id.find(key);
+        if (it != g_mod_item_key_to_id.end()) return it->second;
+    }
+    return kInvalidItemId;
 }
 
 const char* ItemRegistry::get_item_key(ItemId item_id) {
@@ -120,7 +149,14 @@ const char* ItemRegistry::get_item_key(ItemId item_id) {
     if (item != nullptr) return item->name_key;
 
     const char* key = get_non_material_item_key(item_id);
-    return key != nullptr ? key : "";
+    if (key != nullptr) return key;
+
+    // Check mod items.
+    auto mod_it = g_mod_item_id_to_index.find(item_id);
+    if (mod_it != g_mod_item_id_to_index.end()) {
+        return g_mod_items[mod_it->second].name_key;
+    }
+    return "";
 }
 
 bool ItemRegistry::is_valid_combination(const Material* material,
@@ -146,6 +182,12 @@ const char* ItemRegistry::get_item_title_key(ItemId item_id) {
     const char* pattern_key = PatternDataCache::get_pattern_title_key(item_id);
     if (pattern_key != nullptr) return pattern_key;
 
+    // Check mod items.
+    auto mod_it = g_mod_item_id_to_index.find(item_id);
+    if (mod_it != g_mod_item_id_to_index.end()) {
+        return g_mod_items[mod_it->second].title_key;
+    }
+
     return "ui.unknown";
 }
 
@@ -161,7 +203,39 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
         return get_non_material_item_title_key(item_id) != nullptr;
     }
     // Encoded patterns.
-    return PatternDataCache::is_encoded_pattern(item_id);
+    if (PatternDataCache::is_encoded_pattern(item_id)) {
+        return true;
+    }
+    // Mod items.
+    if (is_mod_item(item_id)) {
+        return g_mod_item_id_to_index.count(item_id) > 0;
+    }
+    return false;
+}
+
+ItemId ItemRegistry::register_mod_item(const char* item_key,
+                                         const char* title_key) {
+    if (item_key == nullptr || item_key[0] == '\0') {
+        return kInvalidItemId;
+    }
+    // Reject duplicates (including builtin keys).
+    if (get_item_id_by_key(item_key) != kInvalidItemId) {
+        return kInvalidItemId;
+    }
+    if (g_next_mod_item_id >= kModItemMax) {
+        return kInvalidItemId;
+    }
+
+    ItemId id = g_next_mod_item_id++;
+    size_t idx = g_mod_items.size();
+    g_mod_items.push_back({id, item_key, title_key != nullptr ? title_key : item_key});
+    g_mod_item_key_to_id[item_key] = id;
+    g_mod_item_id_to_index[id] = idx;
+    return id;
+}
+
+bool ItemRegistry::is_mod_item(ItemId item_id) {
+    return item_id >= kModItemBase && item_id < kModItemMax;
 }
 
 } // namespace science_and_theology::gt

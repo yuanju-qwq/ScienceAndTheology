@@ -301,6 +301,52 @@ EntityId BlockEntityRegistry::register_signal_wire_entity(
     return id;
 }
 
+EntityId BlockEntityRegistry::register_custom_entity(
+    const std::string& dimension_id,
+    int32_t root_x, int32_t root_y, int32_t root_z,
+    const std::string& type_key,
+    const std::string& initial_state_json,
+    const std::vector<OwnedCell>& owned_cells) {
+    EntityId id = next_id();
+
+    BlockEntityEntry entry;
+    entry.dimension_id = dimension_id;
+    entry.placement.id = id;
+    entry.placement.entity_type = BlockEntityType::CUSTOM;
+    entry.placement.root_x = root_x;
+    entry.placement.root_y = root_y;
+    entry.placement.root_z = root_z;
+    entry.placement.owned_cell_count =
+        static_cast<uint32_t>(owned_cells.size());
+
+    // Encode as "type_key|state_json".
+    entry.placement.type_data_json = type_key + "|" + initial_state_json;
+
+    entry.custom_state.type_key = type_key;
+    entry.custom_state.state_json = initial_state_json;
+    entry.custom_state.owned_cells = owned_cells;
+
+    ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
+    chunk_entities_[ck].push_back(id);
+
+    // Index owned cells (root cell included if not separately listed).
+    index_owned_cells(id, owned_cells);
+    bool root_listed = false;
+    for (const auto& c : owned_cells) {
+        if (c.block_x == root_x && c.block_y == root_y && c.block_z == root_z) {
+            root_listed = true;
+            break;
+        }
+    }
+    if (!root_listed) {
+        CellKey root_cell{root_x, root_y, root_z};
+        cell_owners_[root_cell] = id;
+    }
+
+    entities_[id] = std::move(entry);
+    return id;
+}
+
 void BlockEntityRegistry::remove_entity(EntityId id) {
     auto it = entities_.find(id);
     if (it == entities_.end()) return;
@@ -489,6 +535,22 @@ SignalWireBlockEntityState* BlockEntityRegistry::get_signal_wire_state_mut(
     if (it == entities_.end()) return nullptr;
     if (it->second.placement.entity_type != BlockEntityType::SIGNAL_WIRE) return nullptr;
     return &it->second.signal_wire_state;
+}
+
+const CustomBlockEntityState* BlockEntityRegistry::get_custom_state(
+    EntityId id) const {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return nullptr;
+    if (it->second.placement.entity_type != BlockEntityType::CUSTOM) return nullptr;
+    return &it->second.custom_state;
+}
+
+CustomBlockEntityState* BlockEntityRegistry::get_custom_state_mut(
+    EntityId id) {
+    auto it = entities_.find(id);
+    if (it == entities_.end()) return nullptr;
+    if (it->second.placement.entity_type != BlockEntityType::CUSTOM) return nullptr;
+    return &it->second.custom_state;
 }
 
 const BlockEntityPlacement* BlockEntityRegistry::get_placement(
@@ -695,6 +757,15 @@ void BlockEntityRegistry::for_each_signal_wire(
     for (const auto& pair : entities_) {
         if (pair.second.placement.entity_type == BlockEntityType::SIGNAL_WIRE) {
             fn(pair.first, pair.second.signal_wire_state);
+        }
+    }
+}
+
+void BlockEntityRegistry::for_each_custom(
+    std::function<void(EntityId, const CustomBlockEntityState&)> fn) const {
+    for (const auto& pair : entities_) {
+        if (pair.second.placement.entity_type == BlockEntityType::CUSTOM) {
+            fn(pair.first, pair.second.custom_state);
         }
     }
 }

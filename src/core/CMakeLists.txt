@@ -15,6 +15,11 @@ target_sources(snt_core PRIVATE
     fluid/fluid_registry.cpp
 )
 
+# Loot table system (weighted drop tables for blocks, creatures, etc.)
+target_sources(snt_core PRIVATE
+    loot/loot_table_registry.cpp
+)
+
 # Fuel system (item + fluid based)
 target_sources(snt_core PRIVATE
     fuel/fuel_registry.cpp
@@ -25,6 +30,7 @@ target_sources(snt_core PRIVATE
     material/material_item.cpp
     material/material.cpp
     machine/recipe.cpp
+    machine/machine_definition_registry.cpp
 )
 
 # Player systems
