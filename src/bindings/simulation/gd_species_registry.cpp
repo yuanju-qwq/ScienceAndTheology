@@ -41,6 +41,13 @@ bool GDSpeciesRegistry::register_species(const Dictionary& def) {
     cpp_def.wander_radius = static_cast<float>(def.get("wander_radius", 0.0));
     cpp_def.model_scale = static_cast<float>(def.get("model_scale", 1.0));
 
+    // Parse biomes array.
+    Array biomes = def.get("biomes", Array());
+    for (int i = 0; i < biomes.size(); ++i) {
+        cpp_def.biomes.push_back(
+            static_cast<uint8_t>(static_cast<int>(biomes[i])));
+    }
+
     // Parse drops array.
     Array drops = def.get("drops", Array());
     for (int i = 0; i < drops.size(); ++i) {

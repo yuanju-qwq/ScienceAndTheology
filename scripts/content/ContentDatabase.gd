@@ -23,6 +23,7 @@ func load_content() -> void:
 	BuiltinElixirs.register_all()
 	BuiltinDroppedOrgans.register_all()
 	_register_species()
+	BuiltinBiomeOverrides.register_all()
 	_register_machine_types()
 
 	GDCraftingManager.clear_load_report()

@@ -280,6 +280,14 @@ public:
     // Restore captive creatures from ChunkData on load.
     void restore_captive_from_chunks();
 
+    // --- GDScript biome override registration ---
+
+    // Register a biome override from GDScript (via GDBiomeConfigRegistry).
+    // Stored in a staging buffer; imported by initialize().
+    // Returns false if staging is full (kMaxBiomeOverrides).
+    static bool register_biome_override(
+        const EcosystemParams::BiomeOverride& bo);
+
 private:
     // Advance the population equations for a single cell by dt ticks.
     // dt is in simulation ticks (not seconds).

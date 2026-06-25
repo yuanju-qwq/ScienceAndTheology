@@ -24,6 +24,7 @@ public:
     //   flee_detection_radius (float, optional, default 0.0).
     //   wander_radius (float, optional, default 0.0).
     //   model_scale (float, optional, default 1.0).
+    //   biomes (Array[int], optional): biome types where this species spawns.
     //   drops (Array[Dictionary], optional):
     //       {item_key: String, chance: float, min_count: int, max_count: int}
     // Returns true on success.

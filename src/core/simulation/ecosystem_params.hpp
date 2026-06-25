@@ -234,19 +234,18 @@ struct EcosystemParams {
 
         // Maximum predator density cap for this biome.
         float max_predator = 1.0f;
-
-        // Species that spawn as herbivores in this biome.
-        // Empty = use default (first registered herbivore species).
-        // Stored as species_key strings; resolved to IDs at runtime.
-        std::vector<std::string> herb_species_keys;
-
-        // Species that spawn as predators in this biome.
-        std::vector<std::string> pred_species_keys;
     };
 
     static constexpr int kMaxBiomeOverrides = 16;
     BiomeOverride biome_overrides[kMaxBiomeOverrides] = {};
     int biome_override_count = 0;
+
+    // Add a biome override. Returns false if the array is full.
+    bool add_biome_override(const BiomeOverride& bo) {
+        if (biome_override_count >= kMaxBiomeOverrides) return false;
+        biome_overrides[biome_override_count++] = bo;
+        return true;
+    }
 
     // --- Accessors ---
 

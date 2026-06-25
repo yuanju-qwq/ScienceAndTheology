@@ -10,6 +10,14 @@
 
 namespace science_and_theology {
 
+namespace {
+    // Staging buffer for biome overrides registered from GDScript.
+    std::vector<EcosystemParams::BiomeOverride>& staging_biome_overrides() {
+        static std::vector<EcosystemParams::BiomeOverride> g_staging;
+        return g_staging;
+    }
+}
+
 // --- SimulationSystem interface ---
 
 void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
@@ -21,9 +29,11 @@ void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
         species_registry_.import_from(CreatureSpeciesRegistry::staging());
     }
 
-    // Register default biome overrides with species lists.
+    // Import biome overrides from GDScript staging (if not yet loaded).
     if (params_.biome_override_count == 0) {
-        register_default_biome_overrides();
+        for (const auto& bo : staging_biome_overrides()) {
+            params_.add_biome_override(bo);
+        }
     }
 
     // Restore population cells from any already-loaded ChunkData.
@@ -31,6 +41,14 @@ void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
     // in WorldData but EcosystemSystem's populations_ map is empty.
     restore_populations_from_chunks();
     restore_captive_from_chunks();
+}
+
+bool EcosystemSystem::register_biome_override(
+    const EcosystemParams::BiomeOverride& bo) {
+    auto& staging = staging_biome_overrides();
+    if (staging.size() >= EcosystemParams::kMaxBiomeOverrides) return false;
+    staging.push_back(bo);
+    return true;
 }
 
 void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
@@ -672,20 +690,25 @@ int EcosystemSystem::density_to_proxy_count(
 
 uint16_t EcosystemSystem::pick_species_for_biome(
     CreatureRole role, uint8_t biome_type) const {
-    // Check biome override for species list.
-    const EcosystemParams::BiomeOverride* bo =
-        params_.find_biome_override(biome_type);
-    if (bo) {
-        const auto& species_keys = (role == CreatureRole::PREDATOR)
-            ? bo->pred_species_keys : bo->herb_species_keys;
-        if (!species_keys.empty()) {
-            // Simple deterministic pick using tick-based hash.
-            const int64_t tick = world_ ? world_->current_tick() : 0;
-            const size_t idx = static_cast<size_t>(tick) % species_keys.size();
-            const CreatureSpeciesDef* def =
-                species_registry_.get_species_by_key(species_keys[idx]);
-            if (def) return def->species_id;
+    // Species self-describe which biomes they spawn in (CreatureSpeciesDef::biomes).
+    // Collect all species matching the requested role AND biome.
+    std::vector<uint16_t> candidates;
+    for (uint16_t id : species_registry_.all_species_ids()) {
+        const CreatureSpeciesDef* def = species_registry_.get_species(id);
+        if (!def || def->role != role) continue;
+        for (uint8_t b : def->biomes) {
+            if (b == biome_type) {
+                candidates.push_back(id);
+                break;
+            }
         }
+    }
+
+    if (!candidates.empty()) {
+        // Deterministic pick using tick-based hash.
+        const int64_t tick = world_ ? world_->current_tick() : 0;
+        const size_t idx = static_cast<size_t>(tick) % candidates.size();
+        return candidates[idx];
     }
 
     // Fallback: find first registered species of the requested role.
@@ -1575,82 +1598,9 @@ uint8_t EcosystemSystem::infer_biome_type(const ChunkKey& key) const {
 }
 
 void EcosystemSystem::register_default_biome_overrides() {
-    using namespace ecosystem_biome;
-
-    // Plains (0): temperate, balanced ecosystem.
-    {
-        EcosystemParams::BiomeOverride& bo =
-            params_.biome_overrides[params_.biome_override_count++];
-        bo.biome_type = kPlains;
-        bo.base_water = 0.5f;
-        bo.base_fertility = 0.5f;
-        bo.veg_growth_multiplier = 1.0f;
-        bo.max_vegetation = 1.0f;
-        bo.max_herbivore = 1.0f;
-        bo.max_predator = 1.0f;
-        bo.herb_species_keys = {"glow_deer", "rock_lizard"};
-        bo.pred_species_keys = {"thunderbird", "blaze_beast"};
-    }
-
-    // Desert (1): low water, sparse vegetation, heat-adapted species.
-    {
-        EcosystemParams::BiomeOverride& bo =
-            params_.biome_overrides[params_.biome_override_count++];
-        bo.biome_type = kDesert;
-        bo.base_water = 0.1f;
-        bo.base_fertility = 0.2f;
-        bo.veg_growth_multiplier = 0.4f;
-        bo.max_vegetation = 0.4f;
-        bo.max_herbivore = 0.5f;
-        bo.max_predator = 0.4f;
-        bo.herb_species_keys = {"rock_lizard"};
-        bo.pred_species_keys = {"thunderbird"};
-    }
-
-    // Rocky (2): low fertility, hardy species only.
-    {
-        EcosystemParams::BiomeOverride& bo =
-            params_.biome_overrides[params_.biome_override_count++];
-        bo.biome_type = kRocky;
-        bo.base_water = 0.3f;
-        bo.base_fertility = 0.3f;
-        bo.veg_growth_multiplier = 0.5f;
-        bo.max_vegetation = 0.5f;
-        bo.max_herbivore = 0.4f;
-        bo.max_predator = 0.5f;
-        bo.herb_species_keys = {"rock_lizard"};
-        bo.pred_species_keys = {"thunderbird", "blaze_beast"};
-    }
-
-    // Ocean (3): water-dominated, aquatic species only.
-    {
-        EcosystemParams::BiomeOverride& bo =
-            params_.biome_overrides[params_.biome_override_count++];
-        bo.biome_type = kOcean;
-        bo.base_water = 1.0f;
-        bo.base_fertility = 0.1f;
-        bo.veg_growth_multiplier = 0.2f;
-        bo.max_vegetation = 0.2f;
-        bo.max_herbivore = 0.1f;
-        bo.max_predator = 0.6f;
-        bo.herb_species_keys = {};
-        bo.pred_species_keys = {"sea_serpent"};
-    }
-
-    // Barren (4): toxic/corrosive, no natural fauna.
-    {
-        EcosystemParams::BiomeOverride& bo =
-            params_.biome_overrides[params_.biome_override_count++];
-        bo.biome_type = kBarren;
-        bo.base_water = 0.05f;
-        bo.base_fertility = 0.05f;
-        bo.veg_growth_multiplier = 0.1f;
-        bo.max_vegetation = 0.1f;
-        bo.max_herbivore = 0.0f;
-        bo.max_predator = 0.0f;
-        bo.herb_species_keys = {};
-        bo.pred_species_keys = {};
-    }
+    // No-op: biome overrides are now registered from GDScript via
+    // GDBiomeConfigRegistry (see BuiltinBiomeOverrides.gd).
+    // Species-biome association is self-described by CreatureSpeciesDef::biomes.
 }
 
 // ============================================================

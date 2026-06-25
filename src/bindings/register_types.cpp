@@ -59,6 +59,7 @@
 #include "source_law/gd_elixir_registry.hpp"
 #include "source_law/gd_sublimation_path_registry.hpp"
 #include "source_law/gd_dropped_organ_registry.hpp"
+#include "simulation/gd_biome_config_registry.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
@@ -141,6 +142,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDMENetwork>();
     ClassDB::register_class<GDSpeciesRegistry>();
     ClassDB::register_class<GDTickSystem>();
+    ClassDB::register_class<GDBiomeConfigRegistry>();
     ClassDB::register_class<GDPlayerInventory>();
     ClassDB::register_class<GDPlayerEquipment>();
     ClassDB::register_class<GDPlayerAccessory>();

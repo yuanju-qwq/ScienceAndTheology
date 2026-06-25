@@ -92,6 +92,11 @@ struct CreatureSpeciesDef {
     // Scale multiplier for 3D model rendering.
     float model_scale = 1.0f;
 
+    // Biome types where this species naturally spawns.
+    // Values match ecosystem_biome constants (kPlains=0, kDesert=1, etc.).
+    // Empty = does not spawn via biome pick (may still be spawned by events).
+    std::vector<uint8_t> biomes;
+
     // Items dropped when this creature is killed.
     std::vector<CreatureDropDef> drops;
 };
