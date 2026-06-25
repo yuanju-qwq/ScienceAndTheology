@@ -3,6 +3,7 @@
 #include "core/material/material.hpp"
 #include "core/material/material_registry.hpp"
 #include "core/material/material_item.hpp"
+#include "core/fuel/fuel_registry.hpp"
 
 #include <deque>
 #include <string>
@@ -137,5 +138,7 @@ bool GDMaterialRegistry::register_compound(const String& p_item_key, const Strin
 }
 
 void GDMaterialRegistry::finalize() {
-    gt::MaterialRegistry::finalize();
+    gt::MaterialRegistry::lock();
+    gt::ItemRegistry::initialize();
+    gt::FuelRegistry::initialize();
 }

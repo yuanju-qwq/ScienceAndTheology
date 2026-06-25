@@ -31,9 +31,9 @@ public:
     // Use this when registering from GDScript without a hardcoded ID.
     static uint16_t allocate_id();
 
-    // Finalize the registry and trigger ItemRegistry initialization.
-    // After this, register_material() must not be called.
-    static void finalize();
+    // Lock the registry against further modifications.
+    // After this, register_material() and allocate_id() must not be called.
+    static void lock();
 
     // Look up by internal ID (0-based index).
     static const Material* get_by_id(uint16_t id);

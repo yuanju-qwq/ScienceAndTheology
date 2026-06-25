@@ -179,14 +179,8 @@ uint16_t MaterialRegistry::allocate_id() {
     return id;
 }
 
-void MaterialRegistry::finalize() {
-    if (g_finalized) return;
+void MaterialRegistry::lock() {
     g_finalized = true;
-    ItemRegistry::initialize();
-    // Re-initialize fuel registry now that materials & items exist.
-    // First init ran in register_types.cpp before materials were registered,
-    // so material-based fuels (coal, wood) were skipped.
-    FuelRegistry::initialize();
 }
 
 // --- Lookup functions ---
