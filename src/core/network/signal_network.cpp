@@ -42,6 +42,10 @@ void SignalNetwork::update_network() {
         // Phase 1: collect max source strength feeding this component.
         int32_t component_signal = 0;
         for (const MapPosition& wire : component) {
+            // Check if the wire itself is a source (e.g. a wire block
+            // flagged as a signal emitter).
+            { auto it = sources_.find(wire);
+              if (it != sources_.end()) component_signal = std::max(component_signal, it->second); }
             // Check 6 neighbors of this wire for sources.
             // +X
             { MapPosition n{wire.x + 1, wire.y, wire.z};

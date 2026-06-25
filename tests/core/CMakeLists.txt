@@ -10,6 +10,48 @@ endif()
 
 add_test(NAME snt.u0.world_data_smoke COMMAND snt_u0_world_data_smoke)
 
+# Signal network: per-block digital wire conduction, OR-semantics, components
+# Design: docs/network_system_design.md (signal network, digital model)
+add_executable(snt_signal_network_system
+    signal_network_system.cpp
+)
+
+target_link_libraries(snt_signal_network_system PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_signal_network_system PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.signal_network_system COMMAND snt_signal_network_system)
+
+# Power network: per-block cable conduction, shared pool, per-tile loss
+# Design: docs/network_system_design.md (power network, per-block model)
+add_executable(snt_power_network_per_block
+    power_network_per_block.cpp
+)
+
+target_link_libraries(snt_power_network_per_block PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_power_network_per_block PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.power_network_per_block COMMAND snt_power_network_per_block)
+
+# Network topology builder: BlockEntity <-> network bridge, connection masks
+# Design: docs/network_system_design.md (stage 4 BlockEntity integration)
+add_executable(snt_network_topology_builder
+    network_topology_builder.cpp
+)
+
+target_link_libraries(snt_network_topology_builder PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_network_topology_builder PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.network_topology_builder COMMAND snt_network_topology_builder)
+
 # Block physics: origin-cell scheduling, event emission, support beam protection
 add_executable(snt_block_physics_system
     block_physics_system.cpp

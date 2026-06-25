@@ -177,6 +177,11 @@ EntityId BlockEntityRegistry::register_cable_entity(
     ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
     chunk_entities_[ck].push_back(id);
 
+    // Cables are single-cell entities; register the root cell so
+    // find_owner_at() can locate them for neighbor connection checks.
+    CellKey root_cell{root_x, root_y, root_z};
+    cell_owners_[root_cell] = id;
+
     entities_[id] = std::move(entry);
     return id;
 }
@@ -287,6 +292,11 @@ EntityId BlockEntityRegistry::register_signal_wire_entity(
     ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
     chunk_entities_[ck].push_back(id);
 
+    // Signal wires are single-cell entities; register the root cell so
+    // find_owner_at() can locate them for neighbor connection checks.
+    CellKey root_cell{root_x, root_y, root_z};
+    cell_owners_[root_cell] = id;
+
     entities_[id] = std::move(entry);
     return id;
 }
@@ -305,6 +315,13 @@ void BlockEntityRegistry::remove_entity(EntityId id) {
     } else if (entry.placement.entity_type == BlockEntityType::MACHINE) {
         // Only formed machines have indexed claimed cells.
         unindex_owned_cells(entry.machine_state.claimed_cells);
+    } else if (entry.placement.entity_type == BlockEntityType::SIGNAL_WIRE ||
+               entry.placement.entity_type == BlockEntityType::CABLE) {
+        // Single-cell entities register their root cell in cell_owners_.
+        CellKey root_cell{entry.placement.root_x,
+                          entry.placement.root_y,
+                          entry.placement.root_z};
+        cell_owners_.erase(root_cell);
     }
 
     // Remove from chunk index.
