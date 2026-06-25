@@ -17,9 +17,9 @@ inline constexpr uint32_t kFormCount = static_cast<uint32_t>(MaterialForm::COUNT
 // Material-based item IDs start at this offset (reserve 0 as invalid).
 inline constexpr ItemId kMaterialItemBase = 1;
 
-// Maximum possible material-based item ID.
+// Maximum possible material-based item ID (based on hard cap, not current count).
 inline constexpr ItemId kMaterialItemMax =
-    kMaterialItemBase + static_cast<ItemId>(materials::COUNT) * kFormCount;
+    kMaterialItemBase + static_cast<ItemId>(kMaxMaterials) * kFormCount;
 
 // Non-material items (tools, machine blocks, etc.) start here.
 inline constexpr ItemId kNonMaterialItemBase = kMaterialItemMax + 1;
@@ -81,9 +81,9 @@ struct MaterialItem : ItemDefinition {
 
 // Central item registry. Manages item lookup and lifecycle.
 //
-// Pattern (mirrors GT5's GTOreDictUnificator):
-//   1. Initialize materials first (initialize_materials())
-//   2. Then initialize items (initialize_items())
+// Pattern:
+//   1. Register materials via MaterialRegistry (from GDScript)
+//   2. Call MaterialRegistry::finalize() which triggers this initialize()
 //   3. Query items by ID, or look up by material+form combination
 //
 // Material items use deterministic IDs: f(material_id, form) → ItemId.
@@ -93,7 +93,8 @@ public:
     ItemRegistry() = default;
     ~ItemRegistry() = default;
 
-    // Initialize the global registry. Must be called after initialize_materials().
+    // Initialize the global registry. Called automatically from
+    // MaterialRegistry::finalize(). IDEMPOTENT — safe to call multiple times.
     static void initialize();
 
     // Look up a material-based item.

@@ -72,8 +72,11 @@ enum class Element : uint8_t {
     Ga, Ge, As, Se, Br, Kr,
     Rb, Sr, Y,  Zr, Nb, Mo, Tc, Ru, Rh, Pd, Ag, Cd,
     In, Sn, Sb, Te, I,  Xe,
-    Cs, Ba, La, Hf, Ta, W,  Re, Os, Ir, Pt, Au, Hg,
+    Cs, Ba, La, Ce, Pr, Nd, Pm, Sm, Eu, Gd, Tb, Dy, Ho, Er, Tm, Yb, Lu,
+    Hf, Ta, W,  Re, Os, Ir, Pt, Au, Hg,
     Tl, Pb, Bi, Po, At, Rn,
+    // Actinides (used by nuclear materials)
+    Fr, Ra, Ac, Th, Pa, U, Np, Pu, Am, Cm, Bk, Cf, Es, Fm, Md, No, Lr,
     COUNT
 };
 
@@ -86,8 +89,11 @@ constexpr const char* kElementSymbols[] = {
     "Ga", "Ge", "As", "Se", "Br", "Kr",
     "Rb", "Sr", "Y",  "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd",
     "In", "Sn", "Sb", "Te", "I",  "Xe",
-    "Cs", "Ba", "La", "Hf", "Ta", "W",  "Re", "Os", "Ir", "Pt", "Au", "Hg",
+    "Cs", "Ba", "La", "Ce", "Pr", "Nd", "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb", "Lu",
+    "Hf", "Ta", "W",  "Re", "Os", "Ir", "Pt", "Au", "Hg",
     "Tl", "Pb", "Bi", "Po", "At", "Rn",
+    // Actinides
+    "Fr", "Ra", "Ac", "Th", "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm", "Md", "No", "Lr",
 };
 
 // A chemical composition entry: element + count in formula.
@@ -129,162 +135,15 @@ const Material* get_material(const char* name);
 const Material* get_material_by_id(uint16_t id);
 size_t get_material_count();
 
-// Pre-defined material IDs for compile-time referencing.
-// This mirrors GT5's Materials.* static fields.
-namespace materials {
-    // IDs are assigned sequentially starting from 0.
+// Hard upper bound on materials to keep item ID range predictable.
+// 5000 materials × 43 forms = 215K items — fits in uint32_t comfortably.
+inline constexpr uint16_t kMaxMaterials = 5000;
 
-    // --- Primitive / stone-age / non-metal solids ---
-    constexpr uint16_t STONE    = 0;
-    constexpr uint16_t FLINT    = 1;
-    constexpr uint16_t COAL     = 2;
-    constexpr uint16_t CHARCOAL = 3;
-    constexpr uint16_t LIGNITE  = 4;
-
-    // --- Basic metals (solid, DUST | METAL | BLOCK | WIRE) ---
-    constexpr uint16_t COPPER     = 5;
-    constexpr uint16_t TIN        = 6;
-    constexpr uint16_t IRON       = 7;
-    constexpr uint16_t LEAD       = 8;
-    constexpr uint16_t SILVER     = 9;
-    constexpr uint16_t GOLD       = 10;
-    constexpr uint16_t ZINC       = 11;
-    constexpr uint16_t NICKEL     = 12;
-    constexpr uint16_t ALUMINIUM  = 13;
-    constexpr uint16_t PLATINUM   = 14;
-    constexpr uint16_t TUNGSTEN   = 15;
-    constexpr uint16_t TITANIUM   = 16;
-    constexpr uint16_t CHROME     = 17;
-    constexpr uint16_t MANGANESE  = 18;
-    constexpr uint16_t COBALT     = 19;
-    constexpr uint16_t BISMUTH    = 20;
-    constexpr uint16_t ANTIMONY   = 21;
-
-    // --- Alloys (solid) ---
-    constexpr uint16_t BRONZE       = 22;  // Cu + Sn
-    constexpr uint16_t BRASS        = 23;  // Cu + Zn
-    constexpr uint16_t STEEL        = 24;  // Fe + C
-    constexpr uint16_t STAINLESS_STEEL = 25;
-    constexpr uint16_t ELECTRUM     = 26;  // Au + Ag
-    constexpr uint16_t INVAR        = 27;  // Fe + Ni
-    constexpr uint16_t CUPRONICKEL  = 28;  // Cu + Ni
-    constexpr uint16_t SOLDER       = 29;  // Sn + Pb
-    constexpr uint16_t TIN_ALLOY    = 30;
-    constexpr uint16_t RED_ALLOY    = 31;
-    constexpr uint16_t ANNEALED_COPPER = 32;
-    constexpr uint16_t TUNGSTENSTEEL = 33;
-    constexpr uint16_t HSS_G        = 34;
-    constexpr uint16_t NAQUADAH     = 35;
-    constexpr uint16_t NAQUADAH_ALLOY = 36;
-
-    // --- Gems (solid) ---
-    constexpr uint16_t DIAMOND   = 37;
-    constexpr uint16_t RUBY      = 38;
-    constexpr uint16_t SAPPHIRE  = 39;
-    constexpr uint16_t EMERALD   = 40;
-    constexpr uint16_t AMETHYST  = 41;
-    constexpr uint16_t LAPIS     = 42;
-    constexpr uint16_t QUARTZ    = 43;
-    constexpr uint16_t NETHER_QUARTZ = 44;
-
-    // --- Rare / exotic metals (solid) ---
-    constexpr uint16_t URANIUM    = 45;
-    constexpr uint16_t PLUTONIUM  = 46;
-    constexpr uint16_t THORIUM    = 47;
-    constexpr uint16_t IRIDIUM    = 48;
-    constexpr uint16_t OSMIUM     = 49;
-    constexpr uint16_t GRAPHENE   = 50;
-    constexpr uint16_t SUPERCONDUCTOR = 51;
-
-    // --- Liquids ---
-    constexpr uint16_t WATER             = 52;
-    constexpr uint16_t LAVA              = 53;
-    constexpr uint16_t STEAM             = 54;  // gaseous water, treated as gas
-    constexpr uint16_t CREOSOTE          = 55;
-    constexpr uint16_t SULFURIC_ACID     = 56;
-    constexpr uint16_t HYDROCHLORIC_ACID = 57;
-    constexpr uint16_t NITRIC_ACID       = 58;
-    constexpr uint16_t HYDROFLUORIC_ACID = 59;
-    constexpr uint16_t AQUA_REGIA        = 60;
-    constexpr uint16_t LUBRICANT         = 61;
-    constexpr uint16_t BIOMASS           = 62;
-    constexpr uint16_t ETHANOL           = 63;
-    constexpr uint16_t OIL               = 64;
-    constexpr uint16_t OIL_HEAVY         = 65;
-    constexpr uint16_t OIL_LIGHT         = 66;
-    constexpr uint16_t FUEL_DIESEL       = 67;
-    constexpr uint16_t FUEL_ROCKET       = 68;
-    constexpr uint16_t GLUE              = 69;
-    constexpr uint16_t MERCURY           = 70;
-    constexpr uint16_t MOLTEN_IRON       = 71;
-
-    // --- Gases ---
-    constexpr uint16_t OXYGEN           = 72;
-    constexpr uint16_t HYDROGEN         = 73;
-    constexpr uint16_t NITROGEN         = 74;
-    constexpr uint16_t CARBON_DIOXIDE   = 75;
-    constexpr uint16_t CARBON_MONOXIDE  = 76;
-    constexpr uint16_t SULFUR_DIOXIDE   = 77;
-    constexpr uint16_t NITROGEN_DIOXIDE = 78;
-    constexpr uint16_t NITRIC_OXIDE     = 79;
-    constexpr uint16_t AMMONIA          = 80;
-    constexpr uint16_t METHANE          = 81;
-    constexpr uint16_t NATURAL_GAS      = 82;
-    constexpr uint16_t HYDROGEN_SULFIDE = 83;
-    constexpr uint16_t OZONE            = 84;
-    constexpr uint16_t CHLORINE         = 85;
-    constexpr uint16_t FLUORINE         = 86;
-    constexpr uint16_t BROMINE          = 87;
-    constexpr uint16_t IODINE           = 88;
-
-    // --- Noble gases ---
-    constexpr uint16_t HELIUM   = 89;
-    constexpr uint16_t NEON     = 90;
-    constexpr uint16_t ARGON    = 91;
-    constexpr uint16_t KRYPTON  = 92;
-    constexpr uint16_t XENON    = 93;
-    constexpr uint16_t RADON    = 94;
-
-    // --- Plasma-grade materials ---
-    constexpr uint16_t DEUTERIUM   = 95;
-    constexpr uint16_t TRITIUM     = 96;
-    constexpr uint16_t HELIUM_3    = 97;
-    constexpr uint16_t PLASMA_NITROGEN = 98;
-    constexpr uint16_t PLASMA_OXYGEN   = 99;
-    constexpr uint16_t PLASMA_HELIUM   = 100;
-
-    // --- Hydrocarbons / organics (gases & liquids) ---
-    constexpr uint16_t ETHYLENE   = 101;
-    constexpr uint16_t PROPYLENE  = 102;
-    constexpr uint16_t BENZENE    = 103;
-    constexpr uint16_t TOLUENE    = 104;
-    constexpr uint16_t PHENOL     = 105;
-    constexpr uint16_t FORMALDEHYDE = 106;
-    constexpr uint16_t ACETIC_ACID  = 107;
-    constexpr uint16_t ACETONE      = 108;
-    constexpr uint16_t GLYCEROL     = 109;
-    constexpr uint16_t VINYL_CHLORIDE = 110;
-    constexpr uint16_t STYRENE      = 111;
-    constexpr uint16_t WOOD        = 112;
-
-    // --- Planetary rock types (DUST_ONLY, each yields unique dust) ---
-    // Different planets have different rock compositions.
-    // These are NOT named after planets; they are generic geological types
-    // that can appear on various planets depending on their properties.
-    constexpr uint16_t GRANITE     = 113;  // Common crustal rock (Earth-like)
-    constexpr uint16_t BASALT      = 114;  // Volcanic rock (large/volcanic planets)
-    constexpr uint16_t MARBLE      = 115;  // Metamorphic rock (high-pressure planets)
-    constexpr uint16_t SANDSTONE   = 116;  // Sedimentary rock (desert/dry planets)
-    constexpr uint16_t SHALE       = 117;  // Sedimentary rock (water-bearing planets)
-    constexpr uint16_t KOMATIITE   = 118;  // Ancient volcanic rock (high-gravity planets)
-    constexpr uint16_t REGOLITH    = 119;  // Weathered surface rock (thin-atmo planets)
-    constexpr uint16_t ANORTHOSTIE = 120;  // Highland crust rock (no-atmo planets)
-
-    constexpr uint16_t COUNT = 121;
-} // namespace materials
-
-// Initialize the material registry (called once at startup).
-// Registers all pre-defined materials into a lookup table.
-void initialize_materials();
+// Iteration: returns the highest assigned material ID + 1, or 0 if empty.
+// Material IDs are sequential (0, 1, 2, ...), so iterating 0..max_id-1
+// and calling get_material_by_id(id) will visit every registered material.
+// This only counts IDs issued via allocate_id(); manually registered IDs
+// beyond g_next_material_id are NOT included (rare edge case).
+uint16_t get_max_material_id();
 
 } // namespace science_and_theology::gt

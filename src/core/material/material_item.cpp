@@ -40,9 +40,6 @@ void ItemRegistry::initialize() {
     if (g_items_initialized) return;
     g_items_initialized = true;
 
-    // Ensure materials are initialized first.
-    initialize_materials();
-
     g_registered_item_count = 0;
     size_t total_slots = kMaterialItemMax - kMaterialItemBase;
 
@@ -56,7 +53,10 @@ void ItemRegistry::initialize() {
     }
 
     // Generate items for each material × form combination.
-    for (uint16_t mat_id = 0; mat_id < materials::COUNT; ++mat_id) {
+    // Material IDs are sequential (0, 1, 2, ...). Iterate up to the
+    // highest assigned ID and skip gaps (shouldn't exist with auto-assign).
+    uint16_t max_id = get_max_material_id();
+    for (uint16_t mat_id = 0; mat_id < max_id; ++mat_id) {
         const Material* mat = get_material_by_id(mat_id);
         if (mat == nullptr) continue;
 

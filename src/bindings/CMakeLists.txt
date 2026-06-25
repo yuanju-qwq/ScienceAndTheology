@@ -10,6 +10,7 @@ set(SOURCES
     network/gd_fluid_network.cpp
     fluid/gd_fluid_registry.cpp
     item/gd_item_registry.cpp
+    material/gd_material_registry.cpp
     network/gd_item_pipe_network.cpp
     world/gd_world_data.cpp
     world/gd_world_gen_config.cpp

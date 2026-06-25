@@ -29,6 +29,44 @@ const MATERIAL_KOMATIITE   = 118
 const MATERIAL_REGOLITH    = 119
 const MATERIAL_ANORTHOSTIE = 120
 
+# Pure element materials (periodic table completeness) — must match C++ materials:: enum.
+const MATERIAL_LITHIUM    = 121
+const MATERIAL_BERYLLIUM  = 122
+const MATERIAL_BORON      = 123
+const MATERIAL_SODIUM     = 124
+const MATERIAL_MAGNESIUM  = 125
+const MATERIAL_SILICON    = 126
+const MATERIAL_PHOSPHORUS = 127
+const MATERIAL_SULFUR     = 128
+const MATERIAL_POTASSIUM  = 129
+const MATERIAL_CALCIUM    = 130
+const MATERIAL_SCANDIUM   = 131
+const MATERIAL_VANADIUM   = 132
+const MATERIAL_GALLIUM    = 133
+const MATERIAL_GERMANIUM  = 134
+const MATERIAL_ARSENIC    = 135
+const MATERIAL_SELENIUM   = 136
+const MATERIAL_RUBIDIUM   = 137
+const MATERIAL_STRONTIUM  = 138
+const MATERIAL_YTTRIUM    = 139
+const MATERIAL_ZIRCONIUM  = 140
+const MATERIAL_NIOBIUM    = 141
+const MATERIAL_MOLYBDENUM = 142
+const MATERIAL_RUTHENIUM  = 143
+const MATERIAL_RHODIUM    = 144
+const MATERIAL_PALLADIUM  = 145
+const MATERIAL_CADMIUM    = 146
+const MATERIAL_INDIUM     = 147
+const MATERIAL_TELLURIUM  = 148
+const MATERIAL_CESIUM     = 149
+const MATERIAL_BARIUM     = 150
+const MATERIAL_LANTHANUM  = 151
+const MATERIAL_HAFNIUM    = 152
+const MATERIAL_TANTALUM   = 153
+const MATERIAL_RHENIUM    = 154
+const MATERIAL_THALLIUM   = 155
+const MATERIAL_POLONIUM   = 156
+
 const K_FORM_COUNT     = 31
 const K_MAT_ITEM_BASE  = 1
 const K_NON_MAT_BASE   = K_MAT_ITEM_BASE + 113 * K_FORM_COUNT + 1
@@ -380,6 +418,59 @@ func _register_material_items() -> void:
 			"item.anorthosite_dust", Color(0.75, 0.75, 0.78), 64, null, "")
 	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_TINY_DUST),
 			"item.anorthosite_tiny_dust", Color(0.65, 0.65, 0.68), 64, null, "")
+
+	# --- Pure element ores/dusts/ingots (periodic table completeness) ---
+	# Each entry: [MATERIAL_X, "name", Color(r, g, b), is_metal]
+	var element_mats := [
+		[MATERIAL_LITHIUM,    "lithium",    Color(0.69, 0.69, 0.69), true],
+		[MATERIAL_BERYLLIUM,  "beryllium",  Color(0.63, 0.75, 0.63), true],
+		[MATERIAL_BORON,      "boron",      Color(0.50, 0.50, 0.50), false],
+		[MATERIAL_SODIUM,     "sodium",     Color(0.75, 0.75, 0.75), true],
+		[MATERIAL_MAGNESIUM,  "magnesium",  Color(0.82, 0.82, 0.82), true],
+		[MATERIAL_SILICON,    "silicon",    Color(0.50, 0.50, 0.56), true],
+		[MATERIAL_PHOSPHORUS, "phosphorus", Color(0.75, 0.38, 0.25), false],
+		[MATERIAL_SULFUR,     "sulfur",     Color(0.75, 0.75, 0.25), false],
+		[MATERIAL_POTASSIUM,  "potassium",  Color(0.69, 0.63, 0.50), true],
+		[MATERIAL_CALCIUM,    "calcium",    Color(0.75, 0.75, 0.63), true],
+		[MATERIAL_SCANDIUM,   "scandium",   Color(0.63, 0.63, 0.69), true],
+		[MATERIAL_VANADIUM,   "vanadium",   Color(0.63, 0.63, 0.75), true],
+		[MATERIAL_GALLIUM,    "gallium",    Color(0.75, 0.75, 0.75), true],
+		[MATERIAL_GERMANIUM,  "germanium",  Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_ARSENIC,    "arsenic",    Color(0.50, 0.50, 0.50), false],
+		[MATERIAL_SELENIUM,   "selenium",   Color(0.75, 0.63, 0.25), false],
+		[MATERIAL_RUBIDIUM,   "rubidium",   Color(0.63, 0.56, 0.50), true],
+		[MATERIAL_STRONTIUM,  "strontium",  Color(0.75, 0.69, 0.63), true],
+		[MATERIAL_YTTRIUM,    "yttrium",    Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_ZIRCONIUM,  "zirconium",  Color(0.63, 0.69, 0.69), true],
+		[MATERIAL_NIOBIUM,    "niobium",    Color(0.63, 0.63, 0.69), true],
+		[MATERIAL_MOLYBDENUM, "molybdenum", Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_RUTHENIUM,  "ruthenium",  Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_RHODIUM,    "rhodium",    Color(0.75, 0.75, 0.82), true],
+		[MATERIAL_PALLADIUM,  "palladium",  Color(0.75, 0.75, 0.75), true],
+		[MATERIAL_CADMIUM,    "cadmium",    Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_INDIUM,     "indium",     Color(0.69, 0.69, 0.75), true],
+		[MATERIAL_TELLURIUM,  "tellurium",  Color(0.69, 0.63, 0.38), false],
+		[MATERIAL_CESIUM,     "cesium",     Color(0.63, 0.56, 0.44), true],
+		[MATERIAL_BARIUM,     "barium",     Color(0.69, 0.69, 0.63), true],
+		[MATERIAL_LANTHANUM,  "lanthanum",  Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_HAFNIUM,    "hafnium",    Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_TANTALUM,   "tantalum",   Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_RHENIUM,    "rhenium",    Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_THALLIUM,   "thallium",   Color(0.63, 0.63, 0.63), true],
+		[MATERIAL_POLONIUM,   "polonium",   Color(0.50, 0.50, 0.50), false],
+	]
+	for entry in element_mats:
+		var mat_id: int = entry[0]
+		var name: String = entry[1]
+		var color: Color = entry[2]
+		var is_metal: bool = entry[3]
+		_register(mat_item(mat_id, FORM_CRUSHED),
+				"item.crushed_" + name, color, 64, null, "")
+		_register(mat_item(mat_id, FORM_DUST),
+				"item." + name + "_dust", color.darkened(0.1), 64, null, "")
+		if is_metal:
+			_register(mat_item(mat_id, FORM_INGOT),
+					"item." + name + "_ingot", color, 64, null, "")
 
 func _make_tool_def(
 		tool_type: int, mining_level: int,
@@ -952,6 +1043,39 @@ func _register_material_item_keys() -> void:
 		compute_mat_item.call(MATERIAL_WOOD, FORM_PLATE): "plate.wood",
 		compute_mat_item.call(MATERIAL_WOOD, FORM_ROD): "rod.wood",
 	}
+
+	# Add pure element key mappings (crushed/dust/ingot forms for periodic table completeness).
+	var element_names := [
+		MATERIAL_LITHIUM, MATERIAL_BERYLLIUM, MATERIAL_BORON, MATERIAL_SODIUM,
+		MATERIAL_MAGNESIUM, MATERIAL_SILICON, MATERIAL_PHOSPHORUS, MATERIAL_SULFUR,
+		MATERIAL_POTASSIUM, MATERIAL_CALCIUM, MATERIAL_SCANDIUM, MATERIAL_VANADIUM,
+		MATERIAL_GALLIUM, MATERIAL_GERMANIUM, MATERIAL_ARSENIC, MATERIAL_SELENIUM,
+		MATERIAL_RUBIDIUM, MATERIAL_STRONTIUM, MATERIAL_YTTRIUM, MATERIAL_ZIRCONIUM,
+		MATERIAL_NIOBIUM, MATERIAL_MOLYBDENUM, MATERIAL_RUTHENIUM, MATERIAL_RHODIUM,
+		MATERIAL_PALLADIUM, MATERIAL_CADMIUM, MATERIAL_INDIUM, MATERIAL_TELLURIUM,
+		MATERIAL_CESIUM, MATERIAL_BARIUM, MATERIAL_LANTHANUM, MATERIAL_HAFNIUM,
+		MATERIAL_TANTALUM, MATERIAL_RHENIUM, MATERIAL_THALLIUM, MATERIAL_POLONIUM,
+	]
+	var element_key_names := [
+		"lithium", "beryllium", "boron", "sodium",
+		"magnesium", "silicon", "phosphorus", "sulfur",
+		"potassium", "calcium", "scandium", "vanadium",
+		"gallium", "germanium", "arsenic", "selenium",
+		"rubidium", "strontium", "yttrium", "zirconium",
+		"niobium", "molybdenum", "ruthenium", "rhodium",
+		"palladium", "cadmium", "indium", "tellurium",
+		"cesium", "barium", "lanthanum", "hafnium",
+		"tantalum", "rhenium", "thallium", "polonium",
+	]
+	for i in element_names.size():
+		var mat: int = element_names[i]
+		var name: String = element_key_names[i]
+		quest_material_items[compute_mat_item.call(mat, FORM_CRUSHED)] = "crushed." + name
+		quest_material_items[compute_mat_item.call(mat, FORM_DUST)] = "dust." + name
+		if mat != MATERIAL_BORON and mat != MATERIAL_PHOSPHORUS and mat != MATERIAL_SULFUR \
+				and mat != MATERIAL_ARSENIC and mat != MATERIAL_SELENIUM \
+				and mat != MATERIAL_TELLURIUM and mat != MATERIAL_POLONIUM:
+			quest_material_items[compute_mat_item.call(mat, FORM_INGOT)] = "ingot." + name
 
 	# Add bronze (alloy, not in the basic material list).
 	# Bronze = Copper + Tin alloy. Item IDs may use a different base.

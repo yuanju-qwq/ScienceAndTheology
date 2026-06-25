@@ -76,7 +76,54 @@ const MAT_ORE_CHALCOPYRITE := 66
 const MAT_ORE_SPHALERITE := 67
 const MAT_ORE_PENTLANDITE := 68
 
-# Planetary rock material IDs �?each yields unique dust when mined.
+# --- Periodic table expanded ores (all naturally occurring metallic/non-metallic elements) ---
+# Alkali metals & Alkaline earth metals
+const MAT_ORE_LITHIUM := 112    # Li - spodumene
+const MAT_ORE_BERYLLIUM := 113  # Be - beryl
+const MAT_ORE_BORON := 114      # B - kernite
+const MAT_ORE_MAGNESIUM := 115  # Mg - magnesite
+const MAT_ORE_PHOSPHORUS := 116 # P - apatite
+const MAT_ORE_POTASSIUM := 117  # K - sylvite
+const MAT_ORE_CALCIUM := 118    # Ca - calcite
+const MAT_ORE_SCANDIUM := 119   # Sc - thortveitite
+# Transition metals
+const MAT_ORE_VANADIUM := 120   # V - vanadinite
+const MAT_ORE_CHROMIUM := 121   # Cr - chromite
+const MAT_ORE_GALLIUM := 122    # Ga - gallite
+const MAT_ORE_GERMANIUM := 123  # Ge - germanite
+const MAT_ORE_ARSENIC := 124    # As - arsenopyrite
+const MAT_ORE_SELENIUM := 125   # Se - clausthalite
+const MAT_ORE_BROMINE := 126    # Br - bromargyrite
+const MAT_ORE_RUBIDIUM := 127   # Rb - lepidolite
+const MAT_ORE_STRONTIUM := 128  # Sr - celestine
+const MAT_ORE_YTTRIUM := 129    # Y - xenotime
+const MAT_ORE_ZIRCONIUM := 130  # Zr - zircon
+const MAT_ORE_NIOBIUM := 131    # Nb - columbite
+const MAT_ORE_MOLYBDENUM := 132 # Mo - molybdenite
+const MAT_ORE_RUTHENIUM := 133  # Ru - laurite (PGM)
+const MAT_ORE_RHODIUM := 134    # Rh - PGM
+const MAT_ORE_PALLADIUM := 135  # Pd - PGM
+const MAT_ORE_CADMIUM := 136    # Cd - greenockite
+const MAT_ORE_INDIUM := 137     # In - roquesite
+const MAT_ORE_ANTIMONY := 138   # Sb - stibnite
+const MAT_ORE_TELLURIUM := 139  # Te - telluride minerals
+const MAT_ORE_IODINE := 140     # I - iodargyrite
+const MAT_ORE_CESIUM := 141     # Cs - pollucite
+const MAT_ORE_BARIUM := 142     # Ba - barite
+# Rare earth elements (lanthanides) - grouped as monazite/bastnaesite
+const MAT_ORE_RARE_EARTH := 143 # La-Lu
+# Post-transition / refractory metals
+const MAT_ORE_HAFNIUM := 144    # Hf
+const MAT_ORE_TANTALUM := 145   # Ta - tantalite
+const MAT_ORE_RHENIUM := 146    # Re
+const MAT_ORE_OSMIUM := 147     # Os - iridosmine (PGM)
+const MAT_ORE_IRIDIUM := 148    # Ir - PGM
+# Other metals & actinides
+const MAT_ORE_THALLIUM := 149   # Tl - crookesite
+const MAT_ORE_BISMUTH := 150    # Bi - bismuthinite
+const MAT_ORE_THORIUM := 151    # Th - monazite
+
+# Planetary rock material IDs — each yields unique dust when mined.
 # These are separate TerrainMaterial entries from the generic snt:stone.
 const MAT_GRANITE     := 69
 const MAT_BASALT      := 70
@@ -167,6 +214,14 @@ const FLAG_SUPPORT_BEAM := 256
 # All planets share the same material set and biome/ore/rock rules,
 # but each planet has its own dimension_id and PlanetConfig.
 static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]) -> Resource:
+	# Register GT-style materials (elements, alloys, gems, fluids) BEFORE terrain.
+	# This ensures ItemRegistry can resolve item keys (e.g. "crushed.copper") from terrain drops.
+	MaterialDefinitions.register_all()
+	# Register mineral compounds as lightweight mod items (NOT C++ materials).
+	# These are what ores drop instead of pure elements (e.g. "crushed.hematite" not "crushed.iron").
+	MaterialDefinitions.register_compounds()
+	GDMaterialRegistry.finalize()
+
 	var registry: GDTerrainContentRegistry = ClassDB.instantiate("GDTerrainContentRegistry")
 	if registry == null:
 		push_error("BuiltinTerrainContent: GDTerrainContentRegistry is not registered.")
@@ -344,10 +399,19 @@ static func _register_planet_generation_rules(
 			"snt:ore_salt", "snt:ore_sulfur",
 			"snt:ore_tin", "snt:ore_zinc",
 			"snt:ore_pyrite", "snt:ore_fluorite",
+			"snt:ore_lithium", "snt:ore_magnesium",
+			"snt:ore_phosphorus", "snt:ore_potassium",
+			"snt:ore_calcium", "snt:ore_boron",
+			"snt:ore_bromine", "snt:ore_strontium",
+			"snt:ore_zirconium", "snt:ore_cadmium",
+			"snt:ore_iodine", "snt:ore_barium",
+			"snt:ore_thallium", "snt:ore_bismuth",
 		] if radius >= 200.0 else [
 			"snt:ore_iron", "snt:ore_chalcopyrite",
 			"snt:ore_cassiterite", "snt:ore_salt",
 			"snt:ore_tin", "snt:ore_pyrite",
+			"snt:ore_lithium", "snt:ore_magnesium",
+			"snt:ore_calcium", "snt:ore_boron",
 		],
 	})
 
@@ -371,6 +435,15 @@ static func _register_planet_generation_rules(
 				"snt:ore_pentlandite", "snt:ore_ilmenite",
 				"snt:ore_nickel", "snt:ore_cinnabar",
 				"snt:ore_manganese",
+				"snt:ore_beryllium", "snt:ore_scandium",
+				"snt:ore_vanadium", "snt:ore_chromium",
+				"snt:ore_gallium", "snt:ore_germanium",
+				"snt:ore_arsenic", "snt:ore_selenium",
+				"snt:ore_rubidium", "snt:ore_yttrium",
+				"snt:ore_niobium", "snt:ore_molybdenum",
+				"snt:ore_indium", "snt:ore_antimony",
+				"snt:ore_tellurium", "snt:ore_cesium",
+				"snt:ore_hafnium", "snt:ore_rhenium",
 			],
 		})
 
@@ -394,7 +467,262 @@ static func _register_planet_generation_rules(
 			"snt:ore_cobalt", "snt:ore_diamond",
 			"snt:ore_ruby", "snt:ore_sapphire",
 			"snt:ore_emerald", "snt:ore_graphite",
+			"snt:ore_ruthenium", "snt:ore_rhodium",
+			"snt:ore_palladium", "snt:ore_osmium",
+			"snt:ore_iridium", "snt:ore_tantalum",
+			"snt:ore_rare_earth", "snt:ore_thorium",
 		],
+	})
+	_register_planet_ore_vein_groups(registry, dim)
+
+static func _register_planet_ore_vein_groups(
+		registry: GDTerrainContentRegistry, dim: String) -> void:
+	# --- Ore vein group definitions ---
+	# Each vein group defines which ores appear together in a vein cluster,
+	# their depth range, size, and relative spawn weight.
+	# Within a vein: primary ~40%, secondary ~30%, between ~20%, sporadic ~10%.
+
+	# Shallow vein groups (depth 0-40)
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_coal",
+		"host": "snt:stone", "primary": "snt:ore_coal",
+		"secondary": "snt:ore_graphite", "between": "snt:ore_sulfur",
+		"sporadic": "snt:ore_diamond", "depth_min": 0, "depth_max": 40,
+		"radius": 20, "density": 0.5, "weight": 1.2,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_salt_sulfur",
+		"host": "snt:stone", "primary": "snt:ore_salt",
+		"secondary": "snt:ore_sulfur", "between": "snt:ore_calcium",
+		"sporadic": "snt:ore_fluorite", "depth_min": 0, "depth_max": 30,
+		"radius": 18, "density": 0.5, "weight": 1.0,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_cassiterite",
+		"host": "snt:stone", "primary": "snt:ore_cassiterite",
+		"secondary": "snt:ore_tin", "between": "snt:ore_iron",
+		"sporadic": "snt:ore_bismuth", "depth_min": 0, "depth_max": 40,
+		"radius": 14, "density": 0.55, "weight": 0.9,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_light_metals",
+		"host": "snt:stone", "primary": "snt:ore_lithium",
+		"secondary": "snt:ore_magnesium", "between": "snt:ore_boron",
+		"sporadic": "snt:ore_beryllium", "depth_min": 0, "depth_max": 40,
+		"radius": 14, "density": 0.45, "weight": 0.7,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_potash_phosphate",
+		"host": "snt:stone", "primary": "snt:ore_potassium",
+		"secondary": "snt:ore_phosphorus", "between": "snt:ore_calcium",
+		"sporadic": "snt:ore_iodine", "depth_min": 0, "depth_max": 30,
+		"radius": 16, "density": 0.45, "weight": 0.8,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_bromine_iodine",
+		"host": "snt:stone", "primary": "snt:ore_bromine",
+		"secondary": "snt:ore_iodine", "between": "snt:ore_salt",
+		"sporadic": "snt:ore_cesium", "depth_min": 0, "depth_max": 25,
+		"radius": 10, "density": 0.4, "weight": 0.5,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_bauxite",
+		"host": "snt:stone", "primary": "snt:ore_bauxite",
+		"secondary": "snt:ore_iron", "between": "snt:ore_titanium",
+		"sporadic": "snt:ore_gallium", "depth_min": 0, "depth_max": 35,
+		"radius": 16, "density": 0.5, "weight": 0.8,
+	})
+
+	# Mid-depth vein groups (depth 10-60)
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_iron",
+		"host": "snt:stone", "primary": "snt:ore_magnetite",
+		"secondary": "snt:ore_iron", "between": "snt:ore_pyrite",
+		"sporadic": "snt:ore_gold", "depth_min": 0, "depth_max": 60,
+		"radius": 22, "density": 0.6, "weight": 1.5,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_copper",
+		"host": "snt:stone", "primary": "snt:ore_chalcopyrite",
+		"secondary": "snt:ore_copper", "between": "snt:ore_iron",
+		"sporadic": "snt:ore_gold", "depth_min": 0, "depth_max": 50,
+		"radius": 18, "density": 0.55, "weight": 1.2,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_sphalerite_galena",
+		"host": "snt:stone", "primary": "snt:ore_sphalerite",
+		"secondary": "snt:ore_galena", "between": "snt:ore_zinc",
+		"sporadic": "snt:ore_silver", "depth_min": 5, "depth_max": 50,
+		"radius": 16, "density": 0.55, "weight": 1.0,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_nickel",
+		"host": "snt:stone", "primary": "snt:ore_pentlandite",
+		"secondary": "snt:ore_nickel", "between": "snt:ore_cobalt",
+		"sporadic": "snt:ore_platinum", "depth_min": 10, "depth_max": 60,
+		"radius": 16, "density": 0.5, "weight": 0.8,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_manganese",
+		"host": "snt:stone", "primary": "snt:ore_manganese",
+		"secondary": "snt:ore_iron", "between": "snt:ore_bauxite",
+		"sporadic": "snt:ore_chromium", "depth_min": 10, "depth_max": 55,
+		"radius": 12, "density": 0.5, "weight": 0.6,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_cinnabar",
+		"host": "snt:stone", "primary": "snt:ore_cinnabar",
+		"secondary": "snt:ore_sulfur", "between": "snt:ore_selenium",
+		"sporadic": "snt:ore_tellurium", "depth_min": 10, "depth_max": 50,
+		"radius": 10, "density": 0.4, "weight": 0.4,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_cadmium_indium",
+		"host": "snt:stone", "primary": "snt:ore_zinc",
+		"secondary": "snt:ore_cadmium", "between": "snt:ore_indium",
+		"sporadic": "snt:ore_gallium", "depth_min": 5, "depth_max": 40,
+		"radius": 10, "density": 0.4, "weight": 0.4,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_bismuth_antimony",
+		"host": "snt:stone", "primary": "snt:ore_bismuth",
+		"secondary": "snt:ore_antimony", "between": "snt:ore_galena",
+		"sporadic": "snt:ore_tellurium", "depth_min": 15, "depth_max": 55,
+		"radius": 12, "density": 0.45, "weight": 0.5,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_arsenic_pyrite",
+		"host": "snt:stone", "primary": "snt:ore_arsenic",
+		"secondary": "snt:ore_pyrite", "between": "snt:ore_cobalt",
+		"sporadic": "snt:ore_gold", "depth_min": 10, "depth_max": 50,
+		"radius": 12, "density": 0.45, "weight": 0.5,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_thallium_alkali",
+		"host": "snt:stone", "primary": "snt:ore_thallium",
+		"secondary": "snt:ore_rubidium", "between": "snt:ore_cesium",
+		"sporadic": "snt:ore_potassium", "depth_min": 15, "depth_max": 50,
+		"radius": 8, "density": 0.35, "weight": 0.3,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_scandium_strontium_barium",
+		"host": "snt:stone", "primary": "snt:ore_scandium",
+		"secondary": "snt:ore_strontium", "between": "snt:ore_barium",
+		"sporadic": "snt:ore_gallium", "depth_min": 15, "depth_max": 55,
+		"radius": 10, "density": 0.4, "weight": 0.4,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_chromium_vanadium",
+		"host": "snt:stone", "primary": "snt:ore_chromium",
+		"secondary": "snt:ore_vanadium", "between": "snt:ore_magnetite",
+		"sporadic": "snt:ore_platinum", "depth_min": 15, "depth_max": 60,
+		"radius": 12, "density": 0.45, "weight": 0.5,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_gallium_germanium",
+		"host": "snt:stone", "primary": "snt:ore_gallium",
+		"secondary": "snt:ore_germanium", "between": "snt:ore_zinc",
+		"sporadic": "snt:ore_indium", "depth_min": 10, "depth_max": 45,
+		"radius": 8, "density": 0.35, "weight": 0.3,
+	})
+
+	# Mid-deep vein groups (depth 20-80)
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_ilmenite_titanium",
+		"host": "snt:stone", "primary": "snt:ore_ilmenite",
+		"secondary": "snt:ore_titanium", "between": "snt:ore_iron",
+		"sporadic": "snt:ore_vanadium", "depth_min": 20, "depth_max": 80,
+		"radius": 14, "density": 0.5, "weight": 0.7,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_cobalt",
+		"host": "snt:stone", "primary": "snt:ore_cobalt",
+		"secondary": "snt:ore_nickel", "between": "snt:ore_arsenic",
+		"sporadic": "snt:ore_antimony", "depth_min": 20, "depth_max": 70,
+		"radius": 12, "density": 0.5, "weight": 0.6,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_hafnium_zircon",
+		"host": "snt:stone", "primary": "snt:ore_zirconium",
+		"secondary": "snt:ore_hafnium", "between": "snt:ore_titanium",
+		"sporadic": "snt:ore_germanium", "depth_min": 20, "depth_max": 70,
+		"radius": 10, "density": 0.4, "weight": 0.4,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_molybdenum_rhenium",
+		"host": "snt:stone", "primary": "snt:ore_molybdenum",
+		"secondary": "snt:ore_rhenium", "between": "snt:ore_osmium",
+		"sporadic": "snt:ore_iridium", "depth_min": 30, "depth_max": 90,
+		"radius": 10, "density": 0.4, "weight": 0.3,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_niobium_tantalum",
+		"host": "snt:stone", "primary": "snt:ore_niobium",
+		"secondary": "snt:ore_tantalum", "between": "snt:ore_yttrium",
+		"sporadic": "snt:ore_tungsten", "depth_min": 25, "depth_max": 80,
+		"radius": 10, "density": 0.4, "weight": 0.3,
+	})
+
+	# Deep vein groups (depth 30-100, lower weight)
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_tungsten",
+		"host": "snt:stone", "primary": "snt:ore_tungsten",
+		"secondary": "snt:ore_titanium", "between": "snt:ore_molybdenum",
+		"sporadic": "snt:ore_rhenium", "depth_min": 40, "depth_max": 100,
+		"radius": 12, "density": 0.45, "weight": 0.5,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_uranium_thorium",
+		"host": "snt:stone", "primary": "snt:ore_uranium",
+		"secondary": "snt:ore_thorium", "between": "snt:ore_lead",
+		"sporadic": "snt:ore_rare_earth", "depth_min": 40, "depth_max": 100,
+		"radius": 10, "density": 0.35, "weight": 0.3,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_rare_earth",
+		"host": "snt:stone", "primary": "snt:ore_rare_earth",
+		"secondary": "snt:ore_yttrium", "between": "snt:ore_thorium",
+		"sporadic": "snt:ore_zirconium", "depth_min": 35, "depth_max": 90,
+		"radius": 10, "density": 0.4, "weight": 0.25,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_gemstone",
+		"host": "snt:stone", "primary": "snt:ore_diamond",
+		"secondary": "snt:ore_ruby", "between": "snt:ore_sapphire",
+		"sporadic": "snt:ore_emerald", "depth_min": 35, "depth_max": 100,
+		"radius": 10, "density": 0.3, "weight": 0.25,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_pgm",
+		"host": "snt:stone", "primary": "snt:ore_platinum",
+		"secondary": "snt:ore_palladium", "between": "snt:ore_rhodium",
+		"sporadic": "snt:ore_iridium", "depth_min": 45, "depth_max": 100,
+		"radius": 10, "density": 0.35, "weight": 0.2,
+	})
+	_register_vein_group(registry, dim, {
+		"key": "snt:vein_ruthenium_osmium",
+		"host": "snt:stone", "primary": "snt:ore_ruthenium",
+		"secondary": "snt:ore_osmium", "between": "snt:ore_iridium",
+		"sporadic": "snt:ore_platinum", "depth_min": 50, "depth_max": 100,
+		"radius": 8, "density": 0.3, "weight": 0.15,
+	})
+
+
+static func _register_vein_group(
+		registry: GDTerrainContentRegistry, dim: String, def: Dictionary) -> void:
+	registry.register_ore_vein_group({
+		"key": def["key"],
+		"dimension": dim,
+		"host_material_key": def["host"],
+		"primary_ore_key": def["primary"],
+		"secondary_ore_key": def["secondary"],
+		"between_ore_key": def["between"],
+		"sporadic_ore_key": def["sporadic"],
+		"depth_min": def["depth_min"],
+		"depth_max": def["depth_max"],
+		"radius": def["radius"],
+		"density": def["density"],
+		"weight": def["weight"],
 	})
 
 
@@ -546,7 +874,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 2,
-		"drops": [{ "item_key": "crushed.iron", "count": 1 }],
+		"drops": [{ "item_key": "crushed.hematite", "count": 1 }],
 	})
 	registry.register_material({
 		"id": MAT_ORE_COPPER,
@@ -556,7 +884,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 1,
-		"drops": [{ "item_key": "crushed.copper", "count": 1, "min_count": 1, "max_count": 2 }],
+		"drops": [{ "item_key": "crushed.malachite", "count": 1, "min_count": 1, "max_count": 2 }],
 	})
 	registry.register_material({
 		"id": MAT_ORE_COAL,
@@ -580,7 +908,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 1,
-		"drops": [{ "item_key": "crushed.tin", "count": 1 }],
+		"drops": [{ "item_key": "crushed.cassiterite", "count": 1 }],
 	})
 	# Zinc: common shallow ore, used for brass alloy.
 	registry.register_material({
@@ -591,7 +919,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 1,
-		"drops": [{ "item_key": "crushed.zinc", "count": 1 }],
+		"drops": [{ "item_key": "crushed.sphalerite", "count": 1 }],
 	})
 	# Lead: common mid-depth ore, heavy metal.
 	registry.register_material({
@@ -602,7 +930,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.2,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 2,
-		"drops": [{ "item_key": "crushed.lead", "count": 1 }],
+		"drops": [{ "item_key": "crushed.galena", "count": 1 }],
 	})
 
 	# --- Precious metal ores ---
@@ -641,7 +969,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.8,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 2,
-		"drops": [{ "item_key": "crushed.nickel", "count": 1 }],
+		"drops": [{ "item_key": "crushed.pentlandite", "count": 1 }],
 	})
 	# Bauxite: shallow ore for aluminum alloys.
 	registry.register_material({
@@ -663,7 +991,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 2.5,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 2,
-		"drops": [{ "item_key": "crushed.manganese", "count": 1 }],
+		"drops": [{ "item_key": "crushed.pyrolusite", "count": 1 }],
 	})
 	# Tungsten: deep ore for hard alloys.
 	registry.register_material({
@@ -674,7 +1002,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 4.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 3,
-		"drops": [{ "item_key": "crushed.tungsten", "count": 1 }],
+		"drops": [{ "item_key": "crushed.wolframite", "count": 1 }],
 	})
 	# Titanium: deep ore for advanced alloys.
 	registry.register_material({
@@ -685,7 +1013,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 4.5,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 3,
-		"drops": [{ "item_key": "crushed.titanium", "count": 1 }],
+		"drops": [{ "item_key": "crushed.rutile", "count": 1 }],
 	})
 
 	# --- Rare metal ores ---
@@ -699,7 +1027,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 3,
-		"drops": [{ "item_key": "crushed.platinum", "count": 1 }],
+		"drops": [{ "item_key": "crushed.sperrylite", "count": 1 }],
 	})
 	# Cobalt: deep ore for superalloys.
 	registry.register_material({
@@ -710,7 +1038,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 3.5,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 3,
-		"drops": [{ "item_key": "crushed.cobalt", "count": 1 }],
+		"drops": [{ "item_key": "crushed.cobaltite", "count": 1 }],
 	})
 
 	# --- Energy ores ---
@@ -724,7 +1052,7 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"hardness": 5.0,
 		"required_tool_tag": "pickaxe",
 		"required_mining_level": 3,
-		"drops": [{ "item_key": "crushed.uranium", "count": 1 }],
+		"drops": [{ "item_key": "crushed.uraninite", "count": 1 }],
 	})
 	# Sulfur: volcanic zone ore for chemical processing.
 	registry.register_material({
@@ -922,6 +1250,63 @@ static func _register_builtin_material_interactions(registry: GDTerrainContentRe
 		"required_mining_level": 2,
 		"drops": [{ "item_key": "crushed.pentlandite", "count": 1 }],
 	})
+
+	# --- Periodic table expanded ore registrations ---
+	# All naturally occurring metallic and non-metallic elements that form
+	# mineable mineral deposits. Each ore drops crushed dust for processing.
+	var _periodic_ores := [
+		{ "id": MAT_ORE_LITHIUM, "key": "snt:ore_lithium", "hardness": 2.0, "level": 1, "item": "crushed.spodumene" },
+		{ "id": MAT_ORE_BERYLLIUM, "key": "snt:ore_beryllium", "hardness": 2.5, "level": 2, "item": "crushed.bertrandite" },
+		{ "id": MAT_ORE_BORON, "key": "snt:ore_boron", "hardness": 2.0, "level": 1, "item": "crushed.kernite" },
+		{ "id": MAT_ORE_MAGNESIUM, "key": "snt:ore_magnesium", "hardness": 1.8, "level": 1, "item": "crushed.magnesite" },
+		{ "id": MAT_ORE_PHOSPHORUS, "key": "snt:ore_phosphorus", "hardness": 1.5, "level": 1, "item": "crushed.apatite" },
+		{ "id": MAT_ORE_POTASSIUM, "key": "snt:ore_potassium", "hardness": 1.2, "level": 0, "item": "crushed.sylvite" },
+		{ "id": MAT_ORE_CALCIUM, "key": "snt:ore_calcium", "hardness": 1.5, "level": 0, "item": "crushed.calcite" },
+		{ "id": MAT_ORE_SCANDIUM, "key": "snt:ore_scandium", "hardness": 3.0, "level": 2, "item": "crushed.thortveitite" },
+		{ "id": MAT_ORE_VANADIUM, "key": "snt:ore_vanadium", "hardness": 3.0, "level": 2, "item": "crushed.patronite" },
+		{ "id": MAT_ORE_CHROMIUM, "key": "snt:ore_chromium", "hardness": 3.5, "level": 2, "item": "crushed.chromite" },
+		{ "id": MAT_ORE_GALLIUM, "key": "snt:ore_gallium", "hardness": 2.0, "level": 2, "item": "crushed.gallite" },
+		{ "id": MAT_ORE_GERMANIUM, "key": "snt:ore_germanium", "hardness": 2.5, "level": 2, "item": "crushed.germanite" },
+		{ "id": MAT_ORE_ARSENIC, "key": "snt:ore_arsenic", "hardness": 2.0, "level": 1, "item": "crushed.arsenopyrite" },
+		{ "id": MAT_ORE_SELENIUM, "key": "snt:ore_selenium", "hardness": 1.8, "level": 1, "item": "crushed.clausthalite" },
+		{ "id": MAT_ORE_BROMINE, "key": "snt:ore_bromine", "hardness": 1.2, "level": 1, "item": "crushed.bromargyrite" },
+		{ "id": MAT_ORE_RUBIDIUM, "key": "snt:ore_rubidium", "hardness": 1.5, "level": 1, "item": "crushed.lepidolite" },
+		{ "id": MAT_ORE_STRONTIUM, "key": "snt:ore_strontium", "hardness": 2.0, "level": 1, "item": "crushed.celestine" },
+		{ "id": MAT_ORE_YTTRIUM, "key": "snt:ore_yttrium", "hardness": 2.5, "level": 2, "item": "crushed.xenotime" },
+		{ "id": MAT_ORE_ZIRCONIUM, "key": "snt:ore_zirconium", "hardness": 3.5, "level": 2, "item": "crushed.zircon" },
+		{ "id": MAT_ORE_NIOBIUM, "key": "snt:ore_niobium", "hardness": 3.0, "level": 2, "item": "crushed.columbite" },
+		{ "id": MAT_ORE_MOLYBDENUM, "key": "snt:ore_molybdenum", "hardness": 3.0, "level": 2, "item": "crushed.molybdenite" },
+		{ "id": MAT_ORE_RUTHENIUM, "key": "snt:ore_ruthenium", "hardness": 4.5, "level": 3, "item": "crushed.laurite" },
+		{ "id": MAT_ORE_RHODIUM, "key": "snt:ore_rhodium", "hardness": 4.5, "level": 3, "item": "crushed.rhodium_oxide" },
+		{ "id": MAT_ORE_PALLADIUM, "key": "snt:ore_palladium", "hardness": 4.0, "level": 3, "item": "crushed.stibiopalladinite" },
+		{ "id": MAT_ORE_CADMIUM, "key": "snt:ore_cadmium", "hardness": 1.8, "level": 1, "item": "crushed.greenockite" },
+		{ "id": MAT_ORE_INDIUM, "key": "snt:ore_indium", "hardness": 2.0, "level": 2, "item": "crushed.roquesite" },
+		{ "id": MAT_ORE_ANTIMONY, "key": "snt:ore_antimony", "hardness": 2.0, "level": 1, "item": "crushed.stibnite" },
+		{ "id": MAT_ORE_TELLURIUM, "key": "snt:ore_tellurium", "hardness": 2.0, "level": 2, "item": "crushed.calaverite" },
+		{ "id": MAT_ORE_IODINE, "key": "snt:ore_iodine", "hardness": 1.2, "level": 0, "item": "crushed.iodargyrite" },
+		{ "id": MAT_ORE_CESIUM, "key": "snt:ore_cesium", "hardness": 1.5, "level": 1, "item": "crushed.pollucite" },
+		{ "id": MAT_ORE_BARIUM, "key": "snt:ore_barium", "hardness": 2.0, "level": 1, "item": "crushed.barite" },
+		{ "id": MAT_ORE_RARE_EARTH, "key": "snt:ore_rare_earth", "hardness": 3.0, "level": 2, "item": "crushed.monazite" },
+		{ "id": MAT_ORE_HAFNIUM, "key": "snt:ore_hafnium", "hardness": 3.5, "level": 3, "item": "crushed.baddeleyite" },
+		{ "id": MAT_ORE_TANTALUM, "key": "snt:ore_tantalum", "hardness": 4.0, "level": 3, "item": "crushed.tantalite" },
+		{ "id": MAT_ORE_RHENIUM, "key": "snt:ore_rhenium", "hardness": 4.5, "level": 3, "item": "crushed.rheniite" },
+		{ "id": MAT_ORE_OSMIUM, "key": "snt:ore_osmium", "hardness": 5.0, "level": 3, "item": "crushed.osmiridium" },
+		{ "id": MAT_ORE_IRIDIUM, "key": "snt:ore_iridium", "hardness": 5.0, "level": 3, "item": "crushed.iridium_oxide" },
+		{ "id": MAT_ORE_THALLIUM, "key": "snt:ore_thallium", "hardness": 2.0, "level": 2, "item": "crushed.crookesite" },
+		{ "id": MAT_ORE_BISMUTH, "key": "snt:ore_bismuth", "hardness": 2.5, "level": 2, "item": "crushed.bismuthinite" },
+		{ "id": MAT_ORE_THORIUM, "key": "snt:ore_thorium", "hardness": 4.0, "level": 3, "item": "crushed.thorite" },
+	]
+	for _ore in _periodic_ores:
+		registry.register_material({
+			"id": _ore["id"],
+			"key": _ore["key"],
+			"title_key": "terrain.%s_ore" % _ore["key"].replace("snt:ore_", ""),
+			"flags": FLAG_SOLID | FLAG_MINEABLE,
+			"hardness": _ore["hardness"],
+			"required_tool_tag": "pickaxe",
+			"required_mining_level": _ore["level"],
+			"drops": [{ "item_key": _ore["item"], "count": 1 }],
+		})
 
 	registry.register_material({
 		"id": MAT_WOOD,
@@ -1541,6 +1926,96 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		  "albedo_color": Color(0.50, 0.40, 0.22) },
 		{ "material_key": "snt:ore_pentlandite", "dimension": "overworld",
 		  "albedo_color": Color(0.55, 0.52, 0.35) },
+
+		# --- Periodic table expanded ore visuals ---
+		{ "material_key": "snt:ore_lithium", "dimension": "overworld",
+		  "albedo_color": Color(0.65, 0.70, 0.72) },
+		{ "material_key": "snt:ore_beryllium", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.65, 0.60) },
+		{ "material_key": "snt:ore_boron", "dimension": "overworld",
+		  "albedo_color": Color(0.40, 0.40, 0.42) },
+		{ "material_key": "snt:ore_magnesium", "dimension": "overworld",
+		  "albedo_color": Color(0.75, 0.75, 0.72) },
+		{ "material_key": "snt:ore_phosphorus", "dimension": "overworld",
+		  "albedo_color": Color(0.60, 0.35, 0.25) },
+		{ "material_key": "snt:ore_potassium", "dimension": "overworld",
+		  "albedo_color": Color(0.72, 0.60, 0.55) },
+		{ "material_key": "snt:ore_calcium", "dimension": "overworld",
+		  "albedo_color": Color(0.85, 0.82, 0.78) },
+		{ "material_key": "snt:ore_scandium", "dimension": "overworld",
+		  "albedo_color": Color(0.45, 0.50, 0.55) },
+		{ "material_key": "snt:ore_vanadium", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.52, 0.45) },
+		{ "material_key": "snt:ore_chromium", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.50, 0.48) },
+		{ "material_key": "snt:ore_gallium", "dimension": "overworld",
+		  "albedo_color": Color(0.60, 0.62, 0.65) },
+		{ "material_key": "snt:ore_germanium", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.50, 0.52) },
+		{ "material_key": "snt:ore_arsenic", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.50, 0.42) },
+		{ "material_key": "snt:ore_selenium", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.45, 0.38) },
+		{ "material_key": "snt:ore_bromine", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.25, 0.15) },
+		{ "material_key": "snt:ore_rubidium", "dimension": "overworld",
+		  "albedo_color": Color(0.62, 0.58, 0.55) },
+		{ "material_key": "snt:ore_strontium", "dimension": "overworld",
+		  "albedo_color": Color(0.72, 0.75, 0.70) },
+		{ "material_key": "snt:ore_yttrium", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.52, 0.55) },
+		{ "material_key": "snt:ore_zirconium", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.45, 0.40) },
+		{ "material_key": "snt:ore_niobium", "dimension": "overworld",
+		  "albedo_color": Color(0.42, 0.42, 0.45) },
+		{ "material_key": "snt:ore_molybdenum", "dimension": "overworld",
+		  "albedo_color": Color(0.45, 0.45, 0.48) },
+		{ "material_key": "snt:ore_ruthenium", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.50, 0.52),
+		  "emissive_color": Color(0.04, 0.04, 0.06), "roughness": 0.4 },
+		{ "material_key": "snt:ore_rhodium", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.55, 0.58),
+		  "emissive_color": Color(0.05, 0.05, 0.08), "roughness": 0.4 },
+		{ "material_key": "snt:ore_palladium", "dimension": "overworld",
+		  "albedo_color": Color(0.60, 0.60, 0.62),
+		  "emissive_color": Color(0.05, 0.05, 0.08), "roughness": 0.4 },
+		{ "material_key": "snt:ore_cadmium", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.52, 0.48) },
+		{ "material_key": "snt:ore_indium", "dimension": "overworld",
+		  "albedo_color": Color(0.58, 0.60, 0.62) },
+		{ "material_key": "snt:ore_antimony", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.48, 0.45) },
+		{ "material_key": "snt:ore_tellurium", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.52, 0.50) },
+		{ "material_key": "snt:ore_iodine", "dimension": "overworld",
+		  "albedo_color": Color(0.40, 0.30, 0.55) },
+		{ "material_key": "snt:ore_cesium", "dimension": "overworld",
+		  "albedo_color": Color(0.60, 0.55, 0.50) },
+		{ "material_key": "snt:ore_barium", "dimension": "overworld",
+		  "albedo_color": Color(0.65, 0.60, 0.55) },
+		{ "material_key": "snt:ore_rare_earth", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.50, 0.42),
+		  "emissive_color": Color(0.06, 0.04, 0.02), "roughness": 0.4 },
+		{ "material_key": "snt:ore_hafnium", "dimension": "overworld",
+		  "albedo_color": Color(0.48, 0.48, 0.50) },
+		{ "material_key": "snt:ore_tantalum", "dimension": "overworld",
+		  "albedo_color": Color(0.42, 0.40, 0.38) },
+		{ "material_key": "snt:ore_rhenium", "dimension": "overworld",
+		  "albedo_color": Color(0.48, 0.48, 0.50),
+		  "emissive_color": Color(0.04, 0.04, 0.06), "roughness": 0.4 },
+		{ "material_key": "snt:ore_osmium", "dimension": "overworld",
+		  "albedo_color": Color(0.42, 0.42, 0.45),
+		  "emissive_color": Color(0.05, 0.05, 0.08), "roughness": 0.3 },
+		{ "material_key": "snt:ore_iridium", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.50, 0.52),
+		  "emissive_color": Color(0.05, 0.05, 0.08), "roughness": 0.3 },
+		{ "material_key": "snt:ore_thallium", "dimension": "overworld",
+		  "albedo_color": Color(0.52, 0.50, 0.48) },
+		{ "material_key": "snt:ore_bismuth", "dimension": "overworld",
+		  "albedo_color": Color(0.65, 0.60, 0.58) },
+		{ "material_key": "snt:ore_thorium", "dimension": "overworld",
+		  "albedo_color": Color(0.35, 0.40, 0.35),
+		  "emissive_color": Color(0.05, 0.10, 0.03), "roughness": 0.5 },
 
 		{ "material_key": "snt:wood", "dimension": "overworld",
 		  "albedo_color": Color(0.45, 0.27, 0.12) },

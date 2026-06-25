@@ -11,6 +11,7 @@
 #include "network/gd_fluid_network.h"
 #include "fluid/gd_fluid_registry.h"
 #include "item/gd_item_registry.h"
+#include "material/gd_material_registry.hpp"
 #include "network/gd_item_pipe_network.h"
 #include "machine/gd_recipe_database.h"
 #include "machine/gd_machine_definition_registry.h"
@@ -63,8 +64,8 @@
 #include "core/magic/glyph_registry.hpp"
 #include "core/magic/glyph_conversion.hpp"
 #include "core/magic/ritual_recipe_registry.hpp"
-#include "core/material/material.hpp"
-#include "core/material/material_item.hpp"
+// material.hpp and material_item.hpp no longer need direct includes;
+// materials are now registered from GDScript via GDMaterialRegistry.
 #include "core/crafting/crafting.hpp"
 #include "core/source_law/elixir_registry.hpp"
 #include "core/source_law/sublimation_path_registry.hpp"
@@ -83,8 +84,9 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     magic::GlyphRegistry::initialize();
     magic::GlyphConversion::initialize();
     magic::RitualRecipeRegistry::initialize();
-    gt::initialize_materials();
-    gt::ItemRegistry::initialize();
+    // Materials & items are now registered from GDScript via GDMaterialRegistry.
+    // FuelRegistry is re-initialized during MaterialRegistry::finalize()
+    // so material-based fuels (coal, wood) can resolve item IDs.
     gt::FuelRegistry::initialize();
     gt::LootTableRegistry::initialize();
     gt::MachineDefinitionRegistry::initialize();
@@ -99,6 +101,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDFluidNetwork>();
     ClassDB::register_class<GDFluidRegistry>();
     ClassDB::register_class<GDItemRegistry>();
+    ClassDB::register_class<GDMaterialRegistry>();
     ClassDB::register_class<GDItemPipeNetwork>();
     ClassDB::register_class<GDRecipeDatabase>();
     ClassDB::register_class<GDMachineDefinitionRegistry>();
