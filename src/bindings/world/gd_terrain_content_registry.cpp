@@ -603,6 +603,8 @@ bool GDTerrainContentRegistry::set_material_roles(const Dictionary& def) {
     assign_role_from_dict(roles_.leaves, def, "leaves", material_ids_by_key_);
     assign_role_from_dict(roles_.deepstone, def, "deepstone", material_ids_by_key_);
     assign_role_from_dict(roles_.core_barrier, def, "core_barrier", material_ids_by_key_);
+    assign_role_from_dict(roles_.snow, def, "snow", material_ids_by_key_);
+    assign_role_from_dict(roles_.ice, def, "ice", material_ids_by_key_);
     return true;
 }
 
@@ -613,6 +615,8 @@ bool GDTerrainContentRegistry::set_runtime_material_ids(const Dictionary& def) {
     assign_role_from_dict(runtime_ids_.ladder, def, "ladder", material_ids_by_key_);
     assign_role_from_dict(runtime_ids_.workbench, def, "workbench", material_ids_by_key_);
     assign_role_from_dict(runtime_ids_.fence, def, "fence", material_ids_by_key_);
+    assign_role_from_dict(runtime_ids_.farmland, def, "farmland", material_ids_by_key_);
+    assign_role_from_dict(runtime_ids_.bloomery, def, "bloomery", material_ids_by_key_);
     return true;
 }
 

@@ -27,9 +27,13 @@ public:
 
     static size_t count();
 
+    // Register a recipe from GDScript. The recipe's id/title_key/param_json
+    // strings are persisted internally so the returned RitualRecipe pointers
+    // remain valid after registration.
+    static RitualRecipeId register_recipe(const RitualRecipe& recipe);
+
 private:
     static void register_builtin_recipes();
-    static RitualRecipeId register_recipe(const RitualRecipe& recipe);
     static bool matches_slots(const RitualRecipe& recipe,
                               const std::vector<RuneElement>& elements,
                               const std::vector<RuneTier>& tiers);

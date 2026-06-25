@@ -10,6 +10,9 @@ namespace science_and_theology {
 using namespace magic;
 
 void GDGlyphRegistry::_bind_methods() {
+    ClassDB::bind_static_method("GDGlyphRegistry",
+        D_METHOD("register_glyph", "def"),
+        &GDGlyphRegistry::register_glyph);
     ClassDB::bind_method(D_METHOD("get_glyph_by_name", "name"),
                          &GDGlyphRegistry::get_glyph_by_name);
     ClassDB::bind_method(D_METHOD("get_effect_glyph", "element", "tier"),
@@ -24,6 +27,25 @@ void GDGlyphRegistry::_bind_methods() {
                          &GDGlyphRegistry::get_all_glyph_names);
     ClassDB::bind_method(D_METHOD("get_form_glyph_names"),
                          &GDGlyphRegistry::get_form_glyph_names);
+}
+
+bool GDGlyphRegistry::register_glyph(const Dictionary& def) {
+    String name = def.get("name", "");
+    if (name.is_empty()) return false;
+
+    GlyphDef glyph;
+    glyph.name = name.utf8().get_data();
+    glyph.slot_type = static_cast<GlyphSlotType>(
+        static_cast<int>(def.get("slot_type", 0)));
+    glyph.element = static_cast<RuneElement>(
+        static_cast<int>(def.get("element", 0)));
+    glyph.tier = static_cast<RuneTier>(
+        static_cast<int>(def.get("tier", 0)));
+    glyph.potency = static_cast<int>(def.get("potency", 1));
+    glyph.form = static_cast<SpellForm>(
+        static_cast<int>(def.get("form", 0)));
+
+    return GlyphRegistry::register_glyph(glyph) != kInvalidGlyphId;
 }
 
 godot::Dictionary GDGlyphRegistry::def_to_dict(const GlyphDef* def) {

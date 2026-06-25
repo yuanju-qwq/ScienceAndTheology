@@ -26,7 +26,25 @@ void RuneRegistry::initialize() {
     g_rune_registry.push_back({});
     g_rune_name_storage.push_back("__invalid__");
 
-    register_builtin_runes();
+    // Built-in runes are now registered from GDScript via GDRuneRegistry
+    // (see BuiltinRunes.gd).
+}
+
+RuneId RuneRegistry::register_rune(const RuneDef& def) {
+    if (g_rune_registry.size() >= kInvalidRuneId) return kInvalidRuneId;
+
+    RuneDef stored = def;
+    g_rune_name_storage.push_back(def.name);
+    stored.name = g_rune_name_storage.back().c_str();
+
+    RuneId id = static_cast<RuneId>(g_rune_registry.size());
+    g_rune_registry.push_back(stored);
+    g_rune_name_map[stored.name] = id;
+
+    int e = static_cast<int>(stored.element);
+    int t = static_cast<int>(stored.tier);
+    g_rune_index[e][t] = id;
+    return id;
 }
 
 const RuneDef* RuneRegistry::get_by_id(RuneId id) {
@@ -57,43 +75,8 @@ size_t RuneRegistry::count() {
 }
 
 void RuneRegistry::register_builtin_runes() {
-    const RuneElement elements[] = {
-        RuneElement::FIRE, RuneElement::WATER, RuneElement::EARTH,
-        RuneElement::AIR, RuneElement::LIGHT, RuneElement::DARK,
-        RuneElement::ORDER, RuneElement::CHAOS
-    };
-
-    const RuneTier tiers[] = {
-        RuneTier::COMMON, RuneTier::REFINED,
-        RuneTier::SUPERIOR, RuneTier::LEGENDARY
-    };
-
-    for (auto element : elements) {
-        for (auto tier : tiers) {
-            std::string name;
-            name += rune_element_name(element);
-            name += "_rune_";
-            name += rune_tier_name(tier);
-
-            RuneDef def;
-            def.element = element;
-            def.tier = tier;
-            def.potency = rune_tier_potency(tier);
-
-            // Store name persistently in g_rune_name_storage.
-            g_rune_name_storage.push_back(name);
-            def.name = g_rune_name_storage.back().c_str();
-
-            RuneId id = static_cast<RuneId>(g_rune_registry.size());
-            g_rune_registry.push_back(def);
-
-            g_rune_name_map[name] = id;
-
-            int e = static_cast<int>(element);
-            int t = static_cast<int>(tier);
-            g_rune_index[e][t] = id;
-        }
-    }
+    // No-op: built-in runes are now registered from GDScript via
+    // GDRuneRegistry (see BuiltinRunes.gd).
 }
 
 } // namespace science_and_theology::magic

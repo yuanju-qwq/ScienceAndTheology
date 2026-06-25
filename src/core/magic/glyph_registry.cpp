@@ -36,7 +36,30 @@ void GlyphRegistry::initialize() {
     g_glyph_registry.push_back({});
     g_glyph_name_storage.push_back("__invalid__");
 
-    register_builtin_glyphs();
+    // Built-in glyphs are now registered from GDScript via GDGlyphRegistry
+    // (see BuiltinGlyphs.gd).
+}
+
+GlyphId GlyphRegistry::register_glyph(const GlyphDef& def) {
+    if (g_glyph_registry.size() >= kInvalidGlyphId) return kInvalidGlyphId;
+
+    g_glyph_name_storage.push_back(def.name);
+    GlyphDef stored = def;
+    stored.name = g_glyph_name_storage.back().c_str();
+
+    GlyphId id = static_cast<GlyphId>(g_glyph_registry.size());
+    g_glyph_registry.push_back(stored);
+    g_glyph_name_map[stored.name] = id;
+
+    // Update index based on slot_type.
+    if (stored.slot_type == GlyphSlotType::FORM) {
+        g_form_glyph_index[static_cast<int>(stored.form)] = id;
+    } else if (stored.slot_type == GlyphSlotType::EFFECT) {
+        g_effect_glyph_index[static_cast<int>(stored.element)][static_cast<int>(stored.tier)] = id;
+    } else if (stored.slot_type == GlyphSlotType::AUGMENT) {
+        g_augment_glyph_index[static_cast<int>(stored.element)][static_cast<int>(stored.tier)] = id;
+    }
+    return id;
 }
 
 const GlyphDef* GlyphRegistry::get_by_id(GlyphId id) {
@@ -76,93 +99,17 @@ size_t GlyphRegistry::count() {
     return g_glyph_registry.size() > 0 ? g_glyph_registry.size() - 1 : 0;
 }
 
-static GlyphId register_glyph(const GlyphDef& def, const std::string& name) {
-    GlyphId id = static_cast<GlyphId>(g_glyph_registry.size());
-
-    g_glyph_name_storage.push_back(name);
-    GlyphDef stored = def;
-    stored.name = g_glyph_name_storage.back().c_str();
-
-    g_glyph_registry.push_back(stored);
-    g_glyph_name_map[name] = id;
-    return id;
+void GlyphRegistry::register_builtin_glyphs() {
+    // No-op: built-in glyphs are now registered from GDScript via
+    // GDGlyphRegistry (see BuiltinGlyphs.gd).
 }
 
 void GlyphRegistry::register_form_glyphs() {
-    const SpellForm forms[] = {
-        SpellForm::PROJECTILE,
-        SpellForm::SELF,
-        SpellForm::AREA,
-        SpellForm::BEAM,
-        SpellForm::TOUCH
-    };
-
-    for (auto form : forms) {
-        std::string name = "glyph_form_";
-        name += spell_form_name(form);
-
-        GlyphDef def;
-        def.slot_type = GlyphSlotType::FORM;
-        def.element = RuneElement::FIRE;
-        def.tier = RuneTier::COMMON;
-        def.potency = 1;
-        def.form = form;
-
-        GlyphId id = register_glyph(def, name);
-        g_form_glyph_index[static_cast<int>(form)] = id;
-    }
+    // No-op: migrated to GDScript (see BuiltinGlyphs.gd).
 }
 
 void GlyphRegistry::register_effect_augment_glyphs() {
-    const RuneElement elements[] = {
-        RuneElement::FIRE, RuneElement::WATER, RuneElement::EARTH,
-        RuneElement::AIR, RuneElement::LIGHT, RuneElement::DARK,
-        RuneElement::ORDER, RuneElement::CHAOS
-    };
-
-    const RuneTier tiers[] = {
-        RuneTier::COMMON, RuneTier::REFINED,
-        RuneTier::SUPERIOR, RuneTier::LEGENDARY
-    };
-
-    for (auto element : elements) {
-        for (auto tier : tiers) {
-            GlyphDef effect_def;
-            effect_def.slot_type = GlyphSlotType::EFFECT;
-            effect_def.element = element;
-            effect_def.tier = tier;
-            effect_def.potency = rune_tier_potency(tier);
-            effect_def.form = SpellForm::PROJECTILE;
-
-            std::string e_name = "glyph_effect_";
-            e_name += rune_element_name(element);
-            e_name += "_";
-            e_name += rune_tier_name(tier);
-
-            GlyphId e_id = register_glyph(effect_def, e_name);
-            g_effect_glyph_index[static_cast<int>(element)][static_cast<int>(tier)] = e_id;
-
-            GlyphDef augment_def;
-            augment_def.slot_type = GlyphSlotType::AUGMENT;
-            augment_def.element = element;
-            augment_def.tier = tier;
-            augment_def.potency = rune_tier_potency(tier);
-            augment_def.form = SpellForm::PROJECTILE;
-
-            std::string a_name = "glyph_augment_";
-            a_name += rune_element_name(element);
-            a_name += "_";
-            a_name += rune_tier_name(tier);
-
-            GlyphId a_id = register_glyph(augment_def, a_name);
-            g_augment_glyph_index[static_cast<int>(element)][static_cast<int>(tier)] = a_id;
-        }
-    }
-}
-
-void GlyphRegistry::register_builtin_glyphs() {
-    register_form_glyphs();
-    register_effect_augment_glyphs();
+    // No-op: migrated to GDScript (see BuiltinGlyphs.gd).
 }
 
 } // namespace science_and_theology::magic

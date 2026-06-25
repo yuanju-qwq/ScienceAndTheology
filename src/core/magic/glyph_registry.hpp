@@ -16,6 +16,11 @@ class GlyphRegistry {
 public:
     static void initialize();
 
+    // Register a glyph from GDScript. Stores the name string persistently
+    // and updates the appropriate index (form/effect/augment) based on
+    // slot_type. Returns the assigned GlyphId, or kInvalidGlyphId on failure.
+    static GlyphId register_glyph(const GlyphDef& def);
+
     static const GlyphDef* get_by_id(GlyphId id);
     static const GlyphDef* get_by_name(const char* name);
     static const GlyphDef* get_effect_glyph(RuneElement element, RuneTier tier);

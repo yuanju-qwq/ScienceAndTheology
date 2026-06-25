@@ -2166,6 +2166,8 @@ static func _register_builtin_material_roles(registry: GDTerrainContentRegistry)
 		"leaves_key": "snt:leaves",
 		"deepstone_key": "snt:deepstone",
 		"core_barrier_key": "snt:core_barrier",
+		"snow_key": "snt:snow",
+		"ice_key": "snt:ice",
 	})
 
 
@@ -2382,7 +2384,8 @@ static func _register_runtime_material_ids(registry: GDTerrainContentRegistry) -
 		"ladder_key": "snt:ladder",
 		"workbench": "snt:workbench",
 		"workbench_key": "snt:workbench",
-		"farmland": "snt:farmland",
+		"farmland_key": "snt:farmland",
+		"bloomery_key": "snt:bloomery",
 		"fence_key": "snt:fence",
 	})
 

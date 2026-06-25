@@ -13,7 +13,15 @@ func load_content() -> void:
 		return
 	_loaded = true
 
+	BuiltinFluids.register_all()
 	_register_fuels()
+	_register_fluid_fuels()
+	BuiltinRunes.register_all()
+	BuiltinGlyphs.register_all()
+	BuiltinRitualRecipes.register_all()
+	BuiltinSublimationPaths.register_all()
+	BuiltinElixirs.register_all()
+	BuiltinDroppedOrgans.register_all()
 	_register_species()
 	_register_machine_types()
 
@@ -58,6 +66,33 @@ func _register_fuels() -> void:
 	_reg.call("dust.wood", "wood_log", "fuel.wood_log", 120)
 	_reg.call("plate.wood", "wood_plank", "fuel.wood_plank", 60)
 	_reg.call("rod.wood", "stick", "fuel.stick", 30)
+
+
+# Register liquid/gas fuels (migrated from C++ FuelRegistry::register_builtin_fluid_fuels()).
+# Fluid fuels reference fluid ids by name, so this must run after
+# BuiltinFluids.register_all().
+# category: 1 = LIQUID, 2 = GAS (see FuelCategory enum in fuel_def.hpp).
+func _register_fluid_fuels() -> void:
+	var _reg := func(fluid_name: String, name: String, title_key: String, burn_ticks: int, category: int) -> void:
+		if GDFluidRegistry.get_fluid_id(fluid_name) < 0:
+			push_warning("ContentDatabase: fluid fuel '%s' references unknown fluid '%s'" % [name, fluid_name])
+			return
+		GDFuelRegistry.register_fuel({
+			"name": name,
+			"fluid_name": fluid_name,
+			"burn_ticks": burn_ticks,
+			"title_key": title_key,
+			"category": category,
+		})
+
+	# --- Liquid fuels (category 1) ---
+	_reg.call("lava", "lava_fuel", "fuel.lava", 10000, 1)
+	_reg.call("fuel_diesel", "diesel_fuel", "fuel.diesel", 5000, 1)
+	_reg.call("oil", "oil_fuel", "fuel.oil", 3000, 1)
+
+	# --- Gaseous fuels (category 2) ---
+	_reg.call("natural_gas", "natural_gas_fuel", "fuel.natural_gas", 3000, 2)
+	_reg.call("hydrogen", "hydrogen_fuel", "fuel.hydrogen", 1000, 2)
 
 
 # Register all built-in creature species via GDScript.

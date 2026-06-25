@@ -180,8 +180,7 @@ bool GDBloomeryManager::has_valid_structure(const StringName& dim, const Vector3
     // Check 3x3x2 bloomery structure around the controller cell.
     // The controller (cell) is at the center-bottom.
     // Valid: all 18 blocks (3x3x2 minus controller center) are MAT_BLOOMERY.
-    const int32_t mat = get_material_id("snt:bloomery");
-    if (mat <= 0) return true; // no material check = always valid (fallback)
+    if (bloomery_material_id_ <= 0) return true; // no material check = always valid (fallback)
 
     int32_t count = 0;
     for (int32_t dy = 0; dy < 2; ++dy) {
@@ -189,7 +188,7 @@ bool GDBloomeryManager::has_valid_structure(const StringName& dim, const Vector3
             for (int32_t dz = -1; dz <= 1; ++dz) {
                 if (dx == 0 && dy == 0 && dz == 0) continue; // skip controller
                 count += count_nearby_material(dim,
-                    Vector3i(cell.x + dx, cell.y + dy, cell.z + dz), mat);
+                    Vector3i(cell.x + dx, cell.y + dy, cell.z + dz), bloomery_material_id_);
             }
         }
     }
@@ -288,10 +287,8 @@ int32_t GDBloomeryManager::count_nearby_material(const StringName& dim, const Ve
     return (m == mat_id) ? 1 : 0;
 }
 
-int32_t GDBloomeryManager::get_material_id(const String& key) const {
-    // Could use worldgen snapshot, but fallback to 0 for now.
-    // In practice this is resolved via GDScript side.
-    return 0;
+void GDBloomeryManager::set_bloomery_material_id(int32_t id) {
+    bloomery_material_id_ = id;
 }
 
 void GDBloomeryManager::_bind_methods() {
@@ -308,6 +305,7 @@ void GDBloomeryManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_snapshot", "dimension", "cell"), &GDBloomeryManager::get_snapshot);
     ClassDB::bind_method(D_METHOD("tick_all", "delta"), &GDBloomeryManager::tick_all);
     ClassDB::bind_method(D_METHOD("clear"), &GDBloomeryManager::clear);
+    ClassDB::bind_method(D_METHOD("set_bloomery_material_id", "id"), &GDBloomeryManager::set_bloomery_material_id);
 
     ADD_SIGNAL(MethodInfo("bloomery_placed", PropertyInfo(Variant::STRING_NAME, "dimension"), PropertyInfo(Variant::VECTOR3I, "cell")));
     ADD_SIGNAL(MethodInfo("bloomery_removed", PropertyInfo(Variant::STRING_NAME, "dimension"), PropertyInfo(Variant::VECTOR3I, "cell")));

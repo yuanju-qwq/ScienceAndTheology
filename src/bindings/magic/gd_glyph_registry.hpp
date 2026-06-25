@@ -15,6 +15,17 @@ class GDGlyphRegistry : public godot::Resource {
 public:
     GDGlyphRegistry() = default;
 
+    // Register a glyph from GDScript.
+    // Dictionary fields:
+    //   name (String, required): stable glyph key.
+    //   slot_type (int, required): GlyphSlotType (0=FORM, 1=EFFECT, 2=AUGMENT).
+    //   element (int, optional): RuneElement, default 0 (FIRE).
+    //   tier (int, optional): RuneTier, default 0 (COMMON).
+    //   potency (int, optional): default 1.
+    //   form (int, optional): SpellForm, default 0 (PROJECTILE).
+    // Returns true on success.
+    static bool register_glyph(const godot::Dictionary& def);
+
     godot::Dictionary get_glyph_by_name(const godot::String& name) const;
     godot::Dictionary get_effect_glyph(int element, int tier) const;
     godot::Dictionary get_augment_glyph(int element, int tier) const;

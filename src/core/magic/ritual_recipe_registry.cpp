@@ -22,7 +22,8 @@ void RitualRecipeRegistry::initialize() {
     g_ritual_name_storage.push_back("__invalid__");
     g_ritual_title_key_storage.push_back("__invalid__");
 
-    register_builtin_recipes();
+    // Built-in recipes are now registered from GDScript
+    // (see BuiltinRitualRecipes.gd via GDRitualRecipeRegistry).
 }
 
 const RitualRecipe* RitualRecipeRegistry::get_by_id(RitualRecipeId id) {
@@ -92,165 +93,8 @@ const RitualRecipe* RitualRecipeRegistry::match(
 }
 
 void RitualRecipeRegistry::register_builtin_recipes() {
-    // --- Machine blessings ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::FIRE,   RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::FIRE,   RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_machine_speed",
-            "Machine Speed I",
-            r.pedestals,
-            40, 100, false,
-            {RitualEffectType::MACHINE_BLESSING, R"({"boost":"speed","mult":1.2})", 72000}
-        });
-    }
-
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::WATER,  RuneTier::COMMON, true},
-            {RuneElement::WATER,  RuneTier::COMMON, true},
-            {RuneElement::WATER,  RuneTier::COMMON, true},
-            {RuneElement::WATER,  RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_machine_cooling",
-            "Machine Cooling",
-            r.pedestals,
-            50, 120, false,
-            {RitualEffectType::MACHINE_BLESSING, R"({"boost":"no_maintenance"})", 144000}
-        });
-    }
-
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::EARTH,  RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::LIGHT,  RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_machine_boost",
-            "Machine Output I",
-            r.pedestals,
-            55, 100, false,
-            {RitualEffectType::MACHINE_BLESSING, R"({"boost":"output","mult":1.15})", 72000}
-        });
-    }
-
-    // --- World events ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::LIGHT,  RuneTier::COMMON, true},
-            {RuneElement::LIGHT,  RuneTier::COMMON, true},
-            {RuneElement::DARK,   RuneTier::COMMON, true},
-            {RuneElement::DARK,   RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_toggle_ruin_gate",
-            "Toggle Ruin Gate",
-            r.pedestals,
-            30, 80, true,
-            {RitualEffectType::WORLD_EVENT, R"({"event":"toggle_ruin_gate"})", 0}
-        });
-    }
-
-    // --- Player buffs ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::AIR,    RuneTier::COMMON, true},
-            {RuneElement::AIR,    RuneTier::COMMON, true},
-            {RuneElement::AIR,    RuneTier::COMMON, true},
-            {RuneElement::AIR,    RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_player_speed",
-            "Player Speed Boost",
-            r.pedestals,
-            25, 100, true,
-            {RitualEffectType::PLAYER_BUFF, R"({"buff":"speed","mult":1.5})", 36000}
-        });
-    }
-
-    // --- Chaos combo ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::CHAOS,  RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::CHAOS,  RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_machine_double",
-            "Machine Random Double Output",
-            r.pedestals,
-            70, 150, true,
-            {RitualEffectType::MACHINE_BLESSING, R"({"boost":"random_double","chance":0.2})", 36000}
-        });
-    }
-
-    // --- Teleportation ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::FIRE,   RuneTier::COMMON, true},
-            {RuneElement::EARTH,  RuneTier::COMMON, true},
-            {RuneElement::WATER,  RuneTier::COMMON, true},
-            {RuneElement::AIR,    RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_teleport_link",
-            "Altar Teleport Link",
-            r.pedestals,
-            80, 200, true,
-            {RitualEffectType::TELEPORTATION, R"({})", 0}
-        });
-    }
-
-    // --- Divination ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::LIGHT,  RuneTier::COMMON, true},
-            {RuneElement::EARTH,  RuneTier::COMMON, true},
-            {RuneElement::LIGHT,  RuneTier::COMMON, true},
-            {RuneElement::EARTH,  RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_divination",
-            "Divination",
-            r.pedestals,
-            20, 60, false,
-            {RitualEffectType::DIVINATION, R"({})", 0}
-        });
-    }
-
-    // --- Mana expansion ---
-    {
-        RitualRecipe r;
-        r.pedestals = {
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true},
-            {RuneElement::ORDER,  RuneTier::COMMON, true}
-        };
-        register_recipe(RitualRecipe{
-            "ritual_mana_expand",
-            "Mana Expansion +25",
-            r.pedestals,
-            60, 150, true,
-            {RitualEffectType::MANA_EXPANSION, R"({"amount":25})", 0}
-        });
-    }
+    // Built-in recipes are now registered from GDScript
+    // (see BuiltinRitualRecipes.gd via GDRitualRecipeRegistry).
 }
 
 } // namespace science_and_theology::magic

@@ -19,7 +19,8 @@ void ElixirRegistry::initialize() {
     g_elixir_recipes.push_back({});
     g_elixir_name_storage.push_back("__invalid__");
 
-    register_builtin_recipes();
+    // Built-in recipes are now registered from GDScript via
+    // GDElixirRegistry (see BuiltinElixirs.gd).
 }
 
 const ElixirRecipe* ElixirRegistry::get_by_id(ElixirId id) {
@@ -60,110 +61,8 @@ ElixirId ElixirRegistry::register_recipe(const ElixirRecipe& recipe) {
 }
 
 void ElixirRegistry::register_builtin_recipes() {
-    // --- Sand Armor Initiation Elixir ---
-    register_recipe(ElixirRecipe{
-        "elixir_sand_armor_initiation",
-        "Sand Armor Initiation Elixir",
-        ElixirType::INITIATION,
-        SublimationPath::SAND_ARMOR,
-        OrganSlot::BONE,
-        magic::RuneElement::EARTH,
-        50,
-        5.0f,
-        2.0f,
-        0,
-        {magic::RuneElement::EARTH, magic::RuneElement::ORDER}
-    });
-
-    // --- Tidal Initiation Elixir (placeholder for V0.7) ---
-    register_recipe(ElixirRecipe{
-        "elixir_tidal_initiation",
-        "Tidal Initiation Elixir",
-        ElixirType::INITIATION,
-        SublimationPath::TIDAL,
-        OrganSlot::LUNG,
-        magic::RuneElement::WATER,
-        50,
-        5.0f,
-        2.0f,
-        0,
-        {magic::RuneElement::WATER, magic::RuneElement::LIGHT}
-    });
-
-    // --- Storm Initiation Elixir (placeholder for V0.7) ---
-    register_recipe(ElixirRecipe{
-        "elixir_storm_initiation",
-        "Storm Initiation Elixir",
-        ElixirType::INITIATION,
-        SublimationPath::STORM,
-        OrganSlot::NERVE,
-        magic::RuneElement::AIR,
-        50,
-        5.0f,
-        2.0f,
-        0,
-        {magic::RuneElement::AIR, magic::RuneElement::FIRE}
-    });
-
-    // --- Furnace Initiation Elixir (placeholder for V0.7) ---
-    register_recipe(ElixirRecipe{
-        "elixir_furnace_initiation",
-        "Furnace Initiation Elixir",
-        ElixirType::INITIATION,
-        SublimationPath::FURNACE,
-        OrganSlot::HEART,
-        magic::RuneElement::FIRE,
-        50,
-        5.0f,
-        2.0f,
-        0,
-        {magic::RuneElement::FIRE, magic::RuneElement::CHAOS}
-    });
-
-    // --- Radiance Initiation Elixir (placeholder for V0.7) ---
-    register_recipe(ElixirRecipe{
-        "elixir_radiance_initiation",
-        "Radiance Initiation Elixir",
-        ElixirType::INITIATION,
-        SublimationPath::RADIANCE,
-        OrganSlot::EYE,
-        magic::RuneElement::LIGHT,
-        50,
-        5.0f,
-        2.0f,
-        0,
-        {magic::RuneElement::LIGHT, magic::RuneElement::ORDER}
-    });
-
-    // --- Basic Tuning Potion ---
-    register_recipe(ElixirRecipe{
-        "elixir_basic_tuning",
-        "Basic Tuning Potion",
-        ElixirType::TUNING,
-        SublimationPath::NONE,
-        OrganSlot::COUNT,
-        magic::RuneElement::ORDER,
-        0,
-        2.0f,
-        -1.0f,
-        1,
-        {magic::RuneElement::ORDER}
-    });
-
-    // --- Basic Purification Potion ---
-    register_recipe(ElixirRecipe{
-        "elixir_basic_purification",
-        "Basic Purification Potion",
-        ElixirType::PURIFICATION,
-        SublimationPath::NONE,
-        OrganSlot::COUNT,
-        magic::RuneElement::LIGHT,
-        0,
-        5.0f,
-        -3.0f,
-        0,
-        {magic::RuneElement::LIGHT, magic::RuneElement::WATER}
-    });
+    // Migrated to GDScript (see scripts/content/BuiltinElixirs.gd).
+    // Retained as a no-op for ABI compatibility.
 }
 
 } // namespace science_and_theology::source_law

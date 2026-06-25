@@ -13,6 +13,10 @@ class RuneRegistry {
 public:
     static void initialize();
 
+    // Register a rune from GDScript. Stores the name string persistently.
+    // Returns the assigned RuneId, or kInvalidRuneId on failure.
+    static RuneId register_rune(const RuneDef& def);
+
     static const RuneDef* get_by_id(RuneId id);
     static const RuneDef* get_by_name(const char* name);
     static const RuneDef* get(RuneElement element, RuneTier tier);

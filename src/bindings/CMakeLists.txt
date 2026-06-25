@@ -29,6 +29,7 @@ set(SOURCES
     world/gd_custom_block_entity_registry.cpp
     simulation/gd_game_command_server.cpp
     simulation/gd_tick_system.cpp
+    simulation/gd_species_registry.cpp
     mobile_structure/gd_ship_command_bridge.cpp
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp
@@ -41,11 +42,15 @@ set(SOURCES
     magic/gd_source_law_weapon.cpp
     magic/gd_spell_book.cpp
     magic/gd_mana_pool.cpp
+    magic/gd_ritual_recipe_registry.cpp
     fuel/gd_fuel_registry.cpp
     loot/gd_loot_table_registry.cpp
     machine/gd_recipe_database.cpp
     machine/gd_machine_definition_registry.cpp
     source_law/gd_player_source_law_data.cpp
+    source_law/gd_elixir_registry.cpp
+    source_law/gd_sublimation_path_registry.cpp
+    source_law/gd_dropped_organ_registry.cpp
     quest/gd_quest_system.cpp
     multiblock/gd_multiblock_builder.cpp
     multiblock/gd_multiblock_controller.cpp

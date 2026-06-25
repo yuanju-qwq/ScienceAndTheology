@@ -14,6 +14,15 @@ class GDRuneRegistry : public godot::Resource {
 public:
     GDRuneRegistry() = default;
 
+    // Register a rune from GDScript.
+    // Dictionary fields:
+    //   name (String, required): stable rune key, e.g. "fire_rune_common".
+    //   element (int, required): RuneElement enum (0=Fire … 7=Chaos).
+    //   tier (int, required): RuneTier enum (0=Common … 3=Legendary).
+    //   potency (int, optional): defaults to 1.
+    // Returns true on success.
+    static bool register_rune(const godot::Dictionary& def);
+
     godot::Dictionary get_rune_by_name(const godot::String& name) const;
     godot::Dictionary get_rune(int element, int tier) const;
     int get_rune_count() const;

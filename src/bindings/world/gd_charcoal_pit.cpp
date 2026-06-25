@@ -18,7 +18,6 @@ constexpr int32_t kMaxLogs = 16;
 constexpr double kBaseBurnTimePerLog = 120.0;  // seconds per log
 constexpr int32_t kCharcoalPerLog = 1;
 constexpr double kLogBurnSeconds = kBaseBurnTimePerLog * kMaxLogs;
-const char* kCoverMaterialKeys[] = {"snt:dirt", "snt:sand", "snt:straw", "snt:snow", "snt:clay", nullptr};
 
 double clamp01(double v) {
     return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);

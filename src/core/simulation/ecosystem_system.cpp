@@ -1648,8 +1648,8 @@ void EcosystemSystem::register_default_biome_overrides() {
         bo.max_vegetation = 0.1f;
         bo.max_herbivore = 0.0f;
         bo.max_predator = 0.0f;
-        bo.herb_species_ids = {};
-        bo.pred_species_ids = {};
+        bo.herb_species_keys = {};
+        bo.pred_species_keys = {};
     }
 }
 

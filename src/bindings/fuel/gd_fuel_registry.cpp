@@ -3,6 +3,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <unordered_set>
 
+#include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
 
@@ -47,10 +48,6 @@ bool GDFuelRegistry::register_fuel(const Dictionary& def) {
     String name = def.get("name", "");
     if (name.is_empty()) return false;
 
-    Variant item_id_v = def.get("item_id", Variant());
-    if (item_id_v.get_type() == Variant::NIL) return false;
-    ItemId item_id = static_cast<ItemId>(static_cast<int64_t>(item_id_v));
-
     Variant burn_v = def.get("burn_ticks", Variant());
     if (burn_v.get_type() == Variant::NIL) return false;
     int64_t burn_ticks = static_cast<int64_t>(burn_v);
@@ -62,10 +59,23 @@ bool GDFuelRegistry::register_fuel(const Dictionary& def) {
     fuel_def.title_key = title.is_empty()
         ? fuel_def.name
         : intern_string(std::string(title.utf8().get_data()));
-    fuel_def.item_id = item_id;
     fuel_def.burn_ticks = burn_ticks;
     fuel_def.category = static_cast<FuelCategory>(
         static_cast<int>(def.get("category", 0)));
+
+    // Resolve fuel target: either item_id (solid) or fluid_name (liquid/gas).
+    Variant item_id_v = def.get("item_id", Variant());
+    Variant fluid_name_v = def.get("fluid_name", Variant());
+    if (item_id_v.get_type() != Variant::NIL) {
+        fuel_def.item_id = static_cast<ItemId>(static_cast<int64_t>(item_id_v));
+    } else if (fluid_name_v.get_type() != Variant::NIL) {
+        String fluid_name = fluid_name_v;
+        FluidId fid = FluidRegistry::get_fluid_id(fluid_name.utf8().get_data());
+        if (fid == kInvalidFluidId) return false;
+        fuel_def.fluid_id = fid;
+    } else {
+        return false;  // Neither item_id nor fluid_name provided.
+    }
 
     FuelRegistry::register_fuel(fuel_def);
     return true;

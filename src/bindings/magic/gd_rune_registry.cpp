@@ -12,6 +12,9 @@ namespace science_and_theology {
 using namespace magic;
 
 void GDRuneRegistry::_bind_methods() {
+    ClassDB::bind_static_method("GDRuneRegistry",
+        D_METHOD("register_rune", "def"),
+        &GDRuneRegistry::register_rune);
     ClassDB::bind_method(D_METHOD("get_rune_by_name", "name"),
                          &GDRuneRegistry::get_rune_by_name);
     ClassDB::bind_method(D_METHOD("get_rune", "element", "tier"),
@@ -20,6 +23,21 @@ void GDRuneRegistry::_bind_methods() {
                          &GDRuneRegistry::get_rune_count);
     ClassDB::bind_method(D_METHOD("get_all_rune_names"),
                          &GDRuneRegistry::get_all_rune_names);
+}
+
+bool GDRuneRegistry::register_rune(const Dictionary& def) {
+    String name = def.get("name", "");
+    if (name.is_empty()) return false;
+
+    RuneDef rune;
+    rune.name = name.utf8().get_data();
+    rune.element = static_cast<RuneElement>(
+        static_cast<int>(def.get("element", 0)));
+    rune.tier = static_cast<RuneTier>(
+        static_cast<int>(def.get("tier", 0)));
+    rune.potency = static_cast<int>(def.get("potency", 1));
+
+    return RuneRegistry::register_rune(rune) != kInvalidRuneId;
 }
 
 godot::Dictionary GDRuneRegistry::get_rune_by_name(const godot::String& name) const {

@@ -210,9 +210,9 @@ void TerrainGenerator::pass_base_terrain_planet(
     TerrainData& terrain, const PlanetConfig& planet) {
     const auto mat = materials();
     const TerrainMaterialId snow_material =
-        config_->material_id_or("snt:snow", mat.dirt);
+        mat.snow != 0 ? mat.snow : mat.dirt;
     const TerrainMaterialId ice_material =
-        config_->material_id_or("snt:ice", mat.water);
+        mat.ice != 0 ? mat.ice : mat.water;
 
     NoiseGenerator elevation_noise(world_seed_.dimension_seed(
         static_cast<uint32_t>(GenerationPass::BASE_TERRAIN),
@@ -1293,6 +1293,8 @@ TerrainGenerator::MaterialIds TerrainGenerator::materials() const {
     ids.leaves = config_->roles.leaves;
     ids.deepstone = config_->roles.deepstone;
     ids.core_barrier = config_->roles.core_barrier;
+    ids.snow = config_->roles.snow;
+    ids.ice = config_->roles.ice;
     return ids;
 }
 

@@ -275,6 +275,8 @@ Dictionary GDWorldGenConfig::get_runtime_material_ids() const {
     d["ladder"] = static_cast<int>(snapshot->runtime_ids.ladder);
     d["workbench"] = static_cast<int>(snapshot->runtime_ids.workbench);
     d["fence"] = static_cast<int>(snapshot->runtime_ids.fence);
+    d["farmland"] = static_cast<int>(snapshot->runtime_ids.farmland);
+    d["bloomery"] = static_cast<int>(snapshot->runtime_ids.bloomery);
     return d;
 }
 

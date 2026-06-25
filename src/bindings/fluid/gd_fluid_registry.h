@@ -49,6 +49,17 @@ public:
     // Returns the total number of registered fluids.
     static int64_t get_fluid_count();
 
+    // Link phase transition between two fluids. Must be called after both
+    // fluids are registered. When `from_name` is heated above evaporation_temp
+    // it transitions to `to_name`; when `to_name` is cooled below
+    // condensation_temp it transitions back to `from_name`.
+    // Returns true on success, false if either fluid is not found.
+    static bool link_phase_transition(
+        const godot::String& from_name,
+        const godot::String& to_name,
+        int64_t evaporation_temp,
+        int64_t condensation_temp);
+
 protected:
     static void _bind_methods();
 };

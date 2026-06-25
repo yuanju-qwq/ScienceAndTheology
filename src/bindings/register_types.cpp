@@ -55,6 +55,10 @@
 #include "multiplayer/gd_network_client.hpp"
 #include "multiplayer/gd_prediction_buffer.hpp"
 #include "sfm/gd_sfm_manager.h"
+#include "magic/gd_ritual_recipe_registry.hpp"
+#include "source_law/gd_elixir_registry.hpp"
+#include "source_law/gd_sublimation_path_registry.hpp"
+#include "source_law/gd_dropped_organ_registry.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
@@ -70,6 +74,7 @@
 #include "core/crafting/crafting.hpp"
 #include "core/source_law/elixir_registry.hpp"
 #include "core/source_law/sublimation_path_registry.hpp"
+#include "core/source_law/dropped_organ_registry.hpp"
 
 using namespace godot;
 
@@ -81,9 +86,9 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     }
 
     gt::FluidRegistry::initialize();
-    // Initialize fuel registry (clear) then register fluid fuels.
+    // Fluid and fuel builtins are now registered from GDScript
+    // (see BuiltinFluids.gd and ContentDatabase._register_fluid_fuels()).
     gt::FuelRegistry::initialize();
-    gt::FuelRegistry::register_builtin_fluid_fuels();
     magic::RuneRegistry::initialize();
     magic::GlyphRegistry::initialize();
     magic::GlyphConversion::initialize();
@@ -98,6 +103,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     gt::RecipeDatabase::initialize();
     source_law::ElixirRegistry::initialize();
     source_law::SublimationPathRegistry::initialize();
+    source_law::DroppedOrganRegistry::initialize();
 
     ClassDB::register_class<GDPowerNetwork>();
     ClassDB::register_class<GDSignalNetwork>();
@@ -142,12 +148,16 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDRuneRegistry>();
     ClassDB::register_class<GDGlyphRegistry>();
     ClassDB::register_class<GDGlyphConversion>();
+    ClassDB::register_class<GDRitualRecipeRegistry>();
     ClassDB::register_class<GDSourceLawWeapon>();
     ClassDB::register_class<GDSpellBook>();
     ClassDB::register_class<GDManaPool>();
     ClassDB::register_class<GDFuelRegistry>();
     ClassDB::register_class<GDLootTableRegistry>();
     ClassDB::register_class<GDPlayerSourceLawData>();
+    ClassDB::register_class<GDElixirRegistry>();
+    ClassDB::register_class<GDSublimationPathRegistry>();
+    ClassDB::register_class<GDDroppedOrganRegistry>();
     ClassDB::register_class<GDSatiationData>();
     ClassDB::register_class<GDQuestSystem>();
     ClassDB::register_class<GDMultiblockBuilder>();

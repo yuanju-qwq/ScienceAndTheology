@@ -78,6 +78,30 @@ int64_t GDFluidRegistry::get_fluid_count() {
     return static_cast<int64_t>(gt::FluidRegistry::get_fluid_count());
 }
 
+bool GDFluidRegistry::link_phase_transition(
+        const String& from_name, const String& to_name,
+        int64_t evaporation_temp, int64_t condensation_temp) {
+    gt::FluidId from_id = gt::FluidRegistry::get_fluid_id(from_name.utf8().get_data());
+    gt::FluidId to_id = gt::FluidRegistry::get_fluid_id(to_name.utf8().get_data());
+    if (from_id == gt::kInvalidFluidId || to_id == gt::kInvalidFluidId) {
+        return false;
+    }
+
+    gt::FluidDefinition* from_def = const_cast<gt::FluidDefinition*>(
+        gt::FluidRegistry::get_fluid(from_id));
+    gt::FluidDefinition* to_def = const_cast<gt::FluidDefinition*>(
+        gt::FluidRegistry::get_fluid(to_id));
+    if (from_def == nullptr || to_def == nullptr) {
+        return false;
+    }
+
+    from_def->evaporation_temp = evaporation_temp;
+    from_def->evaporation_target = to_id;
+    to_def->condensation_temp = condensation_temp;
+    to_def->condensation_target = from_id;
+    return true;
+}
+
 void GDFluidRegistry::_bind_methods() {
     ClassDB::bind_static_method("GDFluidRegistry",
         D_METHOD("register_fluid", "def"),
@@ -91,6 +115,10 @@ void GDFluidRegistry::_bind_methods() {
     ClassDB::bind_static_method("GDFluidRegistry",
         D_METHOD("get_fluid_count"),
         &GDFluidRegistry::get_fluid_count);
+    ClassDB::bind_static_method("GDFluidRegistry",
+        D_METHOD("link_phase_transition", "from_name", "to_name",
+                 "evaporation_temp", "condensation_temp"),
+        &GDFluidRegistry::link_phase_transition);
 }
 
 } // namespace science_and_theology

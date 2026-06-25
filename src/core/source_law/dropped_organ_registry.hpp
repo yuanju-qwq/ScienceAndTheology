@@ -31,8 +31,11 @@ public:
 
     static size_t count();
 
-private:
+    // Register a dropped organ from GDScript.  Returns kInvalidDroppedOrganId
+    // on failure, otherwise the assigned id.
     static DroppedOrganId register_organ(const DroppedOrganDef& def);
+
+private:
     static void register_builtin_organs();
 };
 

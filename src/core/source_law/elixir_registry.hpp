@@ -26,8 +26,12 @@ public:
 
     static size_t count();
 
-private:
+    // Register a recipe from GDScript. The recipe's id is persisted
+    // internally; callers must ensure title_key remains valid for the
+    // recipe's lifetime (the GD binding handles this).
     static ElixirId register_recipe(const ElixirRecipe& recipe);
+
+private:
     static void register_builtin_recipes();
 };
 

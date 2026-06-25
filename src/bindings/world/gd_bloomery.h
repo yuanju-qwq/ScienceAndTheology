@@ -84,6 +84,9 @@ public:
     void tick_all(double delta);
     void clear();
 
+    // Inject the bloomery material id (resolved from runtime_ids by GDScript).
+    void set_bloomery_material_id(int32_t id);
+
 protected:
     static void _bind_methods();
 
@@ -100,11 +103,11 @@ private:
     void mdirty(const BloomKey& k);
     bool tick_bloom(const BloomKey& k, GDBloomeryData* d, double delta);
     int32_t count_nearby_material(const godot::StringName& dim, const godot::Vector3i& center, int32_t mat_id) const;
-    int32_t get_material_id(const godot::String& key) const;
 
     std::unordered_map<BloomKey, godot::Ref<GDBloomeryData>, BloomKeyHash> blooms_;
     std::unordered_set<BloomKey, BloomKeyHash> dirty_blooms_;
     godot::Node* wd_ = nullptr;
+    int32_t bloomery_material_id_ = 0;
 };
 
 } // namespace science_and_theology

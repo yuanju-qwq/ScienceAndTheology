@@ -18,7 +18,8 @@ void FluidRegistry::initialize() {
     // Reserve ID 0 as invalid.
     g_fluid_registry.push_back({"__invalid__", "Invalid", "", 0, false});
 
-    register_builtin_fluids();
+    // Built-in fluids are now registered from GDScript via GDFluidRegistry
+    // (see BuiltinFluids.gd).
 }
 
 FluidId FluidRegistry::register_fluid(const FluidDefinition& def) {
@@ -60,71 +61,8 @@ size_t FluidRegistry::get_fluid_count() {
 // ============================================================
 
 void FluidRegistry::register_builtin_fluids() {
-    // --- Basic fluids ---
-    register_fluid({"water", "Water", "H2O", 300, false});
-    register_fluid({"lava", "Lava", "?", 1500, false});
-    register_fluid({"steam", "Steam", "H2O", 400, true});
-
-    // --- Oil processing ---
-    register_fluid({"oil", "Oil", "?", 300, false});
-    register_fluid({"oil_heavy", "Heavy Oil", "?", 350, false});
-    register_fluid({"oil_light", "Light Oil", "?", 250, false});
-
-    // --- Fuels ---
-    register_fluid({"fuel_diesel", "Diesel Fuel", "?", 250, false});
-    register_fluid({"fuel_rocket", "Rocket Fuel", "?", 200, false});
-    register_fluid({"ethanol", "Ethanol", "C2H5OH", 300, false});
-
-    // --- Acids ---
-    register_fluid({"sulfuric_acid", "Sulfuric Acid", "H2SO4", 300, false});
-    register_fluid({"hydrochloric_acid", "Hydrochloric Acid", "HCl", 300,
-                    false});
-    register_fluid({"nitric_acid", "Nitric Acid", "HNO3", 300, false});
-    register_fluid({"hydrofluoric_acid", "Hydrofluoric Acid", "HF", 300,
-                    false});
-    register_fluid({"aqua_regia", "Aqua Regia", "HNO3+3HCl", 300, false});
-
-    // --- Industrial chemicals ---
-    register_fluid({"creosote", "Creosote", "?", 400, false});
-    register_fluid({"lubricant", "Lubricant", "?", 300, false});
-    register_fluid({"glue", "Glue", "?", 300, false});
-    register_fluid({"biomass", "Biomass", "?", 300, false});
-
-    // --- Gases ---
-    register_fluid({"oxygen", "Oxygen", "O2", 90, true});
-    register_fluid({"hydrogen", "Hydrogen", "H2", 20, true});
-    register_fluid({"nitrogen", "Nitrogen", "N2", 77, true});
-    register_fluid({"natural_gas", "Natural Gas", "CH4", 111, true});
-
-    // --- Molten metals ---
-    register_fluid({"molten_iron", "Molten Iron", "Fe", 1811, false});
-    register_fluid({"molten_gold", "Molten Gold", "Au", 1337, false});
-    register_fluid({"molten_copper", "Molten Copper", "Cu", 1358, false});
-    register_fluid({"molten_tin", "Molten Tin", "Sn", 505, false});
-    register_fluid({"molten_lead", "Molten Lead", "Pb", 601, false});
-
-    // --- Other ---
-    register_fluid({"mercury", "Mercury", "Hg", 234, false});
-    register_fluid({"distilled_water", "Distilled Water", "H2O", 300, false});
-
-    // --- Phase transition links (must be after all fluids registered) ---
-    // Water evaporates at 373 K (100°C) into steam.
-    FluidId water_id = get_fluid_id("water");
-    FluidId steam_id = get_fluid_id("steam");
-    if (water_id != kInvalidFluidId && steam_id != kInvalidFluidId) {
-        FluidDefinition* water_def = const_cast<FluidDefinition*>(
-            get_fluid(water_id));
-        FluidDefinition* steam_def = const_cast<FluidDefinition*>(
-            get_fluid(steam_id));
-        if (water_def) {
-            water_def->evaporation_temp = 373;
-            water_def->evaporation_target = steam_id;
-        }
-        if (steam_def) {
-            steam_def->condensation_temp = 373;
-            steam_def->condensation_target = water_id;
-        }
-    }
+    // No-op: built-in fluids are now registered from GDScript via
+    // GDFluidRegistry (see BuiltinFluids.gd).
 }
 
 } // namespace science_and_theology::gt

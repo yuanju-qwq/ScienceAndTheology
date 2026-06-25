@@ -103,32 +103,12 @@ size_t FuelRegistry::get_fuel_count() {
 
 void FuelRegistry::register_builtin_fuels() {
     // No-op: solid fuels are now registered from GDScript.
-    // Fluid fuels are registered in register_builtin_fluid_fuels().
+    // Fluid fuels are also registered from GDScript.
 }
 
 void FuelRegistry::register_builtin_fluid_fuels() {
-    auto reg_fluid = [](const char* fluid_name, const char* title_key,
-                         int64_t burn_ticks, FuelCategory cat) {
-        FluidId id = FluidRegistry::get_fluid_id(fluid_name);
-        if (id == kInvalidFluidId) return;
-
-        FuelDefinition def;
-        def.name = fluid_name;
-        def.title_key = title_key;
-        def.category = cat;
-        def.fluid_id = id;
-        def.burn_ticks = burn_ticks;
-        register_fuel(def);
-    };
-
-    // --- Liquid fuels ---
-    reg_fluid("lava", "fuel.lava", 10000, FuelCategory::LIQUID);
-    reg_fluid("fuel_diesel", "fuel.diesel", 5000, FuelCategory::LIQUID);
-    reg_fluid("oil", "fuel.oil", 3000, FuelCategory::LIQUID);
-
-    // --- Gaseous fuels ---
-    reg_fluid("natural_gas", "fuel.natural_gas", 3000, FuelCategory::GAS);
-    reg_fluid("hydrogen", "fuel.hydrogen", 1000, FuelCategory::GAS);
+    // No-op: fluid fuels are now registered from GDScript via
+    // GDFuelRegistry (see ContentDatabase._register_fluid_fuels()).
 }
 
 } // namespace science_and_theology::gt

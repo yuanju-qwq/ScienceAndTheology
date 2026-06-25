@@ -110,6 +110,8 @@ struct TerrainMaterialRoles {
     TerrainMaterialId leaves = 0;
     TerrainMaterialId deepstone = 0;
     TerrainMaterialId core_barrier = 0;
+    TerrainMaterialId snow = 0;
+    TerrainMaterialId ice = 0;
 };
 
 // Runtime material IDs for blocks placed by players, NOT by terrain generation.
@@ -119,6 +121,8 @@ struct RuntimeMaterialIds {
     TerrainMaterialId ladder = 0;
     TerrainMaterialId workbench = 0;
     TerrainMaterialId fence = 0;
+    TerrainMaterialId farmland = 0;
+    TerrainMaterialId bloomery = 0;
 };
 
 struct BaseTerrainRule {

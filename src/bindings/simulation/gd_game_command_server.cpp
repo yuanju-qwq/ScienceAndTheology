@@ -1790,7 +1790,10 @@ int32_t GDGameCommandServer::get_fence_material_id() const {
 }
 
 int32_t GDGameCommandServer::get_farmland_material_id() const {
-    return get_material_id_by_key("snt:farmland");
+    if (world_data_ == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(world_data_->get_worldgen_snapshot()->runtime_ids.farmland);
 }
 
 int32_t GDGameCommandServer::get_dirt_material_id() const {

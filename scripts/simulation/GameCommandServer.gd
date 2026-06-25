@@ -65,6 +65,19 @@ func _configure_server() -> void:
 	set_furnace_manager(get_node_or_null(furnace_manager_path))
 	if _chunk_bridge != null:
 		set_world_data(_chunk_bridge.get_world_data())
+		_inject_bloomery_material_id()
+
+
+# Inject the bloomery material id (resolved from runtime_ids) into the
+# BloomeryManager so has_valid_structure can check block materials.
+func _inject_bloomery_material_id() -> void:
+	var bloomery_mgr: Node = get_node_or_null(bloomery_manager_path)
+	if bloomery_mgr == null or _chunk_bridge == null:
+		return
+	if _chunk_bridge.worldgen_config == null:
+		return
+	var runtime_ids: Dictionary = _chunk_bridge.worldgen_config.get_runtime_material_ids()
+	bloomery_mgr.set_bloomery_material_id(int(runtime_ids.get("bloomery", 0)))
 
 
 # TFC commands are now handled directly in C++ GDGameCommandServer.

@@ -77,6 +77,8 @@ private:
         TerrainMaterialId leaves = 0;
         TerrainMaterialId deepstone = 0;
         TerrainMaterialId core_barrier = 0;
+        TerrainMaterialId snow = 0;
+        TerrainMaterialId ice = 0;
     };
 
     // Pass 1: Fill the chunk with base terrain materials.

@@ -1,5 +1,7 @@
 #include "sublimation_path_registry.hpp"
 
+#include <cstring>
+#include <deque>
 #include <string>
 #include <unordered_map>
 
@@ -8,9 +10,81 @@ namespace science_and_theology::source_law {
 static SublimationPathDef g_paths[static_cast<int>(SublimationPath::COUNT)];
 static std::unordered_map<std::string, const OrganSkillDef*> g_skill_map;
 
+// Persistent storage for const char* fields coming from GDScript.
+// std::deque keeps references to existing elements stable when appending,
+// so c_str() pointers handed to the defs remain valid across registrations.
+static std::deque<std::string> g_string_storage;
+
+// Returns a stable const char* for the given source string. Empty strings
+// map to the shared empty literal so we don't allocate storage for them.
+static const char* store_string(const char* src) {
+    if (src == nullptr || src[0] == '\0') return "";
+    g_string_storage.emplace_back(src);
+    return g_string_storage.back().c_str();
+}
+
 void SublimationPathRegistry::initialize() {
     g_skill_map.clear();
-    register_builtin_paths();
+    g_string_storage.clear();
+    for (int i = 0; i < static_cast<int>(SublimationPath::COUNT); ++i) {
+        g_paths[i] = SublimationPathDef{};
+    }
+
+    // Built-in paths are now registered from GDScript via
+    // GDSublimationPathRegistry (see BuiltinSublimationPaths.gd).
+}
+
+bool SublimationPathRegistry::register_path(const SublimationPathDef& def) {
+    int idx = static_cast<int>(def.path_id);
+    if (idx <= 0 || idx >= static_cast<int>(SublimationPath::COUNT)) {
+        return false;
+    }
+
+    SublimationPathDef stored = def;
+    stored.id = store_string(def.id);
+    stored.title_key = store_string(def.title_key);
+
+    stored.organ_stages.clear();
+    stored.organ_stages.reserve(def.organ_stages.size());
+    for (const auto& stage : def.organ_stages) {
+        PathOrganStage s = stage;
+        s.organ_name = store_string(stage.organ_name);
+        stored.organ_stages.push_back(s);
+    }
+
+    // Skills are registered separately via register_skill; reset the slot
+    // so re-registering a path does not retain stale skills.
+    stored.skills.clear();
+
+    g_paths[idx] = stored;
+    rebuild_skill_map();
+    return true;
+}
+
+bool SublimationPathRegistry::register_skill(const OrganSkillDef& def) {
+    int idx = static_cast<int>(def.required_path);
+    if (idx <= 0 || idx >= static_cast<int>(SublimationPath::COUNT)) {
+        return false;
+    }
+
+    OrganSkillDef stored = def;
+    stored.id = store_string(def.id);
+    stored.title_key = store_string(def.title_key);
+
+    g_paths[idx].skills.push_back(stored);
+    rebuild_skill_map();
+    return true;
+}
+
+void SublimationPathRegistry::rebuild_skill_map() {
+    g_skill_map.clear();
+    for (int p = 1; p < static_cast<int>(SublimationPath::COUNT); ++p) {
+        for (const auto& skill : g_paths[p].skills) {
+            if (skill.id != nullptr && skill.id[0] != '\0') {
+                g_skill_map[skill.id] = &skill;
+            }
+        }
+    }
 }
 
 const SublimationPathDef* SublimationPathRegistry::get(SublimationPath path) {
@@ -52,63 +126,8 @@ size_t SublimationPathRegistry::count() {
 }
 
 void SublimationPathRegistry::register_builtin_paths() {
-    // --- Sand Armor Path ---
-    auto& sand = g_paths[static_cast<int>(SublimationPath::SAND_ARMOR)];
-    sand.path_id = SublimationPath::SAND_ARMOR;
-    sand.id = "sand_armor";
-    sand.title_key = "path.sand_armor";
-    sand.primary_element = magic::RuneElement::EARTH;
-    sand.organ_stages = {
-        {OrganSlot::BONE, "Sand Armor Rock Core", magic::RuneElement::EARTH, 1, 1},
-    };
-    sand.skills = {
-        {"skill_rock_shield", "Rock Shield",
-         OrganSlot::BONE, SublimationPath::SAND_ARMOR, 0,
-         10, 60, 1, 30.0f, 5.0f},
-    };
-    for (const auto& skill : sand.skills) {
-        g_skill_map[skill.id] = &skill;
-    }
-
-    // --- Tidal Path (placeholder for V0.7) ---
-    auto& tidal = g_paths[static_cast<int>(SublimationPath::TIDAL)];
-    tidal.path_id = SublimationPath::TIDAL;
-    tidal.id = "tidal";
-    tidal.title_key = "path.tidal";
-    tidal.primary_element = magic::RuneElement::WATER;
-    tidal.organ_stages = {
-        {OrganSlot::LUNG, "Tidal Lung", magic::RuneElement::WATER, 1, 1},
-    };
-
-    // --- Storm Path (placeholder for V0.7) ---
-    auto& storm = g_paths[static_cast<int>(SublimationPath::STORM)];
-    storm.path_id = SublimationPath::STORM;
-    storm.id = "storm";
-    storm.title_key = "path.storm";
-    storm.primary_element = magic::RuneElement::AIR;
-    storm.organ_stages = {
-        {OrganSlot::NERVE, "Thunder Nerve", magic::RuneElement::AIR, 1, 1},
-    };
-
-    // --- Furnace Path (placeholder for V0.7) ---
-    auto& furnace = g_paths[static_cast<int>(SublimationPath::FURNACE)];
-    furnace.path_id = SublimationPath::FURNACE;
-    furnace.id = "furnace";
-    furnace.title_key = "path.furnace";
-    furnace.primary_element = magic::RuneElement::FIRE;
-    furnace.organ_stages = {
-        {OrganSlot::HEART, "Blazing Heart", magic::RuneElement::FIRE, 1, 1},
-    };
-
-    // --- Radiance Path (placeholder for V0.7) ---
-    auto& radiance = g_paths[static_cast<int>(SublimationPath::RADIANCE)];
-    radiance.path_id = SublimationPath::RADIANCE;
-    radiance.id = "radiance";
-    radiance.title_key = "path.radiance";
-    radiance.primary_element = magic::RuneElement::LIGHT;
-    radiance.organ_stages = {
-        {OrganSlot::EYE, "Radiance Eye", magic::RuneElement::LIGHT, 1, 1},
-    };
+    // No-op: built-in paths are now registered from GDScript via
+    // GDSublimationPathRegistry (see BuiltinSublimationPaths.gd).
 }
 
 } // namespace science_and_theology::source_law
