@@ -84,10 +84,11 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     magic::GlyphRegistry::initialize();
     magic::GlyphConversion::initialize();
     magic::RitualRecipeRegistry::initialize();
-    // Materials & items are now registered from GDScript via GDMaterialRegistry.
-    // FuelRegistry is re-initialized during MaterialRegistry::finalize()
-    // so material-based fuels (coal, wood) can resolve item IDs.
-    gt::FuelRegistry::initialize();
+    // Materials & items are registered from GDScript via GDMaterialRegistry.
+    // FuelRegistry is initialized during MaterialRegistry::finalize(),
+    // after materials and items exist, so solid fuels (coal, wood) can
+    // resolve their ItemIds. Fluid fuels work too because FluidRegistry
+    // was already initialized above.
     gt::LootTableRegistry::initialize();
     gt::MachineDefinitionRegistry::initialize();
     gt::CraftingManager::initialize();
