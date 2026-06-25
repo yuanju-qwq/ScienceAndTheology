@@ -17,6 +17,8 @@ inline constexpr ElixirId kInvalidElixirId = 0xFFFF;
 class ElixirRegistry {
 public:
     static void initialize();
+    // 清空所有全局状态（不 reserve ID 0），用于测试或重新装载。
+    static void reset();
 
     static const ElixirRecipe* get_by_id(ElixirId id);
     static const ElixirRecipe* get_by_name(const char* name);
@@ -29,7 +31,9 @@ public:
     // Register a recipe from GDScript. The recipe's id is persisted
     // internally; callers must ensure title_key remains valid for the
     // recipe's lifetime (the GD binding handles this).
-    static ElixirId register_recipe(const ElixirRecipe& recipe);
+    // Requires explicit_id (不再支持自动分配).
+    static ElixirId register_recipe(const ElixirRecipe& recipe,
+                                    ElixirId explicit_id);
 
 private:
     static void register_builtin_recipes();

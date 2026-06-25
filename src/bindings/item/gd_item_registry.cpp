@@ -64,8 +64,8 @@ bool GDItemRegistry::is_valid_item(int64_t id) {
     return gt::ItemRegistry::is_valid_item(static_cast<gt::ItemId>(id));
 }
 
-bool GDItemRegistry::is_mod_item(int64_t id) {
-    return gt::ItemRegistry::is_mod_item(static_cast<gt::ItemId>(id));
+bool GDItemRegistry::is_dynamic_item(int64_t id) {
+    return gt::ItemRegistry::is_dynamic_item(static_cast<gt::ItemId>(id));
 }
 
 void GDItemRegistry::_bind_methods() {
@@ -85,8 +85,8 @@ void GDItemRegistry::_bind_methods() {
         D_METHOD("is_valid_item", "id"),
         &GDItemRegistry::is_valid_item);
     ClassDB::bind_static_method("GDItemRegistry",
-        D_METHOD("is_mod_item", "id"),
-        &GDItemRegistry::is_mod_item);
+        D_METHOD("is_dynamic_item", "id"),
+        &GDItemRegistry::is_dynamic_item);
 }
 
 } // namespace science_and_theology

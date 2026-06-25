@@ -67,6 +67,12 @@ bool SublimationPathRegistry::register_skill(const OrganSkillDef& def) {
         return false;
     }
 
+    // 幂等检查：若 def.id 已注册则直接返回 true，不追加新条目。
+    if (def.id != nullptr && def.id[0] != '\0' &&
+        g_skill_map.find(def.id) != g_skill_map.end()) {
+        return true;
+    }
+
     OrganSkillDef stored = def;
     stored.id = store_string(def.id);
     stored.title_key = store_string(def.title_key);
@@ -125,9 +131,13 @@ size_t SublimationPathRegistry::count() {
     return static_cast<int>(SublimationPath::COUNT);
 }
 
-void SublimationPathRegistry::register_builtin_paths() {
-    // No-op: built-in paths are now registered from GDScript via
-    // GDSublimationPathRegistry (see BuiltinSublimationPaths.gd).
+void SublimationPathRegistry::reset() {
+    // 清空技能查找表、字符串存储，并重置所有路径槽位。
+    g_skill_map.clear();
+    g_string_storage.clear();
+    for (int i = 0; i < static_cast<int>(SublimationPath::COUNT); ++i) {
+        g_paths[i] = SublimationPathDef{};
+    }
 }
 
 } // namespace science_and_theology::source_law

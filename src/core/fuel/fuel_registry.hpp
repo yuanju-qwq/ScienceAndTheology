@@ -9,7 +9,10 @@ namespace science_and_theology::gt {
 
 class FuelRegistry {
 public:
+    // initialize = reset（Fuel 没有 ID 0 概念，用 index 存储）。
     static void initialize();
+    // 完全清空 registry（用于热重载）。
+    static void reset();
     static void register_fuel(const FuelDefinition& def);
 
     static const FuelDefinition* get_by_item(ItemId item_id);
@@ -23,9 +26,6 @@ public:
 
     static const std::vector<FuelDefinition>& get_all();
     static size_t get_fuel_count();
-
-    static void register_builtin_fuels();  // No-op (migrated to GDScript).
-    static void register_builtin_fluid_fuels();
 
 private:
     static std::vector<FuelDefinition>& registry();

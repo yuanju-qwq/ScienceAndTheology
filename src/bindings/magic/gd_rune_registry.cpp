@@ -37,7 +37,14 @@ bool GDRuneRegistry::register_rune(const Dictionary& def) {
         static_cast<int>(def.get("tier", 0)));
     rune.potency = static_cast<int>(def.get("potency", 1));
 
-    return RuneRegistry::register_rune(rune) != kInvalidRuneId;
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）
+    RuneId explicit_id = kInvalidRuneId;
+    Variant id_var = def.get("id", Variant());
+    if (id_var.get_type() == Variant::INT) {
+        explicit_id = static_cast<RuneId>(static_cast<int>(id_var));
+    }
+
+    return RuneRegistry::register_rune(rune, explicit_id) != kInvalidRuneId;
 }
 
 godot::Dictionary GDRuneRegistry::get_rune_by_name(const godot::String& name) const {

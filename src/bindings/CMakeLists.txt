@@ -59,6 +59,7 @@ set(SOURCES
     multiplayer/gd_network_client.cpp
     multiplayer/gd_prediction_buffer.cpp
     sfm/gd_sfm_manager.cpp
+    gd_registry_bank.cpp
 )
 
 add_library(science_and_theology SHARED ${SOURCES})

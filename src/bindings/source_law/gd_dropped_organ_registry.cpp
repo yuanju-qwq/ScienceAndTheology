@@ -5,6 +5,7 @@
 #include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/variant.hpp>
 
 #include "core/source_law/dropped_organ_registry.hpp"
 
@@ -68,7 +69,16 @@ bool GDDroppedOrganRegistry::register_organ(const Dictionary& def) {
     organ.result_power_multiplier = static_cast<float>(
         def.get("result_power_multiplier", 0.6));
 
-    return DroppedOrganRegistry::register_organ(organ) != kInvalidDroppedOrganId;
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）。
+    // 注意：string "id" 字段是 organ 的字符串主键，与 numeric runtime ID 是
+    // 两个不同概念，故使用独立字段 "explicit_id"。
+    DroppedOrganId explicit_id = kInvalidDroppedOrganId;
+    Variant eid_var = def.get("explicit_id", Variant());
+    if (eid_var.get_type() == Variant::INT) {
+        explicit_id = static_cast<DroppedOrganId>(static_cast<int>(eid_var));
+    }
+
+    return DroppedOrganRegistry::register_organ(organ, explicit_id) != kInvalidDroppedOrganId;
 }
 
 } // namespace science_and_theology

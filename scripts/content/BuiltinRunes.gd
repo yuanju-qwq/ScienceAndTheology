@@ -8,6 +8,9 @@ extends RefCounted
 # RuneTier: COMMON=0, REFINED=1, SUPERIOR=2, LEGENDARY=3
 # potency: COMMON=1, REFINED=2, SUPERIOR=3, LEGENDARY=5
 
+# 显式确定性 ID：rune_id = element * 8 + tier + 1
+# ID 0 保留给 invalid；每个 element 预留 8 个 tier 位（当前仅用 4），
+# 便于未来扩展更高 tier 而不漂移已有 ID。
 const _ELEMENT_NAMES := [
 	"fire", "water", "earth", "air", "light", "dark", "order", "chaos"
 ]
@@ -21,6 +24,7 @@ static func register_all() -> void:
 		for tier in range(4):
 			var name := "%s_rune_%s" % [_ELEMENT_NAMES[element], _TIER_NAMES[tier]]
 			GDRuneRegistry.register_rune({
+				"id": element * 8 + tier + 1,
 				"name": name,
 				"element": element,
 				"tier": tier,

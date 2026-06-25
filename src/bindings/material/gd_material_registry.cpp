@@ -15,7 +15,7 @@ using namespace godot;
 namespace gt = science_and_theology::gt;
 
 // Persistent string storage for compound item keys registered from GDScript.
-// ItemRegistry::register_mod_item() stores raw const char* pointers, so the
+// ItemRegistry::register_item() stores raw const char* pointers, so the
 // strings must outlive the call. A deque ensures pointers remain valid even
 // after push_back (elements are not moved on reallocation).
 namespace {
@@ -62,10 +62,11 @@ void GDMaterialRegistry::_bind_methods() {
 }
 
 bool GDMaterialRegistry::register_material(const Dictionary& def) {
-    // Auto-assign ID if not provided. Sequential from 0.
+    // 强制显式 ID：不传 id 则拒绝注册（不再支持自动分配）
     int64_t id = static_cast<int64_t>(def.get("id", -1));
     if (id < 0) {
-        id = gt::MaterialRegistry::allocate_id();
+        UtilityFunctions::printerr("GDMaterialRegistry: missing required 'id' field");
+        return false;
     }
 
     const String name = def.get("name", "");
@@ -130,7 +131,7 @@ bool GDMaterialRegistry::register_compound(const String& p_item_key, const Strin
         std::string(p_title_key.utf8().get_data())
     });
 
-    gt::ItemId id = gt::ItemRegistry::register_mod_item(
+    gt::ItemId id = gt::ItemRegistry::register_item(
         g_compound_strings.back().key.c_str(),
         g_compound_strings.back().title.c_str()
     );

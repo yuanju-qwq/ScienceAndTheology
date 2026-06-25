@@ -124,6 +124,16 @@ void MaterialRegistry::register_material(
     assert(!g_finalized && "Cannot register materials after finalize()");
     assert(id < kMaxMaterials && "Material ID exceeds kMaxMaterials");
 
+    // 幂等检查：若 name 已存在，直接返回，保持旧映射不变。
+    // - 传入 id 与已有 id 相同：幂等返回，避免覆盖开销。
+    // - 传入 id 与已有 id 不同：保持旧映射，避免破坏既有索引。
+    if (name != nullptr) {
+        auto it = g_material_name_to_id.find(name);
+        if (it != g_material_name_to_id.end()) {
+            return;
+        }
+    }
+
     // Ensure the vector is large enough for this ID.
     // reserve() guarantees no reallocation as we grow within kMaxMaterials.
     reserve_registry();
@@ -167,20 +177,19 @@ void MaterialRegistry::register_material(
     }
 }
 
-uint16_t MaterialRegistry::allocate_id() {
-    assert(!g_finalized && "Cannot allocate after finalize()");
-    assert(g_next_material_id < kMaxMaterials && "Exhausted material ID range");
-    reserve_registry();
-    uint16_t id = g_next_material_id++;
-    // Ensure vector is large enough (sequential alloc, should be fine).
-    if (id >= g_registry.size()) {
-        g_registry.resize(id + 1);
-    }
-    return id;
-}
-
 void MaterialRegistry::lock() {
     g_finalized = true;
+}
+
+void MaterialRegistry::reset() {
+    // 清空注册表与名称映射
+    g_registry.clear();
+    g_material_name_to_id.clear();
+    // 复位 ID 分配器与 finalized 标志（同时起到 unlock 作用）
+    g_next_material_id = 0;
+    g_finalized = false;
+    // 重新预留容量，避免后续注册时频繁扩容
+    reserve_registry();
 }
 
 // --- Lookup functions ---

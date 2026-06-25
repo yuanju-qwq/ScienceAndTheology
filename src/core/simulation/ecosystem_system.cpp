@@ -46,9 +46,24 @@ void EcosystemSystem::initialize(WorldData* world, EventBus* bus) {
 bool EcosystemSystem::register_biome_override(
     const EcosystemParams::BiomeOverride& bo) {
     auto& staging = staging_biome_overrides();
+
+    // 幂等去重：若 staging 中已存在相同 biome_type 的条目，则覆盖它。
+    for (auto& existing : staging) {
+        if (existing.biome_type == bo.biome_type) {
+            existing = bo;
+            return true;
+        }
+    }
+
+    // 不存在同 biome_type 的旧条目，则追加新条目。
     if (staging.size() >= EcosystemParams::kMaxBiomeOverrides) return false;
     staging.push_back(bo);
     return true;
+}
+
+void EcosystemSystem::reset_biome_staging() {
+    // 清空 biome override staging 缓冲区。
+    staging_biome_overrides().clear();
 }
 
 void EcosystemSystem::tick_active(const ChunkKey& chunk, float delta,
@@ -1597,11 +1612,6 @@ uint8_t EcosystemSystem::infer_biome_type(const ChunkKey& key) const {
     return ecosystem_biome::kPlains;
 }
 
-void EcosystemSystem::register_default_biome_overrides() {
-    // No-op: biome overrides are now registered from GDScript via
-    // GDBiomeConfigRegistry (see BuiltinBiomeOverrides.gd).
-    // Species-biome association is self-described by CreatureSpeciesDef::biomes.
-}
 
 // ============================================================
 // Captive creature management — capture, tame, breed, grow

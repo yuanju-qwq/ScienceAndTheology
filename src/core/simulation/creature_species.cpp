@@ -2,20 +2,21 @@
 
 namespace science_and_theology {
 
-namespace {
-    uint16_t g_next_species_id = 1;
-}
-
 // --- CreatureSpeciesRegistry ---
 
 bool CreatureSpeciesRegistry::register_species(
     CreatureSpeciesDef& def) {
     if (def.species_key.empty()) return false;
-    if (id_by_key_.find(def.species_key) != id_by_key_.end()) {
-        return false;
+    // 幂等：若 species_key 已注册，返回 true 并通过引用参数
+    // 将 def.species_id 更新为已有 ID。
+    auto it = id_by_key_.find(def.species_key);
+    if (it != id_by_key_.end()) {
+        def.species_id = it->second;
+        return true;
     }
+    // 强制显式 ID：species_id == 0 则拒绝注册（不再支持自动分配）
     if (def.species_id == 0) {
-        def.species_id = g_next_species_id++;
+        return false;
     }
     if (species_by_id_.find(def.species_id) != species_by_id_.end()) {
         return false;
@@ -50,6 +51,12 @@ std::vector<uint16_t> CreatureSpeciesRegistry::all_species_ids() const {
 void CreatureSpeciesRegistry::clear() {
     species_by_id_.clear();
     id_by_key_.clear();
+}
+
+void CreatureSpeciesRegistry::reset() {
+    // 彻底复位：清空 staging 注册数据。
+    // species_id 现由 GD 端显式分配，无内部 ID 计数器需要复位。
+    staging().clear();
 }
 
 void CreatureSpeciesRegistry::import_from(

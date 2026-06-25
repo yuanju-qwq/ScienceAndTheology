@@ -17,41 +17,23 @@ static size_t g_registered_item_count = 0;
 static bool g_items_initialized = false;
 
 // ============================================================
-// Mod item registry (dynamic)
+// Dynamic item registry (unified key→id)
 // ============================================================
 //
-// Mod items use dynamic storage because their count is not known at
-// compile time. Lookups by id and by key are O(1) via maps.
+// Single registry for ALL dynamically-registered non-material items
+// (builtin compounds, mod items, etc.). Replaces the old mod/builtin
+// split. Lookups by id and by key are O(1) via maps.
 namespace {
-struct ModItemEntry {
+struct DynamicItemEntry {
     ItemId id = kInvalidItemId;
     const char* name_key = "";
     const char* title_key = "";
 };
 
-std::vector<ModItemEntry> g_mod_items;
-std::unordered_map<std::string, ItemId> g_mod_item_key_to_id;
-std::unordered_map<ItemId, size_t> g_mod_item_id_to_index;
-ItemId g_next_mod_item_id = kModItemBase;
-} // namespace
-
-// ============================================================
-// Builtin non-material item registry (dynamic)
-// ============================================================
-//
-// Non-material items (tools, machines, food, campfire, etc.) use
-// pre-determined IDs in [kNonMaterialItemBase, kNonMaterialItemMax).
-// Storage is dynamic; lookups by id and key are O(1) via maps.
-namespace {
-struct NonMaterialEntry {
-    ItemId id = kInvalidItemId;
-    const char* name_key = "";
-    const char* title_key = "";
-};
-
-std::unordered_map<std::string, ItemId> g_non_mat_key_to_id;
-std::unordered_map<ItemId, NonMaterialEntry> g_non_mat_id_to_entry;
-ItemId g_next_non_material_item_id = kNonMaterialItemBase;
+std::vector<DynamicItemEntry> g_dynamic_items;
+std::unordered_map<std::string, ItemId> g_dynamic_key_to_id;
+std::unordered_map<ItemId, size_t> g_dynamic_id_to_index;
+ItemId g_next_dynamic_item_id = kDynamicItemBase;
 } // namespace
 
 void ItemRegistry::initialize() {
@@ -154,13 +136,9 @@ ItemId ItemRegistry::get_item_id_by_key(const char* key) {
     const MaterialItem* item = get_item_by_key(key);
     if (item != nullptr) return item->id;
 
-    // Check non-material items.
-    auto it = g_non_mat_key_to_id.find(key);
-    if (it != g_non_mat_key_to_id.end()) return it->second;
-
-    // Check mod items.
-    auto mit = g_mod_item_key_to_id.find(key);
-    if (mit != g_mod_item_key_to_id.end()) return mit->second;
+    // Check dynamic items (unified: builtin + mod).
+    auto it = g_dynamic_key_to_id.find(key);
+    if (it != g_dynamic_key_to_id.end()) return it->second;
 
     return kInvalidItemId;
 }
@@ -169,14 +147,10 @@ const char* ItemRegistry::get_item_key(ItemId item_id) {
     const MaterialItem* item = get_item(item_id);
     if (item != nullptr) return item->name_key;
 
-    // Check non-material items.
-    auto it = g_non_mat_id_to_entry.find(item_id);
-    if (it != g_non_mat_id_to_entry.end()) return it->second.name_key;
-
-    // Check mod items.
-    auto mod_it = g_mod_item_id_to_index.find(item_id);
-    if (mod_it != g_mod_item_id_to_index.end()) {
-        return g_mod_items[mod_it->second].name_key;
+    // Check dynamic items.
+    auto it = g_dynamic_id_to_index.find(item_id);
+    if (it != g_dynamic_id_to_index.end()) {
+        return g_dynamic_items[it->second].name_key;
     }
     return "";
 }
@@ -196,20 +170,14 @@ const char* ItemRegistry::get_item_title_key(ItemId item_id) {
     const MaterialItem* item = get_item(item_id);
     if (item != nullptr) return item->title_key;
 
-    // Check non-material items.
-    {
-        auto it = g_non_mat_id_to_entry.find(item_id);
-        if (it != g_non_mat_id_to_entry.end()) return it->second.title_key;
-    }
-
     // Check encoded patterns.
     const char* pattern_key = PatternDataCache::get_pattern_title_key(item_id);
     if (pattern_key != nullptr) return pattern_key;
 
-    // Check mod items.
-    auto mod_it = g_mod_item_id_to_index.find(item_id);
-    if (mod_it != g_mod_item_id_to_index.end()) {
-        return g_mod_items[mod_it->second].title_key;
+    // Check dynamic items.
+    auto it = g_dynamic_id_to_index.find(item_id);
+    if (it != g_dynamic_id_to_index.end()) {
+        return g_dynamic_items[it->second].title_key;
     }
 
     return "ui.unknown";
@@ -222,17 +190,13 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
         const MaterialItem* item = get_item(item_id);
         return item != nullptr;
     }
-    // Non-material items.
-    if (item_id >= kNonMaterialItemBase && item_id < kNonMaterialItemMax) {
-        return g_non_mat_id_to_entry.count(item_id) > 0;
-    }
     // Encoded patterns.
     if (PatternDataCache::is_encoded_pattern(item_id)) {
         return true;
     }
-    // Mod items.
-    if (is_mod_item(item_id)) {
-        return g_mod_item_id_to_index.count(item_id) > 0;
+    // Dynamic items.
+    if (is_dynamic_item(item_id)) {
+        return g_dynamic_id_to_index.count(item_id) > 0;
     }
     return false;
 }
@@ -242,47 +206,48 @@ ItemId ItemRegistry::register_item(const char* item_key,
     if (item_key == nullptr || item_key[0] == '\0') {
         return kInvalidItemId;
     }
-    // Reject duplicates (including mod items).
-    if (get_item_id_by_key(item_key) != kInvalidItemId) {
-        return kInvalidItemId;
+    // 幂等：若 item_key 已注册（任意范围），直接返回已有 ID
+    {
+        ItemId existing = get_item_id_by_key(item_key);
+        if (existing != kInvalidItemId) {
+            return existing;
+        }
     }
-    if (g_next_non_material_item_id >= kNonMaterialItemMax) {
+    if (g_next_dynamic_item_id >= kDynamicItemMax) {
         return kInvalidItemId;
     }
 
-    ItemId id = g_next_non_material_item_id++;
-    NonMaterialEntry entry;
-    entry.id = id;
-    entry.name_key = item_key;
-    entry.title_key = title_key != nullptr ? title_key : item_key;
-    g_non_mat_key_to_id[item_key] = id;
-    g_non_mat_id_to_entry[id] = entry;
+    ItemId id = g_next_dynamic_item_id++;
+    size_t idx = g_dynamic_items.size();
+    g_dynamic_items.push_back({id, item_key, title_key != nullptr ? title_key : item_key});
+    g_dynamic_key_to_id[item_key] = id;
+    g_dynamic_id_to_index[id] = idx;
     return id;
 }
 
-ItemId ItemRegistry::register_mod_item(const char* item_key,
-                                         const char* title_key) {
-    if (item_key == nullptr || item_key[0] == '\0') {
-        return kInvalidItemId;
-    }
-    // Reject duplicates (including builtin keys).
-    if (get_item_id_by_key(item_key) != kInvalidItemId) {
-        return kInvalidItemId;
-    }
-    if (g_next_mod_item_id >= kModItemMax) {
-        return kInvalidItemId;
-    }
-
-    ItemId id = g_next_mod_item_id++;
-    size_t idx = g_mod_items.size();
-    g_mod_items.push_back({id, item_key, title_key != nullptr ? title_key : item_key});
-    g_mod_item_key_to_id[item_key] = id;
-    g_mod_item_id_to_index[id] = idx;
-    return id;
+bool ItemRegistry::is_dynamic_item(ItemId item_id) {
+    return item_id >= kDynamicItemBase && item_id < kDynamicItemMax;
 }
 
-bool ItemRegistry::is_mod_item(ItemId item_id) {
-    return item_id >= kModItemBase && item_id < kModItemMax;
+void ItemRegistry::reset() {
+    // 清空固定数组（设为 kInvalidItemId）
+    size_t total_slots = kMaterialItemMax - kMaterialItemBase;
+    for (size_t i = 0; i < total_slots; ++i) {
+        g_item_registry[i].id = kInvalidItemId;
+        g_item_registry[i].material = nullptr;
+        g_item_registry[i].form = MaterialForm::COUNT;
+        g_item_registry[i]._name_key_buf[0] = '\0';
+        g_item_registry[i]._title_key_buf[0] = '\0';
+    }
+    // 复位计数与初始化标志（之后可重新调用 initialize()）
+    g_registered_item_count = 0;
+    g_items_initialized = false;
+
+    // 清空动态 item 相关容器并复位 ID 分配器
+    g_dynamic_items.clear();
+    g_dynamic_key_to_id.clear();
+    g_dynamic_id_to_index.clear();
+    g_next_dynamic_item_id = kDynamicItemBase;
 }
 
 } // namespace science_and_theology::gt

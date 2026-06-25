@@ -3,6 +3,11 @@ extends RefCounted
 
 # Built-in ritual recipe definitions, migrated from C++
 # RitualRecipeRegistry::register_builtin_recipes().
+#
+# 显式确定性 ID（P1: 热重载后 ID 不漂移）：
+#   explicit_id = effect_type * 16 + sub_index + 1
+# ID 0 保留给 invalid；每个 effect_type 预留 16 槽位。
+# RitualRecipeId 是 uint8_t（上限 255），10 类 × 16 = 160 < 255。
 
 # RitualEffectType: NONE=0, MACHINE_BLESSING=1, TOOL_ENCHANTMENT=2,
 #   TERRAIN_ALTERATION=3, PLAYER_BUFF=4, WORLD_EVENT=5, CURSE=6,
@@ -31,9 +36,10 @@ const _MANA_EXPANSION := 9
 # Register all built-in ritual recipes with the C++ RitualRecipeRegistry
 # via GDRitualRecipeRegistry.
 static func register_all() -> void:
-	# --- Machine blessings ---
+	# --- Machine blessings (effect_type=1, id=17-20) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_speed",
+		"explicit_id": _MACHINE_BLESSING * 16 + 0 + 1,
 		"title_key": "Machine Speed I",
 		"pedestals": [
 			_ped(_FIRE), _ped(_ORDER), _ped(_FIRE), _ped(_ORDER),
@@ -50,6 +56,7 @@ static func register_all() -> void:
 
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_cooling",
+		"explicit_id": _MACHINE_BLESSING * 16 + 1 + 1,
 		"title_key": "Machine Cooling",
 		"pedestals": [
 			_ped(_WATER), _ped(_WATER), _ped(_WATER), _ped(_WATER),
@@ -66,6 +73,7 @@ static func register_all() -> void:
 
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_boost",
+		"explicit_id": _MACHINE_BLESSING * 16 + 2 + 1,
 		"title_key": "Machine Output I",
 		"pedestals": [
 			_ped(_EARTH), _ped(_ORDER), _ped(_LIGHT), _ped(_ORDER),
@@ -80,9 +88,10 @@ static func register_all() -> void:
 		},
 	})
 
-	# --- World events ---
+	# --- World events (effect_type=5, id=81) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_toggle_ruin_gate",
+		"explicit_id": _WORLD_EVENT * 16 + 0 + 1,
 		"title_key": "Toggle Ruin Gate",
 		"pedestals": [
 			_ped(_LIGHT), _ped(_LIGHT), _ped(_DARK), _ped(_DARK),
@@ -97,9 +106,10 @@ static func register_all() -> void:
 		},
 	})
 
-	# --- Player buffs ---
+	# --- Player buffs (effect_type=4, id=65) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_player_speed",
+		"explicit_id": _PLAYER_BUFF * 16 + 0 + 1,
 		"title_key": "Player Speed Boost",
 		"pedestals": [
 			_ped(_AIR), _ped(_AIR), _ped(_AIR), _ped(_AIR),
@@ -114,9 +124,10 @@ static func register_all() -> void:
 		},
 	})
 
-	# --- Chaos combo ---
+	# --- Chaos combo (effect_type=1, id=20) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_double",
+		"explicit_id": _MACHINE_BLESSING * 16 + 3 + 1,
 		"title_key": "Machine Random Double Output",
 		"pedestals": [
 			_ped(_ORDER), _ped(_CHAOS), _ped(_ORDER), _ped(_CHAOS),
@@ -131,9 +142,10 @@ static func register_all() -> void:
 		},
 	})
 
-	# --- Teleportation ---
+	# --- Teleportation (effect_type=7, id=113) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_teleport_link",
+		"explicit_id": _TELEPORTATION * 16 + 0 + 1,
 		"title_key": "Altar Teleport Link",
 		"pedestals": [
 			_ped(_FIRE), _ped(_EARTH), _ped(_WATER), _ped(_AIR),
@@ -148,9 +160,10 @@ static func register_all() -> void:
 		},
 	})
 
-	# --- Divination ---
+	# --- Divination (effect_type=8, id=129) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_divination",
+		"explicit_id": _DIVINATION * 16 + 0 + 1,
 		"title_key": "Divination",
 		"pedestals": [
 			_ped(_LIGHT), _ped(_EARTH), _ped(_LIGHT), _ped(_EARTH),
@@ -165,9 +178,10 @@ static func register_all() -> void:
 		},
 	})
 
-	# --- Mana expansion ---
+	# --- Mana expansion (effect_type=9, id=145) ---
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_mana_expand",
+		"explicit_id": _MANA_EXPANSION * 16 + 0 + 1,
 		"title_key": "Mana Expansion +25",
 		"pedestals": [
 			_ped(_ORDER), _ped(_ORDER), _ped(_ORDER), _ped(_ORDER),

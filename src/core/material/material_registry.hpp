@@ -27,13 +27,13 @@ public:
         const char* chemical_formula,
         uint8_t elem_count, const ElementComposition* composition);
 
-    // Allocate the next available material ID (auto-increment).
-    // Use this when registering from GDScript without a hardcoded ID.
-    static uint16_t allocate_id();
-
     // Lock the registry against further modifications.
-    // After this, register_material() and allocate_id() must not be called.
+    // After this, register_material() must not be called.
     static void lock();
+
+    // 重置整个注册表到初始状态：清空所有已注册材料、复位 ID 分配器、
+    // 复位 finalized 标志。用于测试或热重载场景。
+    static void reset();
 
     // Look up by internal ID (0-based index).
     static const Material* get_by_id(uint16_t id);

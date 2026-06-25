@@ -45,7 +45,14 @@ bool GDGlyphRegistry::register_glyph(const Dictionary& def) {
     glyph.form = static_cast<SpellForm>(
         static_cast<int>(def.get("form", 0)));
 
-    return GlyphRegistry::register_glyph(glyph) != kInvalidGlyphId;
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）
+    GlyphId explicit_id = kInvalidGlyphId;
+    Variant id_var = def.get("id", Variant());
+    if (id_var.get_type() == Variant::INT) {
+        explicit_id = static_cast<GlyphId>(static_cast<int>(id_var));
+    }
+
+    return GlyphRegistry::register_glyph(glyph, explicit_id) != kInvalidGlyphId;
 }
 
 godot::Dictionary GDGlyphRegistry::def_to_dict(const GlyphDef* def) {

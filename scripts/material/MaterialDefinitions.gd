@@ -26,8 +26,11 @@ const PLASMA := 3
 
 # Register all built-in materials with the GDMaterialRegistry C++ binding.
 # Must be called before any terrain content registration.
+# 显式确定性 ID：用 _ALL_MATERIALS 数组下标作为 material_id，保持现有 ID 稳定。
 static func register_all() -> void:
-	for entry in _ALL_MATERIALS:
+	for i in range(_ALL_MATERIALS.size()):
+		var entry := _ALL_MATERIALS[i].duplicate()
+		entry["id"] = i
 		GDMaterialRegistry.register_material(entry)
 
 # Register mineral compounds as lightweight mod items (NOT C++ materials).

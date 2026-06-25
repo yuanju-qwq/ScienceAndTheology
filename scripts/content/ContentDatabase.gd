@@ -45,6 +45,29 @@ func load_content() -> void:
 	if not machine_report.is_empty():
 		push_warning("ContentDatabase processing load report: %s" % str(machine_report))
 
+# 热重载入口：复位所有 C++ registry + GD 缓存，然后重新执行完整注册流程。
+# 适用于 GDScript 改动 BuiltinXxx 后不重启工程刷新内容。
+# 注意：地形内容 registry（planet configs/biome rules/ore veins）已 freeze 为
+# 不可变快照，不在此流程内重建；其引用的 material ID 由注册顺序决定，只要
+# MaterialDefinitions._ALL_MATERIALS 顺序不变即保持稳定。
+func reload_content() -> void:
+	print("ContentDatabase: reload_content start")
+	# 1. 复位所有 C++ registry（material/item/fluid/fuel/magic/source_law/species/biome）
+	GDRegistryBank.reset_all()
+	# 2. 清空 recipe 缓存
+	GDCraftingManager.clear()
+	GDRecipeDatabase.clear()
+	# 3. 重新注册材质（reset_all 已复位 MaterialRegistry，需重新 register + finalize）
+	MaterialDefinitions.register_all()
+	MaterialDefinitions.register_compounds()
+	GDMaterialRegistry.finalize()
+	# 4. 重新注册 GD 端 item 缓存
+	ItemDatabase.reload()
+	# 5. 重新执行内容注册
+	_loaded = false
+	load_content()
+	print("ContentDatabase: reload_content complete")
+
 # Register solid item fuels (coal, wood) from GDScript.
 # These were previously hardcoded in C++ FuelRegistry::register_builtin_fuels().
 func _register_fuels() -> void:

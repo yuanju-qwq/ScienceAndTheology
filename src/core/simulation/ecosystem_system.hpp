@@ -284,9 +284,14 @@ public:
 
     // Register a biome override from GDScript (via GDBiomeConfigRegistry).
     // Stored in a staging buffer; imported by initialize().
-    // Returns false if staging is full (kMaxBiomeOverrides).
+    // 幂等：若 staging 中已存在相同 biome_type 的条目，则覆盖它（不追加新条目）。
+    // Returns false if staging is full (kMaxBiomeOverrides) 且无同 biome_type 旧条目可覆盖。
     static bool register_biome_override(
         const EcosystemParams::BiomeOverride& bo);
+
+    // 清空 biome override staging 缓冲区。
+    // 用于测试或热重载场景下的彻底复位。
+    static void reset_biome_staging();
 
 private:
     // Advance the population equations for a single cell by dt ticks.

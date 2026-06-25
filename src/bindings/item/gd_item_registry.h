@@ -10,11 +10,16 @@ namespace science_and_theology {
 // GDItemRegistry — GDScript binding for gt::ItemRegistry
 // ============================================================
 //
-// Allows content packs to register new non-material items at load
-// time. Mod items are assigned IDs in a dedicated high range
-// (kModItemBase = 0x80000000) that does not collide with builtin
-// material/non-material items or encoded patterns, preserving save
-// compatibility.
+// Allows content packs (and builtin GD scripts) to register new
+// non-material items at load time. All dynamically-registered
+// non-material items (builtin compounds, mod items, etc.) share a
+// single key→id registry in the dynamic range
+// [kDynamicItemBase, kDynamicItemMax) and do not collide with
+// builtin material items or encoded patterns.
+//
+// Saves should reference items by item_key (string) for stability;
+// the numeric ItemId is runtime-only and may shift across hot reloads
+// or content changes.
 //
 // GDScript usage:
 //   var id = GDItemRegistry.register_item({
@@ -30,11 +35,11 @@ public:
     ~GDItemRegistry() override = default;
 
     // Register a non-material item with auto-assigned ID.
-    // Returns the assigned ItemId (builtin range), or 0 on failure.
+    // Returns the assigned ItemId, or 0 on failure.
     // Dictionary fields:
     //   item_key (String, required): globally unique stable key.
     //   title_key (String, optional): localization key.
-    // For registering mod items (mod range 0x80000000+), use GDItemRegistry directly.
+    // Idempotent: returns existing ItemId if item_key already registered.
     static int64_t register_item(const godot::Dictionary& def);
 
     // Look up an item by stable key. Returns ItemId or 0 if not found.
@@ -49,8 +54,8 @@ public:
     // Returns true if the item id refers to a valid registered item.
     static bool is_valid_item(int64_t id);
 
-    // Returns true if the item id is in the mod item range.
-    static bool is_mod_item(int64_t id);
+    // Returns true if the item id is in the dynamic (non-material) item range.
+    static bool is_dynamic_item(int64_t id);
 
 protected:
     static void _bind_methods();

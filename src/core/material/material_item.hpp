@@ -21,26 +21,24 @@ inline constexpr ItemId kMaterialItemBase = 1;
 inline constexpr ItemId kMaterialItemMax =
     kMaterialItemBase + static_cast<ItemId>(kMaxMaterials) * kFormCount;
 
-// Non-material items (tools, machine blocks, etc.) start here.
-inline constexpr ItemId kNonMaterialItemBase = kMaterialItemMax + 1;
-
-// Upper bound of the builtin non-material item range (256 reserved slots).
-inline constexpr ItemId kNonMaterialItemMax = kNonMaterialItemBase + 256;
-
-// Encoded patterns use dynamic IDs starting here.
-inline constexpr ItemId ENCODED_PATTERN_BASE = kNonMaterialItemMax;
+// Encoded patterns use dynamic IDs starting right after material items.
+inline constexpr ItemId ENCODED_PATTERN_BASE = kMaterialItemMax + 1;
 
 // ============================================================
-// Mod-registered items
+// Dynamic (non-material) item registry
 // ============================================================
 //
-// Mod items use a dedicated high ID range starting at kModItemBase
-// to avoid colliding with builtin material/non-material items and
-// encoded patterns. IDs are assigned sequentially on registration.
-// This keeps builtin ID ranges stable across mod changes, preserving
-// save compatibility when mods are added or removed.
-inline constexpr ItemId kModItemBase = 0x80000000u;
-inline constexpr ItemId kModItemMax  = 0xFFFFFFFEu;
+// All dynamically-registered non-material items (builtin compounds,
+// mod items, etc.) share a single key→id registry in this ID range.
+// IDs are assigned sequentially on registration; lookups by key and
+// by id are O(1) via maps.
+//
+// Having one unified range (instead of the old mod/builtin split)
+// simplifies the API and removes the 256-slot builtin cap. Saves
+// should use item_key (string) for stability — the numeric ID is
+// not part of any persistent format.
+inline constexpr ItemId kDynamicItemBase = 0x80000000u;
+inline constexpr ItemId kDynamicItemMax  = 0xFFFFFFFEu;
 
 // Compute a deterministic item ID from a material and form.
 // This mirrors GT5's approach: item ID = base + material_id * form_count + form_id.
@@ -93,7 +91,8 @@ struct MaterialItem : ItemDefinition {
 //   3. Query items by ID, or look up by material+form combination
 //
 // Material items use deterministic IDs: f(material_id, form) → ItemId.
-// Non-material items (tools, machines) use sequentially assigned IDs.
+// Dynamic (non-material) items use sequentially assigned IDs from
+// the unified [kDynamicItemBase, kDynamicItemMax) range.
 class ItemRegistry {
 public:
     ItemRegistry() = default;
@@ -115,7 +114,8 @@ public:
     static ItemId get_item_id(const Material* material, MaterialForm form);
 
     // Look up any item by stable content key. Supports material item keys
-    // such as "ingot.copper" and non-material keys such as "gt_hammer".
+    // such as "ingot.copper" and dynamic keys such as "gt_hammer" or
+    // "my_mod:custom_widget".
     static ItemId get_item_id_by_key(const char* key);
 
     // Returns the stable content key for any registered item, or "".
@@ -127,36 +127,36 @@ public:
     // Returns the total number of registered material items.
     static size_t get_material_item_count();
 
-    // Get the title translation key for any item ID (material or non-material).
+    // Get the title translation key for any item ID (material or dynamic).
     static const char* get_item_title_key(ItemId item_id);
 
     // Returns true if this item ID refers to a valid (registered) item.
     static bool is_valid_item(ItemId item_id);
 
     // ============================================================
-    // Non-material item registration (auto-assigned ID)
+    // Dynamic item registration (unified key→id registry)
     // ============================================================
     //
     // Registers a non-material item with an auto-assigned ItemId from
-    // the builtin range [kNonMaterialItemBase, kNonMaterialItemMax).
+    // the dynamic range [kDynamicItemBase, kDynamicItemMax).
     // The item_key must be globally unique. The caller must keep
     // name_key and title_key strings alive for the lifetime of the
     // process.
     //
+    // Idempotent: if item_key is already registered (in dynamic range
+    // or as a material item), returns the existing ItemId.
+    //
     // Returns the ItemId on success, or kInvalidItemId on failure
-    // (duplicate key or range full). For content pack items with IDs
-    // in the mod range, use register_mod_item() instead.
+    // (empty key or range full).
     static ItemId register_item(const char* item_key,
-                                 const char* title_key);
+                                const char* title_key);
 
-    // ============================================================
-    // Mod item registration (mod range, auto-assigned ID)
-    // ============================================================
-    static ItemId register_mod_item(const char* item_key,
-                                     const char* title_key);
+    // Returns true if this item ID is in the dynamic (non-material) item range.
+    static bool is_dynamic_item(ItemId item_id);
 
-    // Returns true if this item ID is in the mod item range.
-    static bool is_mod_item(ItemId item_id);
+    // 重置整个 ItemRegistry 到初始状态：清空固定数组与所有动态映射、
+    // 复位 ID 分配器、复位 initialized 标志。之后可重新调用 initialize()。
+    static void reset();
 
 private:
     static void register_material_item(const Material* material, MaterialForm form,

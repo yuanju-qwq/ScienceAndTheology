@@ -86,7 +86,16 @@ bool GDElixirRegistry::register_recipe(const Dictionary& def) {
         }
     }
 
-    ElixirId registered = ElixirRegistry::register_recipe(recipe);
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）。
+    // 注意：string "id" 字段是 recipe 的字符串主键，与 numeric runtime ID 是
+    // 两个不同概念，故使用独立字段 "explicit_id"。
+    ElixirId explicit_id = kInvalidElixirId;
+    Variant eid_var = def.get("explicit_id", Variant());
+    if (eid_var.get_type() == Variant::INT) {
+        explicit_id = static_cast<ElixirId>(static_cast<int>(eid_var));
+    }
+
+    ElixirId registered = ElixirRegistry::register_recipe(recipe, explicit_id);
     return registered != kInvalidElixirId;
 }
 

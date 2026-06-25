@@ -22,6 +22,7 @@ public:
     // Register an organ skill from GDScript. Appends the skill to the
     // path indexed by def.required_path and refreshes the skill lookup
     // map. Returns false on invalid required_path.
+    // 幂等：若 def.id 已存在则返回 true（已注册），不追加新条目。
     static bool register_skill(const OrganSkillDef& def);
 
     static const SublimationPathDef* get(SublimationPath path);
@@ -32,6 +33,10 @@ public:
         const OrganArray& organs);
 
     static size_t count();
+
+    // 清空所有注册数据（技能表、字符串存储、路径槽位）。
+    // 用于测试或热重载场景下的彻底复位。
+    static void reset();
 
 private:
     static void register_builtin_paths();

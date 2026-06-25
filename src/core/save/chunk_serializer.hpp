@@ -19,7 +19,9 @@ public:
     // v7: adds hunting_pressure_herb/pred to PopulationCell.
     // v6: adds PopulationCell (ecosystem) after block_entities.
     // v8: adds captive_creatures (husbandry) after population_cell.
-    static constexpr uint8_t kCurrentVersion = 8;
+    // v9: captive_creatures species_id/partner_species_id 改为 string key
+    //     持久化（P3: 存档 key 化，热重载后通过 registry remap 回 runtime ID）。
+    static constexpr uint8_t kCurrentVersion = 9;
 
     // Serializes a chunk to raw bytes. Returns empty vector on failure.
     // The chunk's dimension_id is embedded as part of the serialized data.
@@ -109,13 +111,17 @@ private:
                                      size_t& offset,
                                      PopulationCell& cell);
 
-    // --- Captive creature serialization (v8) ---
+    // --- Captive creature serialization (v8/v9) ---
+    // v8: species_id / partner_species_id 持久化为 uint16（legacy）
+    // v9: 持久化为 string key，加载时通过 CreatureSpeciesRegistry remap
 
     static void write_captive_creature(std::vector<uint8_t>& buf,
                                        const CaptiveCreature& cc);
+    // version 参数用于区分 v8（uint16）与 v9（string key + remap）格式。
     static bool read_captive_creature(const std::vector<uint8_t>& data,
                                       size_t& offset,
-                                      CaptiveCreature& cc);
+                                      CaptiveCreature& cc,
+                                      uint8_t version);
 };
 
 } // namespace science_and_theology

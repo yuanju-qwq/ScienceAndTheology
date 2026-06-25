@@ -19,16 +19,19 @@ namespace science_and_theology::gt {
 
 class FluidRegistry {
 public:
+    // initialize = reset + reserve ID 0 as invalid.
     static void initialize();
+    // 完全清空 registry（用于热重载），不预留 ID 0。
+    static void reset();
 
-    static FluidId register_fluid(const FluidDefinition& def);
+    // Register a fluid. If explicit_id != kInvalidFluidId, stores at that ID
+    // (enables deterministic ID assignment from GD). Otherwise auto-assigns.
+    static FluidId register_fluid(const FluidDefinition& def,
+                                  FluidId explicit_id = kInvalidFluidId);
     static const FluidDefinition* get_fluid(FluidId id);
     static const FluidDefinition* get_fluid_by_name(const char* name);
     static FluidId get_fluid_id(const char* name);
     static size_t get_fluid_count();
-
-    // Pre-register all built-in fluids.
-    static void register_builtin_fluids();
 
 private:
     static std::vector<FluidDefinition>& registry();

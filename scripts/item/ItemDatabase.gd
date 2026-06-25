@@ -297,6 +297,28 @@ var _current_category: int = -1
 var _item_categories: Dictionary = {}  # item_id -> int (Category)
 
 func _ready() -> void:
+	_register_all_items()
+
+# 清空所有 GD 端缓存（用于热重载前的复位）。
+# 注意：C++ 端 ItemRegistry 的复位由 GDRegistryBank.reset_all() 负责。
+func clear() -> void:
+	_items.clear()
+	_tool_stats.clear()
+	_key_to_id.clear()
+	_id_to_key.clear()
+	_item_categories.clear()
+	_current_category = -1
+
+# 热重载入口：清空 GD 缓存并重新注册所有 item。
+# 调用前应已通过 GDRegistryBank.reset_all() 复位 C++ ItemRegistry，
+# 且 MaterialRegistry 已重新 finalize()（material item 由 C++ 侧生成）。
+func reload() -> void:
+	clear()
+	_register_all_items()
+
+# 集中执行所有 item 注册；可被 _ready() 与热重载流程重复调用。
+# 调用前应先 clear() 并已通过 GDRegistryBank.reset_all() 复位 C++ ItemRegistry。
+func _register_all_items() -> void:
 	_register_material_items()
 	_register_tool_items()
 	_register_component_items()

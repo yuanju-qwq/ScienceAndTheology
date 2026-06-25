@@ -25,11 +25,18 @@ std::vector<FuelDefinition>& FuelRegistry::registry() {
 // Lifecycle
 // ============================================================
 
-void FuelRegistry::initialize() {
+void FuelRegistry::reset() {
+    // 完全清空 registry（用于热重载）。
     g_fuel_registry.clear();
     g_fuel_by_item.clear();
     g_fuel_by_fluid.clear();
-    register_builtin_fuels();
+}
+
+void FuelRegistry::initialize() {
+    // initialize = reset（Fuel 没有 ID 0 概念，用 index 存储）。
+    // Built-in fuels are registered from GDScript via GDFuelRegistry
+    // (see ContentDatabase.gd).
+    reset();
 }
 
 void FuelRegistry::register_fuel(const FuelDefinition& def) {
@@ -95,20 +102,6 @@ const std::vector<FuelDefinition>& FuelRegistry::get_all() {
 
 size_t FuelRegistry::get_fuel_count() {
     return g_fuel_registry.size();
-}
-
-// ============================================================
-// Built-in fuel definitions
-// ============================================================
-
-void FuelRegistry::register_builtin_fuels() {
-    // No-op: solid fuels are now registered from GDScript.
-    // Fluid fuels are also registered from GDScript.
-}
-
-void FuelRegistry::register_builtin_fluid_fuels() {
-    // No-op: fluid fuels are now registered from GDScript via
-    // GDFuelRegistry (see ContentDatabase._register_fluid_fuels()).
 }
 
 } // namespace science_and_theology::gt

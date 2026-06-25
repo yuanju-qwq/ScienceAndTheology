@@ -10,10 +10,15 @@ static std::vector<ElixirRecipe> g_elixir_recipes;
 static std::vector<std::string> g_elixir_name_storage;
 static std::unordered_map<std::string, ElixirId> g_elixir_name_map;
 
-void ElixirRegistry::initialize() {
+void ElixirRegistry::reset() {
+    // 清空所有全局变量（vector + map + 字符串池），不 reserve ID 0。
     g_elixir_recipes.clear();
     g_elixir_name_storage.clear();
     g_elixir_name_map.clear();
+}
+
+void ElixirRegistry::initialize() {
+    reset();
 
     // Reserve ID 0 as invalid.
     g_elixir_recipes.push_back({});
@@ -25,6 +30,8 @@ void ElixirRegistry::initialize() {
 
 const ElixirRecipe* ElixirRegistry::get_by_id(ElixirId id) {
     if (id == kInvalidElixirId || id >= g_elixir_recipes.size()) return nullptr;
+    // 跳过空隙条目（显式 ID 留下的空 slot，id 为空）
+    if (g_elixir_recipes[id].id == nullptr || g_elixir_recipes[id].id[0] == '\0') return nullptr;
     return &g_elixir_recipes[id];
 }
 
@@ -37,6 +44,8 @@ const ElixirRecipe* ElixirRegistry::get_by_name(const char* name) {
 std::vector<ElixirId> ElixirRegistry::find_initiation_elixirs(SublimationPath path) {
     std::vector<ElixirId> result;
     for (size_t i = 1; i < g_elixir_recipes.size(); ++i) {
+        // 跳过空隙条目（显式 ID 留下的空 slot）
+        if (g_elixir_recipes[i].id == nullptr || g_elixir_recipes[i].id[0] == '\0') continue;
         if (g_elixir_recipes[i].type == ElixirType::INITIATION &&
             g_elixir_recipes[i].target_path == path) {
             result.push_back(static_cast<ElixirId>(i));
@@ -46,16 +55,36 @@ std::vector<ElixirId> ElixirRegistry::find_initiation_elixirs(SublimationPath pa
 }
 
 size_t ElixirRegistry::count() {
-    return g_elixir_recipes.size() > 0 ? g_elixir_recipes.size() - 1 : 0;
+    return g_elixir_name_map.size();
 }
 
-ElixirId ElixirRegistry::register_recipe(const ElixirRecipe& recipe) {
-    g_elixir_name_storage.push_back(recipe.id);
-    ElixirRecipe stored = recipe;
-    stored.id = g_elixir_name_storage.back().c_str();
+ElixirId ElixirRegistry::register_recipe(const ElixirRecipe& recipe, ElixirId explicit_id) {
+    // 幂等：如果 recipe.id 已存在，直接返回已有 ID。
+    auto it = g_elixir_name_map.find(recipe.id);
+    if (it != g_elixir_name_map.end()) {
+        return it->second;
+    }
 
-    ElixirId id = static_cast<ElixirId>(g_elixir_recipes.size());
-    g_elixir_recipes.push_back(stored);
+    // 强制显式 ID：不传 explicit_id 则拒绝注册（不再支持自动分配）
+    if (explicit_id == kInvalidElixirId || explicit_id == 0) {
+        return kInvalidElixirId;
+    }
+    ElixirId id = explicit_id;
+
+    // 先记录 push_back 前的下标，push_back 后用下标访问。
+    // 多次 push_back 到同一个 vector 时，back().c_str() 可能因扩容而失效，
+    // 用下标方式稳定获取 c_str()。
+    size_t name_idx = g_elixir_name_storage.size();
+    g_elixir_name_storage.push_back(recipe.id);
+
+    ElixirRecipe stored = recipe;
+    stored.id = g_elixir_name_storage[name_idx].c_str();
+
+    // 显式 ID 可能跳跃，需要 resize 填补空隙
+    if (id >= g_elixir_recipes.size()) {
+        g_elixir_recipes.resize(static_cast<size_t>(id) + 1);
+    }
+    g_elixir_recipes[id] = stored;
     g_elixir_name_map[stored.id] = id;
     return id;
 }

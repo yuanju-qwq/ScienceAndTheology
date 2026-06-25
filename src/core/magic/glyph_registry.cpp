@@ -17,7 +17,9 @@ static GlyphId g_augment_glyph_index[static_cast<int>(RuneElement::COUNT)][stati
 // Index: [form] → GlyphId for form glyphs
 static GlyphId g_form_glyph_index[static_cast<int>(SpellForm::COUNT)];
 
-void GlyphRegistry::initialize() {
+void GlyphRegistry::reset() {
+    // 完全清空 registry，不保留 ID 0（invalid）。
+    // 用于热重载场景：initialize() = reset() + 预留 ID 0。
     g_glyph_registry.clear();
     g_glyph_name_storage.clear();
     g_glyph_name_map.clear();
@@ -31,6 +33,11 @@ void GlyphRegistry::initialize() {
     for (int f = 0; f < static_cast<int>(SpellForm::COUNT); ++f) {
         g_form_glyph_index[f] = kInvalidGlyphId;
     }
+}
+
+void GlyphRegistry::initialize() {
+    // initialize = reset + 预留 ID 0 作为 invalid
+    reset();
 
     // Reserve ID 0 as invalid.
     g_glyph_registry.push_back({});
@@ -40,15 +47,30 @@ void GlyphRegistry::initialize() {
     // (see BuiltinGlyphs.gd).
 }
 
-GlyphId GlyphRegistry::register_glyph(const GlyphDef& def) {
-    if (g_glyph_registry.size() >= kInvalidGlyphId) return kInvalidGlyphId;
+GlyphId GlyphRegistry::register_glyph(const GlyphDef& def, GlyphId explicit_id) {
+    // 幂等：若同名 glyph 已注册，直接返回已有 ID，不创建新条目
+    auto it = g_glyph_name_map.find(def.name);
+    if (it != g_glyph_name_map.end()) {
+        return it->second;
+    }
 
+    // 强制显式 ID：不传 explicit_id 则拒绝注册（不再支持自动分配）
+    if (explicit_id == kInvalidGlyphId || explicit_id == 0) {
+        return kInvalidGlyphId;
+    }
+    GlyphId id = explicit_id;
+
+    // 修复 back().c_str() 悬垂风险：先记录下标，push_back 后用下标取地址
+    size_t idx = g_glyph_name_storage.size();
     g_glyph_name_storage.push_back(def.name);
     GlyphDef stored = def;
-    stored.name = g_glyph_name_storage.back().c_str();
+    stored.name = g_glyph_name_storage[idx].c_str();
 
-    GlyphId id = static_cast<GlyphId>(g_glyph_registry.size());
-    g_glyph_registry.push_back(stored);
+    // 显式 ID 可能跳跃，需要 resize 填补空隙
+    if (id >= g_glyph_registry.size()) {
+        g_glyph_registry.resize(static_cast<size_t>(id) + 1);
+    }
+    g_glyph_registry[id] = stored;
     g_glyph_name_map[stored.name] = id;
 
     // Update index based on slot_type.
@@ -64,6 +86,8 @@ GlyphId GlyphRegistry::register_glyph(const GlyphDef& def) {
 
 const GlyphDef* GlyphRegistry::get_by_id(GlyphId id) {
     if (id == kInvalidGlyphId || id >= g_glyph_registry.size()) return nullptr;
+    // 跳过空隙条目（显式 ID 留下的空 slot，name 为空）
+    if (g_glyph_registry[id].name == nullptr || g_glyph_registry[id].name[0] == '\0') return nullptr;
     return &g_glyph_registry[id];
 }
 
@@ -96,20 +120,7 @@ GlyphId GlyphRegistry::get_id(const char* name) {
 }
 
 size_t GlyphRegistry::count() {
-    return g_glyph_registry.size() > 0 ? g_glyph_registry.size() - 1 : 0;
-}
-
-void GlyphRegistry::register_builtin_glyphs() {
-    // No-op: built-in glyphs are now registered from GDScript via
-    // GDGlyphRegistry (see BuiltinGlyphs.gd).
-}
-
-void GlyphRegistry::register_form_glyphs() {
-    // No-op: migrated to GDScript (see BuiltinGlyphs.gd).
-}
-
-void GlyphRegistry::register_effect_augment_glyphs() {
-    // No-op: migrated to GDScript (see BuiltinGlyphs.gd).
+    return g_glyph_name_map.size();
 }
 
 } // namespace science_and_theology::magic

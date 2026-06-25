@@ -1,6 +1,7 @@
 #include "gd_fluid_registry.h"
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/variant.hpp>
 #include <unordered_set>
 
 #include "core/fluid/fluid_registry.hpp"
@@ -50,7 +51,14 @@ int64_t GDFluidRegistry::register_fluid(const Dictionary& def) {
     fluid_def.temperature = static_cast<int64_t>(def.get("temperature", 300));
     fluid_def.is_gas = static_cast<bool>(def.get("is_gas", false));
 
-    gt::FluidId id = gt::FluidRegistry::register_fluid(fluid_def);
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）
+    gt::FluidId explicit_id = gt::kInvalidFluidId;
+    Variant id_var = def.get("id", Variant());
+    if (id_var.get_type() == Variant::INT) {
+        explicit_id = static_cast<gt::FluidId>(static_cast<int64_t>(id_var));
+    }
+
+    gt::FluidId id = gt::FluidRegistry::register_fluid(fluid_def, explicit_id);
     return static_cast<int64_t>(id);
 }
 

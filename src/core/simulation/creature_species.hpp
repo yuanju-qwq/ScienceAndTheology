@@ -115,7 +115,8 @@ public:
 
     // Register a species definition.
     // If def.species_id == 0, auto-assigns the next sequential ID.
-    // Returns false if species_key is already registered.
+    // 幂等：若 species_key 已注册，返回 true 并将 def.species_id
+    // 更新为已有 ID（不重复注册）。
     bool register_species(CreatureSpeciesDef& def);
 
     // Get species definition by ID, or nullptr if not found.
@@ -133,6 +134,10 @@ public:
 
     // Clear all registered species.
     void clear();
+
+    // 彻底复位：清空所有注册数据并重置物种 ID 计数器。
+    // 用于测试或热重载场景（g_next_species_id 在 .cpp 匿名命名空间内）。
+    static void reset();
 
     // Import species from another registry (skips duplicates).
     void import_from(const CreatureSpeciesRegistry& other);

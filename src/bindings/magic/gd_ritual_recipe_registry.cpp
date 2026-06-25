@@ -5,6 +5,7 @@
 #include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/variant.hpp>
 
 using namespace godot;
 
@@ -59,7 +60,14 @@ bool GDRitualRecipeRegistry::register_recipe(const Dictionary& def) {
     recipe.effect.duration_ticks =
         static_cast<int>(effect_dict.get("duration_ticks", 0));
 
-    RitualRecipeId rid = RitualRecipeRegistry::register_recipe(recipe);
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）
+    RitualRecipeId explicit_id = kInvalidRitualRecipeId;
+    Variant eid_var = def.get("explicit_id", Variant());
+    if (eid_var.get_type() == Variant::INT) {
+        explicit_id = static_cast<RitualRecipeId>(static_cast<int>(eid_var));
+    }
+
+    RitualRecipeId rid = RitualRecipeRegistry::register_recipe(recipe, explicit_id);
     return rid != kInvalidRitualRecipeId;
 }
 

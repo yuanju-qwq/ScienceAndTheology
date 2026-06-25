@@ -8,6 +8,10 @@ extends RefCounted
 # the organ to transform their own organ in the same slot into a bloodline
 # organ. Aberration-sourced organs imitate a sublimation path organ but
 # weaker.
+#
+# 显式确定性 ID（P1: 热重载后 ID 不漂移）：
+#   explicit_id = source * 64 + imitated_path * 8 + target_slot + 1
+# ID 0 保留给 invalid；每个 source 预留 64 位空间（8 path × 8 slot）。
 
 # OrganSlot
 const HEART := 0
@@ -57,6 +61,7 @@ static func register_all() -> void:
 
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_rock_lizard_heart",
+		"explicit_id": CREATURE * 64 + PATH_NONE * 8 + HEART + 1,
 		"title_key": "Rock Lizard Source Heart",
 		"target_slot": HEART,
 		"source": CREATURE,
@@ -72,6 +77,7 @@ static func register_all() -> void:
 	})
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_rock_lizard_bone",
+		"explicit_id": CREATURE * 64 + PATH_NONE * 8 + BONE + 1,
 		"title_key": "Rock Lizard Source Bone",
 		"target_slot": BONE,
 		"source": CREATURE,
@@ -87,6 +93,7 @@ static func register_all() -> void:
 	})
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_sea_serpent_lung",
+		"explicit_id": CREATURE * 64 + PATH_NONE * 8 + LUNG + 1,
 		"title_key": "Sea Serpent Source Lung",
 		"target_slot": LUNG,
 		"source": CREATURE,
@@ -105,6 +112,7 @@ static func register_all() -> void:
 
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_sand_armor_bone",
+		"explicit_id": ABERRATION * 64 + SAND_ARMOR * 8 + BONE + 1,
 		"title_key": "Aberrant Sand Armor Bone",
 		"target_slot": BONE,
 		"source": ABERRATION,
@@ -120,6 +128,7 @@ static func register_all() -> void:
 	})
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_tidal_lung",
+		"explicit_id": ABERRATION * 64 + TIDAL * 8 + LUNG + 1,
 		"title_key": "Aberrant Tidal Lung",
 		"target_slot": LUNG,
 		"source": ABERRATION,
@@ -135,6 +144,7 @@ static func register_all() -> void:
 	})
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_storm_nerve",
+		"explicit_id": ABERRATION * 64 + STORM * 8 + NERVE + 1,
 		"title_key": "Aberrant Storm Nerve",
 		"target_slot": NERVE,
 		"source": ABERRATION,
@@ -150,6 +160,7 @@ static func register_all() -> void:
 	})
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_furnace_heart",
+		"explicit_id": ABERRATION * 64 + FURNACE * 8 + HEART + 1,
 		"title_key": "Aberrant Furnace Heart",
 		"target_slot": HEART,
 		"source": ABERRATION,
@@ -165,6 +176,7 @@ static func register_all() -> void:
 	})
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_radiance_eye",
+		"explicit_id": ABERRATION * 64 + RADIANCE * 8 + EYE + 1,
 		"title_key": "Aberrant Radiance Eye",
 		"target_slot": EYE,
 		"source": ABERRATION,

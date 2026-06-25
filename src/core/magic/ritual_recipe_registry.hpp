@@ -14,6 +14,8 @@ inline constexpr RitualRecipeId kInvalidRitualRecipeId = 0xFF;
 class RitualRecipeRegistry {
 public:
     static void initialize();
+    // 清空所有全局状态（不 reserve ID 0），用于测试或重新装载。
+    static void reset();
 
     static const RitualRecipe* get_by_id(RitualRecipeId id);
     static const RitualRecipe* get_by_id_str(const char* id);
@@ -29,8 +31,9 @@ public:
 
     // Register a recipe from GDScript. The recipe's id/title_key/param_json
     // strings are persisted internally so the returned RitualRecipe pointers
-    // remain valid after registration.
-    static RitualRecipeId register_recipe(const RitualRecipe& recipe);
+    // remain valid after registration. Requires explicit_id (不再支持自动分配).
+    static RitualRecipeId register_recipe(const RitualRecipe& recipe,
+                                          RitualRecipeId explicit_id);
 
 private:
     static void register_builtin_recipes();

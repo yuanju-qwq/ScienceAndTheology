@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include "../simulation/creature_species.hpp"
+
 namespace science_and_theology {
 
 // --- Serialize ---
@@ -248,7 +250,7 @@ bool ChunkSerializer::deserialize(
             chunk.captive_creatures.resize(captive_count);
             for (uint32_t i = 0; i < captive_count; ++i) {
                 if (!read_captive_creature(data, offset,
-                        chunk.captive_creatures[i])) {
+                        chunk.captive_creatures[i], version)) {
                     return false;
                 }
             }
@@ -610,7 +612,17 @@ void ChunkSerializer::write_captive_creature(
     std::vector<uint8_t>& buf,
     const CaptiveCreature& cc) {
     // runtime_id is not persisted (reassigned on load).
-    write_uint16(buf, cc.species_id);
+    // v9: species_id / partner_species_id 持久化为 string key（P3 存档 key 化）。
+    // 通过 CreatureSpeciesRegistry 将 runtime ID 反查为 species_key。
+    std::string species_key;
+    std::string partner_key;
+    const auto& registry = CreatureSpeciesRegistry::staging();
+    const CreatureSpeciesDef* def = registry.get_species(cc.species_id);
+    if (def) species_key = def->species_key;
+    const CreatureSpeciesDef* partner_def = registry.get_species(cc.partner_species_id);
+    if (partner_def) partner_key = partner_def->species_key;
+
+    write_string(buf, species_key);
     write_uint8(buf, static_cast<uint8_t>(cc.role));
     write_uint8(buf, static_cast<uint8_t>(cc.age_stage));
     write_float(buf, cc.pos_x);
@@ -635,16 +647,32 @@ void ChunkSerializer::write_captive_creature(
     write_int64(buf, cc.breed_cooldown_until);
     write_int64(buf, cc.gestation_end_tick);
     write_uint8(buf, cc.is_pregnant ? 1 : 0);
-    write_uint16(buf, cc.partner_species_id);
+    write_string(buf, partner_key);
 }
 
 bool ChunkSerializer::read_captive_creature(
     const std::vector<uint8_t>& data,
     size_t& offset,
-    CaptiveCreature& cc) {
-    uint16_t species;
-    if (!read_uint16(data, offset, species)) return false;
-    cc.species_id = species;
+    CaptiveCreature& cc,
+    uint8_t version) {
+    // v8: species_id 持久化为 uint16（legacy，直接使用 runtime ID）
+    // v9: species_id 持久化为 string key，加载时通过 registry remap
+    if (version >= 9) {
+        std::string species_key;
+        if (!read_string(data, offset, species_key)) return false;
+        if (species_key.empty()) {
+            cc.species_id = 0;
+        } else {
+            const CreatureSpeciesDef* def =
+                CreatureSpeciesRegistry::staging().get_species_by_key(species_key);
+            cc.species_id = def ? def->species_id : 0;
+        }
+    } else {
+        uint16_t species;
+        if (!read_uint16(data, offset, species)) return false;
+        cc.species_id = species;
+    }
+
     uint8_t role;
     if (!read_uint8(data, offset, role)) return false;
     cc.role = static_cast<CreatureRole>(role);
@@ -677,9 +705,24 @@ bool ChunkSerializer::read_captive_creature(
     uint8_t pregnant;
     if (!read_uint8(data, offset, pregnant)) return false;
     cc.is_pregnant = (pregnant != 0);
-    uint16_t partner;
-    if (!read_uint16(data, offset, partner)) return false;
-    cc.partner_species_id = partner;
+
+    // v8: partner_species_id 持久化为 uint16（legacy）
+    // v9: partner_species_id 持久化为 string key + remap
+    if (version >= 9) {
+        std::string partner_key;
+        if (!read_string(data, offset, partner_key)) return false;
+        if (partner_key.empty()) {
+            cc.partner_species_id = 0;
+        } else {
+            const CreatureSpeciesDef* partner_def =
+                CreatureSpeciesRegistry::staging().get_species_by_key(partner_key);
+            cc.partner_species_id = partner_def ? partner_def->species_id : 0;
+        }
+    } else {
+        uint16_t partner;
+        if (!read_uint16(data, offset, partner)) return false;
+        cc.partner_species_id = partner;
+    }
     return true;
 }
 

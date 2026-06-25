@@ -1,6 +1,11 @@
 class_name BuiltinSpecies
 extends RefCounted
 
+# 显式确定性 ID（P1: 热重载后 ID 不漂移）：
+#   species_id = role * 128 + sub_index + 1
+# ID 0 保留给 invalid；HERBIVORE 在 1-127，PREDATOR 在 129-255。
+# 存档已 key 化（P3），species_id 数值变化不影响存档。
+
 const HERBIVORE := 0
 const PREDATOR := 1
 
@@ -12,8 +17,9 @@ const BIOME_OCEAN := 3
 const BIOME_BARREN := 4
 
 static func register_all() -> void:
-	# Herbivores
+	# Herbivores (role=0, id=1-2)
 	GDSpeciesRegistry.register_species({
+		"species_id": HERBIVORE * 128 + 0 + 1,
 		"species_key": "glow_deer",
 		"title_key": "creature.glow_deer",
 		"role": HERBIVORE,
@@ -31,6 +37,7 @@ static func register_all() -> void:
 		],
 	})
 	GDSpeciesRegistry.register_species({
+		"species_id": HERBIVORE * 128 + 1 + 1,
 		"species_key": "rock_lizard",
 		"title_key": "creature.rock_lizard",
 		"role": HERBIVORE,
@@ -48,8 +55,9 @@ static func register_all() -> void:
 		],
 	})
 
-	# Predators
+	# Predators (role=1, id=129-133)
 	GDSpeciesRegistry.register_species({
+		"species_id": PREDATOR * 128 + 0 + 1,
 		"species_key": "thunderbird",
 		"title_key": "creature.thunderbird",
 		"role": PREDATOR,
@@ -66,6 +74,7 @@ static func register_all() -> void:
 		],
 	})
 	GDSpeciesRegistry.register_species({
+		"species_id": PREDATOR * 128 + 1 + 1,
 		"species_key": "sea_serpent",
 		"title_key": "creature.sea_serpent",
 		"role": PREDATOR,
@@ -82,6 +91,7 @@ static func register_all() -> void:
 		],
 	})
 	GDSpeciesRegistry.register_species({
+		"species_id": PREDATOR * 128 + 2 + 1,
 		"species_key": "blaze_beast",
 		"title_key": "creature.blaze_beast",
 		"role": PREDATOR,
@@ -98,8 +108,9 @@ static func register_all() -> void:
 		],
 	})
 
-	# Special / Boss-tier
+	# Special / Boss-tier (role=1, id=132-133)
 	GDSpeciesRegistry.register_species({
+		"species_id": PREDATOR * 128 + 3 + 1,
 		"species_key": "aether_wraith",
 		"title_key": "creature.aether_wraith",
 		"role": PREDATOR,
@@ -114,6 +125,7 @@ static func register_all() -> void:
 		],
 	})
 	GDSpeciesRegistry.register_species({
+		"species_id": PREDATOR * 128 + 4 + 1,
 		"species_key": "aberrant_ascended",
 		"title_key": "creature.aberrant_ascended",
 		"role": PREDATOR,

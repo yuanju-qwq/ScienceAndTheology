@@ -34,6 +34,10 @@ bool GDSpeciesRegistry::register_species(const Dictionary& def) {
     cpp_def.role = static_cast<CreatureRole>(static_cast<int>(role_v));
     cpp_def.model_key = model_key.utf8().get_data();
 
+    // 支持显式确定性 ID（P1: 热重载后 ID 不漂移）
+    cpp_def.species_id = static_cast<uint16_t>(
+        static_cast<int>(def.get("species_id", 0)));
+
     cpp_def.move_speed = static_cast<float>(def.get("move_speed", 0.0));
     cpp_def.base_health = static_cast<float>(def.get("base_health", 1.0));
     cpp_def.flee_detection_radius = static_cast<float>(

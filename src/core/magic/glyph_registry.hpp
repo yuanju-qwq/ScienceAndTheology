@@ -15,11 +15,14 @@ inline constexpr GlyphId kInvalidGlyphId = 0xFF;
 class GlyphRegistry {
 public:
     static void initialize();
+    // 完全清空 registry（用于热重载），不预留 ID 0。
+    static void reset();
 
     // Register a glyph from GDScript. Stores the name string persistently
     // and updates the appropriate index (form/effect/augment) based on
-    // slot_type. Returns the assigned GlyphId, or kInvalidGlyphId on failure.
-    static GlyphId register_glyph(const GlyphDef& def);
+    // slot_type. Requires explicit_id (不再支持自动分配).
+    // Returns the assigned GlyphId, or kInvalidGlyphId on failure.
+    static GlyphId register_glyph(const GlyphDef& def, GlyphId explicit_id);
 
     static const GlyphDef* get_by_id(GlyphId id);
     static const GlyphDef* get_by_name(const char* name);

@@ -142,8 +142,6 @@ inline constexpr uint16_t kMaxMaterials = 5000;
 // Iteration: returns the highest assigned material ID + 1, or 0 if empty.
 // Material IDs are sequential (0, 1, 2, ...), so iterating 0..max_id-1
 // and calling get_material_by_id(id) will visit every registered material.
-// This only counts IDs issued via allocate_id(); manually registered IDs
-// beyond g_next_material_id are NOT included (rare edge case).
 uint16_t get_max_material_id();
 
 } // namespace science_and_theology::gt
