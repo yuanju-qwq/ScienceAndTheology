@@ -5,10 +5,10 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-#include <deque>
 #include <string>
 #include <vector>
 
+#include "core/common/string_pool.hpp"
 #include "core/fluid/fluid_registry.hpp"
 #include "core/material/material_item.hpp"
 
@@ -20,16 +20,10 @@ using namespace gt;
 namespace {
 
 std::vector<String> g_machine_recipe_load_report;
-std::deque<std::string> g_machine_recipe_string_storage;
 
 void report_machine_recipe_issue(const String& message) {
     g_machine_recipe_load_report.push_back(message);
     UtilityFunctions::push_warning("[GDRecipeDatabase] " + message);
-}
-
-const char* store_machine_recipe_string(const String& value) {
-    g_machine_recipe_string_storage.push_back(std::string(value.utf8().get_data()));
-    return g_machine_recipe_string_storage.back().c_str();
 }
 
 bool dict_has(const Dictionary& dict, const char* key) {
@@ -155,9 +149,10 @@ bool parse_machine_recipe(const Dictionary& dict, Recipe& out_recipe) {
         return false;
     }
 
-    out_recipe.name = store_machine_recipe_string(name);
-    out_recipe.machine_type = store_machine_recipe_string(machine_type);
-    out_recipe.category = store_machine_recipe_string(dict_get(dict, "category", String("")));
+    String category_val = dict_get(dict, "category", String(""));
+    out_recipe.name = gt::intern_string(name.utf8().get_data());
+    out_recipe.machine_type = gt::intern_string(machine_type.utf8().get_data());
+    out_recipe.category = gt::intern_string(category_val.utf8().get_data());
 
     int64_t tier = static_cast<int64_t>(dict_get(dict, "min_tier", static_cast<int64_t>(0)));
     if (!valid_tier(tier)) {
@@ -255,8 +250,7 @@ void GDRecipeDatabase::_bind_methods() {
 }
 
 void GDRecipeDatabase::clear() {
-    RecipeDatabase::initialize();
-    g_machine_recipe_string_storage.clear();
+    RecipeDatabase::reset();
     clear_load_report();
 }
 

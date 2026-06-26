@@ -1,5 +1,7 @@
 #include "dropped_organ_registry.hpp"
 
+#include "core/common/string_pool.hpp"
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,13 +9,11 @@
 namespace science_and_theology::source_law {
 
 static std::vector<DroppedOrganDef> g_dropped_organs;
-static std::vector<std::string> g_dropped_organ_name_storage;
 static std::unordered_map<std::string, DroppedOrganId> g_dropped_organ_name_map;
 
 void DroppedOrganRegistry::reset() {
     // 清空所有全局变量（vector + map + 字符串池），不 reserve ID 0。
     g_dropped_organs.clear();
-    g_dropped_organ_name_storage.clear();
     g_dropped_organ_name_map.clear();
 }
 
@@ -22,7 +22,6 @@ void DroppedOrganRegistry::initialize() {
 
     // Reserve ID 0 as invalid.
     g_dropped_organs.push_back({});
-    g_dropped_organ_name_storage.push_back("__invalid__");
 
     // Built-in organs are now registered from GDScript via
     // GDDroppedOrganRegistry / BuiltinDroppedOrgans.
@@ -99,31 +98,12 @@ DroppedOrganId DroppedOrganRegistry::register_organ(const DroppedOrganDef& def,
     }
     DroppedOrganId id = explicit_id;
 
-    DroppedOrganDef stored = def;
-
-    // 先记录 push_back 前的下标，push_back 后用下标访问。
-    // 连续 3 次 push_back 到同一个 vector 时，back().c_str() 会因扩容而失效，
-    // 因此用下标方式稳定获取 c_str()。
-    size_t id_idx = g_dropped_organ_name_storage.size();
-    g_dropped_organ_name_storage.push_back(def.id);
-    stored.id = g_dropped_organ_name_storage[id_idx].c_str();
-
-    // Store title_key in stable storage.
-    size_t title_idx = g_dropped_organ_name_storage.size();
-    g_dropped_organ_name_storage.push_back(def.title_key);
-    stored.title_key = g_dropped_organ_name_storage[title_idx].c_str();
-
-    // Also store source_creature_id in stable storage.
-    size_t creature_idx = g_dropped_organ_name_storage.size();
-    g_dropped_organ_name_storage.push_back(def.source_creature_id);
-    stored.source_creature_id = g_dropped_organ_name_storage[creature_idx].c_str();
-
     // 显式 ID 可能跳跃，需要 resize 填补空隙
     if (id >= g_dropped_organs.size()) {
         g_dropped_organs.resize(static_cast<size_t>(id) + 1);
     }
-    g_dropped_organs[id] = stored;
-    g_dropped_organ_name_map[stored.id] = id;
+    g_dropped_organs[id] = def;
+    g_dropped_organ_name_map[def.id] = id;
     return id;
 }
 

@@ -3,6 +3,7 @@
 #include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
+#include "core/common/string_pool.hpp"
 #include "core/magic/rune_registry.hpp"
 
 using namespace godot;
@@ -30,7 +31,7 @@ bool GDRuneRegistry::register_rune(const Dictionary& def) {
     if (name.is_empty()) return false;
 
     RuneDef rune;
-    rune.name = name.utf8().get_data();
+    rune.name = gt::intern_string(name.utf8().get_data());
     rune.element = static_cast<RuneElement>(
         static_cast<int>(def.get("element", 0)));
     rune.tier = static_cast<RuneTier>(

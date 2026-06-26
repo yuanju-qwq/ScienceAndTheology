@@ -1,5 +1,7 @@
 #include "fuel_registry.hpp"
 
+#include "common/string_pool.hpp"
+
 #include <cstring>
 #include <unordered_map>
 
@@ -49,14 +51,13 @@ void FuelRegistry::register_fuel(const FuelDefinition& def) {
     }
 
     g_fuel_registry.push_back(def);
-    const size_t stored_index = g_fuel_registry.size() - 1;
-    const FuelDefinition& stored = g_fuel_registry[stored_index];
+    const size_t idx = g_fuel_registry.size() - 1;
 
-    if (stored.item_id != kInvalidItemId) {
-        g_fuel_by_item[stored.item_id] = stored_index;
+    if (def.item_id != kInvalidItemId) {
+        g_fuel_by_item[def.item_id] = idx;
     }
-    if (stored.fluid_id != kInvalidFluidId) {
-        g_fuel_by_fluid[stored.fluid_id] = stored_index;
+    if (def.fluid_id != kInvalidFluidId) {
+        g_fuel_by_fluid[def.fluid_id] = idx;
     }
 }
 

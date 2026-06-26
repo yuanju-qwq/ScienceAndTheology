@@ -1,5 +1,7 @@
 #include "ritual_recipe_registry.hpp"
 
+#include "core/common/string_pool.hpp"
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,15 +9,11 @@
 namespace science_and_theology::magic {
 
 static std::vector<RitualRecipe> g_ritual_recipes;
-static std::vector<std::string> g_ritual_name_storage;
-static std::vector<std::string> g_ritual_title_key_storage;
 static std::unordered_map<std::string, RitualRecipeId> g_ritual_id_map;
 
 void RitualRecipeRegistry::reset() {
     // 清空所有全局变量（vector + map + 字符串池），不 reserve ID 0。
     g_ritual_recipes.clear();
-    g_ritual_name_storage.clear();
-    g_ritual_title_key_storage.clear();
     g_ritual_id_map.clear();
 }
 
@@ -24,8 +22,6 @@ void RitualRecipeRegistry::initialize() {
 
     // Reserve ID 0 as invalid.
     g_ritual_recipes.push_back({});
-    g_ritual_name_storage.push_back("__invalid__");
-    g_ritual_title_key_storage.push_back("__invalid__");
 
     // Built-in recipes are now registered from GDScript
     // (see BuiltinRitualRecipes.gd via GDRitualRecipeRegistry).
@@ -62,23 +58,11 @@ RitualRecipeId RitualRecipeRegistry::register_recipe(const RitualRecipe& recipe,
     }
     RitualRecipeId id = explicit_id;
 
-    // 先记录 push_back 前的下标，push_back 后用下标访问。
-    // 连续 push_back 到同一个 vector 时，back().c_str() 可能因扩容而失效，
-    // 用下标方式稳定获取 c_str()。
-    size_t name_idx = g_ritual_name_storage.size();
-    g_ritual_name_storage.push_back(recipe.id);
-    size_t title_idx = g_ritual_title_key_storage.size();
-    g_ritual_title_key_storage.push_back(recipe.title_key);
-
-    RitualRecipe stored = recipe;
-    stored.id = g_ritual_name_storage[name_idx].c_str();
-    stored.title_key = g_ritual_title_key_storage[title_idx].c_str();
-
     // 显式 ID 可能跳跃，需要 resize 填补空隙
     if (id >= g_ritual_recipes.size()) {
         g_ritual_recipes.resize(static_cast<size_t>(id) + 1);
     }
-    g_ritual_recipes[id] = stored;
+    g_ritual_recipes[id] = recipe;
     g_ritual_id_map[recipe.id] = id;
     return id;
 }

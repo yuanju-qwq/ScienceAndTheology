@@ -1,8 +1,8 @@
 #include "gd_fuel_registry.hpp"
 
 #include <godot_cpp/core/class_db.hpp>
-#include <unordered_set>
 
+#include "core/common/string_pool.hpp"
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
 #include "core/material/material_item.hpp"
@@ -11,20 +11,6 @@ namespace science_and_theology {
 
 using namespace godot;
 using namespace gt;
-
-namespace {
-// Persistent string storage for fuel names/keys from GDScript.
-std::unordered_set<std::string> g_string_pool;
-
-const char* intern_string(const std::string& s) {
-    auto it = g_string_pool.find(s);
-    if (it != g_string_pool.end()) {
-        return it->c_str();
-    }
-    auto result = g_string_pool.insert(s);
-    return result.first->c_str();
-}
-} // namespace
 
 void GDFuelRegistry::_bind_methods() {
     ClassDB::bind_static_method("GDFuelRegistry",
@@ -54,11 +40,13 @@ bool GDFuelRegistry::register_fuel(const Dictionary& def) {
     if (burn_ticks <= 0) return false;
 
     FuelDefinition fuel_def;
-    fuel_def.name = intern_string(std::string(name.utf8().get_data()));
+    fuel_def.name = intern_string(name.utf8().get_data());
     String title = def.get("title_key", "");
-    fuel_def.title_key = title.is_empty()
-        ? fuel_def.name
-        : intern_string(std::string(title.utf8().get_data()));
+    if (title.is_empty()) {
+        fuel_def.title_key = fuel_def.name;
+    } else {
+        fuel_def.title_key = intern_string(title.utf8().get_data());
+    }
     fuel_def.burn_ticks = burn_ticks;
     fuel_def.category = static_cast<FuelCategory>(
         static_cast<int>(def.get("category", 0)));

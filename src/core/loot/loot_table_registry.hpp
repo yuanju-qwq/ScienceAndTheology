@@ -34,6 +34,7 @@ struct LootTable {
 class LootTableRegistry {
 public:
     static void initialize();
+    static void reset();
 
     // Register a loot table. Replaces an existing table with the same key.
     // Returns true on success. The key and entry item_key strings must

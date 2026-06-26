@@ -5,9 +5,9 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+#include "core/common/string_pool.hpp"
 #include "core/material/material_item.hpp"
 
-#include <deque>
 #include <string>
 #include <vector>
 
@@ -19,16 +19,10 @@ using namespace gt;
 namespace {
 
 std::vector<String> g_crafting_load_report;
-std::deque<std::string> g_crafting_string_storage;
 
 void report_crafting_issue(const String& message) {
     g_crafting_load_report.push_back(message);
     UtilityFunctions::push_warning("[GDCraftingManager] " + message);
-}
-
-const char* store_crafting_string(const String& value) {
-    g_crafting_string_storage.push_back(std::string(value.utf8().get_data()));
-    return g_crafting_string_storage.back().c_str();
 }
 
 bool dict_has(const Dictionary& dict, const char* key) {
@@ -88,9 +82,9 @@ bool parse_crafting_recipe(const Dictionary& dict, CraftingRecipe& out_recipe) {
 
     const String category = dict_get(dict, "category", String(""));
     const String station = dict_get(dict, "required_station", String(""));
-    out_recipe.name = store_crafting_string(name);
-    out_recipe.category = store_crafting_string(category);
-    out_recipe.required_station = store_crafting_string(station);
+    out_recipe.name = gt::intern_string(name.utf8().get_data());
+    out_recipe.category = gt::intern_string(category.utf8().get_data());
+    out_recipe.required_station = gt::intern_string(station.utf8().get_data());
 
     Dictionary output = dict_get(dict, "output", Dictionary());
     if (output.is_empty()) {
@@ -125,7 +119,7 @@ bool parse_crafting_recipe(const Dictionary& dict, CraftingRecipe& out_recipe) {
     const String required_tool = dict_get(dict, "required_tool", String(""));
     out_recipe.required_tool = required_tool.is_empty()
         ? nullptr
-        : store_crafting_string(required_tool);
+        : gt::intern_string(required_tool.utf8().get_data());
     out_recipe.tool_durability_cost = static_cast<int>(
         static_cast<int64_t>(dict_get(dict, "tool_durability_cost", static_cast<int64_t>(0))));
     return true;
@@ -190,8 +184,7 @@ void GDCraftingManager::initialize() {
 }
 
 void GDCraftingManager::clear() {
-    CraftingManager::initialize();
-    g_crafting_string_storage.clear();
+    CraftingManager::reset();
     clear_load_report();
 }
 

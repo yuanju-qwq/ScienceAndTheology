@@ -49,6 +49,7 @@ target_sources(snt_core PRIVATE
 # Common shared systems (used by both GT and AE)
 target_sources(snt_core PRIVATE
     common/resource_key.cpp
+    common/string_pool.cpp
 )
 
 # Crafting system (manual, universal)

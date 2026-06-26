@@ -1,7 +1,8 @@
 #include "sublimation_path_registry.hpp"
 
+#include "core/common/string_pool.hpp"
+
 #include <cstring>
-#include <deque>
 #include <string>
 #include <unordered_map>
 
@@ -10,22 +11,8 @@ namespace science_and_theology::source_law {
 static SublimationPathDef g_paths[static_cast<int>(SublimationPath::COUNT)];
 static std::unordered_map<std::string, const OrganSkillDef*> g_skill_map;
 
-// Persistent storage for const char* fields coming from GDScript.
-// std::deque keeps references to existing elements stable when appending,
-// so c_str() pointers handed to the defs remain valid across registrations.
-static std::deque<std::string> g_string_storage;
-
-// Returns a stable const char* for the given source string. Empty strings
-// map to the shared empty literal so we don't allocate storage for them.
-static const char* store_string(const char* src) {
-    if (src == nullptr || src[0] == '\0') return "";
-    g_string_storage.emplace_back(src);
-    return g_string_storage.back().c_str();
-}
-
 void SublimationPathRegistry::initialize() {
     g_skill_map.clear();
-    g_string_storage.clear();
     for (int i = 0; i < static_cast<int>(SublimationPath::COUNT); ++i) {
         g_paths[i] = SublimationPathDef{};
     }
@@ -40,20 +27,9 @@ bool SublimationPathRegistry::register_path(const SublimationPathDef& def) {
         return false;
     }
 
-    SublimationPathDef stored = def;
-    stored.id = store_string(def.id);
-    stored.title_key = store_string(def.title_key);
-
-    stored.organ_stages.clear();
-    stored.organ_stages.reserve(def.organ_stages.size());
-    for (const auto& stage : def.organ_stages) {
-        PathOrganStage s = stage;
-        s.organ_name = store_string(stage.organ_name);
-        stored.organ_stages.push_back(s);
-    }
-
     // Skills are registered separately via register_skill; reset the slot
     // so re-registering a path does not retain stale skills.
+    SublimationPathDef stored = def;
     stored.skills.clear();
 
     g_paths[idx] = stored;
@@ -73,11 +49,7 @@ bool SublimationPathRegistry::register_skill(const OrganSkillDef& def) {
         return true;
     }
 
-    OrganSkillDef stored = def;
-    stored.id = store_string(def.id);
-    stored.title_key = store_string(def.title_key);
-
-    g_paths[idx].skills.push_back(stored);
+    g_paths[idx].skills.push_back(def);
     rebuild_skill_map();
     return true;
 }
@@ -134,7 +106,6 @@ size_t SublimationPathRegistry::count() {
 void SublimationPathRegistry::reset() {
     // 清空技能查找表、字符串存储，并重置所有路径槽位。
     g_skill_map.clear();
-    g_string_storage.clear();
     for (int i = 0; i < static_cast<int>(SublimationPath::COUNT); ++i) {
         g_paths[i] = SublimationPathDef{};
     }

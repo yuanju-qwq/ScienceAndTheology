@@ -2,11 +2,16 @@
 
 #include <godot_cpp/core/class_db.hpp>
 
+#include "core/common/string_pool.hpp"
 #include "core/material/material.hpp"
 #include "core/material/material_registry.hpp"
 #include "core/material/material_item.hpp"
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fuel/fuel_registry.hpp"
+#include "core/loot/loot_table_registry.hpp"
+#include "core/machine/recipe.hpp"
+#include "core/crafting/crafting.hpp"
+#include "core/machine/machine_definition_registry.hpp"
 #include "core/magic/rune_registry.hpp"
 #include "core/magic/glyph_registry.hpp"
 #include "core/magic/ritual_recipe_registry.hpp"
@@ -38,6 +43,14 @@ void GDRegistryBank::reset_all() {
     gt::FluidRegistry::reset();
     gt::FuelRegistry::reset();
 
+    // 战利品表（gt 命名空间）
+    gt::LootTableRegistry::reset();
+
+    // 机器配方和合成配方
+    gt::RecipeDatabase::reset();
+    gt::CraftingManager::reset();
+    gt::MachineDefinitionRegistry::reset();
+
     // 魔法系统（magic 命名空间）
     magic::RuneRegistry::reset();
     magic::GlyphRegistry::reset();
@@ -51,6 +64,9 @@ void GDRegistryBank::reset_all() {
     // 生态系统（science_and_theology 命名空间，直接调用）
     CreatureSpeciesRegistry::reset();
     EcosystemSystem::reset_biome_staging();
+
+    // 清空共享字符串池（必须在所有 registry reset 之后）
+    gt::clear_string_pool();
 }
 
 void GDRegistryBank::reset_one(const String& registry_name) {

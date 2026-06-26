@@ -1,15 +1,13 @@
 #include "gd_elixir_registry.hpp"
 
-#include <godot_cpp/core/binder_common.hpp>
+#include "core/common/string_pool.hpp"
+
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
 #include "core/source_law/elixir_registry.hpp"
-
-#include <deque>
-#include <string>
 
 using namespace godot;
 
@@ -24,13 +22,6 @@ using source_law::ElixirId;
 using source_law::kInvalidElixirId;
 using magic::RuneElement;
 
-// Persistent storage for title_key strings handed in from GDScript.
-// ElixirRegistry::register_recipe persists `id` internally but does NOT
-// persist `title_key`, so the GD binding must keep the title strings
-// alive for the recipe's lifetime. std::deque does not invalidate
-// references to existing elements on push_back.
-static std::deque<std::string> g_title_storage;
-
 void GDElixirRegistry::_bind_methods() {
     ClassDB::bind_static_method("GDElixirRegistry",
         D_METHOD("register_recipe", "def"),
@@ -41,17 +32,10 @@ bool GDElixirRegistry::register_recipe(const Dictionary& def) {
     String id = def.get("id", "");
     if (id.is_empty()) return false;
 
+    String title_key_str = def.get("title_key", "");
     ElixirRecipe recipe;
-    // `id` is persisted by ElixirRegistry::register_recipe
-    // (g_elixir_name_storage), so a temporary c_str() is safe here.
-    recipe.id = id.utf8().get_data();
-
-    // `title_key` is NOT persisted by ElixirRegistry; store it locally.
-    String title_key = def.get("title_key", "");
-    if (!title_key.is_empty()) {
-        g_title_storage.emplace_back(title_key.utf8().get_data());
-        recipe.title_key = g_title_storage.back().c_str();
-    }
+    recipe.id = gt::intern_string(id.utf8().get_data());
+    recipe.title_key = gt::intern_string(title_key_str.utf8().get_data());
 
     recipe.type = static_cast<ElixirType>(
         static_cast<int>(def.get("type", 0)));

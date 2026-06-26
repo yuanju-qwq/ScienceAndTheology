@@ -40,6 +40,7 @@ struct CraftingRecipe {
 class CraftingManager {
 public:
     static void initialize();
+    static void reset();
 
     // Register a recipe.
     static void add_recipe(const CraftingRecipe& recipe);

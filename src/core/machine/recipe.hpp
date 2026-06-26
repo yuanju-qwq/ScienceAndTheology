@@ -167,6 +167,7 @@ private:
 class RecipeDatabase {
 public:
     static void initialize();
+    static void reset();
 
     // Get or create a RecipeMap for a given machine type.
     static RecipeMap* get_map(const char* machine_type);

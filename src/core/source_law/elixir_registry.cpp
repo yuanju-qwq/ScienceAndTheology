@@ -1,5 +1,7 @@
 #include "elixir_registry.hpp"
 
+#include "core/common/string_pool.hpp"
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,13 +9,11 @@
 namespace science_and_theology::source_law {
 
 static std::vector<ElixirRecipe> g_elixir_recipes;
-static std::vector<std::string> g_elixir_name_storage;
 static std::unordered_map<std::string, ElixirId> g_elixir_name_map;
 
 void ElixirRegistry::reset() {
     // 清空所有全局变量（vector + map + 字符串池），不 reserve ID 0。
     g_elixir_recipes.clear();
-    g_elixir_name_storage.clear();
     g_elixir_name_map.clear();
 }
 
@@ -22,7 +22,6 @@ void ElixirRegistry::initialize() {
 
     // Reserve ID 0 as invalid.
     g_elixir_recipes.push_back({});
-    g_elixir_name_storage.push_back("__invalid__");
 
     // Built-in recipes are now registered from GDScript via
     // GDElixirRegistry (see BuiltinElixirs.gd).
@@ -71,21 +70,12 @@ ElixirId ElixirRegistry::register_recipe(const ElixirRecipe& recipe, ElixirId ex
     }
     ElixirId id = explicit_id;
 
-    // 先记录 push_back 前的下标，push_back 后用下标访问。
-    // 多次 push_back 到同一个 vector 时，back().c_str() 可能因扩容而失效，
-    // 用下标方式稳定获取 c_str()。
-    size_t name_idx = g_elixir_name_storage.size();
-    g_elixir_name_storage.push_back(recipe.id);
-
-    ElixirRecipe stored = recipe;
-    stored.id = g_elixir_name_storage[name_idx].c_str();
-
     // 显式 ID 可能跳跃，需要 resize 填补空隙
     if (id >= g_elixir_recipes.size()) {
         g_elixir_recipes.resize(static_cast<size_t>(id) + 1);
     }
-    g_elixir_recipes[id] = stored;
-    g_elixir_name_map[stored.id] = id;
+    g_elixir_recipes[id] = recipe;
+    g_elixir_name_map[recipe.id] = id;
     return id;
 }
 

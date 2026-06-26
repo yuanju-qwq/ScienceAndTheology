@@ -1,5 +1,7 @@
 #include "crafting.hpp"
 
+#include "common/string_pool.hpp"
+
 #include <cstring>
 
 namespace science_and_theology::gt {
@@ -37,19 +39,19 @@ CraftingManager::station_index() {
 void CraftingManager::update_indices(const CraftingRecipe& recipe) {
     // Name index — O(1) lookup by recipe name.
     if (recipe.name != nullptr && recipe.name[0] != '\0') {
-        name_index()[recipe.name] = &registry().back();
+        name_index()[recipe.name] = &recipe;
     }
 
     // Category index — group recipes by category.
     if (recipe.category != nullptr && recipe.category[0] != '\0') {
-        category_index()[recipe.category].push_back(&registry().back());
+        category_index()[recipe.category].push_back(&recipe);
     }
 
     // Station index — group recipes by required station.
     // Empty string key = hand crafting (no station required).
     std::string station_key = (recipe.required_station != nullptr)
         ? recipe.required_station : "";
-    station_index()[station_key].push_back(&registry().back());
+    station_index()[station_key].push_back(&recipe);
 }
 
 // ============================================================
@@ -63,9 +65,16 @@ void CraftingManager::initialize() {
     station_index().clear();
 }
 
+void CraftingManager::reset() {
+    registry().clear();
+    name_index().clear();
+    category_index().clear();
+    station_index().clear();
+}
+
 void CraftingManager::add_recipe(const CraftingRecipe& recipe) {
     registry().push_back(recipe);
-    update_indices(recipe);
+    update_indices(registry().back());
 }
 
 // ============================================================

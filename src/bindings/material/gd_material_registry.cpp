@@ -2,29 +2,15 @@
 
 #include "core/material/material.hpp"
 #include "core/material/material_registry.hpp"
+#include "core/common/string_pool.hpp"
 #include "core/material/material_item.hpp"
 #include "core/fuel/fuel_registry.hpp"
-
-#include <deque>
-#include <string>
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;
 namespace gt = science_and_theology::gt;
-
-// Persistent string storage for compound item keys registered from GDScript.
-// ItemRegistry::register_item() stores raw const char* pointers, so the
-// strings must outlive the call. A deque ensures pointers remain valid even
-// after push_back (elements are not moved on reallocation).
-namespace {
-struct CompoundStrings {
-    std::string key;
-    std::string title;
-};
-std::deque<CompoundStrings> g_compound_strings;
-} // anonymous namespace
 
 static const char* ELEMENT_NAMES[] = {
     "H",  "He",
@@ -125,15 +111,9 @@ bool GDMaterialRegistry::register_material(const Dictionary& def) {
 bool GDMaterialRegistry::register_compound(const String& p_item_key, const String& p_title_key) {
     if (p_item_key.is_empty()) return false;
 
-    // Copy strings into persistent storage (deque ensures pointer stability).
-    g_compound_strings.push_back({
-        std::string(p_item_key.utf8().get_data()),
-        std::string(p_title_key.utf8().get_data())
-    });
-
     gt::ItemId id = gt::ItemRegistry::register_item(
-        g_compound_strings.back().key.c_str(),
-        g_compound_strings.back().title.c_str()
+        gt::intern_string(p_item_key.utf8().get_data()),
+        gt::intern_string(p_title_key.utf8().get_data())
     );
     return id != gt::kInvalidItemId;
 }

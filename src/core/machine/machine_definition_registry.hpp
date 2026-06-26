@@ -37,6 +37,7 @@ struct MachineDefinition {
 class MachineDefinitionRegistry {
 public:
     static void initialize();
+    static void reset();
 
     // Register a machine definition. Replaces existing if type_key matches.
     // Returns true on success.

@@ -1,6 +1,7 @@
 #include "material.hpp"
 #include "material_registry.hpp"
 #include "material_item.hpp"
+#include "core/common/string_pool.hpp"
 #include "core/fuel/fuel_registry.hpp"
 
 #include <cassert>
@@ -86,13 +87,10 @@ bool Material::generates_form(MaterialForm form) const {
 
 namespace {
 
-// Combined entry: persistent string storage + material struct.
-// All strings/composition live here so const char* pointers in Material
-// remain valid for the lifetime of the program.
+// Per-entry storage for composition data. Strings are interned into the
+// core string pool (common/string_pool.hpp) so Material::name etc. point
+// to stable pool memory. composition is per-entry (cannot be pooled).
 struct MaterialEntry {
-    std::string name;
-    std::string title_key;
-    std::string chemical_formula;
     std::vector<ElementComposition> composition;
     Material material = {};
 };
@@ -143,33 +141,28 @@ void MaterialRegistry::register_material(
 
     MaterialEntry& entry = g_registry[id];
 
-    // Copy strings into persistent storage.
-    entry.name = name ? name : "";
-    entry.title_key = title_key ? title_key : "";
-    entry.chemical_formula = chemical_formula ? chemical_formula : "";
-
     // Copy composition array.
     entry.composition.clear();
     if (composition != nullptr && elem_count > 0) {
         entry.composition.assign(composition, composition + elem_count);
     }
 
-    // Fill the Material struct with pointers into persistent storage.
+    // Fill the Material struct with pre-interned string pointers.
     entry.material.id = id;
-    entry.material.name = entry.name.c_str();
-    entry.material.title_key = entry.title_key.c_str();
+    entry.material.name = name;
+    entry.material.title_key = title_key;
     entry.material.generation_flags = gen_flags;
     entry.material.state = state;
     entry.material.color = color;
     entry.material.melting_point = melting_point;
     entry.material.boiling_point = boiling_point;
     entry.material.mass = mass;
-    entry.material.chemical_formula = entry.chemical_formula.c_str();
+    entry.material.chemical_formula = chemical_formula;
     entry.material.element_count = static_cast<uint8_t>(entry.composition.size());
     entry.material.composition = entry.composition.empty() ? nullptr : entry.composition.data();
 
     // Update name→id map (replaces old entry on re-registration).
-    g_material_name_to_id[entry.name] = id;
+    g_material_name_to_id[entry.material.name] = id;
 
     // Advance next ID if this is the highest so far.
     if (id >= g_next_material_id) {

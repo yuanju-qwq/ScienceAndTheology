@@ -139,9 +139,8 @@ public:
     //
     // Registers a non-material item with an auto-assigned ItemId from
     // the dynamic range [kDynamicItemBase, kDynamicItemMax).
-    // The item_key must be globally unique. The caller must keep
-    // name_key and title_key strings alive for the lifetime of the
-    // process.
+    // The item_key must be globally unique. Strings are interned into
+    // the core string pool; the caller can free its copies immediately.
     //
     // Idempotent: if item_key is already registered (in dynamic range
     // or as a material item), returns the existing ItemId.

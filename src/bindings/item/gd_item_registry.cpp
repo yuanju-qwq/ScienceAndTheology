@@ -1,30 +1,13 @@
 #include "gd_item_registry.h"
 
 #include <godot_cpp/core/class_db.hpp>
-#include <unordered_set>
 
+#include "core/common/string_pool.hpp"
 #include "core/material/material_item.hpp"
 
 namespace science_and_theology {
 
 using namespace godot;
-
-namespace {
-// Persistent string storage for item keys passed from GDScript.
-// ItemRegistry stores const char* pointers that must outlive the
-// registry, so we keep the strings here for the lifetime of the
-// process.
-std::unordered_set<std::string> g_string_pool;
-
-const char* intern_string(const std::string& s) {
-    auto it = g_string_pool.find(s);
-    if (it != g_string_pool.end()) {
-        return it->c_str();
-    }
-    auto result = g_string_pool.insert(s);
-    return result.first->c_str();
-}
-} // namespace
 
 int64_t GDItemRegistry::register_item(const Dictionary& def) {
     String key = def.get("item_key", "");
@@ -32,14 +15,10 @@ int64_t GDItemRegistry::register_item(const Dictionary& def) {
         return 0;
     }
 
-    std::string key_str = key.utf8().get_data();
     String title = def.get("title_key", "");
-    const char* title_ptr = title.is_empty()
-        ? nullptr
-        : intern_string(std::string(title.utf8().get_data()));
+    const char* title_ptr = title.is_empty() ? nullptr : gt::intern_string(title.utf8().get_data());
 
-    const char* key_ptr = intern_string(key_str);
-    gt::ItemId id = gt::ItemRegistry::register_item(key_ptr, title_ptr);
+    gt::ItemId id = gt::ItemRegistry::register_item(gt::intern_string(key.utf8().get_data()), title_ptr);
     return static_cast<int64_t>(id);
 }
 

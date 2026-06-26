@@ -1,5 +1,7 @@
 #include "rune_registry.hpp"
 
+#include "core/common/string_pool.hpp"
+
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -7,7 +9,6 @@
 namespace science_and_theology::magic {
 
 static std::vector<RuneDef> g_rune_registry;
-static std::vector<std::string> g_rune_name_storage;
 static std::unordered_map<std::string, RuneId> g_rune_name_map;
 static RuneId g_rune_index[static_cast<int>(RuneElement::COUNT)][static_cast<int>(RuneTier::COUNT)];
 
@@ -15,7 +16,6 @@ void RuneRegistry::reset() {
     // 完全清空 registry，不保留 ID 0（invalid）。
     // 用于热重载场景：initialize() = reset() + 预留 ID 0。
     g_rune_registry.clear();
-    g_rune_name_storage.clear();
     g_rune_name_map.clear();
 
     for (int e = 0; e < static_cast<int>(RuneElement::COUNT); ++e) {
@@ -31,7 +31,6 @@ void RuneRegistry::initialize() {
 
     // Reserve ID 0 as invalid.
     g_rune_registry.push_back({});
-    g_rune_name_storage.push_back("__invalid__");
 
     // Built-in runes are now registered from GDScript via GDRuneRegistry
     // (see BuiltinRunes.gd).
@@ -50,21 +49,15 @@ RuneId RuneRegistry::register_rune(const RuneDef& def, RuneId explicit_id) {
     }
     RuneId id = explicit_id;
 
-    RuneDef stored = def;
-    // 修复 back().c_str() 悬垂风险：先记录下标，push_back 后用下标取地址
-    size_t idx = g_rune_name_storage.size();
-    g_rune_name_storage.push_back(def.name);
-    stored.name = g_rune_name_storage[idx].c_str();
-
     // 显式 ID 可能跳跃，需要 resize 填补空隙（空隙条目保持默认构造，name="" ）
     if (id >= g_rune_registry.size()) {
         g_rune_registry.resize(static_cast<size_t>(id) + 1);
     }
-    g_rune_registry[id] = stored;
-    g_rune_name_map[stored.name] = id;
+    g_rune_registry[id] = def;
+    g_rune_name_map[def.name] = id;
 
-    int e = static_cast<int>(stored.element);
-    int t = static_cast<int>(stored.tier);
+    int e = static_cast<int>(def.element);
+    int t = static_cast<int>(def.tier);
     g_rune_index[e][t] = id;
     return id;
 }

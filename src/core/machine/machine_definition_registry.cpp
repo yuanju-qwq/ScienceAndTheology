@@ -12,6 +12,10 @@ void MachineDefinitionRegistry::initialize() {
     registry().clear();
 }
 
+void MachineDefinitionRegistry::reset() {
+    registry().clear();
+}
+
 bool MachineDefinitionRegistry::register_definition(
     const MachineDefinition& def) {
     if (def.type_key.empty()) return false;

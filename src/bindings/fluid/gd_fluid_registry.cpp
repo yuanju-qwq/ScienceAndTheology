@@ -2,37 +2,14 @@
 
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/variant.hpp>
-#include <unordered_set>
 
+#include "core/common/string_pool.hpp"
 #include "core/fluid/fluid_registry.hpp"
 #include "core/fluid/fluid_def.hpp"
 
 namespace science_and_theology {
 
 using namespace godot;
-
-namespace {
-// Persistent string storage for fluid names/keys passed from GDScript.
-// FluidDefinition stores const char* pointers that must outlive the
-// registry, so we keep the strings here for the lifetime of the process.
-std::unordered_set<std::string> g_string_pool;
-
-const char* intern_string(const std::string& s) {
-    auto it = g_string_pool.find(s);
-    if (it != g_string_pool.end()) {
-        return it->c_str();
-    }
-    auto result = g_string_pool.insert(s);
-    return result.first->c_str();
-}
-
-const char* intern_variant(const Variant& v, const char* fallback) {
-    if (v.get_type() == Variant::NIL) return fallback;
-    std::string s = String(v).utf8().get_data();
-    if (s.empty()) return fallback;
-    return intern_string(s);
-}
-} // namespace
 
 int64_t GDFluidRegistry::register_fluid(const Dictionary& def) {
     String name = def.get("name", "");
@@ -41,13 +18,21 @@ int64_t GDFluidRegistry::register_fluid(const Dictionary& def) {
     }
 
     gt::FluidDefinition fluid_def;
-    fluid_def.name = intern_string(std::string(name.utf8().get_data()));
-    fluid_def.title_key = intern_variant(
-        def.get("title_key", ""),
-        fluid_def.name);
-    fluid_def.chemical_formula = intern_variant(
-        def.get("chemical_formula", ""),
-        "");
+    fluid_def.name = gt::intern_string(name.utf8().get_data());
+
+    String title = def.get("title_key", "");
+    if (title.is_empty()) {
+        fluid_def.title_key = fluid_def.name;
+    } else {
+        fluid_def.title_key = gt::intern_string(title.utf8().get_data());
+    }
+
+    String formula = def.get("chemical_formula", "");
+    if (formula.is_empty()) {
+        fluid_def.chemical_formula = "";
+    } else {
+        fluid_def.chemical_formula = gt::intern_string(formula.utf8().get_data());
+    }
     fluid_def.temperature = static_cast<int64_t>(def.get("temperature", 300));
     fluid_def.is_gas = static_cast<bool>(def.get("is_gas", false));
 

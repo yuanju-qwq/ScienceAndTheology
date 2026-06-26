@@ -1,6 +1,7 @@
 #include "material_item.hpp"
 
 #include "ae2/ae2_pattern_cache.hpp"
+#include "common/string_pool.hpp"
 
 #include <cassert>
 #include <cstdio>
@@ -219,7 +220,8 @@ ItemId ItemRegistry::register_item(const char* item_key,
 
     ItemId id = g_next_dynamic_item_id++;
     size_t idx = g_dynamic_items.size();
-    g_dynamic_items.push_back({id, item_key, title_key != nullptr ? title_key : item_key});
+    const char* title = title_key != nullptr ? title_key : item_key;
+    g_dynamic_items.push_back({id, item_key, title});
     g_dynamic_key_to_id[item_key] = id;
     g_dynamic_id_to_index[id] = idx;
     return id;

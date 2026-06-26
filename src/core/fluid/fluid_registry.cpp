@@ -1,5 +1,7 @@
 #include "fluid_registry.hpp"
 
+#include "common/string_pool.hpp"
+
 #include <unordered_map>
 
 namespace science_and_theology::gt {

@@ -3,6 +3,8 @@
 #include <godot_cpp/core/binder_common.hpp>
 #include <godot_cpp/core/class_db.hpp>
 
+#include "core/common/string_pool.hpp"
+
 using namespace godot;
 
 namespace science_and_theology {
@@ -34,7 +36,7 @@ bool GDGlyphRegistry::register_glyph(const Dictionary& def) {
     if (name.is_empty()) return false;
 
     GlyphDef glyph;
-    glyph.name = name.utf8().get_data();
+    glyph.name = gt::intern_string(name.utf8().get_data());
     glyph.slot_type = static_cast<GlyphSlotType>(
         static_cast<int>(def.get("slot_type", 0)));
     glyph.element = static_cast<RuneElement>(

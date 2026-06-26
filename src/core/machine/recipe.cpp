@@ -1,5 +1,7 @@
 #include "recipe.hpp"
 
+#include "common/string_pool.hpp"
+
 #include <cassert>
 #include <cstring>
 #include <unordered_map>
@@ -202,6 +204,10 @@ RecipeMap* RecipeDatabase::find_or_create_map(const char* machine_type) {
 }
 
 void RecipeDatabase::initialize() {
+    RecipeDb::instance().maps.clear();
+}
+
+void RecipeDatabase::reset() {
     RecipeDb::instance().maps.clear();
 }
 

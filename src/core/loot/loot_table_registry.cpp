@@ -1,5 +1,7 @@
 #include "loot_table_registry.hpp"
 
+#include "common/string_pool.hpp"
+
 #include <algorithm>
 #include <cstring>
 #include <unordered_map>
@@ -16,6 +18,11 @@ std::vector<LootTable>& LootTableRegistry::registry() {
 }
 
 void LootTableRegistry::initialize() {
+    g_loot_tables.clear();
+    g_loot_table_index.clear();
+}
+
+void LootTableRegistry::reset() {
     g_loot_tables.clear();
     g_loot_table_index.clear();
 }
