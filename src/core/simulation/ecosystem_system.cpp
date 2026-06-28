@@ -203,6 +203,13 @@ PopulationCell& EcosystemSystem::ensure_population_cell(const ChunkKey& key) {
 
     // Infer biome type from terrain material composition.
     cell.biome_type = infer_biome_type(key);
+    if (cell.biome_type == ecosystem_biome::kBarren) {
+        cell.vegetation_density = 0.0f;
+        cell.herbivore_density = 0.0f;
+        cell.predator_density = 0.0f;
+        cell.soil_fertility = 0.0f;
+        cell.water_availability = 0.0f;
+    }
 
     // Apply biome override if available.
     const EcosystemParams::BiomeOverride* bo =
@@ -336,6 +343,13 @@ EcosystemSystem::ResolvedParams EcosystemSystem::resolve_params(
     rp.max_herbivore = 1.0f;
     rp.max_predator = 1.0f;
     rp.base_water = 0.5f;
+
+    if (cell.biome_type == ecosystem_biome::kBarren) {
+        rp.max_vegetation = 0.0f;
+        rp.max_herbivore = 0.0f;
+        rp.max_predator = 0.0f;
+        rp.base_water = 0.0f;
+    }
 
     // Apply biome overrides if available.
     const EcosystemParams::BiomeOverride* bo =
@@ -736,23 +750,59 @@ uint16_t EcosystemSystem::pick_species_for_biome(
     return 0;
 }
 
-void EcosystemSystem::random_spawn_position_in_chunk(
+bool EcosystemSystem::try_surface_spawn_position_in_chunk(
     const ChunkKey& chunk,
+    int variant,
     int32_t& out_x, int32_t& out_y, int32_t& out_z) const {
-    // Use a simple hash of chunk coords + tick for deterministic randomness.
-    // This avoids pulling in <random> and is sufficient for spawn positions.
+    if (!world_) return false;
+
+    const ChunkData* chunk_data = world_->get_chunk(
+        chunk.dimension_id, chunk.chunk_x, chunk.chunk_y, chunk.chunk_z);
+    if (!chunk_data) return false;
+
+    const TerrainData& terrain = chunk_data->terrain;
+    const int size_x = terrain.size_x;
+    const int size_y = terrain.size_y;
+    const int size_z = terrain.size_z;
+    if (size_x <= 0 || size_y <= 0 || size_z <= 0) return false;
+
+    // Use a simple hash of chunk coords + tick for deterministic variation.
     const int64_t tick = world_ ? world_->current_tick() : 0;
     const int64_t seed = static_cast<int64_t>(chunk.chunk_x) * 73856093 +
                          static_cast<int64_t>(chunk.chunk_y) * 19349663 +
                          static_cast<int64_t>(chunk.chunk_z) * 83492791 +
-                         tick * 23456789;
-    constexpr int kChunkSize = 32;
-    out_x = chunk.chunk_x * kChunkSize +
-        static_cast<int32_t>((seed & 0xFF) % kChunkSize);
-    out_y = chunk.chunk_y * kChunkSize +
-        static_cast<int32_t>(((seed >> 8) & 0xFF) % kChunkSize);
-    out_z = chunk.chunk_z * kChunkSize +
-        static_cast<int32_t>(((seed >> 16) & 0xFF) % kChunkSize);
+                         tick * 23456789 +
+                         static_cast<int64_t>(variant) * 2654435761LL;
+    const int column_count = size_x * size_z;
+    int start = static_cast<int>((seed >= 0 ? seed : -seed) % column_count);
+
+    for (int n = 0; n < column_count; ++n) {
+        const int column = (start + n) % column_count;
+        const int lx = column % size_x;
+        const int lz = column / size_x;
+
+        for (int ly = size_y - 1; ly >= 0; --ly) {
+            const TerrainCell& cell = terrain.cell_at(lx, ly, lz);
+            if (cell.is_solid() || cell.is_liquid() || cell.has_fluid()) {
+                continue;
+            }
+
+            const int32_t wx = chunk.chunk_x * ChunkData::kChunkSize + lx;
+            const int32_t wy = chunk.chunk_y * ChunkData::kChunkSize + ly;
+            const int32_t wz = chunk.chunk_z * ChunkData::kChunkSize + lz;
+            if (!is_cell_creature_support(
+                    chunk.dimension_id, wx, wy - 1, wz)) {
+                continue;
+            }
+
+            out_x = wx;
+            out_y = wy;
+            out_z = wz;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void EcosystemSystem::spawn_proxies_for_chunk(
@@ -771,8 +821,10 @@ void EcosystemSystem::spawn_proxies_for_chunk(
         cell->herbivore_density, params_.min_herb_density_for_proxy);
     for (int i = 0; i < herb_count; ++i) {
         int32_t sx, sy, sz;
-        random_spawn_position_in_chunk(chunk, sx, sy, sz);
-        sx += i * 3;
+        if (!try_surface_spawn_position_in_chunk(
+                chunk, i, sx, sy, sz)) {
+            continue;
+        }
 
         uint16_t species = pick_species_for_biome(
             CreatureRole::HERBIVORE, cell->biome_type);
@@ -805,9 +857,10 @@ void EcosystemSystem::spawn_proxies_for_chunk(
         cell->predator_density, params_.min_pred_density_for_proxy);
     for (int i = 0; i < pred_count; ++i) {
         int32_t sx, sy, sz;
-        random_spawn_position_in_chunk(chunk, sx, sy, sz);
-        sx += i * 3 + 1;
-        sz += i * 2;
+        if (!try_surface_spawn_position_in_chunk(
+                chunk, herb_count + i, sx, sy, sz)) {
+            continue;
+        }
 
         uint16_t species = pick_species_for_biome(
             CreatureRole::PREDATOR, cell->biome_type);
@@ -909,8 +962,10 @@ void EcosystemSystem::rebalance_proxies(
     if (desired_herb > current_herb) {
         for (int i = 0; i < desired_herb - current_herb; ++i) {
             int32_t sx, sy, sz;
-            random_spawn_position_in_chunk(chunk, sx, sy, sz);
-            sx += (current_herb + i) * 3;
+            if (!try_surface_spawn_position_in_chunk(
+                    chunk, current_herb + i, sx, sy, sz)) {
+                continue;
+            }
 
             uint16_t species = pick_species_for_biome(
                 CreatureRole::HERBIVORE, cell->biome_type);
@@ -967,9 +1022,10 @@ void EcosystemSystem::rebalance_proxies(
     if (desired_pred > current_pred) {
         for (int i = 0; i < desired_pred - current_pred; ++i) {
             int32_t sx, sy, sz;
-            random_spawn_position_in_chunk(chunk, sx, sy, sz);
-            sx += (current_pred + i) * 3 + 1;
-            sz += (current_pred + i) * 2;
+            if (!try_surface_spawn_position_in_chunk(
+                    chunk, current_herb + current_pred + i, sx, sy, sz)) {
+                continue;
+            }
 
             uint16_t species = pick_species_for_biome(
                 CreatureRole::PREDATOR, cell->biome_type);
@@ -1121,22 +1177,19 @@ void EcosystemSystem::tick_proxies(
 
                 // Flee: move away from flee_from position.
                 float fx = cs->pos_x - cs->flee_from_x;
-                float fy = cs->pos_y - cs->flee_from_y;
                 float fz = cs->pos_z - cs->flee_from_z;
-                float flen = std::sqrt(fx * fx + fy * fy + fz * fz);
+                float flen = std::sqrt(fx * fx + fz * fz);
                 if (flen > 0.001f) {
                     fx /= flen;
-                    fy /= flen;
                     fz /= flen;
                 } else {
                     fx = 1.0f;
-                    fy = 0.0f;
                     fz = 0.0f;
                 }
 
                 const float wander_r = resolve_wander_radius(*cs);
                 cs->wander_target_x = cs->pos_x + fx * wander_r;
-                cs->wander_target_y = cs->pos_y + fy * wander_r;
+                cs->wander_target_y = cs->pos_y;
                 cs->wander_target_z = cs->pos_z + fz * wander_r;
 
                 float flee_speed = speed * params_.flee_speed_multiplier;
@@ -1210,11 +1263,10 @@ void EcosystemSystem::pick_wander_target(
 
     // Map hash to [-1, 1] range for each axis.
     float rx = static_cast<float>((seed & 0xFFFF) % 2001 - 1000) / 1000.0f;
-    float ry = static_cast<float>(((seed >> 16) & 0xFF) % 2001 - 1000) / 1000.0f;
     float rz = static_cast<float>(((seed >> 24) & 0xFF) % 2001 - 1000) / 1000.0f;
 
     creature.wander_target_x = creature.pos_x + rx * wander_r;
-    creature.wander_target_y = creature.pos_y + ry * 2.0f;
+    creature.wander_target_y = creature.pos_y;
     creature.wander_target_z = creature.pos_z + rz * wander_r;
 }
 
@@ -1277,6 +1329,24 @@ bool EcosystemSystem::move_creature_toward_target(
     creature.pos_y += ny * step;
     creature.pos_z += nz * step;
     return true;
+}
+
+bool EcosystemSystem::is_cell_creature_support(
+    const std::string& dimension,
+    int32_t bx, int32_t by, int32_t bz) const {
+    if (!world_) return false;
+    constexpr int kChunkSize = ChunkData::kChunkSize;
+    int cx = bx >= 0 ? bx / kChunkSize : (bx - kChunkSize + 1) / kChunkSize;
+    int cy = by >= 0 ? by / kChunkSize : (by - kChunkSize + 1) / kChunkSize;
+    int cz = bz >= 0 ? bz / kChunkSize : (bz - kChunkSize + 1) / kChunkSize;
+    const ChunkData* chunk = world_->get_chunk(dimension, cx, cy, cz);
+    if (!chunk) return false;
+    int lx = bx - cx * kChunkSize;
+    int ly = by - cy * kChunkSize;
+    int lz = bz - cz * kChunkSize;
+    if (!chunk->terrain.is_valid_cell(lx, ly, lz)) return false;
+    const TerrainCell& cell = chunk->terrain.cell_at(lx, ly, lz);
+    return cell.is_solid() || cell.is_liquid() || cell.has_fluid();
 }
 
 // --- Player stewardship (feeding) ---
@@ -1548,11 +1618,11 @@ ChunkKey EcosystemSystem::chunk_key_for_position(
 // --- Biome inference and default overrides ---
 
 uint8_t EcosystemSystem::infer_biome_type(const ChunkKey& key) const {
-    if (!world_) return ecosystem_biome::kPlains;
+    if (!world_) return ecosystem_biome::kBarren;
 
     const ChunkData* chunk = world_->get_chunk(
         key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
-    if (!chunk) return ecosystem_biome::kPlains;
+    if (!chunk) return ecosystem_biome::kBarren;
 
     // Resolve material role IDs from worldgen config.
     auto config = world_->worldgen_config();
@@ -1595,7 +1665,7 @@ uint8_t EcosystemSystem::infer_biome_type(const ChunkKey& key) const {
         }
     }
 
-    if (total_counted == 0) return ecosystem_biome::kPlains;
+    if (total_counted == 0) return ecosystem_biome::kBarren;
 
     // Classify by dominant surface material.
     const float threshold = 0.4f;

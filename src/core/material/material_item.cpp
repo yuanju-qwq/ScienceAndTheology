@@ -204,7 +204,22 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
 
 ItemId ItemRegistry::register_item(const char* item_key,
                                     const char* title_key) {
-    if (item_key == nullptr || item_key[0] == '\0') {
+    while (g_next_dynamic_item_id < kDynamicItemMax &&
+           g_dynamic_id_to_index.count(g_next_dynamic_item_id) > 0) {
+        ++g_next_dynamic_item_id;
+    }
+    if (g_next_dynamic_item_id >= kDynamicItemMax) {
+        return kInvalidItemId;
+    }
+
+    return register_item_with_id(g_next_dynamic_item_id, item_key, title_key);
+}
+
+ItemId ItemRegistry::register_item_with_id(ItemId item_id,
+                                           const char* item_key,
+                                           const char* title_key) {
+    if (item_key == nullptr || item_key[0] == '\0' ||
+        !is_dynamic_item(item_id)) {
         return kInvalidItemId;
     }
     // 幂等：若 item_key 已注册（任意范围），直接返回已有 ID
@@ -214,17 +229,19 @@ ItemId ItemRegistry::register_item(const char* item_key,
             return existing;
         }
     }
-    if (g_next_dynamic_item_id >= kDynamicItemMax) {
+    if (g_dynamic_id_to_index.count(item_id) > 0) {
         return kInvalidItemId;
     }
 
-    ItemId id = g_next_dynamic_item_id++;
     size_t idx = g_dynamic_items.size();
     const char* title = title_key != nullptr ? title_key : item_key;
-    g_dynamic_items.push_back({id, item_key, title});
-    g_dynamic_key_to_id[item_key] = id;
-    g_dynamic_id_to_index[id] = idx;
-    return id;
+    g_dynamic_items.push_back({item_id, item_key, title});
+    g_dynamic_key_to_id[item_key] = item_id;
+    g_dynamic_id_to_index[item_id] = idx;
+    if (item_id >= g_next_dynamic_item_id) {
+        g_next_dynamic_item_id = item_id + 1;
+    }
+    return item_id;
 }
 
 bool ItemRegistry::is_dynamic_item(ItemId item_id) {

@@ -117,14 +117,14 @@ struct EcosystemParams {
 
     // Maximum number of proxy creatures per chunk per type.
     // Controls visual density of creatures in active chunks.
-    int max_proxies_per_chunk = 8;
+    int max_proxies_per_chunk = 2;
 
     // Minimum herbivore density required to spawn at least 1 proxy.
     // Below this threshold, no proxy herbivores are visible.
-    float min_herb_density_for_proxy = 0.05f;
+    float min_herb_density_for_proxy = 0.15f;
 
     // Minimum predator density required to spawn at least 1 proxy.
-    float min_pred_density_for_proxy = 0.03f;
+    float min_pred_density_for_proxy = 0.12f;
 
     // How often (in ticks) proxy counts are re-evaluated.
     // 100 ticks = every 5 seconds at 20 TPS.

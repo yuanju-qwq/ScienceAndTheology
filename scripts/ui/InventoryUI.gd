@@ -254,7 +254,7 @@ func _on_inv_slot_clicked(index: int, _button: int) -> void:
 		return
 	var inv = player.inventory
 	var slot_data: Dictionary = inv.get_slot(index)
-	var slot_empty := slot_data.get("empty", false) or slot_data.get("item_id", 0) == 0
+	var slot_empty: bool = bool(slot_data.get("empty", false)) or int(slot_data.get("item_id", 0)) == 0
 
 	if _carried_item == null or _carried_item.is_empty():
 		if not slot_empty:
@@ -291,7 +291,7 @@ func _on_inv_slot_right_clicked(index: int) -> void:
 		return
 	var inv = player.inventory
 	var slot_data: Dictionary = inv.get_slot(index)
-	var slot_empty := slot_data.get("empty", false) or slot_data.get("item_id", 0) == 0
+	var slot_empty: bool = bool(slot_data.get("empty", false)) or int(slot_data.get("item_id", 0)) == 0
 
 	if _carried_item == null or _carried_item.is_empty():
 		if slot_empty:

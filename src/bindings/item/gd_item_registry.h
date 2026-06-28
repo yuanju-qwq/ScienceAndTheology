@@ -39,6 +39,7 @@ public:
     // Dictionary fields:
     //   item_key (String, required): globally unique stable key.
     //   title_key (String, optional): localization key.
+    //   item_id (int, optional): explicit dynamic-range ID for builtins.
     // Idempotent: returns existing ItemId if item_key already registered.
     static int64_t register_item(const godot::Dictionary& def);
 

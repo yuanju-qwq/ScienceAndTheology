@@ -332,9 +332,11 @@ private:
     uint16_t pick_species_for_biome(
         CreatureRole role, uint8_t biome_type) const;
 
-    // Compute a random spawn position within a chunk.
-    void random_spawn_position_in_chunk(
+    // Find a deterministic surface spawn position inside a chunk.
+    // Returns false when the chunk has no passable cell over solid terrain.
+    bool try_surface_spawn_position_in_chunk(
         const ChunkKey& chunk,
+        int variant,
         int32_t& out_x, int32_t& out_y, int32_t& out_z) const;
 
     // Pick a random wander target near the creature's current position.
@@ -352,6 +354,10 @@ private:
     bool move_creature_toward_target(
         CreatureBlockEntityState& creature,
         float speed, float dt) const;
+
+    // Check whether the world cell at (bx, by, bz) can support a wild proxy.
+    bool is_cell_creature_support(const std::string& dimension,
+                                  int32_t bx, int32_t by, int32_t bz) const;
 
     // Kill a proxy creature: remove from registry, remove from
     // proxy group, add hunting pressure, emit events.

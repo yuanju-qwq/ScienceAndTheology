@@ -203,6 +203,10 @@ material.shale,页岩
 material.komatiite,科马提岩
 material.regolith,表岩屑
 material.anorthosite,斜长岩
+material.rubber,橡胶
+material.polyethylene,聚乙烯
+material.glowstone,萤石
+material.wrought_iron,熟铁
 
 # ============================================================
 # Material form display names (材料形态名称)
@@ -499,6 +503,10 @@ item.regolith_dust,表岩屑粉
 item.regolith_tiny_dust,小撮表岩屑粉
 item.anorthosite_dust,斜长岩粉
 item.anorthosite_tiny_dust,小撮斜长岩粉
+item.rubber_plate,橡胶片
+item.polyethylene_plate,聚乙烯片
+item.glowstone_dust,萤石粉
+item.glowstone_block,萤石块
 
 # ============================================================
 # Station names (工作站类型)

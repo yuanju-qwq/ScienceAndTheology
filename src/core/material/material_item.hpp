@@ -149,6 +149,9 @@ public:
     // (empty key or range full).
     static ItemId register_item(const char* item_key,
                                 const char* title_key);
+    static ItemId register_item_with_id(ItemId item_id,
+                                        const char* item_key,
+                                        const char* title_key);
 
     // Returns true if this item ID is in the dynamic (non-material) item range.
     static bool is_dynamic_item(ItemId item_id);

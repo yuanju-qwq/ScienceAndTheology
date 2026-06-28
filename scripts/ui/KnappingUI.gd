@@ -40,27 +40,75 @@ var _cells: Array[bool] = []  # flattened GRID_COLS * GRID_ROWS grid
 var _stone_item_id: int = 0
 var _is_open := false
 
-@onready var _panel: Panel = $Panel
-@onready var _title: Label = $Panel/Title
-@onready var _grid: Control = $Panel/Grid
-@onready var _pickup_btn: Button = $Panel/PickupBtn
-@onready var _close_btn: Button = $Panel/CloseBtn
-@onready var _status_label: Label = $Panel/StatusLabel
+@onready var _panel := get_node_or_null(^"Panel") as Panel
+@onready var _title := get_node_or_null(^"Panel/Title") as Label
+@onready var _grid := get_node_or_null(^"Panel/Grid") as Control
+@onready var _pickup_btn := get_node_or_null(^"Panel/PickupBtn") as Button
+@onready var _close_btn := get_node_or_null(^"Panel/CloseBtn") as Button
+@onready var _status_label := get_node_or_null(^"Panel/StatusLabel") as Label
 
 
 func _ready() -> void:
 	visible = false
 	size = Vector2(300, 350)
+	_ensure_ui_nodes()
 	_center_in_viewport()
 	_build_grid()
-	_close_btn.pressed.connect(_on_close)
-	_pickup_btn.pressed.connect(_on_pickup)
+	if not _close_btn.pressed.is_connected(_on_close):
+		_close_btn.pressed.connect(_on_close)
+	if not _pickup_btn.pressed.is_connected(_on_pickup):
+		_pickup_btn.pressed.connect(_on_pickup)
 	_pickup_btn.disabled = true
+
+
+func _ensure_ui_nodes() -> void:
+	if _panel == null:
+		_panel = Panel.new()
+		_panel.name = "Panel"
+		_panel.position = Vector2.ZERO
+		_panel.size = size
+		add_child(_panel)
+	if _title == null:
+		_title = Label.new()
+		_title.name = "Title"
+		_title.text = "Knapping"
+		_title.position = Vector2(20, 12)
+		_title.size = Vector2(260, 24)
+		_panel.add_child(_title)
+	if _grid == null:
+		_grid = Control.new()
+		_grid.name = "Grid"
+		_grid.position = Vector2(20, 48)
+		_grid.size = Vector2(GRID_COLS * (CELL_SIZE + PADDING), GRID_ROWS * (CELL_SIZE + PADDING))
+		_panel.add_child(_grid)
+	if _pickup_btn == null:
+		_pickup_btn = Button.new()
+		_pickup_btn.name = "PickupBtn"
+		_pickup_btn.text = "Pick Up"
+		_pickup_btn.position = Vector2(20, 250)
+		_pickup_btn.size = Vector2(160, 36)
+		_panel.add_child(_pickup_btn)
+	if _close_btn == null:
+		_close_btn = Button.new()
+		_close_btn.name = "CloseBtn"
+		_close_btn.text = "Close"
+		_close_btn.position = Vector2(200, 250)
+		_close_btn.size = Vector2(80, 36)
+		_panel.add_child(_close_btn)
+	if _status_label == null:
+		_status_label = Label.new()
+		_status_label.name = "StatusLabel"
+		_status_label.text = "Click to chip away stone"
+		_status_label.position = Vector2(20, 300)
+		_status_label.size = Vector2(260, 32)
+		_panel.add_child(_status_label)
 
 
 func _center_in_viewport() -> void:
 	var vp := get_viewport_rect().size
 	position = (vp - size) / 2.0
+	if _panel != null:
+		_panel.size = size
 
 
 func _build_grid() -> void:
@@ -69,7 +117,10 @@ func _build_grid() -> void:
 		_grid.name = "Grid"
 		_grid.position = Vector2(20, 40)
 		_grid.size = Vector2(GRID_COLS * (CELL_SIZE + PADDING), GRID_ROWS * (CELL_SIZE + PADDING))
-		add_child(_grid)
+		if _panel != null:
+			_panel.add_child(_grid)
+		else:
+			add_child(_grid)
 
 	_cells.resize(GRID_COLS * GRID_ROWS)
 	for i in range(GRID_COLS * GRID_ROWS):

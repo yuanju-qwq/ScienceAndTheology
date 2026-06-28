@@ -32,6 +32,8 @@ enum class MaterialGenFlag : uint16_t {
     PLASMA = 1 << 5,  // generate plasma cell
     WIRE   = 1 << 6,  // generate fine wire / wire
     BLOCK  = 1 << 7,  // generate storage block
+    PLATE  = 1 << 8,  // generate plate/double/dense plate without metal ingots
+    ROD    = 1 << 9,  // generate rod/long rod without metal ingots
 };
 
 inline constexpr uint16_t operator|(MaterialGenFlag a, MaterialGenFlag b) {

@@ -1,4 +1,4 @@
-class_name NEISettings
+class_name NEISettingsScript
 extends Node
 
 ## NEISettings persists NEI (Not Enough Items) configuration across sessions.

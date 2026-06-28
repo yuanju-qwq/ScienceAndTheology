@@ -1810,8 +1810,10 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		  "albedo_color": Color(0.33, 0.25, 0.14) },
 		{ "material_key": "snt:sand", "dimension": "overworld",
 		  "albedo_color": Color(0.73, 0.64, 0.40),
-		  "sides_texture": "res://resource/terrain/sand/sand_tile_01_32.png",
-		  "sides_variant_count": 4 },
+		  "sides": {
+			  "texture_path": "res://resource/terrain/sand/sand_tile_01_32.png",
+			  "variant_count": 4,
+		  } },
 		{ "material_key": "snt:water", "dimension": "overworld",
 		  "albedo_color": Color(0.18, 0.39, 0.74, 0.78),
 		  "transparent": true, "roughness": 0.1 },
@@ -2147,8 +2149,121 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		{ "material_key": "snt:pumpkin_mature", "dimension": "overworld",
 		  "albedo_color": Color(0.90, 0.55, 0.15), "cull_disabled": true },
 	]
+	_apply_builtin_material_textures(visuals)
 	for visual in visuals:
 		registry.register_material_visual(visual)
+
+
+static func _apply_builtin_material_textures(visuals: Array) -> void:
+	var cube_textures := {
+		"snt:stone": "res://resource/terrain/stone/stone_tile_32.png",
+		"snt:dirt": "res://resource/terrain/dirt/dirt_tile_32.png",
+		"snt:sand": "res://resource/terrain/sand/sand_tile_01_32.png",
+		"snt:water": "res://resource/terrain/fluid/water_tile_32.png",
+		"snt:lava": "res://resource/terrain/fluid/lava_tile_32.png",
+		"snt:snow": "res://resource/terrain/snow/snow_tile_32.png",
+		"snt:ice": "res://resource/terrain/ice/ice_tile_32.png",
+		"snt:clay": "res://resource/terrain/soil/clay_tile_32.png",
+		"snt:charcoal": "res://resource/terrain/utility/charcoal_tile_32.png",
+		"snt:straw": "res://resource/terrain/plant/straw_tile_32.png",
+		"snt:bloomery": "res://resource/terrain/utility/bloomery_tile_32.png",
+		"snt:anvil": "res://resource/terrain/utility/anvil_tile_32.png",
+		"snt:pit_kiln": "res://resource/terrain/utility/pit_kiln_tile_32.png",
+		"snt:workbench": "res://resource/terrain/utility/workbench_tile_32.png",
+		"snt:deepstone": "res://resource/terrain/stone/deepstone_tile_32.png",
+		"snt:core_barrier": "res://resource/terrain/utility/core_barrier_tile_32.png",
+		"snt:farmland": "res://resource/terrain/soil/farmland_tile_32.png",
+		"snt:granite": "res://resource/terrain/stone/granite_tile_32.png",
+		"snt:basalt": "res://resource/terrain/stone/basalt_tile_32.png",
+		"snt:marble": "res://resource/terrain/stone/marble_tile_32.png",
+		"snt:sandstone": "res://resource/terrain/stone/sandstone_tile_32.png",
+		"snt:shale": "res://resource/terrain/stone/shale_tile_32.png",
+		"snt:komatiite": "res://resource/terrain/stone/komatiite_tile_32.png",
+		"snt:regolith": "res://resource/terrain/stone/regolith_tile_32.png",
+		"snt:anorthosite": "res://resource/terrain/stone/anorthosite_tile_32.png",
+	}
+	var crop_textures := {
+		"seed": "res://resource/terrain/crop/crop_seed_32.png",
+		"sprout": "res://resource/terrain/crop/crop_sprout_32.png",
+		"growing": "res://resource/terrain/crop/crop_growing_32.png",
+		"mature": "res://resource/terrain/crop/crop_mature_32.png",
+	}
+	var ore_textures := {
+		"snt:ore_coal": "res://resource/terrain/ore/ore_coal_tile_32.png",
+		"snt:ore_copper": "res://resource/terrain/ore/ore_copper_tile_32.png",
+		"snt:ore_iron": "res://resource/terrain/ore/ore_iron_tile_32.png",
+		"snt:ore_tin": "res://resource/terrain/ore/ore_tin_tile_32.png",
+		"snt:ore_zinc": "res://resource/terrain/ore/ore_zinc_tile_32.png",
+		"snt:ore_lead": "res://resource/terrain/ore/ore_lead_tile_32.png",
+		"snt:ore_silver": "res://resource/terrain/ore/ore_silver_tile_32.png",
+		"snt:ore_gold": "res://resource/terrain/ore/ore_gold_tile_32.png",
+		"snt:ore_nickel": "res://resource/terrain/ore/ore_nickel_tile_32.png",
+		"snt:ore_bauxite": "res://resource/terrain/ore/ore_bauxite_tile_32.png",
+		"snt:ore_manganese": "res://resource/terrain/ore/ore_manganese_tile_32.png",
+		"snt:ore_tungsten": "res://resource/terrain/ore/ore_tungsten_tile_32.png",
+		"snt:ore_titanium": "res://resource/terrain/ore/ore_titanium_tile_32.png",
+		"snt:ore_platinum": "res://resource/terrain/ore/ore_platinum_tile_32.png",
+		"snt:ore_cobalt": "res://resource/terrain/ore/ore_cobalt_tile_32.png",
+		"snt:ore_uranium": "res://resource/terrain/ore/ore_uranium_tile_32.png",
+		"snt:ore_sulfur": "res://resource/terrain/ore/ore_sulfur_tile_32.png",
+		"snt:ore_diamond": "res://resource/terrain/ore/ore_diamond_tile_32.png",
+		"snt:ore_ruby": "res://resource/terrain/ore/ore_ruby_tile_32.png",
+		"snt:ore_sapphire": "res://resource/terrain/ore/ore_sapphire_tile_32.png",
+	}
+	for visual: Dictionary in visuals:
+		var key := str(visual.get("material_key", ""))
+		if key.is_empty() or key == "snt:air":
+			continue
+		if key.begins_with("snt:ore_"):
+			_set_cube_texture(visual, ore_textures.get(key, "res://resource/terrain/ore/ore_base_32.png"))
+		elif cube_textures.has(key):
+			_set_cube_texture(visual, cube_textures[key])
+		elif key == "snt:wood" or key == "snt:log_pile" or key.ends_with("_wood"):
+			_set_cube_texture(visual,
+					"res://resource/terrain/wood/log_side_tile_32.png",
+					"res://resource/terrain/wood/log_top_tile_32.png",
+					"res://resource/terrain/wood/log_top_tile_32.png")
+		elif key == "snt:leaves" or key.ends_with("_leaves"):
+			_set_cube_texture(visual, "res://resource/terrain/plant/leaves_tile_32.png")
+		elif key == "snt:ladder":
+			_set_cube_texture(visual, "res://resource/terrain/wood/ladder_tile_32.png")
+		elif key == "snt:fence":
+			_set_cube_texture(visual, "res://resource/terrain/wood/fence_tile_32.png")
+		elif key.ends_with("_sapling"):
+			_set_cube_texture(visual, "res://resource/terrain/plant/sapling_tile_32.png")
+		elif key.find("_seed") >= 0:
+			_set_cube_texture(visual, crop_textures["seed"])
+		elif key.find("_sprout") >= 0:
+			_set_cube_texture(visual, crop_textures["sprout"])
+		elif key.find("_growing") >= 0:
+			_set_cube_texture(visual, crop_textures["growing"])
+		elif key.find("_mature") >= 0:
+			_set_cube_texture(visual, crop_textures["mature"])
+
+
+static func _set_cube_texture(
+		visual: Dictionary,
+		sides_path: String,
+		top_path: String = "",
+		bottom_path: String = "") -> void:
+	if top_path.is_empty():
+		top_path = sides_path
+	if bottom_path.is_empty():
+		bottom_path = sides_path
+	_set_face_texture(visual, "top", top_path)
+	_set_face_texture(visual, "bottom", bottom_path)
+	_set_face_texture(visual, "sides", sides_path)
+
+
+static func _set_face_texture(visual: Dictionary, face: String, path: String) -> void:
+	var face_def: Dictionary = {}
+	if visual.has(face) and visual[face] is Dictionary:
+		face_def = visual[face]
+	if str(face_def.get("texture_path", "")).is_empty():
+		face_def["texture_path"] = path
+	if not face_def.has("variant_count"):
+		face_def["variant_count"] = 1
+	visual[face] = face_def
 
 
 static func _register_builtin_material_roles(registry: GDTerrainContentRegistry) -> void:

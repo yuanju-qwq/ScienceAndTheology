@@ -1,6 +1,20 @@
 extends Node
 
 const ITEM_ASSET_DIR := "res://resource/items/"
+const ICON_DUST_BASE := "material_sets/generic/dust_base_32.png"
+const ICON_TINY_DUST_BASE := "material_sets/generic/dust_tiny_base_32.png"
+const ICON_CRUSHED_BASE := "material_sets/generic/crushed_base_32.png"
+const ICON_INGOT_BASE := "material_sets/generic/ingot_base_32.png"
+const ICON_INGOT_OVERLAY := "material_sets/generic/ingot_overlay_32.png"
+const ICON_GEM_BASE := "material_sets/generic/gem_base_32.png"
+const ICON_NUGGET_BASE := "material_sets/generic/nugget_base_32.png"
+const ICON_BLOCK_BASE := "material_sets/generic/block_base_32.png"
+const ICON_PLATE_BASE := "material_sets/generic/plate_base_32.png"
+const ICON_ROD_BASE := "material_sets/generic/rod_base_32.png"
+const ICON_BOLT_BASE := "material_sets/generic/bolt_base_32.png"
+const ICON_SCREW_BASE := "material_sets/generic/screw_base_32.png"
+const ICON_WIRE_BASE := "material_sets/generic/wire_base_32.png"
+const ICON_MISSING := "missing_icon_32.png"
 
 const FORM_DUST        = 0
 const FORM_TINY_DUST   = 1
@@ -11,12 +25,31 @@ const FORM_NUGGET      = 14
 const FORM_BLOCK       = 15
 const FORM_PLATE       = 16
 const FORM_ROD         = 19
+const FORM_BOLT        = 21
+const FORM_SCREW       = 22
 const FORM_WIRE        = 28
 
 const MATERIAL_STONE   = 0
 const MATERIAL_COAL    = 2
 const MATERIAL_COPPER  = 5
+const MATERIAL_TIN     = 6
 const MATERIAL_IRON    = 7
+const MATERIAL_LEAD    = 8
+const MATERIAL_SILVER  = 9
+const MATERIAL_GOLD    = 10
+const MATERIAL_ZINC    = 11
+const MATERIAL_NICKEL  = 12
+const MATERIAL_ALUMINIUM = 13
+const MATERIAL_BISMUTH = 20
+const MATERIAL_ANTIMONY = 21
+const MATERIAL_BRONZE  = 22
+const MATERIAL_BRASS   = 23
+const MATERIAL_STEEL   = 24
+const MATERIAL_ELECTRUM = 26
+const MATERIAL_INVAR   = 27
+const MATERIAL_DIAMOND = 51
+const MATERIAL_EMERALD = 54
+const MATERIAL_LAPIS   = 56
 const MATERIAL_WOOD    = 112
 
 # Planetary rock material IDs — must match C++ materials:: enum.
@@ -29,47 +62,54 @@ const MATERIAL_KOMATIITE   = 118
 const MATERIAL_REGOLITH    = 119
 const MATERIAL_ANORTHOSTIE = 120
 
-# Pure element materials (periodic table completeness) — must match C++ materials:: enum.
-const MATERIAL_LITHIUM    = 121
-const MATERIAL_BERYLLIUM  = 122
-const MATERIAL_BORON      = 123
-const MATERIAL_SODIUM     = 124
-const MATERIAL_MAGNESIUM  = 125
-const MATERIAL_SILICON    = 126
-const MATERIAL_PHOSPHORUS = 127
-const MATERIAL_SULFUR     = 128
-const MATERIAL_POTASSIUM  = 129
-const MATERIAL_CALCIUM    = 130
-const MATERIAL_SCANDIUM   = 131
-const MATERIAL_VANADIUM   = 132
-const MATERIAL_GALLIUM    = 133
-const MATERIAL_GERMANIUM  = 134
-const MATERIAL_ARSENIC    = 135
-const MATERIAL_SELENIUM   = 136
-const MATERIAL_RUBIDIUM   = 137
-const MATERIAL_STRONTIUM  = 138
-const MATERIAL_YTTRIUM    = 139
-const MATERIAL_ZIRCONIUM  = 140
-const MATERIAL_NIOBIUM    = 141
-const MATERIAL_MOLYBDENUM = 142
-const MATERIAL_RUTHENIUM  = 143
-const MATERIAL_RHODIUM    = 144
-const MATERIAL_PALLADIUM  = 145
-const MATERIAL_CADMIUM    = 146
-const MATERIAL_INDIUM     = 147
-const MATERIAL_TELLURIUM  = 148
-const MATERIAL_CESIUM     = 149
-const MATERIAL_BARIUM     = 150
-const MATERIAL_LANTHANUM  = 151
-const MATERIAL_HAFNIUM    = 152
-const MATERIAL_TANTALUM   = 153
-const MATERIAL_RHENIUM    = 154
-const MATERIAL_THALLIUM   = 155
-const MATERIAL_POLONIUM   = 156
+# Pure element materials (periodic table completeness) — must match MaterialDefinitions._ALL_MATERIALS indices.
+const MATERIAL_LITHIUM    = 147
+const MATERIAL_BERYLLIUM  = 148
+const MATERIAL_BORON      = 149
+const MATERIAL_SODIUM     = 150
+const MATERIAL_MAGNESIUM  = 151
+const MATERIAL_SILICON    = 152
+const MATERIAL_PHOSPHORUS = 153
+const MATERIAL_SULFUR     = 154
+const MATERIAL_POTASSIUM  = 155
+const MATERIAL_CALCIUM    = 156
+const MATERIAL_SCANDIUM   = 157
+const MATERIAL_VANADIUM   = 158
+const MATERIAL_GALLIUM    = 159
+const MATERIAL_GERMANIUM  = 160
+const MATERIAL_ARSENIC    = 161
+const MATERIAL_SELENIUM   = 162
+const MATERIAL_RUBIDIUM   = 163
+const MATERIAL_STRONTIUM  = 164
+const MATERIAL_YTTRIUM    = 165
+const MATERIAL_ZIRCONIUM  = 166
+const MATERIAL_NIOBIUM    = 167
+const MATERIAL_MOLYBDENUM = 168
+const MATERIAL_RUTHENIUM  = 169
+const MATERIAL_RHODIUM    = 170
+const MATERIAL_PALLADIUM  = 171
+const MATERIAL_CADMIUM    = 172
+const MATERIAL_INDIUM     = 173
+const MATERIAL_TELLURIUM  = 174
+const MATERIAL_CESIUM     = 175
+const MATERIAL_BARIUM     = 176
+const MATERIAL_LANTHANUM  = 177
+const MATERIAL_HAFNIUM    = 178
+const MATERIAL_TANTALUM   = 179
+const MATERIAL_RHENIUM    = 180
+const MATERIAL_THALLIUM   = 181
+const MATERIAL_POLONIUM   = 182
+const MATERIAL_SALTPETER  = 229
+const MATERIAL_GLASS      = 247
+const MATERIAL_REDSTONE   = 253
+const MATERIAL_RUBBER     = 254
+const MATERIAL_POLYETHYLENE = 255
+const MATERIAL_GLOWSTONE  = 256
+const MATERIAL_WROUGHT_IRON = 257
 
 const K_FORM_COUNT     = 31
 const K_MAT_ITEM_BASE  = 1
-const K_NON_MAT_BASE   = K_MAT_ITEM_BASE + 113 * K_FORM_COUNT + 1
+const K_NON_MAT_BASE   = 0x80000000
 
 const ITEM_GT_HAMMER      = K_NON_MAT_BASE + 0
 const ITEM_GT_WRENCH      = K_NON_MAT_BASE + 1
@@ -162,8 +202,8 @@ const ITEM_STRAW            = K_NON_MAT_BASE + 249
 # TFC expansion: charcoal + metallurgy
 const ITEM_CHARCOAL         = K_NON_MAT_BASE + 250
 const ITEM_IRON_BLOOM       = K_NON_MAT_BASE + 251
-const ITEM_WROUGHT_IRON_INGOT = K_NON_MAT_BASE + 252
-const ITEM_STEEL_INGOT      = K_NON_MAT_BASE + 253
+const ITEM_WROUGHT_IRON_INGOT = K_MAT_ITEM_BASE + MATERIAL_WROUGHT_IRON * K_FORM_COUNT + FORM_INGOT
+const ITEM_STEEL_INGOT      = K_MAT_ITEM_BASE + MATERIAL_STEEL * K_FORM_COUNT + FORM_INGOT
 const ITEM_COAL_DUST        = K_NON_MAT_BASE + 254
 const ITEM_FLINT_AND_STEEL  = K_NON_MAT_BASE + 255
 
@@ -276,19 +316,6 @@ static func coal_gem() -> int:    return mat_item(MATERIAL_COAL, FORM_GEM)
 static func copper_crushed() -> int: return mat_item(MATERIAL_COPPER, FORM_CRUSHED)
 static func iron_crushed() -> int:   return mat_item(MATERIAL_IRON, FORM_CRUSHED)
 
-static func _make_placeholder_icon(color: Color, size: int = 16) -> ImageTexture:
-	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	var gray := Color(color.r * 0.7, color.g * 0.7, color.b * 0.7, 1.0)
-	for y in size:
-		for x in size:
-			var border := x == 0 or y == 0 or x == size - 1 or y == size - 1
-			@warning_ignore("integer_division")
-			var check := (x / 4 + y / 4) % 2 == 0
-			var c := gray if border else (color if check else color.darkened(0.15))
-			image.set_pixel(x, y, c)
-	var tex := ImageTexture.create_from_image(image)
-	return tex
-
 var _items: Dictionary = {}   # item_id -> ItemDef
 var _tool_stats: Dictionary = {}  # item_id -> ToolDef
 var _key_to_id: Dictionary = {}   # item_key (String) -> item_id (int)
@@ -308,6 +335,7 @@ func clear() -> void:
 	_id_to_key.clear()
 	_item_categories.clear()
 	_current_category = -1
+	ItemIconComposer.clear_cache()
 
 # 热重载入口：清空 GD 缓存并重新注册所有 item。
 # 调用前应已通过 GDRegistryBank.reset_all() 复位 C++ ItemRegistry，
@@ -342,7 +370,10 @@ func is_valid_item(item_id: int) -> bool:
 	return _items.has(item_id)
 
 func get_all_item_ids() -> Array[int]:
-	return _items.keys() as Array[int]
+	var result: Array[int] = []
+	for item_id in _items.keys():
+		result.append(int(item_id))
+	return result
 
 # Look up an item_id by its item_key string (e.g. "snt:glow_deer_antler").
 # Returns -1 if not found.
@@ -354,23 +385,70 @@ func get_item_id_by_key(item_key: String) -> int:
 func get_item_key_by_id(item_id: int) -> String:
 	return _id_to_key.get(item_id, "")
 
-func _load_icon(icon_file: String, fallback_color: Color) -> Texture2D:
-	if icon_file.is_empty():
-		return _make_placeholder_icon(fallback_color)
+func _item_asset_path(icon_file: String) -> String:
+	if icon_file.begins_with("res://") or icon_file.begins_with("user://"):
+		return icon_file
+	return ITEM_ASSET_DIR + icon_file
 
-	var icon := load(ITEM_ASSET_DIR + icon_file) as Texture2D
+
+func _load_missing_icon() -> Texture2D:
+	var icon_path := _item_asset_path(ICON_MISSING)
+	if ResourceLoader.exists(icon_path):
+		var icon := load(icon_path) as Texture2D
+		if icon != null:
+			return icon
+	push_error("ItemDatabase: missing fallback item icon '%s'" % icon_path)
+	return null
+
+
+func _load_icon(icon_file: String, _fallback_color: Color) -> Texture2D:
+	if icon_file.is_empty():
+		return _load_missing_icon()
+
+	var icon_path := _item_asset_path(icon_file)
+	if not ResourceLoader.exists(icon_path):
+		push_warning("ItemDatabase: missing item icon '%s'" % icon_file)
+		return _load_missing_icon()
+
+	var icon := load(icon_path) as Texture2D
 	if icon == null:
 		push_warning("ItemDatabase: missing item icon '%s'" % icon_file)
-		return _make_placeholder_icon(fallback_color)
+		return _load_missing_icon()
+	return icon
+
+
+func _load_tinted_icon(
+		base_file: String,
+		tint: Color,
+		overlay_file: String = "",
+		_fallback_color: Color = Color.WHITE) -> Texture2D:
+	if base_file.is_empty():
+		return _load_missing_icon()
+	var base_path := _item_asset_path(base_file)
+	var overlay_path := ""
+	if not overlay_file.is_empty():
+		overlay_path = _item_asset_path(overlay_file)
+	var icon := ItemIconComposer.compose_tinted_icon(base_path, tint, overlay_path)
+	if icon == null:
+		return _load_missing_icon()
 	return icon
 
 
 func _register(item_id: int, title_key: String, icon_color: Color, max_stack: int = 64,
-		tool: ToolDef = null, icon_file: String = "") -> void:
+		tool: ToolDef = null, icon_file: String = "",
+		icon_base_file: String = "", icon_overlay_file: String = "") -> void:
 	var def := ItemDef.new()
 	def.item_id = item_id
 	def.title_key = title_key
-	def.icon = _load_icon(icon_file, icon_color)
+	def.icon_tint = icon_color
+	def.icon_uses_tint = not icon_base_file.is_empty()
+	if def.icon_uses_tint:
+		def.icon_base_path = _item_asset_path(icon_base_file)
+		if not icon_overlay_file.is_empty():
+			def.icon_overlay_path = _item_asset_path(icon_overlay_file)
+		def.icon = _load_tinted_icon(icon_base_file, icon_color, icon_overlay_file, icon_color)
+	else:
+		def.icon = _load_icon(icon_file, icon_color)
 	def.max_stack = max_stack
 	def.tool_stats = tool
 	_items[item_id] = def
@@ -397,6 +475,105 @@ func get_items_in_category(category: int) -> Array[int]:
 	return result
 
 
+func _material_form_icon_base(form: int) -> String:
+	match form:
+		FORM_DUST:
+			return ICON_DUST_BASE
+		FORM_TINY_DUST:
+			return ICON_TINY_DUST_BASE
+		FORM_CRUSHED:
+			return ICON_CRUSHED_BASE
+		FORM_GEM:
+			return ICON_GEM_BASE
+		FORM_INGOT:
+			return ICON_INGOT_BASE
+		FORM_NUGGET:
+			return ICON_NUGGET_BASE
+		FORM_BLOCK:
+			return ICON_BLOCK_BASE
+		FORM_PLATE:
+			return ICON_PLATE_BASE
+		FORM_ROD:
+			return ICON_ROD_BASE
+		FORM_BOLT:
+			return ICON_BOLT_BASE
+		FORM_SCREW:
+			return ICON_SCREW_BASE
+		FORM_WIRE:
+			return ICON_WIRE_BASE
+		_:
+			return ""
+
+
+func _material_form_overlay(form: int) -> String:
+	if form == FORM_INGOT:
+		return ICON_INGOT_OVERLAY
+	return ""
+
+
+func _material_form_key_name(form: int) -> String:
+	match form:
+		FORM_DUST:
+			return "dust"
+		FORM_TINY_DUST:
+			return "tiny_dust"
+		FORM_CRUSHED:
+			return "crushed"
+		FORM_GEM:
+			return "gem"
+		FORM_INGOT:
+			return "ingot"
+		FORM_NUGGET:
+			return "nugget"
+		FORM_BLOCK:
+			return "block"
+		FORM_PLATE:
+			return "plate"
+		FORM_ROD:
+			return "rod"
+		FORM_BOLT:
+			return "bolt"
+		FORM_SCREW:
+			return "screw"
+		FORM_WIRE:
+			return "wire"
+		_:
+			return "form_%d" % form
+
+
+func _material_form_title_key(material_name: String, form: int) -> String:
+	return "item.%s_%s" % [material_name, _material_form_key_name(form)]
+
+
+func _material_form_tint(color: Color, form: int) -> Color:
+	if form == FORM_DUST or form == FORM_TINY_DUST or form == FORM_CRUSHED:
+		return color.darkened(0.1)
+	return color
+
+
+func _rgb24(value: int) -> Color:
+	return Color(
+			float((value >> 16) & 0xff) / 255.0,
+			float((value >> 8) & 0xff) / 255.0,
+			float(value & 0xff) / 255.0)
+
+
+func _register_tinted_material_form(mat_id: int, material_name: String, color: Color, form: int) -> void:
+	var icon_base := _material_form_icon_base(form)
+	if icon_base.is_empty():
+		push_warning("ItemDatabase: no icon base for material form %d (%s)" %
+				[form, material_name])
+		return
+	_register(mat_item(mat_id, form), _material_form_title_key(material_name, form),
+			_material_form_tint(color, form), 64, null, "", icon_base,
+			_material_form_overlay(form))
+
+
+func _register_tinted_material_forms(mat_id: int, material_name: String, color: Color, forms: Array) -> void:
+	for form in forms:
+		_register_tinted_material_form(mat_id, material_name, color, form)
+
+
 func _register_material_items() -> void:
 	_set_category(ItemDef.Category.MATERIALS)
 	_register(mat_item(MATERIAL_WOOD, FORM_DUST), "item.wood_log", Color(0.55, 0.35, 0.15),
@@ -406,56 +583,64 @@ func _register_material_items() -> void:
 	_register(mat_item(MATERIAL_WOOD, FORM_ROD), "item.stick", Color(0.60, 0.40, 0.20),
 			64, null, "materials/stick_icon_32.png")
 	_register(mat_item(MATERIAL_STONE, FORM_DUST), "item.stone_dust", Color(0.50, 0.50, 0.50),
-			64, null, "materials/stone_dust_icon_32.png")
+			64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_STONE, FORM_TINY_DUST),
 			"item.stone_tiny_dust", Color(0.42, 0.42, 0.42),
-			64, null, "materials/stone_tiny_dust_icon_32.png")
+			64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_COAL, FORM_GEM), "item.coal", Color(0.10, 0.10, 0.10),
-			64, null, "materials/coal_icon_32.png")
+			64, null, "", ICON_GEM_BASE)
 	_register(mat_item(MATERIAL_COPPER, FORM_CRUSHED),
 			"item.crushed_copper", Color(0.80, 0.40, 0.10),
-			64, null, "materials/crushed_copper_icon_32.png")
+			64, null, "", ICON_CRUSHED_BASE)
 	_register(mat_item(MATERIAL_IRON, FORM_CRUSHED),
 			"item.crushed_iron", Color(0.70, 0.55, 0.45),
-			64, null, "materials/crushed_iron_icon_32.png")
+			64, null, "", ICON_CRUSHED_BASE)
 	_register(mat_item(MATERIAL_COPPER, FORM_DUST), "item.copper_dust", Color(0.80, 0.50, 0.15),
-			64, null, "materials/copper_dust_icon_32.png")
+			64, null, "", ICON_DUST_BASE)
+	_register(mat_item(MATERIAL_COPPER, FORM_INGOT), "item.copper_ingot", Color(0.80, 0.45, 0.20),
+			64, null, "", ICON_INGOT_BASE, ICON_INGOT_OVERLAY)
+	_register(mat_item(MATERIAL_TIN, FORM_DUST), "item.tin_dust", Color(0.75, 0.75, 0.75),
+			64, null, "", ICON_DUST_BASE)
+	_register(mat_item(MATERIAL_TIN, FORM_INGOT), "item.tin_ingot", Color(0.82, 0.82, 0.82),
+			64, null, "", ICON_INGOT_BASE, ICON_INGOT_OVERLAY)
 	_register(mat_item(MATERIAL_IRON, FORM_DUST), "item.iron_dust", Color(0.65, 0.60, 0.55),
-			64, null, "materials/iron_dust_icon_32.png")
+			64, null, "", ICON_DUST_BASE)
+	_register(mat_item(MATERIAL_IRON, FORM_INGOT), "item.iron_ingot", Color(0.75, 0.75, 0.80),
+			64, null, "", ICON_INGOT_BASE, ICON_INGOT_OVERLAY)
 
 	# --- Planetary rock dusts ---
 	_register(mat_item(MATERIAL_GRANITE, FORM_DUST),
-			"item.granite_dust", Color(0.63, 0.60, 0.56), 64, null, "")
+			"item.granite_dust", Color(0.63, 0.60, 0.56), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_GRANITE, FORM_TINY_DUST),
-			"item.granite_tiny_dust", Color(0.53, 0.50, 0.46), 64, null, "")
+			"item.granite_tiny_dust", Color(0.53, 0.50, 0.46), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_BASALT, FORM_DUST),
-			"item.basalt_dust", Color(0.31, 0.31, 0.31), 64, null, "")
+			"item.basalt_dust", Color(0.31, 0.31, 0.31), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_BASALT, FORM_TINY_DUST),
-			"item.basalt_tiny_dust", Color(0.26, 0.26, 0.26), 64, null, "")
+			"item.basalt_tiny_dust", Color(0.26, 0.26, 0.26), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_MARBLE, FORM_DUST),
-			"item.marble_dust", Color(0.91, 0.88, 0.85), 64, null, "")
+			"item.marble_dust", Color(0.91, 0.88, 0.85), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_MARBLE, FORM_TINY_DUST),
-			"item.marble_tiny_dust", Color(0.81, 0.78, 0.75), 64, null, "")
+			"item.marble_tiny_dust", Color(0.81, 0.78, 0.75), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_SANDSTONE, FORM_DUST),
-			"item.sandstone_dust", Color(0.78, 0.66, 0.44), 64, null, "")
+			"item.sandstone_dust", Color(0.78, 0.66, 0.44), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_SANDSTONE, FORM_TINY_DUST),
-			"item.sandstone_tiny_dust", Color(0.68, 0.56, 0.34), 64, null, "")
+			"item.sandstone_tiny_dust", Color(0.68, 0.56, 0.34), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_SHALE, FORM_DUST),
-			"item.shale_dust", Color(0.35, 0.38, 0.31), 64, null, "")
+			"item.shale_dust", Color(0.35, 0.38, 0.31), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_SHALE, FORM_TINY_DUST),
-			"item.shale_tiny_dust", Color(0.28, 0.30, 0.24), 64, null, "")
+			"item.shale_tiny_dust", Color(0.28, 0.30, 0.24), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_KOMATIITE, FORM_DUST),
-			"item.komatiite_dust", Color(0.23, 0.31, 0.19), 64, null, "")
+			"item.komatiite_dust", Color(0.23, 0.31, 0.19), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_KOMATIITE, FORM_TINY_DUST),
-			"item.komatiite_tiny_dust", Color(0.18, 0.24, 0.14), 64, null, "")
+			"item.komatiite_tiny_dust", Color(0.18, 0.24, 0.14), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_REGOLITH, FORM_DUST),
-			"item.regolith_dust", Color(0.63, 0.38, 0.25), 64, null, "")
+			"item.regolith_dust", Color(0.63, 0.38, 0.25), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_REGOLITH, FORM_TINY_DUST),
-			"item.regolith_tiny_dust", Color(0.53, 0.30, 0.18), 64, null, "")
+			"item.regolith_tiny_dust", Color(0.53, 0.30, 0.18), 64, null, "", ICON_TINY_DUST_BASE)
 	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_DUST),
-			"item.anorthosite_dust", Color(0.75, 0.75, 0.78), 64, null, "")
+			"item.anorthosite_dust", Color(0.75, 0.75, 0.78), 64, null, "", ICON_DUST_BASE)
 	_register(mat_item(MATERIAL_ANORTHOSTIE, FORM_TINY_DUST),
-			"item.anorthosite_tiny_dust", Color(0.65, 0.65, 0.68), 64, null, "")
+			"item.anorthosite_tiny_dust", Color(0.65, 0.65, 0.68), 64, null, "", ICON_TINY_DUST_BASE)
 
 	# --- Pure element ores/dusts/ingots (periodic table completeness) ---
 	# Each entry: [MATERIAL_X, "name", Color(r, g, b), is_metal]
@@ -503,12 +688,55 @@ func _register_material_items() -> void:
 		var color: Color = entry[2]
 		var is_metal: bool = entry[3]
 		_register(mat_item(mat_id, FORM_CRUSHED),
-				"item.crushed_" + name, color, 64, null, "")
+				"item.crushed_" + name, color, 64, null, "", ICON_CRUSHED_BASE)
 		_register(mat_item(mat_id, FORM_DUST),
-				"item." + name + "_dust", color.darkened(0.1), 64, null, "")
+				"item." + name + "_dust", color.darkened(0.1), 64, null, "", ICON_DUST_BASE)
 		if is_metal:
 			_register(mat_item(mat_id, FORM_INGOT),
-					"item." + name + "_ingot", color, 64, null, "")
+					"item." + name + "_ingot", color, 64, null, "",
+					ICON_INGOT_BASE, ICON_INGOT_OVERLAY)
+
+	var common_metal_forms := [
+		FORM_DUST, FORM_INGOT, FORM_NUGGET, FORM_BLOCK,
+		FORM_PLATE, FORM_ROD, FORM_WIRE, FORM_SCREW,
+	]
+	var common_metal_mats := [
+		[MATERIAL_COPPER, "copper", _rgb24(0xCC722F)],
+		[MATERIAL_TIN, "tin", _rgb24(0xCFCFCF)],
+		[MATERIAL_IRON, "iron", _rgb24(0xC0C0CC)],
+		[MATERIAL_LEAD, "lead", _rgb24(0x7070A0)],
+		[MATERIAL_SILVER, "silver", _rgb24(0xC0C0E0)],
+		[MATERIAL_GOLD, "gold", _rgb24(0xFFD700)],
+		[MATERIAL_ZINC, "zinc", _rgb24(0xC0D0C0)],
+		[MATERIAL_NICKEL, "nickel", _rgb24(0xA0B0A0)],
+		[MATERIAL_ALUMINIUM, "aluminium", _rgb24(0xD0E0F0)],
+		[MATERIAL_BISMUTH, "bismuth", _rgb24(0xD0A0A0)],
+		[MATERIAL_ANTIMONY, "antimony", _rgb24(0xE0E0F0)],
+		[MATERIAL_BRONZE, "bronze", _rgb24(0xCD7F32)],
+		[MATERIAL_BRASS, "brass", _rgb24(0xC5A542)],
+		[MATERIAL_STEEL, "steel", _rgb24(0x808090)],
+		[MATERIAL_ELECTRUM, "electrum", _rgb24(0xDAC48F)],
+		[MATERIAL_INVAR, "invar", _rgb24(0xA0A090)],
+		[MATERIAL_WROUGHT_IRON, "wrought_iron", _rgb24(0x8A8580)],
+	]
+	for entry in common_metal_mats:
+		_register_tinted_material_forms(entry[0], entry[1], entry[2], common_metal_forms)
+
+	var material_form_mats := [
+		[MATERIAL_COAL, "coal", _rgb24(0x1A1A1A), [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_DIAMOND, "diamond", _rgb24(0x80E0E0), [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_EMERALD, "emerald", _rgb24(0x20E020), [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_LAPIS, "lapis", _rgb24(0x2040C0), [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_SULFUR, "sulfur", _rgb24(0xC0C040), [FORM_DUST, FORM_BLOCK]],
+		[MATERIAL_SALTPETER, "saltpeter", _rgb24(0xF0F0F0), [FORM_DUST, FORM_BLOCK]],
+		[MATERIAL_GLASS, "glass", _rgb24(0xE0E8F0), [FORM_DUST, FORM_PLATE, FORM_BLOCK]],
+		[MATERIAL_REDSTONE, "redstone", _rgb24(0xB01010), [FORM_DUST, FORM_BLOCK]],
+		[MATERIAL_RUBBER, "rubber", _rgb24(0x202020), [FORM_PLATE]],
+		[MATERIAL_POLYETHYLENE, "polyethylene", _rgb24(0xE8F2F4), [FORM_PLATE]],
+		[MATERIAL_GLOWSTONE, "glowstone", _rgb24(0xFFD65A), [FORM_DUST, FORM_BLOCK]],
+	]
+	for entry in material_form_mats:
+		_register_tinted_material_forms(entry[0], entry[1], entry[2], entry[3])
 
 func _make_tool_def(
 		tool_type: int, mining_level: int,
@@ -565,49 +793,57 @@ func _register_tool_items() -> void:
 
 	# TFC expansion: copper/bronze/steel + parallel bronze variants
 	_register(ITEM_COPPER_PICKAXE, "copper_pickaxe", copper_col, 1,
-			_make_tool_def(pick, 2, 2.5, 180, 3.5, "Copper"), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 2.5, 180, 3.5, "Copper"), "tools/copper_pickaxe_icon_32.png")
 	_register(ITEM_COPPER_AXE, "copper_axe", copper_col, 1,
-			_make_tool_def(axe, 2, 2.5, 180, 4.5, "Copper"), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, 2, 2.5, 180, 4.5, "Copper"), "tools/copper_axe_icon_32.png")
 	_register(ITEM_COPPER_SHOVEL, "copper_shovel", copper_col, 1,
-			_make_tool_def(shovel, 2, 2.5, 180, 3.0, "Copper"), "tools/stone_shovel_icon_32.png")
+			_make_tool_def(shovel, 2, 2.5, 180, 3.0, "Copper"), "tools/copper_shovel_icon_32.png")
 	_register(ITEM_COPPER_SWORD, "copper_sword", copper_col, 1,
-			_make_tool_def(sword, 2, 1.0, 180, 5.5, "Copper"), "tools/stone_sword_icon_32.png")
+			_make_tool_def(sword, 2, 1.0, 180, 5.5, "Copper"), "tools/copper_sword_icon_32.png")
 
 	# Tin Bronze, Bismuth Bronze, Black Bronze — parallel mining_level=2
 	_register(ITEM_TIN_BRONZE_PICKAXE, "tin_bronze_pickaxe", bronze_col, 1,
-			_make_tool_def(pick, 2, 3.5, 400, 4.5, "Tin Bronze"), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.5, 400, 4.5, "Tin Bronze"), "tools/tin_bronze_pickaxe_icon_32.png")
 	_register(ITEM_TIN_BRONZE_AXE, "tin_bronze_axe", bronze_col, 1,
-			_make_tool_def(axe, 2, 3.5, 400, 5.5, "Tin Bronze"), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, 2, 3.5, 400, 5.5, "Tin Bronze"), "tools/tin_bronze_axe_icon_32.png")
 	_register(ITEM_BISMUTH_BRONZE_PICKAXE, "bismuth_bronze_pickaxe", bronze_col, 1,
-			_make_tool_def(pick, 2, 3.0, 520, 4.2, "Bismuth Bronze"), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.0, 520, 4.2, "Bismuth Bronze"), "tools/bismuth_bronze_pickaxe_icon_32.png")
 	_register(ITEM_BISMUTH_BRONZE_AXE, "bismuth_bronze_axe", bronze_col, 1,
-			_make_tool_def(axe, 2, 3.0, 520, 5.2, "Bismuth Bronze"), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, 2, 3.0, 520, 5.2, "Bismuth Bronze"), "tools/bismuth_bronze_axe_icon_32.png")
 	_register(ITEM_BLACK_BRONZE_PICKAXE, "black_bronze_pickaxe", bronze_col, 1,
-			_make_tool_def(pick, 2, 3.2, 460, 4.8, "Black Bronze"), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.2, 460, 4.8, "Black Bronze"), "tools/black_bronze_pickaxe_icon_32.png")
 
 	# Steel: mining_level=3 (unlocks diamond-tier ores)
 	_register(ITEM_STEEL_PICKAXE, "steel_pickaxe", steel_col, 1,
-			_make_tool_def(pick, 3, 4.5, 800, 6.0, "Steel"), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 3, 4.5, 800, 6.0, "Steel"), "tools/steel_pickaxe_icon_32.png")
 	_register(ITEM_STEEL_AXE, "steel_axe", steel_col, 1,
-			_make_tool_def(axe, 3, 4.5, 800, 7.0, "Steel"), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, 3, 4.5, 800, 7.0, "Steel"), "tools/steel_axe_icon_32.png")
 	_register(ITEM_STEEL_SHOVEL, "steel_shovel", steel_col, 1,
-			_make_tool_def(shovel, 3, 4.5, 800, 5.0, "Steel"), "tools/stone_shovel_icon_32.png")
+			_make_tool_def(shovel, 3, 4.5, 800, 5.0, "Steel"), "tools/steel_shovel_icon_32.png")
 	_register(ITEM_STEEL_SWORD, "steel_sword", steel_col, 1,
-			_make_tool_def(sword, 3, 1.0, 800, 8.0, "Steel"), "tools/stone_sword_icon_32.png")
+			_make_tool_def(sword, 3, 1.0, 800, 8.0, "Steel"), "tools/steel_sword_icon_32.png")
 
 	# Knapping tool heads (used to compose tools)
-	_register(ITEM_STONE_AXE_HEAD, "stone_axe_head", gray, 16)
-	_register(ITEM_STONE_SHOVEL_HEAD, "stone_shovel_head", gray, 16)
-	_register(ITEM_STONE_HOE_HEAD, "stone_hoe_head", gray, 16)
-	_register(ITEM_STONE_KNIFE_HEAD, "stone_knife_head", gray, 16)
-	_register(ITEM_FLINT, "flint", Color(0.45, 0.38, 0.30), 64)
-	_register(ITEM_CHERT, "chert", Color(0.52, 0.48, 0.38), 64)
+	_register(ITEM_STONE_AXE_HEAD, "stone_axe_head", gray, 16,
+			null, "tools/stone_axe_head_icon_32.png")
+	_register(ITEM_STONE_SHOVEL_HEAD, "stone_shovel_head", gray, 16,
+			null, "tools/stone_shovel_head_icon_32.png")
+	_register(ITEM_STONE_HOE_HEAD, "stone_hoe_head", gray, 16,
+			null, "tools/stone_hoe_head_icon_32.png")
+	_register(ITEM_STONE_KNIFE_HEAD, "stone_knife_head", gray, 16,
+			null, "tools/stone_knife_head_icon_32.png")
+	_register(ITEM_FLINT, "flint", Color(0.45, 0.38, 0.30), 64,
+			null, "materials/flint_icon_32.png")
+	_register(ITEM_CHERT, "chert", Color(0.52, 0.48, 0.38), 64,
+			null, "materials/chert_icon_32.png")
 
 	# Stone tools (from knapping + assembly)
 	_register(ITEM_STONE_HOE, "stone_hoe", gray, 1,
-			_make_tool_def(ToolDef.ToolType.HOE, 1, 1.5, 120, 2.0, "Stone"), "")
+			_make_tool_def(ToolDef.ToolType.HOE, 1, 1.5, 120, 2.0, "Stone"),
+			"tools/stone_hoe_icon_32.png")
 	_register(ITEM_STONE_KNIFE, "stone_knife", gray, 1,
-			_make_tool_def(ToolDef.ToolType.KNIFE, 1, 1.0, 100, 3.0, "Stone"), "")
+			_make_tool_def(ToolDef.ToolType.KNIFE, 1, 1.0, 100, 3.0, "Stone"),
+			"tools/stone_knife_icon_32.png")
 
 
 func _register_component_items() -> void:
@@ -686,53 +922,70 @@ func _register_survival_items() -> void:
 	_register(ITEM_FURNACE, "stone_furnace", Color(0.45, 0.35, 0.25),
 			64, null, "placeables/stone_furnace_icon_32.png")
 	_register(ITEM_CAMPFIRE, "campfire", Color(0.85, 0.40, 0.10),
-			1, null, "")
+			1, null, "placeables/campfire_icon_32.png")
 	_register(ITEM_LADDER, "ladder", Color(0.55, 0.30, 0.15),
 			64, null, "placeables/ladder_icon_32.png")
 	_register(ITEM_FENCE, "fence", Color(0.50, 0.32, 0.16),
-			64, null, "")
+			64, null, "placeables/fence_icon_32.png")
 	_register(ITEM_STATION_BLUEPRINT, "station_blueprint", Color(0.20, 0.50, 0.80),
-			1, null, "")
+			1, null, "components/station_blueprint_icon_32.png")
 	# SFM placeables: Flow Manager block and Inventory Cable.
 	_register(ITEM_SFM_MANAGER, "sfm.block.manager", Color(0.30, 0.50, 0.70),
-			64, null, "")
+			64, null, "components/sfm_manager_icon_32.png")
 	_register(ITEM_SFM_CABLE, "sfm.block.cable", Color(0.40, 0.40, 0.45),
-			64, null, "")
+			64, null, "components/sfm_cable_icon_32.png")
 
 
 # --- TFC expansion items ---
 func _register_tfc_items() -> void:
 	_set_category(ItemDef.Category.RESOURCES)
 	# Raw materials
-	_register(ITEM_CLAY_BALL, "item.clay_ball", Color(0.68, 0.62, 0.55), 64, null, "")
-	_register(ITEM_STRAW, "item.straw", Color(0.82, 0.75, 0.38), 64, null, "")
-	_register(ITEM_CHARCOAL, "item.charcoal", Color(0.12, 0.12, 0.12), 64, null, "")
-	_register(ITEM_COAL_DUST, "item.coal_dust", Color(0.10, 0.10, 0.11), 64, null, "")
-	_register(ITEM_FLINT, "item.flint", Color(0.45, 0.38, 0.30), 64, null, "")
-	_register(ITEM_CHERT, "item.chert", Color(0.52, 0.48, 0.38), 64, null, "")
-	_register(ITEM_FLINT_AND_STEEL, "item.flint_and_steel", Color(0.60, 0.55, 0.50), 1, null, "")
+	_register(ITEM_CLAY_BALL, "item.clay_ball", Color(0.68, 0.62, 0.55),
+			64, null, "tfc/clay_ball_icon_32.png")
+	_register(ITEM_STRAW, "item.straw", Color(0.82, 0.75, 0.38),
+			64, null, "tfc/straw_icon_32.png")
+	_register(ITEM_CHARCOAL, "item.charcoal", Color(0.12, 0.12, 0.12),
+			64, null, "tfc/charcoal_icon_32.png")
+	_register(ITEM_COAL_DUST, "item.coal_dust", Color(0.10, 0.10, 0.11),
+			64, null, "", ICON_DUST_BASE)
+	_register(ITEM_FLINT, "item.flint", Color(0.45, 0.38, 0.30),
+			64, null, "materials/flint_icon_32.png")
+	_register(ITEM_CHERT, "item.chert", Color(0.52, 0.48, 0.38),
+			64, null, "materials/chert_icon_32.png")
+	_register(ITEM_FLINT_AND_STEEL, "item.flint_and_steel", Color(0.60, 0.55, 0.50),
+			1, null, "tfc/flint_and_steel_icon_32.png")
 
 	# Pottery: unfired
-	_register(ITEM_UNFIRED_BOWL, "item.unfired_bowl", Color(0.55, 0.45, 0.35), 64, null, "")
-	_register(ITEM_UNFIRED_JUG, "item.unfired_jug", Color(0.55, 0.45, 0.35), 64, null, "")
-	_register(ITEM_UNFIRED_CRUCIBLE, "item.unfired_crucible", Color(0.55, 0.45, 0.35), 64, null, "")
-	_register(ITEM_UNFIRED_BRICK, "item.unfired_brick", Color(0.55, 0.45, 0.35), 64, null, "")
+	_register(ITEM_UNFIRED_BOWL, "item.unfired_bowl", Color(0.55, 0.45, 0.35),
+			64, null, "tfc/unfired_bowl_icon_32.png")
+	_register(ITEM_UNFIRED_JUG, "item.unfired_jug", Color(0.55, 0.45, 0.35),
+			64, null, "tfc/unfired_jug_icon_32.png")
+	_register(ITEM_UNFIRED_CRUCIBLE, "item.unfired_crucible", Color(0.55, 0.45, 0.35),
+			64, null, "tfc/unfired_crucible_icon_32.png")
+	_register(ITEM_UNFIRED_BRICK, "item.unfired_brick", Color(0.55, 0.45, 0.35),
+			64, null, "tfc/unfired_brick_icon_32.png")
 	# Pottery: fired
-	_register(ITEM_FIRED_BOWL, "item.fired_bowl", Color(0.72, 0.55, 0.35), 64, null, "")
-	_register(ITEM_FIRED_JUG, "item.fired_jug", Color(0.72, 0.55, 0.35), 64, null, "")
-	_register(ITEM_FIRED_CRUCIBLE, "item.fired_crucible", Color(0.72, 0.55, 0.35), 1, null, "")
-	_register(ITEM_REFRACTORY_BRICK, "item.refractory_brick", Color(0.65, 0.40, 0.25), 64, null, "")
+	_register(ITEM_FIRED_BOWL, "item.fired_bowl", Color(0.72, 0.55, 0.35),
+			64, null, "tfc/fired_bowl_icon_32.png")
+	_register(ITEM_FIRED_JUG, "item.fired_jug", Color(0.72, 0.55, 0.35),
+			64, null, "tfc/fired_jug_icon_32.png")
+	_register(ITEM_FIRED_CRUCIBLE, "item.fired_crucible", Color(0.72, 0.55, 0.35),
+			1, null, "tfc/fired_crucible_icon_32.png")
+	_register(ITEM_REFRACTORY_BRICK, "item.refractory_brick", Color(0.65, 0.40, 0.25),
+			64, null, "tfc/refractory_brick_icon_32.png")
 
 	# Metallurgy
-	_register(ITEM_IRON_BLOOM, "item.iron_bloom", Color(0.55, 0.35, 0.15), 64, null, "")
-	_register(ITEM_WROUGHT_IRON_INGOT, "item.wrought_iron_ingot", Color(0.52, 0.50, 0.48), 64, null, "")
-	_register(ITEM_STEEL_INGOT, "item.steel_ingot", Color(0.55, 0.58, 0.62), 64, null, "")
+	_register(ITEM_IRON_BLOOM, "item.iron_bloom", Color(0.55, 0.35, 0.15),
+			64, null, "tfc/iron_bloom_icon_32.png")
 
 	# Hammer tool (forge welding)
 	var hammer_tool := _make_tool_def(ToolDef.ToolType.NONE, 0, 1.0, 200, 1.0, "Iron")
-	_register(ITEM_HAMMER, "item.hammer", Color(0.55, 0.55, 0.58), 1, hammer_tool, "")
-	_register(ITEM_BELLOWS, "item.bellows", Color(0.60, 0.42, 0.25), 1, null, "")
-	_register(ITEM_ANVIL, "item.anvil", Color(0.30, 0.30, 0.32), 1, null, "")
+	_register(ITEM_HAMMER, "item.hammer", Color(0.55, 0.55, 0.58),
+			1, hammer_tool, "tools/hammer_icon_32.png")
+	_register(ITEM_BELLOWS, "item.bellows", Color(0.60, 0.42, 0.25),
+			1, null, "tfc/bellows_icon_32.png")
+	_register(ITEM_ANVIL, "item.anvil", Color(0.30, 0.30, 0.32),
+			1, null, "placeables/anvil_icon_32.png")
 
 
 func _register_tree_species_items() -> void:
@@ -814,7 +1067,9 @@ func _register_source_law_drops() -> void:
 	var _register_drop := func(
 			item_id: int, item_key: String, title_key: String,
 			color: Color, max_stack: int = 64) -> void:
-		_register(item_id, title_key, color, max_stack)
+		var icon_name := item_key.replace("snt:", "").replace(":", "_").replace(".", "_")
+		_register(item_id, title_key, color, max_stack,
+				null, "source_law/%s_icon_32.png" % icon_name)
 		_key_to_id[item_key] = item_id
 		_id_to_key[item_id] = item_key
 
@@ -894,7 +1149,9 @@ func _register_crop_items() -> void:
 	var _register_crop := func(
 			item_id: int, item_key: String, title_key: String,
 			color: Color, max_stack: int = 64) -> void:
-		_register(item_id, title_key, color, max_stack)
+		var icon_name := item_key.replace(":", "_").replace(".", "_")
+		_register(item_id, title_key, color, max_stack,
+				null, "crops/%s_icon_32.png" % icon_name)
 		_key_to_id[item_key] = item_id
 		_id_to_key[item_id] = item_key
 
@@ -949,7 +1206,9 @@ func _register_food_items() -> void:
 	var _register_food := func(
 			item_id: int, item_key: String, title_key: String,
 			color: Color, max_stack: int = 64) -> void:
-		_register(item_id, title_key, color, max_stack)
+		var icon_name := item_key.replace(":", "_").replace(".", "_")
+		_register(item_id, title_key, color, max_stack,
+				null, "food/%s_icon_32.png" % icon_name)
 		_key_to_id[item_key] = item_id
 		_id_to_key[item_id] = item_key
 
@@ -985,7 +1244,7 @@ func _register_food_items() -> void:
 
 
 # Register reverse mappings for non-material items (tools, components, etc.)
-# Keys mirror the C++ kNonMaterialItemKeys array in tool_items.hpp.
+# These IDs live in the C++ ItemRegistry dynamic range.
 func _register_non_material_keys() -> void:
 	var entries := {
 		ITEM_GT_HAMMER: "gt_hammer",
@@ -1100,8 +1359,6 @@ func _register_non_material_keys() -> void:
 		ITEM_FIRED_CRUCIBLE: "fired_crucible",
 		ITEM_REFRACTORY_BRICK: "refractory_brick",
 		ITEM_IRON_BLOOM: "iron_bloom",
-		ITEM_WROUGHT_IRON_INGOT: "wrought_iron_ingot",
-		ITEM_STEEL_INGOT: "steel_ingot",
 		ITEM_HAMMER: "hammer",
 		ITEM_BELLOWS: "bellows",
 		ITEM_ANVIL: "anvil",
@@ -1124,6 +1381,22 @@ func _register_non_material_keys() -> void:
 		_key_to_id[key] = id
 		_id_to_key[id] = key
 
+	for id: int in _id_to_key:
+		if id < K_NON_MAT_BASE:
+			continue
+		var key: String = _id_to_key[id]
+		var title_key: String = key
+		var item_def := _items.get(id) as ItemDef
+		if item_def != null:
+			title_key = item_def.title_key
+		var registered_id: int = int(GDItemRegistry.register_item({
+			"item_id": id,
+			"item_key": key,
+			"title_key": title_key,
+		}))
+		if registered_id != id:
+			push_warning("ItemDatabase: failed to register item_key '%s' with id %d" % [key, id])
+
 
 # Register material item key mappings for items used in quest conditions.
 # Material item keys follow the convention: "{form_name}.{material_name}".
@@ -1139,6 +1412,9 @@ func _register_material_item_keys() -> void:
 		compute_mat_item.call(MATERIAL_STONE, FORM_DUST): "dust.stone",
 		compute_mat_item.call(MATERIAL_COAL, FORM_GEM): "gem.coal",
 		compute_mat_item.call(MATERIAL_COPPER, FORM_DUST): "dust.copper",
+		compute_mat_item.call(MATERIAL_COPPER, FORM_INGOT): "ingot.copper",
+		compute_mat_item.call(MATERIAL_TIN, FORM_DUST): "dust.tin",
+		compute_mat_item.call(MATERIAL_TIN, FORM_INGOT): "ingot.tin",
 		compute_mat_item.call(MATERIAL_IRON, FORM_DUST): "dust.iron",
 		compute_mat_item.call(MATERIAL_IRON, FORM_INGOT): "ingot.iron",
 		compute_mat_item.call(MATERIAL_IRON, FORM_PLATE): "plate.iron",
@@ -1146,6 +1422,10 @@ func _register_material_item_keys() -> void:
 		compute_mat_item.call(MATERIAL_WOOD, FORM_PLATE): "plate.wood",
 		compute_mat_item.call(MATERIAL_WOOD, FORM_ROD): "rod.wood",
 	}
+
+	var add_material_key := func(mat_id: int, form_id: int, material_name: String) -> void:
+		quest_material_items[compute_mat_item.call(mat_id, form_id)] = "%s.%s" % [
+			_material_form_key_name(form_id), material_name]
 
 	# Add pure element key mappings (crushed/dust/ingot forms for periodic table completeness).
 	var element_names := [
@@ -1180,18 +1460,49 @@ func _register_material_item_keys() -> void:
 				and mat != MATERIAL_TELLURIUM and mat != MATERIAL_POLONIUM:
 			quest_material_items[compute_mat_item.call(mat, FORM_INGOT)] = "ingot." + name
 
-	# Add bronze (alloy, not in the basic material list).
-	# Bronze = Copper + Tin alloy. Item IDs may use a different base.
-	# For now, register the key-only entries for item key lookup.
-	var extra_keys := {
-		"dust.tin": "dust.tin",
-		"dust.coal": "dust.coal",
-		"ingot.tin": "ingot.tin",
-		"ingot.bronze": "ingot.bronze",
-		"ingot.steel": "ingot.steel",
-		"plate.bronze": "plate.bronze",
-		"circuit_basic": "circuit_basic",
-	}
+	var common_metal_forms := [
+		FORM_DUST, FORM_INGOT, FORM_NUGGET, FORM_BLOCK,
+		FORM_PLATE, FORM_ROD, FORM_WIRE, FORM_SCREW,
+	]
+	var common_metal_mats := [
+		[MATERIAL_COPPER, "copper"],
+		[MATERIAL_TIN, "tin"],
+		[MATERIAL_IRON, "iron"],
+		[MATERIAL_LEAD, "lead"],
+		[MATERIAL_SILVER, "silver"],
+		[MATERIAL_GOLD, "gold"],
+		[MATERIAL_ZINC, "zinc"],
+		[MATERIAL_NICKEL, "nickel"],
+		[MATERIAL_ALUMINIUM, "aluminium"],
+		[MATERIAL_BISMUTH, "bismuth"],
+		[MATERIAL_ANTIMONY, "antimony"],
+		[MATERIAL_BRONZE, "bronze"],
+		[MATERIAL_BRASS, "brass"],
+		[MATERIAL_STEEL, "steel"],
+		[MATERIAL_ELECTRUM, "electrum"],
+		[MATERIAL_INVAR, "invar"],
+		[MATERIAL_WROUGHT_IRON, "wrought_iron"],
+	]
+	for entry in common_metal_mats:
+		for form in common_metal_forms:
+			add_material_key.call(entry[0], form, entry[1])
+
+	var material_form_mats := [
+		[MATERIAL_COAL, "coal", [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_DIAMOND, "diamond", [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_EMERALD, "emerald", [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_LAPIS, "lapis", [FORM_DUST, FORM_GEM, FORM_BLOCK]],
+		[MATERIAL_SULFUR, "sulfur", [FORM_DUST, FORM_BLOCK]],
+		[MATERIAL_SALTPETER, "saltpeter", [FORM_DUST, FORM_BLOCK]],
+		[MATERIAL_GLASS, "glass", [FORM_DUST, FORM_PLATE, FORM_BLOCK]],
+		[MATERIAL_REDSTONE, "redstone", [FORM_DUST, FORM_BLOCK]],
+		[MATERIAL_RUBBER, "rubber", [FORM_PLATE]],
+		[MATERIAL_POLYETHYLENE, "polyethylene", [FORM_PLATE]],
+		[MATERIAL_GLOWSTONE, "glowstone", [FORM_DUST, FORM_BLOCK]],
+	]
+	for entry in material_form_mats:
+		for form in entry[2]:
+			add_material_key.call(entry[0], form, entry[1])
 
 	for id: int in quest_material_items:
 		var key: String = quest_material_items[id]
@@ -1200,11 +1511,3 @@ func _register_material_item_keys() -> void:
 			_id_to_key[id] = key
 		if not _key_to_id.has(key):
 			_key_to_id[key] = id
-
-	# Register extra key-only entries (without item_id resolution).
-	# These are used by the quest system for string matching even if
-	# the item_id lookup doesn't work.
-	for key: String in extra_keys:
-		if not _key_to_id.has(key):
-			# Mark with a sentinel id so key lookup returns something non-negative.
-			_key_to_id[key] = -2

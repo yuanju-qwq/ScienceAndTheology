@@ -13,6 +13,10 @@ enum Category {
 @export var item_id: int = 0
 @export var title_key: String = "ui.unknown"
 @export var icon: Texture2D
+@export var icon_base_path: String = ""
+@export var icon_overlay_path: String = ""
+@export var icon_tint: Color = Color.WHITE
+@export var icon_uses_tint: bool = false
 @export var max_stack: int = 64
 @export var tool_stats: ToolDef
 @export var category: Category = Category.MISC

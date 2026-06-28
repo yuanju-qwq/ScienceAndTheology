@@ -408,10 +408,11 @@ func _handle_key(event: InputEventKey) -> void:
 # Cycle NEI mode: RECIPE -> UTILITY -> RECIPE.
 # Mirrors NEI's O key that toggles between recipe/utility/hidden modes.
 func _toggle_nei_mode() -> void:
-	if NEISettings == null:
+	var nei_settings := get_node_or_null(^"/root/NEISettings")
+	if nei_settings == null:
 		return
-	NEISettings.cycle_mode()
-	print("[NEI] mode cycled to: %d" % NEISettings.mode)
+	nei_settings.cycle_mode()
+	print("[NEI] mode cycled to: %d" % int(nei_settings.get("mode")))
 
 
 func _toggle_build_mode() -> void:

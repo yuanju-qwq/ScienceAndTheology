@@ -598,7 +598,7 @@ func _show_machines() -> void:
 func _machine_groups_for_current_item() -> Dictionary:
 	var groups := {}
 	for mode in ["recipes", "usages"]:
-		var refs: Array[NEIIndex.RecipeRef] = (
+		var refs: Array[NEIIndexScript.RecipeRef] = (
 			NEIIndex.get_recipes_for_output(_current_item_id)
 			if mode == "recipes"
 			else NEIIndex.get_recipes_for_input(_current_item_id))
@@ -629,7 +629,7 @@ func _on_machine_jump(machine: String, mode: String) -> void:
 	_show_detail()
 
 
-func _show_recipes(refs: Array[NEIIndex.RecipeRef], empty_text: String) -> void:
+func _show_recipes(refs: Array[NEIIndexScript.RecipeRef], empty_text: String) -> void:
 	var filtered := _filter_recipes(refs)
 	if filtered.is_empty():
 		_add_text(empty_text, Color(0.62, 0.64, 0.72))
@@ -640,17 +640,17 @@ func _show_recipes(refs: Array[NEIIndex.RecipeRef], empty_text: String) -> void:
 	var first := _recipe_page * RECIPES_PER_PAGE
 	var last := mini(first + RECIPES_PER_PAGE, filtered.size())
 	for i in range(first, last):
-		var ref: NEIIndex.RecipeRef = filtered[i]
+		var ref: NEIIndexScript.RecipeRef = filtered[i]
 		_list.add_child(_recipe_card(ref))
 		var sep := HSeparator.new()
 		sep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_list.add_child(sep)
 
 
-func _filter_recipes(refs: Array[NEIIndex.RecipeRef]) -> Array[NEIIndex.RecipeRef]:
+func _filter_recipes(refs: Array[NEIIndexScript.RecipeRef]) -> Array[NEIIndexScript.RecipeRef]:
 	if _machine_filter == MACHINE_FILTER_ALL:
 		return refs.duplicate()
-	var result: Array[NEIIndex.RecipeRef] = []
+	var result: Array[NEIIndexScript.RecipeRef] = []
 	for ref in refs:
 		if _machine_filter == MACHINE_FILTER_CRAFTING:
 			if ref.recipe_type == "crafting":
@@ -690,7 +690,7 @@ func _on_recipe_page_delta(delta: int) -> void:
 	_show_detail()
 
 
-func _recipe_card(ref: NEIIndex.RecipeRef) -> Control:
+func _recipe_card(ref: NEIIndexScript.RecipeRef) -> Control:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var box := VBoxContainer.new()
@@ -732,7 +732,7 @@ func _recipe_card(ref: NEIIndex.RecipeRef) -> Control:
 
 # Recipe transfer: attempt to craft a recipe via the command server.
 # This is the project's equivalent of NEI's "fill crafting grid" feature.
-func _on_recipe_transfer(ref: NEIIndex.RecipeRef) -> void:
+func _on_recipe_transfer(ref: NEIIndexScript.RecipeRef) -> void:
 	if player == null:
 		return
 	var command_server: GameCommandServer = player.get_command_server()
@@ -752,7 +752,7 @@ func _on_recipe_transfer(ref: NEIIndex.RecipeRef) -> void:
 		_subtitle.text = "%s  |  Craft failed (missing items?)" % _subtitle.text
 
 
-func _add_linear_recipe_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> void:
+func _add_linear_recipe_layout(box: VBoxContainer, ref: NEIIndexScript.RecipeRef) -> void:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(row)
@@ -765,7 +765,7 @@ func _add_linear_recipe_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> v
 	_add_stacks(row, ref.item_outputs, ref.fluid_outputs)
 
 
-func _add_crafting_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> void:
+func _add_crafting_layout(box: VBoxContainer, ref: NEIIndexScript.RecipeRef) -> void:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(row)
@@ -785,7 +785,7 @@ func _add_crafting_layout(box: VBoxContainer, ref: NEIIndex.RecipeRef) -> void:
 	_add_stacks(row, ref.item_outputs, ref.fluid_outputs)
 
 
-func _crafting_grid_entries(ref: NEIIndex.RecipeRef) -> Array:
+func _crafting_grid_entries(ref: NEIIndexScript.RecipeRef) -> Array:
 	var data := ref.data
 	var entries: Array = []
 	for i in range(9):
@@ -870,7 +870,7 @@ func _add_grid_entry(parent: GridContainer, entry: Dictionary) -> void:
 	parent.add_child(slot)
 
 
-func _recipe_meta(ref: NEIIndex.RecipeRef) -> String:
+func _recipe_meta(ref: NEIIndexScript.RecipeRef) -> String:
 	var parts := PackedStringArray()
 	if not ref.tools.is_empty():
 		parts.append("Tools: %s" % ", ".join(ref.tools))
@@ -911,7 +911,7 @@ func _add_stacks(parent: HBoxContainer, items: Array[Dictionary], fluids: Array[
 		row.add_child(label)
 
 
-func _source_tag(ref: NEIIndex.RecipeRef) -> String:
+func _source_tag(ref: NEIIndexScript.RecipeRef) -> String:
 	if ref.recipe_type == "crafting":
 		return "Craft: hand" if ref.machine_type.is_empty() else "Craft: %s" % ref.machine_type
 	if ref.recipe_type == "machine":

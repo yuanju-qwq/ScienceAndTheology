@@ -1129,7 +1129,11 @@ func _recenter_panels() -> void:
 	_world_list_panel.position = center - Vector2(PANEL_WIDTH / 2.0, PANEL_HEIGHT / 2.0)
 
 	# New world dialog.
-	var new_world_size := _new_world_panel.get_child(0).custom_minimum_size if _new_world_panel.get_child_count() > 0 else Vector2(460, 440)
+	var new_world_size: Vector2 = Vector2(460, 440)
+	if _new_world_panel.get_child_count() > 0:
+		var new_world_content := _new_world_panel.get_child(0) as Control
+		if new_world_content != null:
+			new_world_size = new_world_content.custom_minimum_size
 	_new_world_panel.position = center - new_world_size / 2.0
 
 

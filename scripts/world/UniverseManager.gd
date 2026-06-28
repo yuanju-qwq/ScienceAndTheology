@@ -259,9 +259,15 @@ func _apply_game_session_overrides() -> void:
 		var session_density := float(str(game_session.get("system_density")).to_float())
 		var session_save_path := str(game_session.get("save_path"))
 		var session_game_mode := int(str(game_session.get("game_mode")).to_int())
-		var session_gameplay_config: Dictionary = game_session.get("gameplay_config", {})
+		var session_gameplay_config: Dictionary = {}
+		var raw_gameplay_config: Variant = game_session.get("gameplay_config")
+		if raw_gameplay_config is Dictionary:
+			session_gameplay_config = raw_gameplay_config
 		var session_permission := int(str(game_session.get("permission_level")).to_int())
-		var session_planet_overrides: Dictionary = game_session.get("planet_overrides", {})
+		var session_planet_overrides: Dictionary = {}
+		var raw_planet_overrides: Variant = game_session.get("planet_overrides")
+		if raw_planet_overrides is Dictionary:
+			session_planet_overrides = raw_planet_overrides
 		if session_mode != "":
 			universe_mode = session_mode
 		if session_seed != 0:
@@ -341,7 +347,7 @@ func _apply_planet_overrides() -> void:
 		return
 
 	# Apply terrain overrides to the spawn planet.
-	var tp := _planet_overrides.get("terrain_preset", "default")
+	var tp: String = str(_planet_overrides.get("terrain_preset", "default"))
 	if tp != "default":
 		match tp:
 			"flat": spawn.terrain_height_scale = 6.0
@@ -349,7 +355,7 @@ func _apply_planet_overrides() -> void:
 			"mountainous": spawn.terrain_height_scale = 24.0
 			"extreme": spawn.terrain_height_scale = 36.0
 
-	var sl := _planet_overrides.get("sea_level_preset", "default")
+	var sl: String = str(_planet_overrides.get("sea_level_preset", "default"))
 	if sl != "default":
 		match sl:
 			"none": spawn.sea_level_fraction = 0.0
@@ -357,14 +363,14 @@ func _apply_planet_overrides() -> void:
 			"medium": spawn.sea_level_fraction = 0.3
 			"high": spawn.sea_level_fraction = 0.5
 
-	var cv := _planet_overrides.get("cave_preset", "default")
+	var cv: String = str(_planet_overrides.get("cave_preset", "default"))
 	if cv != "default":
 		match cv:
 			"sparse": spawn.cave_threshold = 0.55
 			"normal": spawn.cave_threshold = 0.35
 			"dense": spawn.cave_threshold = 0.18
 
-	var at := _planet_overrides.get("atmosphere_preset", "default")
+	var at: String = str(_planet_overrides.get("atmosphere_preset", "default"))
 	if at != "default":
 		match at:
 			"none": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.NONE
@@ -374,7 +380,7 @@ func _apply_planet_overrides() -> void:
 			"corrosive": spawn.atmosphere_type = PlanetDescriptor.AtmosphereType.CORROSIVE
 
 	# Apply size override — compute scale factor for other planets.
-	var sz := _planet_overrides.get("size_preset", "default")
+	var sz: String = str(_planet_overrides.get("size_preset", "default"))
 	if sz != "default":
 		var original_radius := spawn.planet_radius
 		match sz:

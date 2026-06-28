@@ -59,10 +59,8 @@ static func register_all() -> void:
 		"max_predator": 0.6,
 	})
 
-	# Barren: toxic/corrosive, no natural fauna.
-	# Note: kBarren is never returned by infer_biome_type() currently,
-	# so this override is effectively dormant until a mechanism sets
-	# cell.biome_type = BARREN.
+	# Barren: air-only/unnatural chunks and toxic/corrosive surfaces.
+	# No natural fauna should be visible here.
 	GDBiomeConfigRegistry.register_biome_override({
 		"biome_type": BARREN,
 		"base_water": 0.05,

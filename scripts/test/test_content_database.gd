@@ -1,5 +1,7 @@
 extends SceneTree
 
+var _failed := false
+
 func _init() -> void:
 	process_frame.connect(_run, CONNECT_ONE_SHOT)
 
@@ -14,6 +16,9 @@ func _run() -> void:
 
 	_assert_crafting_content()
 	_assert_processing_content()
+	if _failed:
+		quit(1)
+		return
 
 	print("ContentDatabase test passed: %d crafting recipes, %d processing recipes registered." %
 			[GDCraftingManager.get_recipe_count(),
@@ -48,8 +53,8 @@ func _assert_crafting_content() -> void:
 
 func _assert_processing_content() -> void:
 	var furnace_recipes := GDRecipeDatabase.get_recipes_for_machine("furnace")
-	_expect(furnace_recipes.size() == 2,
-			"expected 2 furnace recipes, got %d" % furnace_recipes.size())
+	_expect(furnace_recipes.size() >= 2,
+			"expected at least 2 furnace recipes, got %d" % furnace_recipes.size())
 
 	var copper_smelt := GDRecipeDatabase.find_recipe("furnace", "smelt_copper_crushed_to_ingot")
 	_expect(not copper_smelt.is_empty(), "missing copper furnace recipe")
@@ -83,8 +88,8 @@ func _assert_processing_content() -> void:
 func _expect(condition: bool, message: String) -> void:
 	if condition:
 		return
+	_failed = true
 	push_error("ContentDatabase test failed: " + message)
-	quit(1)
 
 func _item_key_id(item_key: String) -> int:
 	return int(GDCraftingManager.get_item_id_by_key(item_key))

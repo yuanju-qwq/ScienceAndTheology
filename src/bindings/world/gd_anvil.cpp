@@ -57,7 +57,7 @@ void GDAnvilManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("place_anvil", "dimension", "cell"), &GDAnvilManager::place_anvil);
     ClassDB::bind_method(D_METHOD("remove_anvil", "dimension", "cell"), &GDAnvilManager::remove_anvil);
     ClassDB::bind_method(D_METHOD("has_anvil", "dimension", "cell"), &GDAnvilManager::has_anvil);
-    ClassDB::bind_method(D_METHOD("weld", "dimension", "cell", "bloom_item_id", "hammer_item_id"), &GDAnvilManager::weld, DEFVAL(0), DEFVAL(0));
+    ClassDB::bind_method(D_METHOD("weld", "dimension", "cell"), &GDAnvilManager::weld);
     ClassDB::bind_method(D_METHOD("clear"), &GDAnvilManager::clear);
 
     ADD_SIGNAL(MethodInfo("anvil_placed", PropertyInfo(Variant::STRING_NAME, "dimension"), PropertyInfo(Variant::VECTOR3I, "cell")));

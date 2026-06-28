@@ -203,6 +203,10 @@ material.shale,Shale
 material.komatiite,Komatiite
 material.regolith,Regolith
 material.anorthosite,Anorthosite
+material.rubber,Rubber
+material.polyethylene,Polyethylene
+material.glowstone,Glowstone
+material.wrought_iron,Wrought Iron
 
 # ============================================================
 # Material form display names (kFormNames as keys)
@@ -503,6 +507,10 @@ item.regolith_dust,Regolith Dust
 item.regolith_tiny_dust,Regolith Tiny Dust
 item.anorthosite_dust,Anorthosite Dust
 item.anorthosite_tiny_dust,Anorthosite Tiny Dust
+item.rubber_plate,Rubber Sheet
+item.polyethylene_plate,Polyethylene Sheet
+item.glowstone_dust,Glowstone Dust
+item.glowstone_block,Glowstone Block
 
 # ============================================================
 # Station names (for crafting station types)

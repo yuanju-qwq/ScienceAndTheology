@@ -1,4 +1,4 @@
-class_name NEIIndex
+class_name NEIIndexScript
 extends Node
 
 ## NEIIndex is the query/index layer for the in-game item and recipe browser.
@@ -266,7 +266,7 @@ func _index_items() -> void:
 # Infer the source/mod tag from the item key prefix.
 # Items whose key starts with "gt_" are GregTech; others are vanilla.
 func _infer_item_source(item_id: int) -> String:
-	var key := _item_keys.get(item_id, "")
+	var key: String = str(_item_keys.get(item_id, ""))
 	if key.begins_with("gt_") or key.begins_with("gregtech"):
 		return "gregtech"
 	if key.begins_with("ae2") or key.begins_with("appeng"):
@@ -276,22 +276,11 @@ func _infer_item_source(item_id: int) -> String:
 	return "mod"
 
 
-# Build the ore dictionary index from the C++ binding if available.
+# Build the ore dictionary index from item keys.
 # Ore dictionary lets different items share an ore name (e.g. oreCopper).
 func _index_ore_dict() -> void:
-	if ClassDB.class_exists("GDOreDictionary"):
-		var ore_names: PackedStringArray = GDOreDictionary.get_all_ore_names()
-		for ore_name in ore_names:
-			var item_ids: Array[int] = GDOreDictionary.get_item_ids_for_ore(ore_name)
-			_ore_dict[ore_name] = item_ids.duplicate()
-			for item_id in item_ids:
-				if not _item_ores.has(item_id):
-					_item_ores[item_id] = []
-				(_item_ores[item_id] as Array).append(ore_name)
-		return
-	# Fallback: derive ore entries from item keys (e.g. "oreCopper" -> material copper).
 	for item_id in _all_items:
-		var key := _item_keys.get(item_id, "")
+		var key: String = str(_item_keys.get(item_id, ""))
 		var ore_name := _derive_ore_name_from_key(key)
 		if ore_name.is_empty():
 			continue
@@ -461,7 +450,7 @@ func _resolve_item_key(item_key: String) -> int:
 		var id_from_item_db := int(ItemDatabase.get_item_id_by_key(item_key))
 		if id_from_item_db > 0:
 			return id_from_item_db
-	if ClassDB.class_exists("GDCraftingManager") and GDCraftingManager.has_method("get_item_id_by_key"):
+	if ClassDB.class_exists("GDCraftingManager") and ClassDB.class_has_method("GDCraftingManager", "get_item_id_by_key"):
 		return int(GDCraftingManager.get_item_id_by_key(item_key))
 	return -1
 

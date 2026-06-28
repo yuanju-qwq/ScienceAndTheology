@@ -120,14 +120,22 @@ String issue_unresolved_drop_item(const std::string& material_key,
 
 TerrainFaceTexture face_texture_from_dict(const Dictionary& def, const char* prefix) {
     TerrainFaceTexture face;
-    std::string path_key = std::string(prefix) + "_texture";
-    std::string count_key = std::string(prefix) + "_variant_count";
-    if (def.has(path_key.c_str())) {
-        face.texture_path = to_std_string(def.get(path_key.c_str(), ""));
+    if (!def.has(prefix)) {
+        return face;
     }
-    if (def.has(count_key.c_str())) {
-        face.variant_count = std::max(1, static_cast<int>(def.get(count_key.c_str(), 1)));
+
+    Variant face_value = def.get(prefix, Dictionary());
+    if (face_value.get_type() != Variant::DICTIONARY) {
+        UtilityFunctions::push_warning(
+            "GDTerrainContentRegistry: material visual face '",
+            String(prefix),
+            "' must be a Dictionary with texture_path and variant_count.");
+        return face;
     }
+
+    Dictionary face_dict = face_value;
+    face.texture_path = to_std_string(face_dict.get("texture_path", ""));
+    face.variant_count = std::max(1, static_cast<int>(face_dict.get("variant_count", 1)));
     return face;
 }
 

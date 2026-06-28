@@ -13,6 +13,7 @@ func load_content() -> void:
 		return
 	_loaded = true
 
+	_bootstrap_item_registries()
 	BuiltinFluids.register_all()
 	_register_fuels()
 	_register_fluid_fuels()
@@ -26,6 +27,8 @@ func load_content() -> void:
 	BuiltinBiomeOverrides.register_all()
 	_register_machine_types()
 
+	GDCraftingManager.clear()
+	GDRecipeDatabase.clear()
 	GDCraftingManager.clear_load_report()
 	GDRecipeDatabase.clear_load_report()
 
@@ -57,16 +60,17 @@ func reload_content() -> void:
 	# 2. 清空 recipe 缓存
 	GDCraftingManager.clear()
 	GDRecipeDatabase.clear()
-	# 3. 重新注册材质（reset_all 已复位 MaterialRegistry，需重新 register + finalize）
-	MaterialDefinitions.register_all()
-	MaterialDefinitions.register_compounds()
-	GDMaterialRegistry.finalize()
-	# 4. 重新注册 GD 端 item 缓存
-	ItemDatabase.reload()
-	# 5. 重新执行内容注册
+	# 3. 重新执行内容注册（会重建材质、item 与 recipe registry）
 	_loaded = false
 	load_content()
 	print("ContentDatabase: reload_content complete")
+
+
+func _bootstrap_item_registries() -> void:
+	MaterialDefinitions.register_all()
+	GDMaterialRegistry.finalize()
+	ItemDatabase.reload()
+	MaterialDefinitions.register_compounds()
 
 # Register solid item fuels (coal, wood) from GDScript.
 # These were previously hardcoded in C++ FuelRegistry::register_builtin_fuels().
@@ -250,7 +254,7 @@ func _add_sfm_recipes(recipes: Array) -> void:
 			"craft_sfm_manager",
 			"misc",
 			[_mat("plate", "iron", 4),
-			 _item_key("circuit.basic", 1),
+			 _item_key("circuit_basic", 1),
 			 _mat("dust", "redstone", 2)],
 			_item_key("sfm_manager", 1)))
 	# Inventory Cable: crafted by hand using iron nuggets and string.
@@ -264,7 +268,7 @@ func _add_sfm_recipes(recipes: Array) -> void:
 func _add_material_compression_recipes(recipes: Array) -> void:
 	var compressible_metals := [
 		"iron", "copper", "tin", "lead", "bronze", "steel",
-		"gold", "silver", "nickel", "zinc", "aluminum", "brass",
+		"gold", "silver", "nickel", "zinc", "aluminium", "brass",
 		"invar", "electrum", "wrought_iron", "bismuth", "antimony",
 	]
 	for material: String in compressible_metals:
@@ -374,7 +378,7 @@ func _add_part_recipes(recipes: Array) -> void:
 			"file"))
 
 func _add_wire_recipes(recipes: Array) -> void:
-	var wire_metals := ["copper", "tin", "gold", "silver", "aluminum",
+	var wire_metals := ["copper", "tin", "gold", "silver", "aluminium",
 			"nickel", "lead", "zinc", "iron", "steel"]
 	for material: String in wire_metals:
 		_add_recipe_if_valid(recipes, _bench(
@@ -386,7 +390,7 @@ func _add_wire_recipes(recipes: Array) -> void:
 
 func _add_cable_recipes(recipes: Array) -> void:
 	var cable_metals := ["copper", "tin", "gold", "silver",
-			"aluminum", "nickel", "iron", "steel"]
+			"aluminium", "nickel", "iron", "steel"]
 	for material: String in cable_metals:
 		_add_recipe_if_valid(recipes, _bench(
 				"craft_%s_cable" % material,
@@ -501,8 +505,8 @@ func _add_misc_recipes(recipes: Array) -> void:
 	_add_recipe_if_valid(recipes, _hand(
 			"craft_firebrick",
 			"misc",
-			[_mat("ingot", "brick", 4), _mat("dust", "coal", 1)],
-			_item_key("firebrick", 1)), false)
+			[_item_key("refractory_brick", 4), _mat("dust", "coal", 1)],
+			_item_key("firebrick", 1)))
 	_add_recipe_if_valid(recipes, _bench(
 			"craft_furnace",
 			"misc",
@@ -620,15 +624,15 @@ func _add_tfc_recipes(recipes: Array) -> void:
 			"forge_wrought_iron",
 			"tfc_metallurgy",
 			[_item_key("iron_bloom", 1)],
-			_item_key("wrought_iron_ingot", 1),
+			_mat("ingot", "wrought_iron", 1),
 			"hammer"))
 
 	# Crucible steel: wrought iron + coal dust → steel ingot
 	_add_recipe_if_valid(recipes, _hand(
 			"crucible_steel",
 			"tfc_metallurgy",
-			[_item_key("wrought_iron_ingot", 1), _item_key("coal_dust", 1)],
-			_item_key("steel_ingot", 1)))
+			[_mat("ingot", "wrought_iron", 1), _item_key("coal_dust", 1)],
+			_mat("ingot", "steel", 1)))
 
 
 func _processing_recipes() -> Array:
