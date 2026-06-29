@@ -11,10 +11,6 @@ extends ChunkRendererBridge
 const CHUNK_STATE_ACTIVE := 3
 const CHUNK_STATE_SLEEPING := 4
 
-# Enable the large-planet shell streamer. Disable to use the parent bridge's
-# original GDChunkHelper.compute_visible_chunks() behavior.
-@export var use_planet_shell_streaming := true
-
 # If true, request chunk data out to loaded_radius but only mesh chunks inside
 # view_radius. The overridden _on_chunk_ready() prevents prefetch chunks from
 # creating views until they enter the visible shell.
@@ -131,6 +127,7 @@ var _last_deep_player_chunks := 0
 var _last_horizontal_lod0_chunks := 0
 var _last_horizontal_lod1_chunks := 0
 var _last_horizontal_hidden_chunks := 0
+var _missing_planet_context_warned := false
 
 
 func set_active_dimension(dimension_id: StringName) -> void:
@@ -138,12 +135,13 @@ func set_active_dimension(dimension_id: StringName) -> void:
 	_shell_order_cache.clear()
 	_forced_shell_chunks.clear()
 	_unloaded_shell_chunks.clear()
+	_missing_planet_context_warned = false
 	super.set_active_dimension(dimension_id)
 
 
 func get_streaming_metrics() -> Dictionary:
 	var metrics := super.get_streaming_metrics()
-	metrics["shell_streaming_enabled"] = use_planet_shell_streaming
+	metrics["shell_streaming_enabled"] = true
 	metrics["shell_prefetch_loaded_radius"] = shell_prefetch_loaded_radius
 	metrics["shell_order_cache_enabled"] = shell_order_cache_enabled
 	metrics["shell_order_cache_entries"] = _shell_order_cache.size()
@@ -226,20 +224,13 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 		_refresh_station_chunks()
 		return
 
-	if not use_planet_shell_streaming:
-		_shell_wanted_visible.clear()
-		_last_shell_visible_candidates = 0
-		_last_shell_load_candidates = 0
-		super._refresh_chunks(player_chunk)
-		return
-
 	var player := get_node_or_null(player_node_path) as Node3D
 	var planet := _get_active_streaming_planet()
 	if player == null or planet == null:
 		_shell_wanted_visible.clear()
 		_last_shell_visible_candidates = 0
 		_last_shell_load_candidates = 0
-		super._refresh_chunks(player_chunk)
+		_warn_missing_planet_context()
 		return
 
 	var visible_order := _get_shell_chunk_order_cached(
@@ -285,6 +276,14 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 	_unload_stale_sleeping_chunks(wanted_visible, load_order, player_chunk)
 	_prune_tracked_chunks(wanted_visible, load_order, player_chunk)
 	_process_visible_queue()
+
+
+func _warn_missing_planet_context() -> void:
+	if _missing_planet_context_warned:
+		return
+	_missing_planet_context_warned = true
+	push_warning("PlanetShellChunkRendererBridge: missing player or active planet; "
+			+ "legacy radius chunk loading has been removed.")
 
 
 func _ensure_chunk_loaded(chunk: Vector3i) -> void:

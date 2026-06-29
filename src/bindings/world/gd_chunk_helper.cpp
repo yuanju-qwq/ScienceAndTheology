@@ -115,84 +115,6 @@ float GDChunkHelper::ladder_facing(const godot::Vector3i& local,
     return 0.0f;
 }
 
-// --- Chunk visibility ---
-
-godot::Dictionary GDChunkHelper::compute_visible_chunks(
-        const godot::Vector3i& player_chunk,
-        int32_t loaded_radius, int32_t view_radius,
-        bool use_spherical_loading) {
-    godot::Dictionary wanted_visible;
-    godot::Array visible_order;
-
-    const int32_t lr_sq = loaded_radius * loaded_radius;
-    const int32_t vr_sq = view_radius * view_radius;
-
-    if (use_spherical_loading) {
-        for (int32_t cy = player_chunk.y - loaded_radius; cy <= player_chunk.y + loaded_radius; ++cy) {
-            const int32_t dy_sq = (cy - player_chunk.y) * (cy - player_chunk.y);
-            if (dy_sq > lr_sq) continue;
-            for (int32_t cz = player_chunk.z - loaded_radius; cz <= player_chunk.z + loaded_radius; ++cz) {
-                const int32_t dz_sq = (cz - player_chunk.z) * (cz - player_chunk.z);
-                if (dy_sq + dz_sq > lr_sq) continue;
-                for (int32_t cx = player_chunk.x - loaded_radius; cx <= player_chunk.x + loaded_radius; ++cx) {
-                    const int32_t dx_sq = (cx - player_chunk.x) * (cx - player_chunk.x);
-                    if (dx_sq + dy_sq + dz_sq > lr_sq) continue;
-                    const godot::Vector3i pos(cx, cy, cz);
-                    if (dx_sq + dy_sq + dz_sq <= vr_sq) {
-                        wanted_visible[pos] = true;
-                        visible_order.append(pos);
-                    }
-                }
-            }
-        }
-    } else {
-        for (int32_t cz = player_chunk.z - loaded_radius; cz <= player_chunk.z + loaded_radius; ++cz) {
-            for (int32_t cx = player_chunk.x - loaded_radius; cx <= player_chunk.x + loaded_radius; ++cx) {
-                const int32_t dx = cx - player_chunk.x;
-                const int32_t dz = cz - player_chunk.z;
-                if (dx * dx + dz * dz > lr_sq) continue;
-                const godot::Vector3i pos(cx, player_chunk.y, cz);
-                if (dx * dx + dz * dz <= vr_sq) {
-                    wanted_visible[pos] = true;
-                    visible_order.append(pos);
-                }
-            }
-        }
-    }
-
-    // Sort by distance to player chunk.
-    struct Entry {
-        godot::Vector3i pos;
-        int32_t dist_sq;
-    };
-    std::vector<Entry> entries;
-    entries.reserve(static_cast<size_t>(visible_order.size()));
-    for (int64_t i = 0; i < visible_order.size(); ++i) {
-        const godot::Vector3i pos = visible_order[i];
-        const int32_t dx = pos.x - player_chunk.x;
-        const int32_t dy = pos.y - player_chunk.y;
-        const int32_t dz = pos.z - player_chunk.z;
-        entries.push_back({pos, dx * dx + dy * dy + dz * dz});
-    }
-    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
-        if (a.dist_sq != b.dist_sq) return a.dist_sq < b.dist_sq;
-        if (a.pos.x != b.pos.x) return a.pos.x < b.pos.x;
-        if (a.pos.y != b.pos.y) return a.pos.y < b.pos.y;
-        return a.pos.z < b.pos.z;
-    });
-
-    godot::Array sorted_order;
-    sorted_order.resize(static_cast<int64_t>(entries.size()));
-    for (size_t i = 0; i < entries.size(); ++i) {
-        sorted_order[static_cast<int64_t>(i)] = entries[i].pos;
-    }
-
-    godot::Dictionary result;
-    result["wanted_visible"] = wanted_visible;
-    result["visible_order"] = sorted_order;
-    return result;
-}
-
 // --- Surface mask ---
 
 godot::PackedByteArray GDChunkHelper::compute_surface_mask(
@@ -878,8 +800,6 @@ void GDChunkHelper::_bind_methods() {
                                 &B::build_greedy_mesh);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "collidable_material_mask"),
                                 &B::build_collision_faces);
-    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("compute_visible_chunks", "player_chunk", "loaded_radius", "view_radius", "use_spherical_loading"),
-                                &B::compute_visible_chunks);
 }
 
 } // namespace science_and_theology

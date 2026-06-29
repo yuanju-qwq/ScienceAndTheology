@@ -465,6 +465,10 @@ godot::Array GDTickSystem::get_captive_data(
 void GDTickSystem::tick(float delta) {
     if (!tick_system_ || !world_set) return;
     tick_system_->tick(delta);
+    const std::string profiler_log = tick_system_->consume_profiler_log();
+    if (!profiler_log.empty()) {
+        godot::UtilityFunctions::print(godot::String(profiler_log.c_str()));
+    }
 }
 
 void GDTickSystem::add_player_chunk(
@@ -561,6 +565,81 @@ int64_t GDTickSystem::get_max_worker_threads() const {
 
 int64_t GDTickSystem::get_tick_count() const {
     return tick_system_ ? tick_system_->tick_count() : 0;
+}
+
+void GDTickSystem::set_perf_profiler_enabled(bool enabled) {
+    if (tick_system_) {
+        tick_system_->set_profiler_enabled(enabled);
+    }
+}
+
+bool GDTickSystem::get_perf_profiler_enabled() const {
+    return tick_system_ ? tick_system_->profiler_enabled() : false;
+}
+
+void GDTickSystem::set_perf_profiler_tick_budget_ms(double budget_ms) {
+    if (tick_system_) {
+        tick_system_->set_profiler_tick_budget_ms(budget_ms);
+    }
+}
+
+double GDTickSystem::get_perf_profiler_tick_budget_ms() const {
+    if (!tick_system_) return 0.0;
+    return tick_system_->profiler_config().tick_budget_ms;
+}
+
+void GDTickSystem::set_perf_profiler_slow_scope_ms(double threshold_ms) {
+    if (tick_system_) {
+        tick_system_->set_profiler_slow_scope_ms(threshold_ms);
+    }
+}
+
+double GDTickSystem::get_perf_profiler_slow_scope_ms() const {
+    if (!tick_system_) return 0.0;
+    return tick_system_->profiler_config().slow_scope_ms;
+}
+
+void GDTickSystem::set_perf_profiler_log_interval_ticks(int64_t ticks) {
+    if (tick_system_) {
+        tick_system_->set_profiler_log_interval_ticks(ticks);
+    }
+}
+
+int64_t GDTickSystem::get_perf_profiler_log_interval_ticks() const {
+    if (!tick_system_) return 0;
+    return tick_system_->profiler_config().log_interval_ticks;
+}
+
+godot::String GDTickSystem::get_perf_profiler_summary(int64_t top_n) const {
+    if (!tick_system_) return godot::String();
+    const size_t limit = top_n > 0 ? static_cast<size_t>(top_n) : 0;
+    const std::string summary = tick_system_->format_profiler_summary(limit);
+    return godot::String(summary.c_str());
+}
+
+godot::Array GDTickSystem::get_perf_profiler_top(int64_t top_n) const {
+    godot::Array result;
+    if (!tick_system_) return result;
+    const size_t limit = top_n > 0 ? static_cast<size_t>(top_n) : 0;
+    for (const auto& entry : tick_system_->profiler_snapshot_top(limit)) {
+        godot::Dictionary d;
+        d["name"] = godot::String(entry.name.c_str());
+        d["last_ms"] = entry.last_ms;
+        d["avg_ms"] = entry.avg_ms;
+        d["max_ms"] = entry.max_ms;
+        d["p99_ms"] = entry.p99_ms;
+        d["budget_share"] = entry.budget_share;
+        d["samples"] = entry.samples;
+        d["slow_samples"] = entry.slow_samples;
+        result.append(d);
+    }
+    return result;
+}
+
+void GDTickSystem::clear_perf_profiler() {
+    if (tick_system_) {
+        tick_system_->clear_profiler();
+    }
 }
 
 int64_t GDTickSystem::get_active_chunk_count() const {
@@ -860,6 +939,31 @@ void GDTickSystem::_bind_methods() {
 
     godot::ClassDB::bind_method(godot::D_METHOD("get_tick_count"),
         &GDTickSystem::get_tick_count);
+
+    // Tick profiler command API.
+    godot::ClassDB::bind_method(godot::D_METHOD("set_perf_profiler_enabled",
+        "enabled"), &GDTickSystem::set_perf_profiler_enabled);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_perf_profiler_enabled"),
+        &GDTickSystem::get_perf_profiler_enabled);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_perf_profiler_tick_budget_ms",
+        "budget_ms"), &GDTickSystem::set_perf_profiler_tick_budget_ms);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_perf_profiler_tick_budget_ms"),
+        &GDTickSystem::get_perf_profiler_tick_budget_ms);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_perf_profiler_slow_scope_ms",
+        "threshold_ms"), &GDTickSystem::set_perf_profiler_slow_scope_ms);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_perf_profiler_slow_scope_ms"),
+        &GDTickSystem::get_perf_profiler_slow_scope_ms);
+    godot::ClassDB::bind_method(godot::D_METHOD("set_perf_profiler_log_interval_ticks",
+        "ticks"), &GDTickSystem::set_perf_profiler_log_interval_ticks);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_perf_profiler_log_interval_ticks"),
+        &GDTickSystem::get_perf_profiler_log_interval_ticks);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_perf_profiler_summary",
+        "top_n"), &GDTickSystem::get_perf_profiler_summary);
+    godot::ClassDB::bind_method(godot::D_METHOD("get_perf_profiler_top",
+        "top_n"), &GDTickSystem::get_perf_profiler_top);
+    godot::ClassDB::bind_method(godot::D_METHOD("clear_perf_profiler"),
+        &GDTickSystem::clear_perf_profiler);
+
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_chunk_count"),
         &GDTickSystem::get_active_chunk_count);
     godot::ClassDB::bind_method(godot::D_METHOD("get_active_chunks"),

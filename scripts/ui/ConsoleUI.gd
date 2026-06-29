@@ -23,6 +23,9 @@ var _command_handlers: Dictionary = {}
 var _player: PlayerController = null
 var _perf_overlay: PerfOverlay
 var _permission_level: int = PermissionLevel.CHEATER
+var _opus_profile_active := false
+var _opus_profile_remaining := 0.0
+var _opus_profile_top_n := 8
 
 
 func _ready() -> void:
@@ -45,6 +48,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			_submit_command()
 			get_viewport().set_input_as_handled()
 			return
+
+
+func _process(delta: float) -> void:
+	if not _opus_profile_active:
+		return
+	_opus_profile_remaining -= delta
+	if _opus_profile_remaining <= 0.0:
+		_finish_opus_profile("complete")
 
 
 # --- Public API ---
@@ -186,6 +197,15 @@ func _register_default_commands() -> void:
 		"Debug teleport for dimension prototype (usage: /travel Mars)",
 		PermissionLevel.CHEATER)
 	register_command("perf", _cmd_perf, "Toggle TPS and network data overlay",
+		PermissionLevel.CHEATER)
+	register_command("spark", _cmd_spark,
+		"Tick profiler controls (usage: /spark profiler <start|stop|top|status>)",
+		PermissionLevel.CHEATER)
+	register_command("profiler", _cmd_spark,
+		"Alias for /spark profiler",
+		PermissionLevel.CHEATER)
+	register_command("opus", _cmd_opus,
+		"Run one-shot tick profile (usage: /opus [seconds] [slow_ms] [top_n])",
 		PermissionLevel.CHEATER)
 
 	# OP — debug/admin commands.
@@ -450,3 +470,171 @@ func _cmd_perf(_args: String) -> void:
 	_perf_overlay.toggle()
 	var state := "ON" if _perf_overlay.visible else "OFF"
 	print_line("[color=cyan]Perf overlay: %s[/color]" % state)
+
+
+# /spark profiler ... — command-style profiler controls inspired by Spark.
+func _cmd_spark(args: String) -> void:
+	var tick_sys := _get_tick_system_for_profiler()
+	if tick_sys == null:
+		print_line("[color=red]No GDTickSystem available[/color]")
+		return
+
+	var words := args.strip_edges().split(" ", false)
+	if words.size() > 0 and String(words[0]).to_lower() == "profiler":
+		words.remove_at(0)
+	if words.is_empty():
+		_print_spark_usage()
+		return
+
+	var sub := String(words[0]).to_lower()
+	match sub:
+		"start", "on":
+			var seconds := 0.0
+			if words.size() >= 2 and String(words[1]).is_valid_float():
+				seconds = maxf(0.0, String(words[1]).to_float())
+			if words.size() >= 3 and String(words[2]).is_valid_float():
+				tick_sys.set_perf_profiler_slow_scope_ms(
+					maxf(0.0, String(words[2]).to_float()))
+			tick_sys.clear_perf_profiler()
+			tick_sys.set_perf_profiler_enabled(true)
+			if seconds > 0.0:
+				_opus_profile_active = true
+				_opus_profile_remaining = seconds
+				_opus_profile_top_n = 8
+				print_line("[color=cyan]Tick profiler started for %.1fs[/color]" % seconds)
+			else:
+				_opus_profile_active = false
+				print_line("[color=cyan]Tick profiler started[/color]")
+			_print_profiler_status(tick_sys)
+		"stop", "off":
+			_opus_profile_active = false
+			_print_profiler_summary(tick_sys, 8)
+			tick_sys.set_perf_profiler_enabled(false)
+			print_line("[color=cyan]Tick profiler stopped[/color]")
+		"status":
+			_print_profiler_status(tick_sys)
+		"top", "open":
+			var top_n := 8
+			if words.size() >= 2 and String(words[1]).is_valid_int():
+				top_n = clampi(String(words[1]).to_int(), 1, 32)
+			_print_profiler_summary(tick_sys, top_n)
+		"clear", "reset":
+			tick_sys.clear_perf_profiler()
+			print_line("[color=cyan]Tick profiler samples cleared[/color]")
+		"interval":
+			if words.size() < 2 or not String(words[1]).is_valid_int():
+				print_line("[color=red]Usage: /spark profiler interval <ticks>[/color]")
+				return
+			tick_sys.set_perf_profiler_log_interval_ticks(
+				maxi(1, String(words[1]).to_int()))
+			_print_profiler_status(tick_sys)
+		"threshold", "slow":
+			if words.size() < 2 or not String(words[1]).is_valid_float():
+				print_line("[color=red]Usage: /spark profiler threshold <ms>[/color]")
+				return
+			tick_sys.set_perf_profiler_slow_scope_ms(
+				maxf(0.0, String(words[1]).to_float()))
+			_print_profiler_status(tick_sys)
+		"budget":
+			if words.size() < 2 or not String(words[1]).is_valid_float():
+				print_line("[color=red]Usage: /spark profiler budget <ms>[/color]")
+				return
+			tick_sys.set_perf_profiler_tick_budget_ms(
+				maxf(0.0, String(words[1]).to_float()))
+			_print_profiler_status(tick_sys)
+		_:
+			_print_spark_usage()
+
+
+# /opus [seconds] [slow_ms] [top_n] — one-shot profiler capture.
+func _cmd_opus(args: String) -> void:
+	var tick_sys := _get_tick_system_for_profiler()
+	if tick_sys == null:
+		print_line("[color=red]No GDTickSystem available[/color]")
+		return
+
+	var words := args.strip_edges().split(" ", false)
+	var seconds := 10.0
+	var slow_ms: float = float(tick_sys.get_perf_profiler_slow_scope_ms())
+	var top_n := 8
+	if words.size() >= 1 and String(words[0]).is_valid_float():
+		seconds = maxf(1.0, String(words[0]).to_float())
+	if words.size() >= 2 and String(words[1]).is_valid_float():
+		slow_ms = maxf(0.0, String(words[1]).to_float())
+	if words.size() >= 3 and String(words[2]).is_valid_int():
+		top_n = clampi(String(words[2]).to_int(), 1, 32)
+
+	tick_sys.clear_perf_profiler()
+	tick_sys.set_perf_profiler_slow_scope_ms(slow_ms)
+	tick_sys.set_perf_profiler_enabled(true)
+	_opus_profile_active = true
+	_opus_profile_remaining = seconds
+	_opus_profile_top_n = top_n
+	print_line("[color=cyan]Opus profile started: %.1fs slow>=%.2fms top=%d[/color]"
+		% [seconds, slow_ms, top_n])
+
+
+func _finish_opus_profile(reason: String) -> void:
+	var tick_sys := _get_tick_system_for_profiler()
+	_opus_profile_active = false
+	if tick_sys == null:
+		print_line("[color=red]Opus profile ended (%s): no GDTickSystem[/color]" % reason)
+		return
+	print_line("[color=cyan]Opus profile %s[/color]" % reason)
+	_print_profiler_summary(tick_sys, _opus_profile_top_n)
+	tick_sys.set_perf_profiler_enabled(false)
+
+
+func _get_tick_system_for_profiler() -> GDTickSystem:
+	if _player != null and _player.universe_manager != null:
+		return _player.universe_manager.tick_system
+	var scene := get_tree().current_scene
+	if scene != null:
+		return scene.get_node_or_null("GDTickSystem") as GDTickSystem
+	return null
+
+
+func _print_spark_usage() -> void:
+	print_line("[color=yellow]Usage:[/color]")
+	print_line("  /spark profiler start [seconds] [slow_ms]")
+	print_line("  /spark profiler stop")
+	print_line("  /spark profiler top [n]")
+	print_line("  /spark profiler status")
+	print_line("  /spark profiler clear")
+	print_line("  /spark profiler interval <ticks>")
+	print_line("  /spark profiler threshold <ms>")
+	print_line("  /opus [seconds] [slow_ms] [top_n]")
+
+
+func _print_profiler_status(tick_sys: GDTickSystem) -> void:
+	print_line("Profiler: %s | budget=%.2fms slow=%.2fms interval=%d ticks" % [
+		"ON" if tick_sys.get_perf_profiler_enabled() else "OFF",
+		tick_sys.get_perf_profiler_tick_budget_ms(),
+		tick_sys.get_perf_profiler_slow_scope_ms(),
+		tick_sys.get_perf_profiler_log_interval_ticks(),
+	])
+
+
+func _print_profiler_summary(tick_sys: GDTickSystem, top_n: int) -> void:
+	var summary: String = String(tick_sys.get_perf_profiler_summary(top_n))
+	if summary != "":
+		var display_summary: String = summary.replace("[", "(").replace("]", ")")
+		print_line("[color=cyan]%s[/color]" % display_summary)
+		print(summary)
+
+	var entries: Array = tick_sys.get_perf_profiler_top(top_n)
+	if entries.is_empty():
+		print_line("[color=yellow]No profiler samples yet[/color]")
+		return
+	print_line("[color=cyan]Top tick scopes:[/color]")
+	for entry in entries:
+		var name := String(entry.get("name", "unknown"))
+		print_line("  %s avg=%.3fms max=%.3fms p99=%.3fms share=%.1f%% samples=%d slow=%d" % [
+			name,
+			float(entry.get("avg_ms", 0.0)),
+			float(entry.get("max_ms", 0.0)),
+			float(entry.get("p99_ms", 0.0)),
+			float(entry.get("budget_share", 0.0)) * 100.0,
+			int(entry.get("samples", 0)),
+			int(entry.get("slow_samples", 0)),
+		])

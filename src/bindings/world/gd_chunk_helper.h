@@ -14,8 +14,9 @@ namespace science_and_theology {
 
 // Pure-computation helper for chunk rendering and coordinate transforms.
 // All methods are static and stateless; they exist so that hot-path
-// calculations (visibility, coordinate math, ladder facing, greedy mesh)
-// run in C++ instead of interpreted GDScript.
+// calculations (coordinate math, ladder facing, greedy mesh) run in C++
+// instead of interpreted GDScript. Planet chunk selection lives in
+// GDPlanetShellHelper, not in this renderer helper.
 class GDChunkHelper : public godot::Node {
     GDCLASS(GDChunkHelper, godot::Node)
 
@@ -84,13 +85,6 @@ public:
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
         const godot::PackedByteArray& collidable_material_mask);
-
-    // --- Chunk visibility ---
-
-    static godot::Dictionary compute_visible_chunks(
-        const godot::Vector3i& player_chunk,
-        int32_t loaded_radius, int32_t view_radius,
-        bool use_spherical_loading);
 
 protected:
     static void _bind_methods();

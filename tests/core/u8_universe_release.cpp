@@ -36,7 +36,11 @@
 #include "universe/network_isolation_guard.hpp"
 #include "universe/virtual_planet_simulator.hpp"
 #include "universe/floating_origin_core.hpp"
+#include "simulation/simulation_system.hpp"
 #include "simulation/state_sync_server.hpp"
+#include "simulation/tick_profiler.hpp"
+#include "simulation/tick_system.hpp"
+#include "world/world_data.hpp"
 
 using namespace science_and_theology;
 
@@ -49,6 +53,45 @@ void check(bool condition, const std::string& message) {
     std::cerr << "[U8 FAIL] " << message << std::endl;
     ++g_failures;
 }
+
+ChunkData make_profile_chunk() {
+    ChunkData chunk;
+    chunk.state = ChunkState::ACTIVE;
+    chunk.terrain.resize(
+        ChunkData::kChunkSize,
+        ChunkData::kChunkSize,
+        ChunkData::kChunkSize);
+    return chunk;
+}
+
+class ProfileTestSystem final : public SimulationSystem {
+public:
+    void initialize(WorldData* world, EventBus* bus) override {
+        world_ = world;
+        event_bus_ = bus;
+    }
+
+    void tick_active(const ChunkKey&, float, const TickContext*) override {
+        ++active_ticks;
+    }
+
+    void tick_sleeping(const ChunkKey&, float, const TickContext*) override {
+        ++sleeping_ticks;
+    }
+
+    void shutdown() override {}
+
+    const char* name() const override {
+        return "ProfileTestSystem";
+    }
+
+    int priority() const override {
+        return 2;
+    }
+
+    int active_ticks = 0;
+    int sleeping_ticks = 0;
+};
 
 // 辅助：注册测试用 Sector（六类压测场景）
 void setup_stress_sectors(UniverseWorldCore& core) {
@@ -252,7 +295,74 @@ void test_perf_budget_memory_bound() {
 }
 
 // ============================================================
-// 6. SaveReliabilityManager：原子写入与读取
+// 6. TickProfiler：函数级 tick 热点摘要
+// ============================================================
+
+void test_tick_profiler_function_summary() {
+    std::cerr << "[U8] test_tick_profiler_function_summary" << std::endl;
+
+    TickProfiler profiler;
+    TickProfileConfig cfg;
+    cfg.enabled = true;
+    cfg.log_interval_ticks = 1;
+    cfg.slow_scope_ms = 2.0;
+    cfg.top_n = 4;
+    profiler.set_config(cfg);
+
+    profiler.begin_tick(1);
+    profiler.record("fast_scope", 0.25);
+    profiler.record("slow_scope", 4.0);
+    profiler.end_tick(4.5);
+
+    auto top = profiler.snapshot_top(2);
+    check(top.size() == 2, "profiler top should contain two scopes");
+    check(top[0].name == "slow_scope", "slow scope should rank first");
+    check(top[0].slow_samples == 1, "slow scope should count slow sample");
+
+    std::string summary = profiler.consume_due_log();
+    check(summary.find("TickProfiler") != std::string::npos,
+          "summary should contain TickProfiler tag");
+    check(summary.find("slow_scope") != std::string::npos,
+          "summary should contain slow scope name");
+    check(profiler.consume_due_log().empty(),
+          "profiler log should be consumed once");
+}
+
+// ============================================================
+// 7. TickSystem：调度阶段记录到具体 SimulationSystem 名称
+// ============================================================
+
+void test_tick_system_profiler_records_subsystems() {
+    std::cerr << "[U8] test_tick_system_profiler_records_subsystems" << std::endl;
+
+    WorldData world;
+    world.set_chunk("overworld", 0, 0, 0, make_profile_chunk());
+
+    TickSystem ticks(&world);
+    ticks.set_active_radius(1);
+    ticks.set_profiler_enabled(true);
+    ticks.set_profiler_log_interval_ticks(1);
+    ticks.register_subsystem(std::make_unique<ProfileTestSystem>());
+    ticks.add_player_chunk(kSinglePlayerId, "overworld", 0, 0, 0);
+    ticks.tick(0.05f);
+
+    auto top = ticks.profiler_snapshot_top(8);
+    bool found_subsystem = false;
+    for (const auto& entry : top) {
+        if (entry.name == "sim.active.ProfileTestSystem") {
+            found_subsystem = true;
+            break;
+        }
+    }
+    check(found_subsystem, "tick profiler should record active subsystem scope");
+
+    std::string summary = ticks.consume_profiler_log();
+    check(summary.find("ProfileTestSystem") != std::string::npos,
+          "tick profiler summary should include subsystem name");
+}
+
+// ============================================================
+// 8. SaveReliabilityManager：原子写入与读取
 // ============================================================
 
 void test_save_reliability_atomic_write() {
@@ -1093,6 +1203,8 @@ int main() {
     test_perf_budget_sustained_exceeded();
     test_perf_budget_summary();
     test_perf_budget_memory_bound();
+    test_tick_profiler_function_summary();
+    test_tick_system_profiler_records_subsystems();
 
     // SaveReliabilityManager 测试
     test_save_reliability_atomic_write();

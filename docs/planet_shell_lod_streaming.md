@@ -270,7 +270,8 @@ Phase 1:
     PlanetDescriptor 拆出 atmosphere_height、space_start_altitude、gravity_influence_altitude、active_shell_above、active_shell_below。
 
 Phase 2:
-    ChunkRendererBridge/GDChunkHelper 增加局部切平面盘加载函数。
+    PlanetShellChunkRendererBridge/GDPlanetShellHelper 承担局部切平面盘与壳层候选枚举；
+    GDChunkHelper 不再承载 chunk 可见性/加载选择。
 
 Phase 3:
     加入壳层裁剪，主动加载只覆盖地表附近径向高度带。

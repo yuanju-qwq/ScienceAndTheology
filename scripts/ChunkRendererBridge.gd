@@ -43,7 +43,6 @@ var workbench_material_id: int = AIR_MATERIAL
 
 @export var loaded_radius := 5
 @export var view_radius := 4
-@export var use_spherical_loading := true
 @export var max_async_results_per_frame := 4:
 	set(value):
 		max_async_results_per_frame = max(0, value)
@@ -410,26 +409,9 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 		_refresh_station_chunks()
 		return
 
-	# Planet: radius-based loading (original behavior).
-	var result := GDChunkHelper.compute_visible_chunks(
-		player_chunk, loaded_radius, view_radius, use_spherical_loading)
-	var wanted_visible: Dictionary = result.get("wanted_visible", {})
-	var visible_order: Array = result.get("visible_order", [])
-
-	# Ensure all wanted chunks are loaded (C++ only computes positions; loading is async).
-	for pos: Vector3i in wanted_visible.keys():
-		_ensure_chunk_loaded(pos)
-
-	for key: Vector3i in _visible_chunks.keys():
-		if not wanted_visible.has(key):
-			_remove_chunk_view(key)
-
-	for pos: Vector3i in visible_order:
-		if _visible_chunks.has(pos):
-			continue
-		if not _pending_view_queue.has(pos):
-			_enqueue_chunk_view(pos)
-
+	# Planet streaming is intentionally implemented by PlanetShellChunkRendererBridge.
+	# The old radius/sphere loader was removed because it scales poorly for large
+	# planets and hid bugs by silently bypassing shell streaming.
 	_process_visible_queue()
 
 

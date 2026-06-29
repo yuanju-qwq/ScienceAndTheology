@@ -129,6 +129,8 @@ target_sources(snt_core PRIVATE
     simulation/event_bus.hpp
     simulation/event_bus.cpp
     simulation/simulation_system.hpp
+    simulation/tick_profiler.hpp
+    simulation/tick_profiler.cpp
     simulation/tick_system.hpp
     simulation/tick_system.cpp
     simulation/block_physics_system.hpp
@@ -242,6 +244,51 @@ target_sources(snt_core PRIVATE
     universe/chunk_streaming_system.hpp
     universe/chunk_streaming_system.cpp
     universe/sparse_chunk_policy.hpp
+    universe/sparse_chunk_policy.cpp
+)
+
+# Universe navigation / planets / simulation / release support (U3-U8)
+target_sources(snt_core PRIVATE
+    universe/aoi_budget_manager.hpp
+    universe/aoi_budget_manager.cpp
+    universe/block_space.hpp
+    universe/block_space.cpp
+    universe/celestial_lod_pipeline.hpp
+    universe/celestial_lod_pipeline.cpp
+    universe/celestial_lod_system.hpp
+    universe/celestial_lod_system.cpp
+    universe/cross_sector_relay.hpp
+    universe/cross_sector_relay.cpp
+    universe/entity_sector_tracker.hpp
+    universe/entity_sector_tracker.cpp
+    universe/flight_state_tracker.hpp
+    universe/flight_state_tracker.cpp
+    universe/floating_origin_core.hpp
+    universe/floating_origin_core.cpp
+    universe/gravity_field_manager.hpp
+    universe/gravity_field_manager.cpp
+    universe/interest_manager.hpp
+    universe/interest_manager.cpp
+    universe/multi_sector_sync_coordinator.hpp
+    universe/multi_sector_sync_coordinator.cpp
+    universe/network_isolation_guard.hpp
+    universe/network_isolation_guard.cpp
+    universe/performance_budget_monitor.hpp
+    universe/performance_budget_monitor.cpp
+    universe/save_reliability_manager.hpp
+    universe/save_reliability_manager.cpp
+    universe/sector_observer_map.hpp
+    universe/sector_observer_map.cpp
+    universe/sector_simulation_scheduler.hpp
+    universe/sector_simulation_scheduler.cpp
+    universe/sector_transition_manager.hpp
+    universe/sector_transition_manager.cpp
+    universe/space_station_sector.hpp
+    universe/space_station_sector.cpp
+    universe/structure_anchor_manager.hpp
+    universe/structure_anchor_manager.cpp
+    universe/virtual_planet_simulator.hpp
+    universe/virtual_planet_simulator.cpp
 )
 
 # SFM (Steve's Factory Manager) — visual flow-programming logistics system

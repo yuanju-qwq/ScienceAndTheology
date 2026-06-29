@@ -197,6 +197,20 @@ public:
     // Current tick count.
     int64_t get_tick_count() const;
 
+    // --- Tick profiler command API ---
+
+    void set_perf_profiler_enabled(bool enabled);
+    bool get_perf_profiler_enabled() const;
+    void set_perf_profiler_tick_budget_ms(double budget_ms);
+    double get_perf_profiler_tick_budget_ms() const;
+    void set_perf_profiler_slow_scope_ms(double threshold_ms);
+    double get_perf_profiler_slow_scope_ms() const;
+    void set_perf_profiler_log_interval_ticks(int64_t ticks);
+    int64_t get_perf_profiler_log_interval_ticks() const;
+    godot::String get_perf_profiler_summary(int64_t top_n) const;
+    godot::Array get_perf_profiler_top(int64_t top_n) const;
+    void clear_perf_profiler();
+
     // Returns the number of currently ACTIVE chunks.
     int64_t get_active_chunk_count() const;
 

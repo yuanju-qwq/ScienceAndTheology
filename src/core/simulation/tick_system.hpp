@@ -8,6 +8,7 @@
 #include "simulation_system.hpp"
 #include "event_bus.hpp"
 #include "state_sync_server.hpp"
+#include "tick_profiler.hpp"
 #include "../player/player_id.hpp"
 #include "../world/world_data.hpp"
 
@@ -145,6 +146,31 @@ public:
     void set_max_worker_threads(int count) { max_worker_threads_ = count; }
     int max_worker_threads() const { return max_worker_threads_; }
 
+    // --- Low-frequency tick profiler ---
+
+    void set_profiler_enabled(bool enabled) { profiler_.set_enabled(enabled); }
+    bool profiler_enabled() const { return profiler_.enabled(); }
+    void set_profiler_tick_budget_ms(double budget_ms) {
+        profiler_.set_tick_budget_ms(budget_ms);
+    }
+    void set_profiler_slow_scope_ms(double threshold_ms) {
+        profiler_.set_slow_scope_ms(threshold_ms);
+    }
+    void set_profiler_log_interval_ticks(int64_t ticks) {
+        profiler_.set_log_interval_ticks(ticks);
+    }
+    TickProfileConfig profiler_config() const { return profiler_.config(); }
+    std::vector<TickProfileEntry> profiler_snapshot_top(size_t limit = 0) const {
+        return profiler_.snapshot_top(limit);
+    }
+    std::string format_profiler_summary(size_t limit = 0) const {
+        return profiler_.format_summary(limit);
+    }
+    std::string consume_profiler_log() {
+        return profiler_.consume_due_log();
+    }
+    void clear_profiler() { profiler_.clear(); }
+
     // Access to shared services.
     EventBus* event_bus() { return event_bus_.get(); }
     const EventBus* event_bus() const { return event_bus_.get(); }
@@ -184,7 +210,8 @@ private:
         const std::vector<ChunkKey>& chunks,
         float delta,
         bool is_active,
-        const TickContext* ctx);
+        const TickContext* ctx,
+        const char* phase_name);
 
     // Run all subsystems at a given priority level.
     // If all subsystems in the group are thread-safe and parallel
@@ -194,7 +221,8 @@ private:
         const std::vector<ChunkKey>& chunks,
         float delta,
         bool is_active,
-        const TickContext* ctx);
+        const TickContext* ctx,
+        const char* phase_name);
 
     // Run all subsystems grouped by priority over a set of chunks.
     // Each priority group runs in order; within a group, subsystems
@@ -203,7 +231,8 @@ private:
         const std::vector<ChunkKey>& chunks,
         float delta,
         bool is_active,
-        const TickContext* ctx);
+        const TickContext* ctx,
+        const char* phase_name);
 
     // Compute effective worker thread count.
     int effective_worker_threads() const;
@@ -211,6 +240,10 @@ private:
     // Build a TickContext from currently registered subsystems.
     // Called once per tick, before any subsystem runs.
     TickContext build_tick_context() const;
+
+    std::string subsystem_profile_name(
+        const char* phase_name,
+        const SimulationSystem& sys) const;
 
     WorldData* world_data_;
     std::unique_ptr<EventBus> event_bus_;
@@ -257,6 +290,8 @@ private:
     // Parallel execution control.
     bool parallel_enabled_ = false;
     int max_worker_threads_ = 0;  // 0 = auto
+
+    TickProfiler profiler_;
 
     int64_t tick_counter_ = 0;
 };
