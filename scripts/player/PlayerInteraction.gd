@@ -251,6 +251,8 @@ func try_place_or_interact(target: Dictionary) -> bool:
 		return true
 	if try_place_world_object(target):
 		return true
+	if try_place_block(target):
+		return true
 	return false
 
 
@@ -382,6 +384,97 @@ func try_place_world_object(target: Dictionary) -> bool:
 
 	_player.inventory_changed.emit()
 	return true
+
+
+func try_place_block(target: Dictionary) -> bool:
+	if _is_interaction_blocked():
+		return false
+	if target.is_empty():
+		return false
+	var command_server := _player.get_command_server()
+	var equipment: GDPlayerEquipment = _player.equipment
+	if command_server == null or equipment == null:
+		return false
+
+	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
+	if held_id <= 0:
+		return false
+	var material_id := _resolve_place_block_material_id(held_id)
+	if material_id <= 0:
+		return false
+
+	var anchor_cell: Vector3i = target.get("build_anchor_cell", Vector3i.ZERO)
+	var build_direction: Vector3i = target.get("build_direction", Vector3i.ZERO)
+	if not GDPlanetBuildFrame.is_axis_direction(build_direction):
+		return false
+	var place_cell := _resolve_global_adjacent_place_cell(anchor_cell, build_direction)
+	var world: ChunkRendererBridge = _player.world
+	if world and _player.global_position.distance_to(
+			world.cell_to_world_position(place_cell)) > REACH:
+		return false
+
+	var result: Dictionary = command_server.submit_command({
+		"type": GameCommandServer.COMMAND_PLACE_BLOCK,
+		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"dimension": _player.get_current_dimension(),
+		"cell": place_cell,
+		"anchor_cell": anchor_cell,
+		"build_direction": build_direction,
+		"build_mode": GDPlanetBuildFrame.BUILD_MODE_GLOBAL_AXES,
+		"build_semantic": -1,
+		"item_id": held_id,
+		"material": material_id,
+	})
+	if not bool(result.get("ok", false)):
+		_debug("place_block rejected: %s" % str(result.get("reason", "unknown")))
+		return false
+
+	if world:
+		var chunk := world.cell_to_chunk(place_cell)
+		var local := world.cell_to_local(place_cell)
+		world.refresh_cell(_player.get_current_dimension(), chunk, local)
+
+	_player.inventory_changed.emit()
+	return true
+
+
+func _resolve_place_block_material_id(item_id: int) -> int:
+	var world: ChunkRendererBridge = _player.world
+	if world == null or world.worldgen_config == null:
+		return 0
+	var item_key := ItemDatabase.get_item_key_by_id(item_id)
+	if item_key.is_empty():
+		return 0
+
+	var material_key := _item_key_to_terrain_material_key(item_key)
+	if material_key.is_empty():
+		return 0
+	return int(world.worldgen_config.get_material_id(material_key))
+
+
+func _item_key_to_terrain_material_key(item_key: String) -> String:
+	if item_key.begins_with("block."):
+		return "snt:" + item_key.substr("block.".length())
+
+	match item_key:
+		"log.oak":
+			return "snt:oak_wood"
+		"log.birch":
+			return "snt:birch_wood"
+		"log.spruce":
+			return "snt:spruce_wood"
+		"log.acacia":
+			return "snt:acacia_wood"
+		"log.maple":
+			return "snt:maple_wood"
+		"log.sequoia":
+			return "snt:sequoia_wood"
+		"log.cherry":
+			return "snt:cherry_wood"
+		"log.olive":
+			return "snt:olive_wood"
+		_:
+			return ""
 
 
 # Resolve placement on the fixed global voxel lattice.

@@ -16,6 +16,7 @@ signal game_mode_changed(mode: int)
 const MOUSE_SENSITIVITY := 0.0025
 const GRAVITY_STRENGTH := 22.0
 const LoadingOverlayScript := preload("res://scripts/ui/LoadingOverlay.gd")
+const PlayerAvatarModelScript := preload("res://scripts/player/PlayerAvatarModel.gd")
 const JUMP_VELOCITY := 7.0
 const CLIMB_SPEED := 3.0
 const OVERWORLD: StringName = &"overworld"
@@ -91,6 +92,8 @@ var _flight_enabled := false
 @export var debug_interactions := false
 @export var debug_interval := 0.7
 @export var give_debug_starting_items := true
+@export var show_world_player_model := true
+@export var hide_world_avatar_head_in_first_person := true
 
 var inventory: GDPlayerInventory
 var equipment: GDPlayerEquipment
@@ -136,6 +139,7 @@ var creative_inventory_ui: CreativeInventoryUI = null
 var nei_panel: NeiPanel = null
 var nei_sidebar: NEISidebar = null
 var nei_utility_bar: NEIUtilityBar = null
+var avatar_model = null
 
 # Sub-modules for separated concerns.
 var interaction: PlayerInteraction
@@ -150,6 +154,7 @@ var _pitch := deg_to_rad(-18.0)
 var last_cell := Vector3i.ZERO
 var last_debug_time := -100.0
 var _spawn_debug_time := 0.0
+var _target_debug_time := 0.0
 # Spawn freeze: keep the player immobile until the chunk it stands on has
 # its collision body built. Otherwise the player falls through the surface
 # while chunk *data* is ready but the *collider* is still queued.
@@ -232,6 +237,7 @@ func _ready() -> void:
 		game_mode = universe_manager.player_game_mode
 		_health_current = universe_manager.player_health
 	_setup_inventory()
+	_setup_player_avatar()
 	_setup_creative_inventory()
 	_setup_nei_panel()
 	_ui_connector.connect_ui()
@@ -892,7 +898,24 @@ func _setup_inventory() -> void:
 
 
 func _on_server_inventory_synced() -> void:
+	sync_avatar_model()
 	inventory_changed.emit()
+
+
+func _setup_player_avatar() -> void:
+	if not show_world_player_model:
+		return
+	avatar_model = PlayerAvatarModelScript.new()
+	avatar_model.name = "PlayerAvatarModel"
+	add_child(avatar_model)
+	avatar_model.setup_for_world(hide_world_avatar_head_in_first_person)
+	sync_avatar_model()
+
+
+func sync_avatar_model() -> void:
+	if avatar_model == null:
+		return
+	avatar_model.sync_equipment(equipment)
 
 
 # --- Camera and targeting ---
@@ -905,6 +928,7 @@ func _update_camera_rotation() -> void:
 func _update_target() -> void:
 	target.clear()
 	if camera == null or world == null:
+		_debug_target_miss("missing camera/world")
 		_set_selection_visible(false)
 		if probe_panel:
 			probe_panel.clear_target()
@@ -918,6 +942,7 @@ func _update_target() -> void:
 	query.exclude = [self.get_rid()]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
+		_debug_target_miss("ray missed from=%s to=%s" % [str(from), str(to)])
 		_set_selection_visible(false)
 		if probe_panel:
 			probe_panel.clear_target()
@@ -927,9 +952,12 @@ func _update_target() -> void:
 	var hit_position: Vector3 = hit.get("position", Vector3.ZERO)
 	var block_point := hit_position - normal * 0.01
 	var cell := world.world_position_to_cell(block_point)
-	var info := world.get_cell_info(cell)
+	var dimension := get_current_dimension()
+	var info := world.get_cell_info(cell, dimension)
 	var data: Dictionary = info.get("data", {})
 	if data.is_empty():
+		_debug_target_miss("empty cell_info dim=%s cell=%s collider=%s" % [
+			String(dimension), str(cell), str(hit.get("collider", null))])
 		_set_selection_visible(false)
 		if probe_panel:
 			probe_panel.clear_target()
@@ -937,6 +965,8 @@ func _update_target() -> void:
 
 	var material := int(data.get("material", 0))
 	if material == 0:
+		_debug_target_miss("air target dim=%s cell=%s collider=%s" % [
+			String(dimension), str(cell), str(hit.get("collider", null))])
 		_set_selection_visible(false)
 		if probe_panel:
 			probe_panel.clear_target()
@@ -969,6 +999,16 @@ func _update_target() -> void:
 		probe_panel.update_target(mat_def, tool_def)
 
 
+func _debug_target_miss(message: String) -> void:
+	if not debug_interactions:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _target_debug_time < 1.0:
+		return
+	_target_debug_time = now
+	print("[PlayerTarget] %s" % message)
+
+
 func _set_selection_visible(vis: bool) -> void:
 	if selection_box:
 		selection_box.visible = vis
@@ -995,6 +1035,7 @@ func _select_hotbar(index: int) -> void:
 	equipment.equip(GDPlayerEquipment.SLOT_MAIN_HAND, item_id)
 	if hand:
 		hand.set_item(item_id)
+	sync_avatar_model()
 	hotbar_changed.emit(selected_hotbar)
 	inventory_changed.emit()
 	_ui_connector.update_hotbar_display()

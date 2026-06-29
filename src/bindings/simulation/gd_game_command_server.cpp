@@ -30,6 +30,7 @@ using namespace godot;
 namespace {
 
 StringName command_mine_block() { return StringName("mine_block"); }
+StringName command_place_block() { return StringName("place_block"); }
 StringName command_add_inventory_item() { return StringName("add_inventory_item"); }
 StringName command_remove_inventory_item() { return StringName("remove_inventory_item"); }
 StringName command_craft_recipe() { return StringName("craft_recipe"); }
@@ -240,6 +241,7 @@ Dictionary GDGameCommandServer::submit_command(const Dictionary& command) {
         return result;
     }
     if (type == command_mine_block()) return cmd_mine_block(command);
+    if (type == command_place_block()) return cmd_place_block(command);
     if (type == command_add_inventory_item()) return cmd_add_inventory_item(command);
     if (type == command_remove_inventory_item()) return cmd_remove_inventory_item(command);
     if (type == command_craft_recipe()) return cmd_craft_recipe(command);
@@ -367,6 +369,92 @@ Dictionary GDGameCommandServer::cmd_mine_block(const Dictionary& command) {
     result["material"] = material;
     result["drops"] = drops;
     result["mine_time"] = std::min(mine_time, 10.0f);
+    return accept(result);
+}
+
+Dictionary GDGameCommandServer::cmd_place_block(const Dictionary& command) {
+    if (world_data_ == nullptr) {
+        return reject(command_place_block(), "world data is not available");
+    }
+
+    const StringName dimension = command.get("dimension", StringName("overworld"));
+    Vector3i cell;
+    String placement_error;
+    if (!resolve_placement_cell(command, dimension, cell, placement_error)) {
+        return reject(command_place_block(), placement_error);
+    }
+
+    const int64_t item_id = command.get("item_id", 0);
+    const int32_t material = static_cast<int32_t>(
+        static_cast<int64_t>(command.get("material", 0)));
+    if (item_id <= 0) {
+        return reject(command_place_block(), "placement item is invalid");
+    }
+    if (material <= 0) {
+        return reject(command_place_block(), "placement material is invalid");
+    }
+    const auto snapshot = world_data_->get_worldgen_snapshot();
+    if (!snapshot || !snapshot->has_material(static_cast<TerrainMaterialId>(material))) {
+        return reject(command_place_block(), "placement material is not registered");
+    }
+    if (!inventory_has_item(item_id, 1)) {
+        return reject(command_place_block(), "placement item is missing");
+    }
+
+    const int32_t chunk_size = ChunkData::kChunkSize;
+    const Vector3i chunk(
+        static_cast<int32_t>(floorf(static_cast<float>(cell.x) / chunk_size)),
+        static_cast<int32_t>(floorf(static_cast<float>(cell.y) / chunk_size)),
+        static_cast<int32_t>(floorf(static_cast<float>(cell.z) / chunk_size)));
+    const Vector3i local(
+        cell.x - chunk.x * chunk_size,
+        cell.y - chunk.y * chunk_size,
+        cell.z - chunk.z * chunk_size);
+
+    const Dictionary existing = world_data_->get_terrain_cell(
+        String(dimension), chunk.x, chunk.y, chunk.z,
+        local.x, local.y, local.z);
+    if (existing.is_empty()) {
+        return reject(command_place_block(), "target cell is missing");
+    }
+
+    const int32_t existing_material = static_cast<int32_t>(
+        static_cast<int64_t>(existing.get("material", -1)));
+    const int32_t air_material = get_air_material_id();
+    if (existing_material != air_material) {
+        return reject(command_place_block(), "target cell is not air");
+    }
+
+    if (!remove_inventory_item(item_id, 1)) {
+        return reject(command_place_block(), "failed to consume placement item");
+    }
+
+    if (!world_data_->set_terrain_cell(
+            String(dimension), chunk.x, chunk.y, chunk.z,
+            local.x, local.y, local.z, material)) {
+        add_inventory_item(item_id, 1, kSecondaryNone, false);
+        return reject(command_place_block(), "failed to write terrain cell");
+    }
+
+    emit_signal("terrain_cell_synced", dimension, chunk, local,
+                air_material, material);
+
+    if (world_data_->get_world_ptr() != nullptr) {
+        BlockPhysicsEvent evt;
+        evt.dimension_id = String(dimension).utf8().get_data();
+        evt.block_x = cell.x;
+        evt.block_y = cell.y;
+        evt.block_z = cell.z;
+        world_data_->get_world_ptr()->push_physics_event(evt);
+    }
+
+    emit_signal("inventory_synced");
+
+    Dictionary result;
+    result["type"] = command_place_block();
+    result["item_id"] = item_id;
+    result["material"] = material;
+    result["cell"] = cell;
     return accept(result);
 }
 

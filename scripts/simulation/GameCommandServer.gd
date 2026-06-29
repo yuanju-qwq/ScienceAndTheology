@@ -6,6 +6,7 @@ extends GDGameCommandServer
 const LOCAL_PLAYER_ID := 1
 
 const COMMAND_MINE_BLOCK: StringName = &"mine_block"
+const COMMAND_PLACE_BLOCK: StringName = &"place_block"
 const COMMAND_ADD_INVENTORY_ITEM: StringName = &"add_inventory_item"
 const COMMAND_REMOVE_INVENTORY_ITEM: StringName = &"remove_inventory_item"
 const COMMAND_CRAFT_RECIPE: StringName = &"craft_recipe"

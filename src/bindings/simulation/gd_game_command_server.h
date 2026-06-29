@@ -74,6 +74,7 @@ private:
                                         const godot::StringName& command_type);
 
     godot::Dictionary cmd_mine_block(const godot::Dictionary& command);
+    godot::Dictionary cmd_place_block(const godot::Dictionary& command);
     godot::Dictionary cmd_add_inventory_item(const godot::Dictionary& command);
     godot::Dictionary cmd_remove_inventory_item(const godot::Dictionary& command);
     godot::Dictionary cmd_craft_recipe(const godot::Dictionary& command);
