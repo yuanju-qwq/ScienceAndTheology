@@ -19,6 +19,17 @@ const ACTION_DEFS: Array[Array] = [
 	[&"toggle_nei_mode",   "NEI模式切换", KEY_O],
 ]
 
+# Gameplay UI actions that may still be handled while another gameplay UI has
+# locked normal movement/interaction input.
+const INPUT_LOCK_ALLOWED_ACTIONS: Array[StringName] = [
+	&"toggle_inventory",
+	&"toggle_crafting",
+	&"toggle_quest_book",
+	&"toggle_debug",
+	&"toggle_nei_panel",
+	&"toggle_nei_mode",
+]
+
 
 func _ready() -> void:
 	_ensure_actions()
@@ -74,6 +85,7 @@ func _set_action_key(action: StringName, key: Key) -> void:
 	InputMap.action_erase_events(action)
 	var event := InputEventKey.new()
 	event.keycode = key
+	event.physical_keycode = key
 	InputMap.action_add_event(action, event)
 
 
@@ -83,10 +95,40 @@ func get_action_key(action: StringName) -> Key:
 	if events.size() > 0 and events[0] is InputEventKey:
 		return (events[0] as InputEventKey).keycode
 	# 回退到默认值。
+	return get_default_key(action)
+
+
+func get_default_key(action: StringName) -> Key:
 	for def in ACTION_DEFS:
 		if def[0] == action:
 			return def[2] as Key
 	return KEY_UNKNOWN
+
+
+func is_action_event(event: InputEvent, action: StringName) -> bool:
+	if not event is InputEventKey:
+		return false
+	var key_event: InputEventKey = event
+	if not key_event.pressed or key_event.echo:
+		return false
+	if key_event.is_action_pressed(action):
+		return true
+	var key := get_action_key(action)
+	var default_key := get_default_key(action)
+	return _event_matches_key(key_event, key) \
+			or (default_key != key and _event_matches_key(key_event, default_key))
+
+
+func is_input_lock_allowed_event(event: InputEvent) -> bool:
+	for action in INPUT_LOCK_ALLOWED_ACTIONS:
+		if is_action_event(event, action):
+			return true
+	return false
+
+
+func _event_matches_key(event: InputEventKey, key: Key) -> bool:
+	return key != KEY_UNKNOWN \
+			and (event.keycode == key or event.physical_keycode == key)
 
 
 # 重新绑定某个动作，并保存。

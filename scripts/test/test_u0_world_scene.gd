@@ -103,6 +103,9 @@ func _smoke_spawn_terrain(player: CharacterBody3D,
 			"LOD_%s" % String(bridge.active_dimension)) as PlanetLodManager
 	if not _expect(active_lod != null, "active planet LOD manager is missing"):
 		return false
+	var active_planet := universe.active_planet
+	if not _expect(active_planet != null, "active planet is missing"):
+		return false
 	if not _expect(not active_lod.is_space_environment_active(),
 			"surface view is still using the space environment"):
 		return false
@@ -124,14 +127,31 @@ func _smoke_spawn_terrain(player: CharacterBody3D,
 			"compressed-orbit bodies are visible through the surface atmosphere"):
 		return false
 	var surface_position := player.global_position
-	player.global_position = universe.active_planet.local_center + Vector3.UP * (
-			universe.active_planet.planet_radius
-			+ universe.active_planet.horizon_fog_max_distance + 1.0)
+	player.global_position = active_planet.local_center + Vector3.UP * (
+			active_planet.planet_radius
+			+ active_planet.atmosphere_height + 1.0)
 	universe._update_distant_body_visibility()
 	if not _expect(not other_planet_lod.is_hidden_by_surface_atmosphere(),
 			"distant bodies did not reappear after leaving the atmosphere"):
 		return false
+	player.global_position = active_planet.local_center + Vector3.UP * (
+			active_planet.planet_radius
+			+ active_planet.space_start_altitude + 1.0)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not _expect(active_lod.get_current_lod_level() >= PlanetLodManager.LOD_PROXY_SPHERE,
+			"active planet did not switch to proxy LOD at space altitude "
+			+ "(lod=%d active=%s surface_dist=%.1f space_start=%.1f)" % [
+					active_lod.get_current_lod_level(), active_lod.is_active_planet,
+					active_lod.get_surface_distance(),
+					active_planet.space_start_altitude]):
+		return false
+	if not _expect(active_lod.is_space_environment_active(),
+			"space altitude did not activate the space environment"):
+		return false
 	player.global_position = surface_position
+	await get_tree().process_frame
+	await get_tree().process_frame
 	universe._update_distant_body_visibility()
 	var world_environment := universe.get_parent().get_node_or_null(
 			"WorldEnvironment") as WorldEnvironment

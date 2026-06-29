@@ -352,8 +352,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var key_event: InputEventKey = event
 		# Allow UI toggle keys even when input_locked so they can close UIs.
-		var key := key_event.keycode
-		if input_locked and key != KEY_E and key != KEY_C and key != KEY_B and key != KEY_J and key != KEY_R:
+		if input_locked and not KeyBindings.is_input_lock_allowed_event(key_event):
 			return
 		_handle_key(key_event)
 		return
@@ -382,32 +381,32 @@ func _handle_key(event: InputEventKey) -> void:
 		_select_hotbar(key - KEY_1)
 		return
 
-	if event.is_action_pressed(&"toggle_mouse"):
+	if KeyBindings.is_action_event(event, &"toggle_mouse"):
 		_mouse_captured = not _mouse_captured
 		Input.mouse_mode = (
 			Input.MOUSE_MODE_CAPTURED if _mouse_captured
 			else Input.MOUSE_MODE_VISIBLE)
 		return
 
-	if event.is_action_pressed(&"toggle_crafting"):
+	if KeyBindings.is_action_event(event, &"toggle_crafting"):
 		_ui_connector.toggle_crafting()
-	elif event.is_action_pressed(&"toggle_inventory"):
+	elif KeyBindings.is_action_event(event, &"toggle_inventory"):
 		if _ui_connector.close_furnace_if_open():
 			return
 		if game_mode == GameMode.CREATIVE:
 			_ui_connector.toggle_creative_inventory()
 		else:
 			_ui_connector.toggle_inventory()
-	elif event.is_action_pressed(&"toggle_debug"):
+	elif KeyBindings.is_action_event(event, &"toggle_debug"):
 		if probe_panel:
 			probe_panel.toggle_mode()
-	elif event.is_action_pressed(&"toggle_build_mode"):
+	elif KeyBindings.is_action_event(event, &"toggle_build_mode"):
 		_toggle_build_mode()
-	elif event.is_action_pressed(&"toggle_quest_book"):
+	elif KeyBindings.is_action_event(event, &"toggle_quest_book"):
 		_ui_connector.toggle_quest_book()
-	elif event.is_action_pressed(&"toggle_nei_panel"):
+	elif KeyBindings.is_action_event(event, &"toggle_nei_panel"):
 		_ui_connector.toggle_nei()
-	elif event.is_action_pressed(&"toggle_nei_mode"):
+	elif KeyBindings.is_action_event(event, &"toggle_nei_mode"):
 		_toggle_nei_mode()
 
 

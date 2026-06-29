@@ -562,6 +562,8 @@ func _create_planet_lod(planet: PlanetDescriptor) -> void:
 	lod.name = "LOD_%s" % String(planet.dimension_id)
 	lod.planet_center = planet.universe_position
 	lod.planet_radius = planet.planet_radius
+	lod.atmosphere_height = planet.atmosphere_height
+	lod.space_start_altitude = planet.space_start_altitude
 	lod.world_seed = planet.seed
 	lod.atmosphere_color = planet.atmosphere_color
 	lod.atmosphere_scale = planet.atmosphere_scale
@@ -586,6 +588,8 @@ func _create_star_lod(planet: PlanetDescriptor) -> void:
 	lod.name = "LOD_%s" % String(planet.dimension_id)
 	lod.planet_center = planet.universe_position
 	lod.planet_radius = planet.planet_radius
+	lod.atmosphere_height = planet.atmosphere_height
+	lod.space_start_altitude = planet.space_start_altitude
 	lod.world_seed = planet.seed
 	lod.atmosphere_color = planet.atmosphere_color
 	lod.atmosphere_scale = planet.atmosphere_scale
@@ -783,8 +787,7 @@ func _update_distant_body_visibility() -> void:
 				active_planet.local_center) - active_planet.planet_radius)
 		var atmosphere_height := maxf(
 				active_planet.horizon_fog_max_distance,
-				active_planet.planet_radius
-						* maxf(active_planet.atmosphere_scale - 1.0, 0.0))
+				active_planet.atmosphere_height)
 		hide_distant = altitude <= atmosphere_height
 
 	for dim_id in _lod_managers.keys():
