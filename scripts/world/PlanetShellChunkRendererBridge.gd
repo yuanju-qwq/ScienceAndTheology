@@ -354,14 +354,17 @@ func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vecto
 		super.on_terrain_cell_synced(dimension, chunk, local, old_material, new_material)
 		return
 
-	var affected_chunks := _terrain_sync_affected_chunks(chunk, local)
+	var affected_cells := _terrain_sync_affected_cells(chunk, local)
 	if deep_chunk_keepalive_enabled:
-		for affected_chunk in affected_chunks:
-			_mark_forced_shell_chunk(affected_chunk, &"terrain_cell_synced")
+		for affected in affected_cells:
+			_mark_forced_shell_chunk(
+					affected.get("chunk", chunk), &"terrain_cell_synced")
 
-	for affected_chunk in affected_chunks:
+	for affected in affected_cells:
+		var affected_chunk: Vector3i = affected.get("chunk", chunk)
+		var affected_local: Vector3i = affected.get("local", local)
 		_ensure_chunk_loaded(affected_chunk)
-		refresh_cell(dimension, affected_chunk, local)
+		refresh_cell(dimension, affected_chunk, affected_local)
 		if not _visible_chunks.has(affected_chunk) \
 				and not _pending_view_queue.has(affected_chunk):
 			_enqueue_chunk_view(affected_chunk)
@@ -532,6 +535,33 @@ func _terrain_sync_affected_chunks(chunk: Vector3i, local: Vector3i) -> Array[Ve
 			continue
 		seen[neighbor] = true
 		result.append(neighbor)
+	return result
+
+
+func _terrain_sync_affected_cells(chunk: Vector3i, local: Vector3i) -> Array[Dictionary]:
+	var result: Array[Dictionary] = [{
+		"chunk": chunk,
+		"local": local,
+	}]
+	for offset in _terrain_boundary_offsets(local):
+		var neighbor_chunk := chunk + offset
+		var neighbor_local := local
+		if offset.x < 0:
+			neighbor_local.x = CHUNK_SIZE - 1
+		elif offset.x > 0:
+			neighbor_local.x = 0
+		if offset.y < 0:
+			neighbor_local.y = CHUNK_SIZE - 1
+		elif offset.y > 0:
+			neighbor_local.y = 0
+		if offset.z < 0:
+			neighbor_local.z = CHUNK_SIZE - 1
+		elif offset.z > 0:
+			neighbor_local.z = 0
+		result.append({
+			"chunk": neighbor_chunk,
+			"local": neighbor_local,
+		})
 	return result
 
 

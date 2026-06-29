@@ -50,6 +50,8 @@ var workbench_material_id: int = AIR_MATERIAL
 			world_data.set_max_async_results_per_frame(max_async_results_per_frame)
 @export var max_chunk_load_requests_per_frame := 10
 @export var max_chunk_views_per_frame := 1
+@export var mesh_section_size := 8
+@export var max_section_rebuilds_per_frame := 8
 @export var player_node_path: NodePath = ^"../Player"
 @export var auto_update := true
 @export var auto_generate_start_chunks := true
@@ -69,6 +71,8 @@ var is_initialized := false
 var _visible_chunks: Dictionary = {}
 var _pending_view_queue: Array[Vector3i] = []
 var _pending_rebuild_queue: Array[Vector3i] = []
+var _pending_section_rebuild_queue: Array = []
+var _pending_section_rebuild_keys: Dictionary = {}
 var _tracked_chunks: Dictionary = {}
 var _chunk_request_count_this_frame := 0
 var _debug_elapsed := 0.0
@@ -340,13 +344,16 @@ func get_cell_info(cell: Vector3i, dimension: StringName = OVERWORLD) -> Diction
 	}
 
 
-func refresh_cell(dimension: StringName, chunk: Vector3i, _local: Vector3i) -> void:
+func refresh_cell(dimension: StringName, chunk: Vector3i, local: Vector3i) -> void:
 	if dimension != active_dimension:
 		return
 	if not _visible_chunks.has(chunk):
 		return
-	_remove_chunk_view(chunk)
-	_enqueue_chunk_view(chunk)
+	var entry: Dictionary = _visible_chunks.get(chunk, {})
+	if _entry_uses_sections(entry):
+		_enqueue_cell_section_rebuilds(chunk, local)
+	else:
+		_enqueue_chunk_rebuild(chunk)
 
 
 func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vector3i,
@@ -486,8 +493,106 @@ func _enqueue_chunk_rebuild(chunk: Vector3i) -> void:
 	_pending_rebuild_queue.append(chunk)
 
 
+func _enqueue_cell_section_rebuilds(chunk: Vector3i, local: Vector3i) -> void:
+	var offsets: Array[Vector3i] = [Vector3i.ZERO]
+	offsets.append_array(FACE_NEIGHBOR_OFFSETS)
+	for offset in offsets:
+		var target_chunk := chunk
+		var target_local := local + offset
+		if target_local.x < 0:
+			target_chunk.x -= 1
+			target_local.x = CHUNK_SIZE - 1
+		elif target_local.x >= CHUNK_SIZE:
+			target_chunk.x += 1
+			target_local.x = 0
+		if target_local.y < 0:
+			target_chunk.y -= 1
+			target_local.y = CHUNK_SIZE - 1
+		elif target_local.y >= CHUNK_SIZE:
+			target_chunk.y += 1
+			target_local.y = 0
+		if target_local.z < 0:
+			target_chunk.z -= 1
+			target_local.z = CHUNK_SIZE - 1
+		elif target_local.z >= CHUNK_SIZE:
+			target_chunk.z += 1
+			target_local.z = 0
+		_enqueue_section_rebuild_for_local(target_chunk, target_local)
+
+
+func _enqueue_section_rebuild_for_local(chunk: Vector3i, local: Vector3i) -> void:
+	var entry: Dictionary = _visible_chunks.get(chunk, {})
+	if not _entry_uses_sections(entry):
+		if _visible_chunks.has(chunk):
+			_enqueue_chunk_rebuild(chunk)
+		return
+	var section_size := int(entry.get("section_size", 0))
+	if section_size <= 0:
+		_enqueue_chunk_rebuild(chunk)
+		return
+	var max_section_index := int(CHUNK_SIZE / section_size) - 1
+	var section := Vector3i(
+		clampi(int(local.x / section_size), 0, max_section_index),
+		clampi(int(local.y / section_size), 0, max_section_index),
+		clampi(int(local.z / section_size), 0, max_section_index))
+	_enqueue_chunk_section_rebuild(chunk, section)
+
+
+func _enqueue_chunk_section_rebuild(chunk: Vector3i, section: Vector3i) -> void:
+	if _pending_rebuild_queue.has(chunk):
+		return
+	var key := _chunk_section_key(chunk, section)
+	if _pending_section_rebuild_keys.has(key):
+		return
+	_pending_section_rebuild_queue.append({
+		"chunk": chunk,
+		"section": section,
+	})
+	_pending_section_rebuild_keys[key] = true
+
+
+func _chunk_section_key(chunk: Vector3i, section: Vector3i) -> String:
+	return "%d,%d,%d:%d,%d,%d" % [
+		chunk.x, chunk.y, chunk.z,
+		section.x, section.y, section.z,
+	]
+
+
+func _section_key(section: Vector3i) -> String:
+	return "%d,%d,%d" % [section.x, section.y, section.z]
+
+
 func _process_visible_queue() -> void:
 	var built := 0
+
+	var sections_rebuilt := 0
+	while max_section_rebuilds_per_frame <= 0 \
+			or sections_rebuilt < max_section_rebuilds_per_frame:
+		if _pending_section_rebuild_queue.is_empty():
+			break
+		var request: Dictionary = _pending_section_rebuild_queue.pop_front()
+		var section_chunk: Vector3i = request.get("chunk", Vector3i.ZERO)
+		var section: Vector3i = request.get("section", Vector3i.ZERO)
+		_pending_section_rebuild_keys.erase(
+				_chunk_section_key(section_chunk, section))
+		if _rebuild_chunk_section(section_chunk, section):
+			sections_rebuilt += 1
+
+	# Gameplay edits must win over background streaming. The old mesh remains
+	# visible until _rebuild_chunk_view has built the replacement, so mining and
+	# placing update promptly without exposing a blank chunk.
+	while built < max_chunk_views_per_frame or max_chunk_views_per_frame <= 0:
+		if _pending_rebuild_queue.is_empty():
+			break
+		var rebuild_chunk: Vector3i = _pending_rebuild_queue.pop_front()
+		if not _visible_chunks.has(rebuild_chunk) or world_data == null \
+				or not world_data.has_chunk(
+						active_dimension, rebuild_chunk.x, rebuild_chunk.y,
+						rebuild_chunk.z):
+			continue
+		_rebuild_chunk_view(rebuild_chunk)
+		built += 1
+
 	var index := 0
 	while index < _pending_view_queue.size():
 		if max_chunk_views_per_frame > 0 and built >= max_chunk_views_per_frame:
@@ -506,19 +611,6 @@ func _process_visible_queue() -> void:
 		_create_chunk_view(chunk)
 		built += 1
 
-	# Boundary rebuilds keep the previous mesh visible until replacement is
-	# complete, so streaming cannot expose a blank frame.
-	while built < max_chunk_views_per_frame or max_chunk_views_per_frame <= 0:
-		if _pending_rebuild_queue.is_empty():
-			break
-		var chunk: Vector3i = _pending_rebuild_queue.pop_front()
-		if not _visible_chunks.has(chunk) or world_data == null \
-				or not world_data.has_chunk(
-						active_dimension, chunk.x, chunk.y, chunk.z):
-			continue
-		_rebuild_chunk_view(chunk)
-		built += 1
-
 
 func _rebuild_chunk_view(chunk: Vector3i) -> void:
 	var old_entry: Dictionary = _visible_chunks.get(chunk, {})
@@ -531,6 +623,249 @@ func _rebuild_chunk_view(chunk: Vector3i) -> void:
 	if old_root != null:
 		old_root.visible = false
 		old_root.queue_free()
+
+
+func _entry_uses_sections(entry: Dictionary) -> bool:
+	var sections: Dictionary = entry.get("sections", {})
+	return int(entry.get("section_size", 0)) > 0 \
+			and not sections.is_empty()
+
+
+func _get_mesh_section_size(size_x: int, size_y: int, size_z: int) -> int:
+	var section_size := int(mesh_section_size)
+	if section_size <= 0:
+		return 0
+	if section_size >= mini(mini(size_x, size_y), size_z):
+		return 0
+	if size_x % section_size != 0 or size_y % section_size != 0 \
+			or size_z % section_size != 0:
+		return 0
+	return section_size
+
+
+func _create_chunk_section_views(
+		full_parent: Node3D,
+		simplified_parent: Node3D,
+		chunk: Vector3i,
+		materials: PackedByteArray,
+		size_x: int,
+		size_y: int,
+		size_z: int,
+		chunk_offset: Vector3,
+		section_size: int) -> Dictionary:
+	var sections: Dictionary = {}
+	var sections_x := int(size_x / section_size)
+	var sections_y := int(size_y / section_size)
+	var sections_z := int(size_z / section_size)
+	for sy in range(sections_y):
+		for sz in range(sections_z):
+			for sx in range(sections_x):
+				var section := Vector3i(sx, sy, sz)
+				var section_entry := _build_chunk_section_nodes(
+						chunk, section, materials, size_x, size_y, size_z,
+						chunk_offset, section_size)
+				full_parent.add_child(section_entry["full"])
+				simplified_parent.add_child(section_entry["simplified"])
+				sections[_section_key(section)] = section_entry
+	return sections
+
+
+func _build_chunk_section_nodes(
+		chunk: Vector3i,
+		section: Vector3i,
+		materials: PackedByteArray,
+		size_x: int,
+		size_y: int,
+		size_z: int,
+		chunk_offset: Vector3,
+		section_size: int) -> Dictionary:
+	var full_section := Node3D.new()
+	full_section.name = "Section_%d_%d_%d" % [section.x, section.y, section.z]
+	var simplified_section := Node3D.new()
+	simplified_section.name = full_section.name
+
+	var origin := Vector3i(
+			section.x * section_size,
+			section.y * section_size,
+			section.z * section_size)
+	var section_offset := chunk_offset + Vector3(origin.x, origin.y, origin.z)
+	var section_materials := _extract_section_materials(
+			materials, size_x, size_y, size_z, origin, section_size)
+	var neighbor_materials := _get_section_neighbor_materials(
+			chunk, section, materials, size_x, size_y, size_z, section_size)
+	var greedy_mesh: Dictionary = GDChunkHelper.build_greedy_mesh(
+			section_materials, section_size, section_size, section_size,
+			AIR_MATERIAL, ladder_material_id,
+			_transparent_material_mask, neighbor_materials)
+
+	for material_id_key: Variant in greedy_mesh.keys():
+		var mid := int(material_id_key)
+		var mesh_data: Dictionary = greedy_mesh[material_id_key]
+		var array_mesh := _create_greedy_mesh_resource(mesh_data, section_offset)
+		if array_mesh == null:
+			continue
+		_create_greedy_mesh_instance(full_section, mid, array_mesh)
+		_create_greedy_mesh_instance(simplified_section, mid, array_mesh)
+
+	var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
+			section_materials, section_size, section_size, section_size,
+			_collidable_material_mask)
+	if not collision_data.is_empty():
+		var col_verts: PackedVector3Array = collision_data.get(
+				"vertices", PackedVector3Array())
+		var col_indices: PackedInt32Array = collision_data.get(
+				"indices", PackedInt32Array())
+		if col_verts.size() > 0 and col_indices.size() > 0:
+			_create_chunk_collision(
+					full_section, col_verts, col_indices, section_offset)
+
+	return {
+		"full": full_section,
+		"simplified": simplified_section,
+		"section": section,
+	}
+
+
+func _rebuild_chunk_section(chunk: Vector3i, section: Vector3i) -> bool:
+	var entry: Dictionary = _visible_chunks.get(chunk, {})
+	if not _entry_uses_sections(entry):
+		return false
+	var section_size := int(entry.get("section_size", 0))
+	if section_size <= 0:
+		return false
+	var full_parent := entry.get("full") as Node3D
+	var simplified_parent := entry.get("simplified") as Node3D
+	if full_parent == null or simplified_parent == null:
+		return false
+	var terrain := world_data.get_chunk_terrain(
+			active_dimension, chunk.x, chunk.y, chunk.z)
+	if terrain.is_empty():
+		return false
+	var materials: PackedByteArray = terrain.get("materials", PackedByteArray())
+	if materials.is_empty():
+		return false
+	var size_x := int(terrain.get("size_x", CHUNK_SIZE))
+	var size_y := int(terrain.get("size_y", CHUNK_SIZE))
+	var size_z := int(terrain.get("size_z", CHUNK_SIZE))
+	var sections_x := int(size_x / section_size)
+	var sections_y := int(size_y / section_size)
+	var sections_z := int(size_z / section_size)
+	if section.x < 0 or section.x >= sections_x \
+			or section.y < 0 or section.y >= sections_y \
+			or section.z < 0 or section.z >= sections_z:
+		return false
+
+	var chunk_offset := Vector3(
+			chunk.x * CHUNK_SIZE,
+			chunk.y * CHUNK_SIZE,
+			chunk.z * CHUNK_SIZE)
+	var new_section := _build_chunk_section_nodes(
+			chunk, section, materials, size_x, size_y, size_z,
+			chunk_offset, section_size)
+	full_parent.add_child(new_section["full"])
+	simplified_parent.add_child(new_section["simplified"])
+
+	var sections: Dictionary = entry.get("sections", {})
+	var key := _section_key(section)
+	var old_section: Dictionary = sections.get(key, {})
+	var old_full := old_section.get("full") as Node3D
+	var old_simplified := old_section.get("simplified") as Node3D
+	if old_full != null:
+		old_full.visible = false
+		old_full.queue_free()
+	if old_simplified != null:
+		old_simplified.visible = false
+		old_simplified.queue_free()
+	sections[key] = new_section
+	entry["sections"] = sections
+	_visible_chunks[chunk] = entry
+	return true
+
+
+func _extract_section_materials(
+		materials: PackedByteArray,
+		size_x: int,
+		size_y: int,
+		size_z: int,
+		origin: Vector3i,
+		section_size: int) -> PackedByteArray:
+	var result := PackedByteArray()
+	var total := section_size * section_size * section_size
+	result.resize(total)
+	for y in range(section_size):
+		for z in range(section_size):
+			for x in range(section_size):
+				var source_x := origin.x + x
+				var source_y := origin.y + y
+				var source_z := origin.z + z
+				var dst_idx := (y * section_size + z) * section_size + x
+				if source_x < 0 or source_x >= size_x \
+						or source_y < 0 or source_y >= size_y \
+						or source_z < 0 or source_z >= size_z:
+					result[dst_idx] = AIR_MATERIAL
+					continue
+				var src_idx := (source_y * size_z + source_z) * size_x + source_x
+				result[dst_idx] = materials[src_idx] \
+						if src_idx >= 0 and src_idx < materials.size() \
+						else AIR_MATERIAL
+	return result
+
+
+func _get_section_neighbor_materials(
+		chunk: Vector3i,
+		section: Vector3i,
+		materials: PackedByteArray,
+		size_x: int,
+		size_y: int,
+		size_z: int,
+		section_size: int) -> Dictionary:
+	var result: Dictionary = {}
+	var sections_x := int(size_x / section_size)
+	var sections_y := int(size_y / section_size)
+	var sections_z := int(size_z / section_size)
+	for direction in range(FACE_NEIGHBOR_OFFSETS.size()):
+		var source_chunk := chunk
+		var source_section: Vector3i = section + FACE_NEIGHBOR_OFFSETS[direction]
+		var source_materials := materials
+		if source_section.x < 0:
+			source_chunk.x -= 1
+			source_section.x = sections_x - 1
+		elif source_section.x >= sections_x:
+			source_chunk.x += 1
+			source_section.x = 0
+		if source_section.y < 0:
+			source_chunk.y -= 1
+			source_section.y = sections_y - 1
+		elif source_section.y >= sections_y:
+			source_chunk.y += 1
+			source_section.y = 0
+		if source_section.z < 0:
+			source_chunk.z -= 1
+			source_section.z = sections_z - 1
+		elif source_section.z >= sections_z:
+			source_chunk.z += 1
+			source_section.z = 0
+		if source_chunk != chunk:
+			source_materials = _get_chunk_materials(source_chunk)
+			if source_materials.is_empty():
+				continue
+		var origin := Vector3i(
+				source_section.x * section_size,
+				source_section.y * section_size,
+				source_section.z * section_size)
+		result[direction] = _extract_section_materials(
+				source_materials, size_x, size_y, size_z, origin, section_size)
+	return result
+
+
+func _get_chunk_materials(chunk: Vector3i) -> PackedByteArray:
+	if world_data == null:
+		return PackedByteArray()
+	if not world_data.has_chunk(active_dimension, chunk.x, chunk.y, chunk.z):
+		return PackedByteArray()
+	var terrain := world_data.get_chunk_terrain(
+			active_dimension, chunk.x, chunk.y, chunk.z)
+	return terrain.get("materials", PackedByteArray())
 
 
 # --- Chunk rendering (scene-tree operations, stays in GDScript) ---
@@ -560,15 +895,6 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	var size_y := int(terrain.get("size_y", CHUNK_SIZE))
 	var size_z := int(terrain.get("size_z", CHUNK_SIZE))
 
-	# Build greedy mesh (C++ hot path).
-	var greedy_mesh: Dictionary = GDChunkHelper.build_greedy_mesh(
-		materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id,
-		_transparent_material_mask, _get_neighbor_materials(chunk))
-
-	# Build collision faces (C++ hot path).
-	var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
-		materials, size_x, size_y, size_z, _collidable_material_mask)
-
 	# Root node holds both LOD 0 and LOD 1 children.
 	var root := Node3D.new()
 	root.name = "Chunk_%d_%d_%d" % [chunk.x, chunk.y, chunk.z]
@@ -592,26 +918,44 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 	simplified_node.visible = false
 	root.add_child(simplified_node)
 
-	for material_id_key: Variant in greedy_mesh.keys():
-		var mid: int = int(material_id_key)
-		var mesh_data: Dictionary = greedy_mesh[material_id_key]
-		var array_mesh := _create_greedy_mesh_resource(mesh_data, chunk_offset)
-		if array_mesh == null:
-			continue
-		_create_greedy_mesh_instance(full_node, mid, array_mesh)
-		_create_greedy_mesh_instance(simplified_node, mid, array_mesh)
+	var sections: Dictionary = {}
+	var section_size := _get_mesh_section_size(size_x, size_y, size_z)
+	if section_size > 0:
+		sections = _create_chunk_section_views(
+				full_node, simplified_node, chunk, materials,
+				size_x, size_y, size_z, chunk_offset, section_size)
+	else:
+		# Build greedy mesh (C++ hot path).
+		var greedy_mesh: Dictionary = GDChunkHelper.build_greedy_mesh(
+			materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id,
+			_transparent_material_mask, _get_neighbor_materials(chunk))
 
-	# Chunk-level collision: one ConcavePolygonShape3D.
-	if not collision_data.is_empty():
-		var col_verts: PackedVector3Array = collision_data.get("vertices", PackedVector3Array())
-		var col_indices: PackedInt32Array = collision_data.get("indices", PackedInt32Array())
-		if col_verts.size() > 0 and col_indices.size() > 0:
-			_create_chunk_collision(full_node, col_verts, col_indices, chunk_offset)
+		# Build collision faces (C++ hot path).
+		var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
+			materials, size_x, size_y, size_z, _collidable_material_mask)
+
+		for material_id_key: Variant in greedy_mesh.keys():
+			var mid: int = int(material_id_key)
+			var mesh_data: Dictionary = greedy_mesh[material_id_key]
+			var array_mesh := _create_greedy_mesh_resource(mesh_data, chunk_offset)
+			if array_mesh == null:
+				continue
+			_create_greedy_mesh_instance(full_node, mid, array_mesh)
+			_create_greedy_mesh_instance(simplified_node, mid, array_mesh)
+
+		# Chunk-level collision: one ConcavePolygonShape3D.
+		if not collision_data.is_empty():
+			var col_verts: PackedVector3Array = collision_data.get("vertices", PackedVector3Array())
+			var col_indices: PackedInt32Array = collision_data.get("indices", PackedInt32Array())
+			if col_verts.size() > 0 and col_indices.size() > 0:
+				_create_chunk_collision(full_node, col_verts, col_indices, chunk_offset)
 
 	_visible_chunks[chunk] = {
 		"root": root,
 		"full": full_node,
 		"simplified": simplified_node,
+		"sections": sections,
+		"section_size": section_size,
 	}
 	_mesh_build_last_usec = Time.get_ticks_usec() - build_started_usec
 	_mesh_build_count += 1
@@ -717,7 +1061,21 @@ func _remove_chunk_view(chunk: Vector3i) -> void:
 		return
 	_visible_chunks.erase(chunk)
 	_pending_rebuild_queue.erase(chunk)
+	_drop_pending_section_rebuilds_for_chunk(chunk)
 	node.queue_free()
+
+
+func _drop_pending_section_rebuilds_for_chunk(chunk: Vector3i) -> void:
+	var index := _pending_section_rebuild_queue.size() - 1
+	while index >= 0:
+		var request: Dictionary = _pending_section_rebuild_queue[index]
+		var request_chunk: Vector3i = request.get("chunk", Vector3i.ZERO)
+		if request_chunk == chunk:
+			var section: Vector3i = request.get("section", Vector3i.ZERO)
+			_pending_section_rebuild_keys.erase(
+					_chunk_section_key(request_chunk, section))
+			_pending_section_rebuild_queue.remove_at(index)
+		index -= 1
 
 
 # Clear all chunk views, pending queue, and tracked chunks.
@@ -728,6 +1086,8 @@ func _clear_all_chunk_views() -> void:
 	_visible_chunks.clear()
 	_pending_view_queue.clear()
 	_pending_rebuild_queue.clear()
+	_pending_section_rebuild_queue.clear()
+	_pending_section_rebuild_keys.clear()
 	_tracked_chunks.clear()
 
 

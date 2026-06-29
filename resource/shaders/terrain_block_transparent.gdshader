@@ -1,11 +1,11 @@
 // Transparent terrain material for water and ice. It mirrors the opaque
-// atlas shader but writes depth so overlapping chunk surfaces cannot build up
-// into the large translucent walls seen with ordinary alpha sorting.
+// atlas shader but uses an alpha pre-pass so water boundaries sort more
+// predictably without turning underwater views into hard depth cutouts.
 shader_type spatial;
 
-render_mode cull_back, depth_draw_always, blend_mix;
+render_mode cull_back, depth_prepass_alpha, blend_mix;
 
-uniform vec4 albedo_color : source_color = vec4(0.18, 0.39, 0.74, 0.78);
+uniform vec4 albedo_color : source_color = vec4(0.08, 0.22, 0.40, 0.90);
 uniform float roughness : hint_range(0.0, 1.0) = 0.1;
 uniform vec4 emissive_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
 
