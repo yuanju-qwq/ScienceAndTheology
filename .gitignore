@@ -20,6 +20,9 @@ cmake_install.cmake
 Makefile
 compile_commands.json
 
+# Godot exports
+builds/
+
 # godot-cpp (fetched by CMake)
 _builds/
 
