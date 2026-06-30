@@ -44,3 +44,15 @@ ctest --test-dir build -R "^snt\."
 | `tests/core/` | core 单元测试 |
 | `build/` | 已有构建目录（VS2019 x64 Debug） |
 | `build2/` | 另一组已有构建目录 |
+
+## 许可证
+
+本项目的代码和资源采用 **PolyForm Noncommercial License 1.0.0**。
+
+- ✅ 您可以出于非商业目的查看、Fork、修改和分发本项目
+- ❌ **未经授权，禁止将本项目或其衍生产品用于任何商业用途**（包括但不限于销售、商业发行、商业托管等）
+- 💼 如需商业授权（如上架 Steam），请联系 **yuanju (2358586959@qq.com)**
+
+详见 [LICENSE](./LICENSE) 文件。
+
+本项目使用了 [godot-cpp](https://github.com/godotengine/godot-cpp)（MIT 许可证），相关版权声明见 [NOTICE](./NOTICE) 文件。
