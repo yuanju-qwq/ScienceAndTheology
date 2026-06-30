@@ -21,7 +21,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_sand_armor_initiation",
 		"explicit_id": 0 * 64 + 1 * 8 + 1 + 1,
-		"title_key": "Sand Armor Initiation Elixir",
+		"title_key": "elixir.sand_armor_initiation",
 		"type": 0,          # INITIATION
 		"target_path": 1,   # SAND_ARMOR
 		"target_slot": 1,   # BONE
@@ -37,7 +37,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_tidal_initiation",
 		"explicit_id": 0 * 64 + 2 * 8 + 3 + 1,
-		"title_key": "Tidal Initiation Elixir",
+		"title_key": "elixir.tidal_initiation",
 		"type": 0,          # INITIATION
 		"target_path": 2,   # TIDAL
 		"target_slot": 3,   # LUNG
@@ -53,7 +53,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_storm_initiation",
 		"explicit_id": 0 * 64 + 3 * 8 + 5 + 1,
-		"title_key": "Storm Initiation Elixir",
+		"title_key": "elixir.storm_initiation",
 		"type": 0,          # INITIATION
 		"target_path": 3,   # STORM
 		"target_slot": 5,   # NERVE
@@ -69,7 +69,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_furnace_initiation",
 		"explicit_id": 0 * 64 + 4 * 8 + 0 + 1,
-		"title_key": "Furnace Initiation Elixir",
+		"title_key": "elixir.furnace_initiation",
 		"type": 0,          # INITIATION
 		"target_path": 4,   # FURNACE
 		"target_slot": 0,   # HEART
@@ -85,7 +85,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_radiance_initiation",
 		"explicit_id": 0 * 64 + 5 * 8 + 4 + 1,
-		"title_key": "Radiance Initiation Elixir",
+		"title_key": "elixir.radiance_initiation",
 		"type": 0,          # INITIATION
 		"target_path": 5,   # RADIANCE
 		"target_slot": 4,   # EYE
@@ -103,7 +103,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_basic_tuning",
 		"explicit_id": 3 * 64 + 0 * 8 + 7 + 1,
-		"title_key": "Basic Tuning Potion",
+		"title_key": "elixir.basic_tuning",
 		"type": 3,          # TUNING
 		"target_path": 0,   # NONE
 		"target_slot": 7,   # COUNT (any)
@@ -119,7 +119,7 @@ static func register_all() -> void:
 	GDElixirRegistry.register_recipe({
 		"id": "elixir_basic_purification",
 		"explicit_id": 4 * 64 + 0 * 8 + 7 + 1,
-		"title_key": "Basic Purification Potion",
+		"title_key": "elixir.basic_purification",
 		"type": 4,          # PURIFICATION
 		"target_path": 0,   # NONE
 		"target_slot": 7,   # COUNT (any)

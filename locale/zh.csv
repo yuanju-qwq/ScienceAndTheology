@@ -387,6 +387,51 @@ terrain.regolith,表岩屑
 terrain.anorthosite,斜长岩
 terrain.deepstone,深层岩
 terrain.core_barrier,地核屏障
+terrain.wood,木材
+terrain.leaves,树叶
+terrain.ladder,梯子
+terrain.workbench,工作台
+terrain.fence,围栏
+terrain.lithium_ore,锂矿石
+terrain.beryllium_ore,铍矿石
+terrain.boron_ore,硼矿石
+terrain.magnesium_ore,镁矿石
+terrain.phosphorus_ore,磷矿石
+terrain.potassium_ore,钾矿石
+terrain.calcium_ore,钙矿石
+terrain.scandium_ore,钪矿石
+terrain.vanadium_ore,钒矿石
+terrain.chromium_ore,铬矿石
+terrain.gallium_ore,镓矿石
+terrain.germanium_ore,锗矿石
+terrain.arsenic_ore,砷矿石
+terrain.selenium_ore,硒矿石
+terrain.bromine_ore,溴矿石
+terrain.rubidium_ore,铷矿石
+terrain.strontium_ore,锶矿石
+terrain.yttrium_ore,钇矿石
+terrain.zirconium_ore,锆矿石
+terrain.niobium_ore,铌矿石
+terrain.molybdenum_ore,钼矿石
+terrain.ruthenium_ore,钌矿石
+terrain.rhodium_ore,铑矿石
+terrain.palladium_ore,钯矿石
+terrain.cadmium_ore,镉矿石
+terrain.indium_ore,铟矿石
+terrain.antimony_ore,锑矿石
+terrain.tellurium_ore,碲矿石
+terrain.iodine_ore,碘矿石
+terrain.cesium_ore,铯矿石
+terrain.barium_ore,钡矿石
+terrain.rare_earth_ore,稀土矿石
+terrain.hafnium_ore,铪矿石
+terrain.tantalum_ore,钽矿石
+terrain.rhenium_ore,铼矿石
+terrain.osmium_ore,锇矿石
+terrain.iridium_ore,铱矿石
+terrain.thallium_ore,铊矿石
+terrain.bismuth_ore,铋矿石
+terrain.thorium_ore,钍矿石
 
 # ============================================================
 # Planet / Station / Universe display names (通用UI文本)
@@ -447,10 +492,53 @@ fluid.deuterium,氘
 fluid.tritium,氚
 fluid.helium_3,氦-3
 fluid.molten_iron,熔融铁
+fluid.molten_gold,熔融金
+fluid.molten_copper,熔融铜
+fluid.molten_tin,熔融锡
+fluid.molten_lead,熔融铅
+fluid.distilled_water,蒸馏水
+
+# ============================================================
+# Ritual recipe display names (仪式配方名称)
+# ============================================================
+ritual.unknown,未知仪式
+ritual.machine_speed,机器速度 I
+ritual.machine_cooling,机器冷却
+ritual.machine_output,机器输出 I
+ritual.toggle_ruin_gate,切换废墟之门
+ritual.player_speed_boost,玩家速度提升
+ritual.machine_double_output,机器随机双倍输出
+ritual.teleport_link,祭坛传送链接
+ritual.divination,占卜
+ritual.mana_expansion,魔力扩展 +25
+
+# ============================================================
+# Source law: Elixir recipes (药剂配方)
+# ============================================================
+elixir.sand_armor_initiation,沙铠启蒙药剂
+elixir.tidal_initiation,潮汐启蒙药剂
+elixir.storm_initiation,风暴启蒙药剂
+elixir.furnace_initiation,熔炉启蒙药剂
+elixir.radiance_initiation,辉耀启蒙药剂
+elixir.basic_tuning,基础调和药剂
+elixir.basic_purification,基础净化药剂
+
+# ============================================================
+# Source law: Dropped organs (掉落器官)
+# ============================================================
+organ.rock_lizard_heart,岩蜥源心
+organ.rock_lizard_bone,岩蜥源骨
+organ.sea_serpent_lung,海蛇源肺
+organ.aberrant_sand_armor_bone,畸变沙铠骨
+organ.aberrant_tidal_lung,畸变潮汐肺
+organ.aberrant_storm_nerve,畸变风暴神经
+organ.aberrant_furnace_heart,畸变熔炉心
+organ.aberrant_radiance_eye,畸变辉耀眼
 
 # ============================================================
 # Skill display names (技能名称)
 # ============================================================
+skill.rock_shield,岩石之盾
 skill.sand_shield,沙之盾
 skill.sand_blade,沙之刃
 skill.tidal_wave,潮汐波
@@ -514,6 +602,7 @@ item.glowstone_block,萤石块
 station.crafting_table,合成台
 station.furnace,熔炉
 station.workbench,工作台
+station.hand_crafting,手搓
 
 # ============================================================
 # Planting system - Farmland & crop species (种植系统 - 农田与作物)
@@ -668,13 +757,32 @@ nei.tab_usage,用途
 nei.no_recipes,未找到配方。
 
 # ============================================================
+# Crafting UI (合成界面)
+# ============================================================
+crafting.title,合成
+crafting.craft_button,合成
+crafting.category.materials,材料
+crafting.category.tools,工具
+crafting.category.parts,零件
+crafting.category.wires,导线
+crafting.category.cables,电缆
+crafting.category.circuits,电路
+crafting.category.machines,机器
+crafting.category.misc,其他
+
+# ============================================================
 # NEI Sidebar (侧边栏物品浏览器)
 # ============================================================
 nei.sidebar.bookmarks,收藏
-nei.sidebar.mode_recipe,配方模式
-nei.sidebar.mode_utility,工具模式
+nei.sidebar.mode_recipe,配方
+nei.sidebar.mode_cheat,创造
+nei.sidebar.mode_utility,工具
 nei.sidebar.page,页
 nei.sidebar.empty,无物品
+nei.sidebar.key_format,键: %s
+nei.sidebar.source_format,来源: %s
+nei.sidebar.ore_format,矿物: %s
+nei.sidebar.recipe_usage_format,配方: %d  |  用途: %d
 
 # ============================================================
 # NEI Utility Bar (工具栏)

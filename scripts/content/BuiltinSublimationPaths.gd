@@ -54,7 +54,7 @@ static func _register_sand_armor() -> void:
 	})
 	GDSublimationPathRegistry.register_skill({
 		"id": "skill_rock_shield",
-		"title_key": "Rock Shield",
+		"title_key": "skill.rock_shield",
 		"required_slot": SLOT_BONE,
 		"required_path": PATH_SAND_ARMOR,
 		"min_organ_level": 0,

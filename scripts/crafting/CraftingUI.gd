@@ -21,14 +21,14 @@ const CATEGORY_ORDER: Array = [
 	"materials", "tools", "parts", "wires", "cables", "circuits", "machines", "misc",
 ]
 const CATEGORY_LABELS: Dictionary = {
-	materials = "Materials",
-	tools = "Tools",
-	parts = "Parts",
-	wires = "Wires",
-	cables = "Cables",
-	circuits = "Circuits",
-	machines = "Machines",
-	misc = "Misc"
+	materials = "crafting.category.materials",
+	tools = "crafting.category.tools",
+	parts = "crafting.category.parts",
+	wires = "crafting.category.wires",
+	cables = "crafting.category.cables",
+	circuits = "crafting.category.circuits",
+	machines = "crafting.category.machines",
+	misc = "crafting.category.misc"
 }
 
 
@@ -55,7 +55,7 @@ func _build_ui() -> void:
 	add_child(_bg)
 
 	_title = Label.new()
-	_title.text = "Crafting"
+	_title.text = tr("crafting.title")
 	_title.position = Vector2(8, 4)
 	_title.size = Vector2(200, 20)
 	add_child(_title)
@@ -135,9 +135,9 @@ func _build_tabs() -> void:
 	for cat: String in CATEGORY_ORDER:
 		if not seen_categories.has(cat):
 			continue
-		var label: String = CATEGORY_LABELS.get(cat, cat)
+		var label_key: String = CATEGORY_LABELS.get(cat, cat)
 		var btn := Button.new()
-		btn.text = label
+		btn.text = tr(label_key)
 		btn.toggle_mode = true
 		btn.button_pressed = (cat == _current_category)
 		if cat == _current_category:
@@ -231,7 +231,7 @@ func _select_category(category: String) -> void:
 
 		# Craft button
 		var craft_btn := Button.new()
-		craft_btn.text = "Craft"
+		craft_btn.text = tr("crafting.craft_button")
 		craft_btn.disabled = not can_craft
 		craft_btn.pressed.connect(_on_craft_pressed.bind(recipe))
 		row.add_child(craft_btn)

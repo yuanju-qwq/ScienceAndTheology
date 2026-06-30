@@ -280,6 +280,30 @@ path.tidal,Tidal
 path.storm,Storm
 path.furnace,Furnace
 path.radiance,Radiance
+skill.rock_shield,Rock Shield
+
+# ============================================================
+# Source law: Elixir recipes
+# ============================================================
+elixir.sand_armor_initiation,Sand Armor Initiation Elixir
+elixir.tidal_initiation,Tidal Initiation Elixir
+elixir.storm_initiation,Storm Initiation Elixir
+elixir.furnace_initiation,Furnace Initiation Elixir
+elixir.radiance_initiation,Radiance Initiation Elixir
+elixir.basic_tuning,Basic Tuning Potion
+elixir.basic_purification,Basic Purification Potion
+
+# ============================================================
+# Source law: Dropped organs
+# ============================================================
+organ.rock_lizard_heart,Rock Lizard Source Heart
+organ.rock_lizard_bone,Rock Lizard Source Bone
+organ.sea_serpent_lung,Sea Serpent Source Lung
+organ.aberrant_sand_armor_bone,Aberrant Sand Armor Bone
+organ.aberrant_tidal_lung,Aberrant Tidal Lung
+organ.aberrant_storm_nerve,Aberrant Storm Nerve
+organ.aberrant_furnace_heart,Aberrant Furnace Heart
+organ.aberrant_radiance_eye,Aberrant Radiance Eye
 
 # ============================================================
 # Machine modules
@@ -387,6 +411,51 @@ terrain.regolith,Regolith
 terrain.anorthosite,Anorthosite
 terrain.deepstone,Deepstone
 terrain.core_barrier,Core Barrier
+terrain.wood,Wood
+terrain.leaves,Leaves
+terrain.ladder,Ladder
+terrain.workbench,Workbench
+terrain.fence,Fence
+terrain.lithium_ore,Lithium Ore
+terrain.beryllium_ore,Beryllium Ore
+terrain.boron_ore,Boron Ore
+terrain.magnesium_ore,Magnesium Ore
+terrain.phosphorus_ore,Phosphorus Ore
+terrain.potassium_ore,Potassium Ore
+terrain.calcium_ore,Calcium Ore
+terrain.scandium_ore,Scandium Ore
+terrain.vanadium_ore,Vanadium Ore
+terrain.chromium_ore,Chromium Ore
+terrain.gallium_ore,Gallium Ore
+terrain.germanium_ore,Germanium Ore
+terrain.arsenic_ore,Arsenic Ore
+terrain.selenium_ore,Selenium Ore
+terrain.bromine_ore,Bromine Ore
+terrain.rubidium_ore,Rubidium Ore
+terrain.strontium_ore,Strontium Ore
+terrain.yttrium_ore,Yttrium Ore
+terrain.zirconium_ore,Zirconium Ore
+terrain.niobium_ore,Niobium Ore
+terrain.molybdenum_ore,Molybdenum Ore
+terrain.ruthenium_ore,Ruthenium Ore
+terrain.rhodium_ore,Rhodium Ore
+terrain.palladium_ore,Palladium Ore
+terrain.cadmium_ore,Cadmium Ore
+terrain.indium_ore,Indium Ore
+terrain.antimony_ore,Antimony Ore
+terrain.tellurium_ore,Tellurium Ore
+terrain.iodine_ore,Iodine Ore
+terrain.cesium_ore,Cesium Ore
+terrain.barium_ore,Barium Ore
+terrain.rare_earth_ore,Rare Earth Ore
+terrain.hafnium_ore,Hafnium Ore
+terrain.tantalum_ore,Tantalum Ore
+terrain.rhenium_ore,Rhenium Ore
+terrain.osmium_ore,Osmium Ore
+terrain.iridium_ore,Iridium Ore
+terrain.thallium_ore,Thallium Ore
+terrain.bismuth_ore,Bismuth Ore
+terrain.thorium_ore,Thorium Ore
 
 # ============================================================
 # Planet / Station / Universe display names
@@ -396,6 +465,8 @@ ui.unknown,Unknown
 ui.planet,Planet
 ui.space_station,Space Station
 ui.mechanism,Mechanism
+ui.distance_unit,ly
+ui.temperature_unit,K
 
 # ============================================================
 # Fluid display names
@@ -446,11 +517,25 @@ fluid.deuterium,Deuterium
 fluid.tritium,Tritium
 fluid.helium_3,Helium-3
 fluid.molten_iron,Molten Iron
+fluid.molten_gold,Molten Gold
+fluid.molten_copper,Molten Copper
+fluid.molten_tin,Molten Tin
+fluid.molten_lead,Molten Lead
+fluid.distilled_water,Distilled Water
 
 # ============================================================
 # Ritual recipe display names
 # ============================================================
 ritual.unknown,Unknown Ritual
+ritual.machine_speed,Machine Speed I
+ritual.machine_cooling,Machine Cooling
+ritual.machine_output,Machine Output I
+ritual.toggle_ruin_gate,Toggle Ruin Gate
+ritual.player_speed_boost,Player Speed Boost
+ritual.machine_double_output,Machine Random Double Output
+ritual.teleport_link,Altar Teleport Link
+ritual.divination,Divination
+ritual.mana_expansion,Mana Expansion +25
 
 # ============================================================
 # Source law: Organ/Skill display names
@@ -518,6 +603,7 @@ item.glowstone_block,Glowstone Block
 station.crafting_table,Crafting Table
 station.furnace,Furnace
 station.workbench,Workbench
+station.hand_crafting,Hand Crafting
 
 # ============================================================
 # Planting system - Farmland & crop species
@@ -586,6 +672,58 @@ item.meat.raw.blaze_beast,Raw Blaze Beast Meat
 item.meat.cooked.blaze_beast,Cooked Blaze Beast Meat
 
 # ============================================================
+# TFC expansion items
+# ============================================================
+copper_pickaxe,Copper Pickaxe
+copper_axe,Copper Axe
+copper_shovel,Copper Shovel
+copper_sword,Copper Sword
+tin_bronze_pickaxe,Tin Bronze Pickaxe
+tin_bronze_axe,Tin Bronze Axe
+bismuth_bronze_pickaxe,Bismuth Bronze Pickaxe
+bismuth_bronze_axe,Bismuth Bronze Axe
+black_bronze_pickaxe,Black Bronze Pickaxe
+steel_pickaxe,Steel Pickaxe
+steel_axe,Steel Axe
+steel_shovel,Steel Shovel
+steel_sword,Steel Sword
+stone_axe_head,Stone Axe Head
+stone_shovel_head,Stone Shovel Head
+stone_hoe_head,Stone Hoe Head
+stone_knife_head,Stone Knife Head
+stone_hoe,Stone Hoe
+stone_knife,Stone Knife
+flint,Flint
+chert,Chert
+flint_and_steel,Flint and Steel
+item.clay_ball,Clay Ball
+item.straw,Straw
+item.charcoal,Charcoal
+item.coal_dust,Coal Dust
+item.unfired_bowl,Unfired Bowl
+item.unfired_jug,Unfired Jug
+item.unfired_crucible,Unfired Crucible
+item.unfired_brick,Unfired Brick
+item.fired_bowl,Fired Bowl
+item.fired_jug,Fired Jug
+item.fired_crucible,Crucible
+item.refractory_brick,Refractory Brick
+item.iron_bloom,Iron Bloom
+item.wrought_iron_ingot,Wrought Iron Ingot
+item.steel_ingot,Steel Ingot
+item.hammer,Hammer
+item.bellows,Bellows
+item.anvil,Anvil
+# TFC terrain materials
+terrain.clay,Clay
+terrain.log_pile,Log Pile
+terrain.charcoal,Charcoal Block
+terrain.straw,Straw
+terrain.bloomery,Bloomery
+terrain.anvil,Anvil
+terrain.pit_kiln,Pit Kiln
+
+# ============================================================
 # ============================================================
 # Creative inventory UI
 # ============================================================
@@ -620,13 +758,32 @@ nei.tab_usage,Usage
 nei.no_recipes,No recipes found.
 
 # ============================================================
+# Crafting UI
+# ============================================================
+crafting.title,Crafting
+crafting.craft_button,Craft
+crafting.category.materials,Materials
+crafting.category.tools,Tools
+crafting.category.parts,Parts
+crafting.category.wires,Wires
+crafting.category.cables,Cables
+crafting.category.circuits,Circuits
+crafting.category.machines,Machines
+crafting.category.misc,Misc
+
+# ============================================================
 # NEI Sidebar (item browser sidebar)
 # ============================================================
 nei.sidebar.bookmarks,Bookmarks
-nei.sidebar.mode_recipe,Recipe Mode
-nei.sidebar.mode_utility,Utility Mode
+nei.sidebar.mode_recipe,Recipe
+nei.sidebar.mode_cheat,Cheat
+nei.sidebar.mode_utility,Utility
 nei.sidebar.page,Page
 nei.sidebar.empty,No items
+nei.sidebar.key_format,Key: %s
+nei.sidebar.source_format,Source: %s
+nei.sidebar.ore_format,Ore: %s
+nei.sidebar.recipe_usage_format,Recipes: %d  |  Usages: %d
 
 # ============================================================
 # NEI Utility Bar (utility buttons)

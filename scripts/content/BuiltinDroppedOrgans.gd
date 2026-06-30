@@ -62,7 +62,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_rock_lizard_heart",
 		"explicit_id": CREATURE * 64 + PATH_NONE * 8 + HEART + 1,
-		"title_key": "Rock Lizard Source Heart",
+		"title_key": "organ.rock_lizard_heart",
 		"target_slot": HEART,
 		"source": CREATURE,
 		"source_creature_id": "rock_lizard",
@@ -78,7 +78,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_rock_lizard_bone",
 		"explicit_id": CREATURE * 64 + PATH_NONE * 8 + BONE + 1,
-		"title_key": "Rock Lizard Source Bone",
+		"title_key": "organ.rock_lizard_bone",
 		"target_slot": BONE,
 		"source": CREATURE,
 		"source_creature_id": "rock_lizard",
@@ -94,7 +94,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_sea_serpent_lung",
 		"explicit_id": CREATURE * 64 + PATH_NONE * 8 + LUNG + 1,
-		"title_key": "Sea Serpent Source Lung",
+		"title_key": "organ.sea_serpent_lung",
 		"target_slot": LUNG,
 		"source": CREATURE,
 		"source_creature_id": "sea_serpent",
@@ -113,7 +113,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_sand_armor_bone",
 		"explicit_id": ABERRATION * 64 + SAND_ARMOR * 8 + BONE + 1,
-		"title_key": "Aberrant Sand Armor Bone",
+		"title_key": "organ.aberrant_sand_armor_bone",
 		"target_slot": BONE,
 		"source": ABERRATION,
 		"source_creature_id": "sand_armor_aberrant",
@@ -129,7 +129,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_tidal_lung",
 		"explicit_id": ABERRATION * 64 + TIDAL * 8 + LUNG + 1,
-		"title_key": "Aberrant Tidal Lung",
+		"title_key": "organ.aberrant_tidal_lung",
 		"target_slot": LUNG,
 		"source": ABERRATION,
 		"source_creature_id": "tidal_aberrant",
@@ -145,7 +145,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_storm_nerve",
 		"explicit_id": ABERRATION * 64 + STORM * 8 + NERVE + 1,
-		"title_key": "Aberrant Storm Nerve",
+		"title_key": "organ.aberrant_storm_nerve",
 		"target_slot": NERVE,
 		"source": ABERRATION,
 		"source_creature_id": "storm_aberrant",
@@ -161,7 +161,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_furnace_heart",
 		"explicit_id": ABERRATION * 64 + FURNACE * 8 + HEART + 1,
-		"title_key": "Aberrant Furnace Heart",
+		"title_key": "organ.aberrant_furnace_heart",
 		"target_slot": HEART,
 		"source": ABERRATION,
 		"source_creature_id": "furnace_aberrant",
@@ -177,7 +177,7 @@ static func register_all() -> void:
 	GDDroppedOrganRegistry.register_organ({
 		"id": "dropped_aberrant_radiance_eye",
 		"explicit_id": ABERRATION * 64 + RADIANCE * 8 + EYE + 1,
-		"title_key": "Aberrant Radiance Eye",
+		"title_key": "organ.aberrant_radiance_eye",
 		"target_slot": EYE,
 		"source": ABERRATION,
 		"source_creature_id": "radiance_aberrant",

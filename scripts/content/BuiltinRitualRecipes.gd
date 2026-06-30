@@ -40,7 +40,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_speed",
 		"explicit_id": _MACHINE_BLESSING * 16 + 0 + 1,
-		"title_key": "Machine Speed I",
+		"title_key": "ritual.machine_speed",
 		"pedestals": [
 			_ped(_FIRE), _ped(_ORDER), _ped(_FIRE), _ped(_ORDER),
 		],
@@ -57,7 +57,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_cooling",
 		"explicit_id": _MACHINE_BLESSING * 16 + 1 + 1,
-		"title_key": "Machine Cooling",
+		"title_key": "ritual.machine_cooling",
 		"pedestals": [
 			_ped(_WATER), _ped(_WATER), _ped(_WATER), _ped(_WATER),
 		],
@@ -74,7 +74,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_boost",
 		"explicit_id": _MACHINE_BLESSING * 16 + 2 + 1,
-		"title_key": "Machine Output I",
+		"title_key": "ritual.machine_output",
 		"pedestals": [
 			_ped(_EARTH), _ped(_ORDER), _ped(_LIGHT), _ped(_ORDER),
 		],
@@ -92,7 +92,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_toggle_ruin_gate",
 		"explicit_id": _WORLD_EVENT * 16 + 0 + 1,
-		"title_key": "Toggle Ruin Gate",
+		"title_key": "ritual.toggle_ruin_gate",
 		"pedestals": [
 			_ped(_LIGHT), _ped(_LIGHT), _ped(_DARK), _ped(_DARK),
 		],
@@ -110,7 +110,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_player_speed",
 		"explicit_id": _PLAYER_BUFF * 16 + 0 + 1,
-		"title_key": "Player Speed Boost",
+		"title_key": "ritual.player_speed_boost",
 		"pedestals": [
 			_ped(_AIR), _ped(_AIR), _ped(_AIR), _ped(_AIR),
 		],
@@ -128,7 +128,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_machine_double",
 		"explicit_id": _MACHINE_BLESSING * 16 + 3 + 1,
-		"title_key": "Machine Random Double Output",
+		"title_key": "ritual.machine_double_output",
 		"pedestals": [
 			_ped(_ORDER), _ped(_CHAOS), _ped(_ORDER), _ped(_CHAOS),
 		],
@@ -146,7 +146,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_teleport_link",
 		"explicit_id": _TELEPORTATION * 16 + 0 + 1,
-		"title_key": "Altar Teleport Link",
+		"title_key": "ritual.teleport_link",
 		"pedestals": [
 			_ped(_FIRE), _ped(_EARTH), _ped(_WATER), _ped(_AIR),
 		],
@@ -164,7 +164,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_divination",
 		"explicit_id": _DIVINATION * 16 + 0 + 1,
-		"title_key": "Divination",
+		"title_key": "ritual.divination",
 		"pedestals": [
 			_ped(_LIGHT), _ped(_EARTH), _ped(_LIGHT), _ped(_EARTH),
 		],
@@ -182,7 +182,7 @@ static func register_all() -> void:
 	GDRitualRecipeRegistry.register_recipe({
 		"id": "ritual_mana_expand",
 		"explicit_id": _MANA_EXPANSION * 16 + 0 + 1,
-		"title_key": "Mana Expansion +25",
+		"title_key": "ritual.mana_expansion",
 		"pedestals": [
 			_ped(_ORDER), _ped(_ORDER), _ped(_ORDER), _ped(_ORDER),
 		],

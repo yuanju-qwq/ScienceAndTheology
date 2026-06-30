@@ -26,6 +26,15 @@ func _ready() -> void:
 	_update_ui()
 	mouse_entered.connect(_show_tooltip)
 	mouse_exited.connect(_hide_tooltip)
+	tree_exiting.connect(_on_tree_exiting)
+
+
+func _on_tree_exiting() -> void:
+	_hide_tooltip()
+	if _tooltip_panel != null:
+		_tooltip_panel.queue_free()
+		_tooltip_panel = null
+		_tooltip_label = null
 
 func _ensure_nodes() -> void:
 	if bg == null:
@@ -77,7 +86,20 @@ func _ensure_tooltip() -> void:
 	_tooltip_label.position = Vector2(4, 4)
 	_tooltip_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_tooltip_panel.add_child(_tooltip_label)
-	add_child(_tooltip_panel)
+	var ui_layer := _get_ui_layer()
+	if ui_layer != null:
+		ui_layer.add_child(_tooltip_panel)
+	else:
+		add_child(_tooltip_panel)
+
+
+func _get_ui_layer() -> CanvasLayer:
+	var node := get_parent()
+	while node != null:
+		if node is CanvasLayer and node.name == "UI":
+			return node
+		node = node.get_parent()
+	return null
 
 
 func _show_tooltip() -> void:
@@ -95,7 +117,7 @@ func _show_tooltip() -> void:
 	var label_size := _tooltip_label.get_minimum_size()
 	_tooltip_label.size = label_size
 	_tooltip_panel.size = label_size + Vector2(8, 8)
-	_tooltip_panel.position = Vector2(size.x + 4, 0)
+	_tooltip_panel.position = global_position + Vector2(size.x + 4, 0)
 	_tooltip_panel.visible = true
 
 

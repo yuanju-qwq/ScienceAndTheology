@@ -91,7 +91,7 @@ func _build_ui() -> void:
 
 	# Mode toggle button at the top.
 	_mode_btn = Button.new()
-	_mode_btn.text = "Recipe"
+	_mode_btn.text = tr("nei.sidebar.mode_recipe")
 	_mode_btn.position = Vector2(4, 4)
 	_mode_btn.size = Vector2(SIDEBAR_W - 8, 24)
 	_mode_btn.pressed.connect(_on_mode_pressed)
@@ -99,7 +99,7 @@ func _build_ui() -> void:
 
 	# Bookmarks row — pinned items for quick access.
 	var bookmark_label := Label.new()
-	bookmark_label.text = "Bookmarks"
+	bookmark_label.text = tr("nei.sidebar.bookmarks")
 	bookmark_label.position = Vector2(4, 32)
 	bookmark_label.size = Vector2(SIDEBAR_W - 8, 16)
 	bookmark_label.add_theme_color_override("font_color", Color(0.62, 0.70, 0.82))
@@ -155,7 +155,7 @@ func _build_ui() -> void:
 	_search_box = LineEdit.new()
 	_search_box.position = Vector2(4, size.y - 28)
 	_search_box.size = Vector2(SIDEBAR_W - 8, 24)
-	_search_box.placeholder_text = "Search..."
+	_search_box.placeholder_text = tr("nei.search_hint")
 	_search_box.text_changed.connect(_on_search)
 	add_child(_search_box)
 
@@ -215,17 +215,17 @@ func _build_item_tooltip(item_id: int) -> String:
 	lines.append(tr(def.title_key))
 	var key := NEIIndex.get_item_key(item_id)
 	if not key.is_empty():
-		lines.append("Key: %s" % key)
+		lines.append(tr("nei.sidebar.key_format") % key)
 	var source := NEIIndex.get_item_source(item_id)
 	if not source.is_empty():
-		lines.append("Source: %s" % source)
+		lines.append(tr("nei.sidebar.source_format") % source)
 	var ores := NEIIndex.get_ores_for_item(item_id)
 	if not ores.is_empty():
-		lines.append("Ore: %s" % ", ".join(ores))
+		lines.append(tr("nei.sidebar.ore_format") % ", ".join(ores))
 	var recipe_count := NEIIndex.get_recipes_for_output(item_id).size()
 	var usage_count := NEIIndex.get_recipes_for_input(item_id).size()
-	lines.append("Recipes: %d  |  Usages: %d" % [recipe_count, usage_count])
-	lines.append("R: recipes  U: usage  M: machines  B: bookmark")
+	lines.append(tr("nei.sidebar.recipe_usage_format") % [recipe_count, usage_count])
+	lines.append(tr("nei.tooltip.hint"))
 	return "\n".join(lines)
 
 
@@ -261,9 +261,9 @@ func _on_mode_pressed() -> void:
 
 func _on_mode_changed(new_mode: int) -> void:
 	match new_mode:
-		NEISettings.Mode.RECIPE: _mode_btn.text = "Recipe"
-		NEISettings.Mode.CHEAT: _mode_btn.text = "Cheat"
-		NEISettings.Mode.UTILITY: _mode_btn.text = "Utility"
+		NEISettings.Mode.RECIPE: _mode_btn.text = tr("nei.sidebar.mode_recipe")
+		NEISettings.Mode.CHEAT: _mode_btn.text = tr("nei.sidebar.mode_cheat")
+		NEISettings.Mode.UTILITY: _mode_btn.text = tr("nei.sidebar.mode_utility")
 
 
 func _on_settings_changed() -> void:
