@@ -19,6 +19,7 @@ const LOD_SIMPLIFIED_MESH := 1
 const LOD_PROXY_SPHERE := 2
 const LOD_LOW_POLY := 3
 const LOD_BILLBOARD := 4
+const LOD_BLEND_ZONE_RATIO := 0.15
 
 @export var planet_center := Vector3(0.0, -512.0, 0.0):
 	set(value):
@@ -28,6 +29,16 @@ const LOD_BILLBOARD := 4
 @export var planet_radius := 512.0:
 	set(value):
 		planet_radius = maxf(value, 1.0)
+		_invalidate_lod_state()
+
+@export var atmosphere_height := 512.0:
+	set(value):
+		atmosphere_height = maxf(value, 0.0)
+		_invalidate_lod_state()
+
+@export var space_start_altitude := 2048.0:
+	set(value):
+		space_start_altitude = maxf(value, 0.0)
 		_invalidate_lod_state()
 
 # 是否为当前活跃星球。
@@ -137,8 +148,7 @@ func _process(delta: float) -> void:
 		lod_level_changed.emit(new_level, _previous_lod_level)
 
 	var effective_center := get_effective_center()
-	_fade_alpha = GDPlanetLod.compute_lod_fade_alpha(
-		_get_player_position(), effective_center, planet_radius, _current_lod_level)
+	_fade_alpha = _compute_current_fade_alpha(effective_center)
 	_apply_fade_alpha()
 	_update_cloud_time(delta)
 	if is_active_planet:
@@ -351,8 +361,79 @@ func _create_lod_meshes() -> void:
 # --- LOD computation ---
 
 func _compute_current_lod() -> int:
+	var player_pos := _get_player_position()
+	var effective_center := get_effective_center()
+	if is_active_planet:
+		var surface_dist := GDPlanetLod.compute_surface_distance(
+				player_pos, effective_center, planet_radius)
+		return _compute_active_surface_lod(surface_dist, player_pos, effective_center)
 	return GDPlanetLod.compute_lod_level(
-		_get_player_position(), get_effective_center(), planet_radius)
+		player_pos, effective_center, planet_radius)
+
+
+func _compute_current_fade_alpha(effective_center: Vector3) -> float:
+	var player_pos := _get_player_position()
+	if is_active_planet:
+		var surface_dist := GDPlanetLod.compute_surface_distance(
+				player_pos, effective_center, planet_radius)
+		return _compute_active_surface_fade(surface_dist, _current_lod_level)
+	return GDPlanetLod.compute_lod_fade_alpha(
+			player_pos, effective_center, planet_radius, _current_lod_level)
+
+
+func _compute_active_surface_lod(
+		surface_dist: float,
+		player_pos: Vector3,
+		effective_center: Vector3) -> int:
+	var fallback_lod := int(GDPlanetLod.compute_lod_level(
+			player_pos, effective_center, planet_radius))
+	var lod0_max_altitude := _active_lod0_max_altitude()
+	var lod2_start_altitude := _active_lod2_start_altitude()
+
+	if surface_dist <= lod0_max_altitude:
+		return LOD_REAL_CHUNKS
+	if surface_dist < lod2_start_altitude:
+		return maxi(LOD_SIMPLIFIED_MESH, fallback_lod)
+	return maxi(LOD_PROXY_SPHERE, fallback_lod)
+
+
+func _compute_active_surface_fade(surface_dist: float, lod_level: int) -> float:
+	var lod0_max_altitude := _active_lod0_max_altitude()
+	var lod2_start_altitude := _active_lod2_start_altitude()
+	match lod_level:
+		LOD_REAL_CHUNKS:
+			return _compute_band_fade(surface_dist, 0.0, lod0_max_altitude)
+		LOD_SIMPLIFIED_MESH:
+			return _compute_band_fade(
+					surface_dist, lod0_max_altitude, lod2_start_altitude)
+		_:
+			return 0.0
+
+
+func _active_lod0_max_altitude() -> float:
+	var lod2_start_altitude := _active_lod2_start_altitude()
+	if lod2_start_altitude <= 0.0:
+		return 0.0
+	if atmosphere_height <= 0.0 or atmosphere_height >= lod2_start_altitude:
+		return lod2_start_altitude * 0.5
+	return atmosphere_height
+
+
+func _active_lod2_start_altitude() -> float:
+	return maxf(space_start_altitude, 1.0)
+
+
+func _compute_band_fade(value: float, lo: float, hi: float) -> float:
+	var band_width := hi - lo
+	if band_width <= 0.0:
+		return 0.0
+	var blend_zone := band_width * LOD_BLEND_ZONE_RATIO
+	var fade_start := hi - blend_zone
+	if value <= fade_start:
+		return 0.0
+	if value >= hi:
+		return 1.0
+	return (value - fade_start) / blend_zone
 
 
 func _get_player_position() -> Vector3:
@@ -447,6 +528,10 @@ func _invalidate_lod_state() -> void:
 
 func _update_lod_distances_cache() -> void:
 	_distances_cache = GDPlanetLod.compute_lod_distances(planet_radius)
+	_distances_cache["active_lod0_max"] = planet_radius + _active_lod0_max_altitude()
+	_distances_cache["active_lod1_max"] = planet_radius + _active_lod2_start_altitude()
+	_distances_cache["active_lod0_max_altitude"] = _active_lod0_max_altitude()
+	_distances_cache["space_start_altitude"] = _active_lod2_start_altitude()
 
 
 func _rebuild_lod_meshes() -> void:
@@ -657,5 +742,7 @@ func _maybe_log_debug(delta: float) -> void:
 	var effective_center := get_effective_center()
 	var dist := player_pos.distance_to(effective_center)
 	var surface_dist := get_surface_distance()
-	print("PlanetLodManager: lod=%d fade=%.2f dist=%.1f surface_dist=%.1f active=%s" % [
-		_current_lod_level, _fade_alpha, dist, surface_dist, is_active_planet])
+	print("PlanetLodManager: lod=%d fade=%.2f dist=%.1f surface_dist=%.1f "
+			+ "space_start=%.1f active=%s" % [
+		_current_lod_level, _fade_alpha, dist, surface_dist,
+		space_start_altitude, is_active_planet])

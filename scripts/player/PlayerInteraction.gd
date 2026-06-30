@@ -14,6 +14,19 @@ const REACH := 6.0
 const ATTACK_REACH := 5.0
 const BASE_ATTACK_DAMAGE := 0.1
 const OVERWORLD: StringName = &"overworld"
+const PLACEABLE_TERRAIN_MATERIAL_KEYS := {
+	"workbench": "snt:workbench",
+	"fence": "snt:fence",
+}
+const PLACEABLE_WORLD_OBJECT_TYPES := {
+	"stone_furnace": &"furnace",
+	# Ladder placement is still server-validated because it needs a wall.
+	"ladder": &"ladder",
+}
+const QUEST_MACHINE_PLACEABLE_KEYS := {
+	"workbench": true,
+	"stone_furnace": true,
+}
 
 var _player: PlayerController = null
 var _cooldown_remaining := 0.0
@@ -328,20 +341,12 @@ func try_place_world_object(target: Dictionary) -> bool:
 	if _is_creative() and held_id <= 0:
 		# Try to deduce the object type from the target context.
 		return false
-	var object_type := &""
-	match held_id:
-		ItemDatabase.ITEM_WORKBENCH:
-			object_type = GameCommandServer.OBJECT_WORKBENCH
-		ItemDatabase.ITEM_FURNACE:
-			object_type = GameCommandServer.OBJECT_FURNACE
-		ItemDatabase.ITEM_CAMPFIRE:
-			object_type = GameCommandServer.OBJECT_FURNACE
-		ItemDatabase.ITEM_LADDER:
-			object_type = GameCommandServer.OBJECT_LADDER
-		ItemDatabase.ITEM_FENCE:
-			object_type = GameCommandServer.OBJECT_FENCE
-		_:
-			return false
+	var held_key := ItemDatabase.get_item_key_by_id(held_id)
+	if held_key.is_empty():
+		return false
+	var object_type: StringName = PLACEABLE_WORLD_OBJECT_TYPES.get(held_key, &"")
+	if object_type == &"":
+		return false
 
 	var anchor_cell: Vector3i = target.get("build_anchor_cell", Vector3i.ZERO)
 	var build_direction: Vector3i = target.get("build_direction", Vector3i.ZERO)
@@ -399,6 +404,9 @@ func try_place_block(target: Dictionary) -> bool:
 	var held_id := equipment.get_equipped(GDPlayerEquipment.SLOT_MAIN_HAND)
 	if held_id <= 0:
 		return false
+	var held_key := ItemDatabase.get_item_key_by_id(held_id)
+	if held_key.is_empty():
+		return false
 	var material_id := _resolve_place_block_material_id(held_id)
 	if material_id <= 0:
 		return false
@@ -434,6 +442,12 @@ func try_place_block(target: Dictionary) -> bool:
 		var local := world.cell_to_local(place_cell)
 		world.refresh_cell(_player.get_current_dimension(), chunk, local)
 
+	if QUEST_MACHINE_PLACEABLE_KEYS.has(held_key):
+		machine_placed.emit(held_key)
+
+	if _is_creative() and _player.inventory != null:
+		_player.inventory.add_item(held_id, 1)
+
 	_player.inventory_changed.emit()
 	return true
 
@@ -453,6 +467,9 @@ func _resolve_place_block_material_id(item_id: int) -> int:
 
 
 func _item_key_to_terrain_material_key(item_key: String) -> String:
+	if PLACEABLE_TERRAIN_MATERIAL_KEYS.has(item_key):
+		return str(PLACEABLE_TERRAIN_MATERIAL_KEYS[item_key])
+
 	if item_key.begins_with("block."):
 		return "snt:" + item_key.substr("block.".length())
 

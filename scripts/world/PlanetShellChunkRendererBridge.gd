@@ -21,6 +21,14 @@ const CHUNK_STATE_SLEEPING := 4
 @export var shell_order_cache_enabled := true
 @export var shell_order_cache_max_entries := 128
 
+# Mesh only the radial chunk layers near the player. The wider active shell is
+# still available for loading/simulation, but far-above/far-below chunks should
+# not all build scene nodes when the player enters a planet.
+# Set either value below 0 to use the full planet active shell on that side.
+@export var visible_shell_above_layers := 1
+@export var visible_shell_below_layers := 1
+@export var rebuild_visible_neighbors_on_chunk_ready := false
+
 # Prefer the native GDExtension helper for shell candidate enumeration. The
 # GDScript implementation below remains as a runtime fallback so an older DLL can
 # still load the scene while the native extension is being rebuilt.
@@ -147,6 +155,9 @@ func get_streaming_metrics() -> Dictionary:
 	metrics["shell_order_cache_entries"] = _shell_order_cache.size()
 	metrics["shell_order_cache_hits"] = _last_shell_order_cache_hits
 	metrics["shell_order_cache_misses"] = _last_shell_order_cache_misses
+	metrics["visible_shell_above_layers"] = visible_shell_above_layers
+	metrics["visible_shell_below_layers"] = visible_shell_below_layers
+	metrics["rebuild_visible_neighbors_on_chunk_ready"] = rebuild_visible_neighbors_on_chunk_ready
 	metrics["shell_visible_candidates"] = _last_shell_visible_candidates
 	metrics["shell_load_candidates"] = _last_shell_load_candidates
 	metrics["cpp_shell_helper_enabled"] = use_cpp_shell_helper
@@ -235,6 +246,8 @@ func _refresh_chunks(player_chunk: Vector3i) -> void:
 
 	var visible_order := _get_shell_chunk_order_cached(
 			player_chunk, player.global_position, planet, view_radius)
+	visible_order = _filter_visible_shell_order(
+			visible_order, player.global_position, planet)
 	_last_shell_visible_candidates = visible_order.size()
 	var wanted_visible: Dictionary = {}
 	for chunk in visible_order:
@@ -316,12 +329,18 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 		_unloaded_shell_chunks.erase(chunk)
 		_last_memory_restore_completions += 1
 
-	if _shell_wanted_visible.is_empty() or _shell_wanted_visible.has(chunk):
+	var chunk_is_visible_shell := _shell_wanted_visible.is_empty() \
+			or _shell_wanted_visible.has(chunk)
+	if chunk_is_visible_shell:
 		if not _pending_view_queue.has(chunk):
 			_enqueue_chunk_view(chunk)
 
-	# Existing neighbors may have been meshed while this chunk was absent.
-	# Rebuild only visible neighbors; prefetched data-only chunks stay unmeshed.
+	# Existing neighbors may have been meshed while this visible chunk was absent.
+	# Data-only prefetch chunks should not force visible mesh rebuilds; they will
+	# be considered when they enter the visible shell or when an adjacent visible
+	# chunk is rebuilt for gameplay changes.
+	if not chunk_is_visible_shell or not rebuild_visible_neighbors_on_chunk_ready:
+		return
 	for offset in FACE_NEIGHBOR_OFFSETS:
 		var neighbor := chunk + offset
 		if not _visible_chunks.has(neighbor):
@@ -331,9 +350,24 @@ func _on_chunk_ready(dimension: String, chunk_x: int, chunk_y: int, chunk_z: int
 
 func on_terrain_cell_synced(dimension: StringName, chunk: Vector3i, local: Vector3i,
 		old_material: int, new_material: int) -> void:
-	if deep_chunk_keepalive_enabled and dimension == active_dimension:
-		_mark_forced_shell_chunk(chunk, &"terrain_cell_synced")
-	super.on_terrain_cell_synced(dimension, chunk, local, old_material, new_material)
+	if dimension != active_dimension:
+		super.on_terrain_cell_synced(dimension, chunk, local, old_material, new_material)
+		return
+
+	var affected_cells := _terrain_sync_affected_cells(chunk, local)
+	if deep_chunk_keepalive_enabled:
+		for affected in affected_cells:
+			_mark_forced_shell_chunk(
+					affected.get("chunk", chunk), &"terrain_cell_synced")
+
+	for affected in affected_cells:
+		var affected_chunk: Vector3i = affected.get("chunk", chunk)
+		var affected_local: Vector3i = affected.get("local", local)
+		_ensure_chunk_loaded(affected_chunk)
+		refresh_cell(dimension, affected_chunk, affected_local)
+		if not _visible_chunks.has(affected_chunk) \
+				and not _pending_view_queue.has(affected_chunk):
+			_enqueue_chunk_view(affected_chunk)
 
 
 func notify_block_placed(dimension: StringName, cell: Vector3i) -> void:
@@ -442,6 +476,110 @@ func _get_active_streaming_planet() -> PlanetDescriptor:
 	if planet.dimension_id != active_dimension:
 		return null
 	return planet
+
+
+func _filter_visible_shell_order(
+		order: Array[Vector3i],
+		player_pos: Vector3,
+		planet: PlanetDescriptor) -> Array[Vector3i]:
+	if visible_shell_above_layers < 0 and visible_shell_below_layers < 0:
+		return order
+
+	var player_altitude := planet.local_surface_altitude_at(player_pos)
+	var above := (
+			planet.active_shell_above
+			if visible_shell_above_layers < 0
+			else float(maxi(0, visible_shell_above_layers) * CHUNK_SIZE))
+	var below := (
+			planet.active_shell_below
+			if visible_shell_below_layers < 0
+			else float(maxi(0, visible_shell_below_layers) * CHUNK_SIZE))
+	var surface_min_altitude := -below
+	var surface_max_altitude := above
+
+	# Always keep a surface band visible. When flying above the surface, anchoring
+	# the visible band to camera altitude makes terrain below disappear and look
+	# like x-ray. Deep digging still gets an extra player-centered band below.
+	var include_player_band := player_altitude < surface_min_altitude \
+			or player_altitude > surface_max_altitude
+
+	var result: Array[Vector3i] = []
+	for chunk in order:
+		if _chunk_altitude_intersects_band(
+				chunk, planet, surface_min_altitude, surface_max_altitude):
+			result.append(chunk)
+			continue
+		if include_player_band and _chunk_altitude_intersects_band(
+				chunk, planet, player_altitude - below, player_altitude + above):
+			result.append(chunk)
+	return result
+
+
+func _chunk_altitude_intersects_band(
+		chunk: Vector3i,
+		planet: PlanetDescriptor,
+		min_altitude: float,
+		max_altitude: float) -> bool:
+	var altitude := planet.local_surface_altitude_at(_chunk_center(chunk))
+	var half_diag := sqrt(3.0) * float(CHUNK_SIZE) * 0.5
+	return altitude >= min_altitude - half_diag \
+			and altitude <= max_altitude + half_diag
+
+
+func _terrain_sync_affected_chunks(chunk: Vector3i, local: Vector3i) -> Array[Vector3i]:
+	var result: Array[Vector3i] = [chunk]
+	var seen: Dictionary = {chunk: true}
+	for offset in _terrain_boundary_offsets(local):
+		var neighbor := chunk + offset
+		if seen.has(neighbor):
+			continue
+		seen[neighbor] = true
+		result.append(neighbor)
+	return result
+
+
+func _terrain_sync_affected_cells(chunk: Vector3i, local: Vector3i) -> Array[Dictionary]:
+	var result: Array[Dictionary] = [{
+		"chunk": chunk,
+		"local": local,
+	}]
+	for offset in _terrain_boundary_offsets(local):
+		var neighbor_chunk := chunk + offset
+		var neighbor_local := local
+		if offset.x < 0:
+			neighbor_local.x = CHUNK_SIZE - 1
+		elif offset.x > 0:
+			neighbor_local.x = 0
+		if offset.y < 0:
+			neighbor_local.y = CHUNK_SIZE - 1
+		elif offset.y > 0:
+			neighbor_local.y = 0
+		if offset.z < 0:
+			neighbor_local.z = CHUNK_SIZE - 1
+		elif offset.z > 0:
+			neighbor_local.z = 0
+		result.append({
+			"chunk": neighbor_chunk,
+			"local": neighbor_local,
+		})
+	return result
+
+
+func _terrain_boundary_offsets(local: Vector3i) -> Array[Vector3i]:
+	var offsets: Array[Vector3i] = []
+	if local.x <= 0:
+		offsets.append(Vector3i(-1, 0, 0))
+	elif local.x >= CHUNK_SIZE - 1:
+		offsets.append(Vector3i(1, 0, 0))
+	if local.y <= 0:
+		offsets.append(Vector3i(0, -1, 0))
+	elif local.y >= CHUNK_SIZE - 1:
+		offsets.append(Vector3i(0, 1, 0))
+	if local.z <= 0:
+		offsets.append(Vector3i(0, 0, -1))
+	elif local.z >= CHUNK_SIZE - 1:
+		offsets.append(Vector3i(0, 0, 1))
+	return offsets
 
 
 func _collect_keepalive_chunks(

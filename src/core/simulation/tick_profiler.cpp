@@ -162,33 +162,48 @@ std::string TickProfiler::format_summary(size_t limit) const {
         entries.resize(max_count);
     }
 
+    const bool over_budget = cfg.tick_budget_ms > 0.0
+        && last_tick > cfg.tick_budget_ms;
+
     std::ostringstream oss;
     oss << "[TickProfiler] tick=" << tick
-        << " total_ms=" << std::fixed << std::setprecision(2) << last_tick
-        << " budget_ms=" << cfg.tick_budget_ms
-        << " slow_ms=" << cfg.slow_scope_ms
-        << " top=";
+        << " total=" << std::fixed << std::setprecision(2) << last_tick << "ms"
+        << " budget=" << cfg.tick_budget_ms << "ms"
+        << " slow_scope>=" << cfg.slow_scope_ms << "ms"
+        << " status=" << (over_budget ? "OVER_BUDGET" : "ok");
 
     if (entries.empty()) {
-        oss << "none";
+        oss << "\n  No profiler samples yet.";
         return oss.str();
     }
 
+    oss << "\n  Top scopes over recent samples:";
+    oss << "\n  " << std::left << std::setw(38) << "scope"
+        << std::right << std::setw(9) << "avg_ms"
+        << std::setw(9) << "p99_ms"
+        << std::setw(9) << "max_ms"
+        << std::setw(12) << "slow"
+        << std::setw(9) << "budget";
+
     for (size_t i = 0; i < entries.size(); ++i) {
         const auto& e = entries[i];
-        if (i > 0) {
-            oss << " | ";
+        std::string name = e.name;
+        if (name.size() > 37) {
+            name = name.substr(0, 34) + "...";
         }
-        oss << e.name
-            << " avg=" << e.avg_ms
-            << " max=" << e.max_ms
-            << " p99=" << e.p99_ms
-            << " share=" << std::fixed << std::setprecision(1)
-            << (e.budget_share * 100.0) << "%"
-            << " samples=" << e.samples
-            << " slow=" << e.slow_samples;
-        oss << std::fixed << std::setprecision(2);
+        oss << "\n  " << std::left << std::setw(38) << name
+            << std::right << std::fixed << std::setprecision(2)
+            << std::setw(9) << e.avg_ms
+            << std::setw(9) << e.p99_ms
+            << std::setw(9) << e.max_ms
+            << std::setw(6) << e.slow_samples << "/"
+            << std::left << std::setw(5) << e.samples
+            << std::right << std::fixed << std::setprecision(1)
+            << std::setw(8) << (e.budget_share * 100.0) << "%";
     }
+    oss << "\n  Legend: avg/p99/max are milliseconds; slow is samples above "
+        << cfg.slow_scope_ms << "ms; budget is average share of "
+        << cfg.tick_budget_ms << "ms.";
     return oss.str();
 }
 
