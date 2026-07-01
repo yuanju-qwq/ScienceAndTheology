@@ -11,7 +11,7 @@
 [ext_resource type="Script" uid="uid://cyfyygalo12ip" path="res://scripts/ui/HotbarUI.gd" id="10_hotbar_ui"]
 [ext_resource type="Script" uid="uid://ban7lg82c6wpe" path="res://scripts/ui/InventoryUI.gd" id="11_inventory_ui"]
 [ext_resource type="Script" uid="uid://dxa8g0s0ncr5d" path="res://scripts/crafting/CraftingUI.gd" id="12_crafting_ui"]
-[ext_resource type="PackedScene" uid="uid://c115rg702pdm7" path="res://scripts/ui/FurnaceUI.tscn" id="13_furnace_ui"]
+[ext_resource type="PackedScene" path="res://scripts/ui/MachinePanel.tscn" id="13_furnace_ui"]
 [ext_resource type="Script" path="res://scripts/world/PlanetLodManager.gd" id="15_planet_lod_manager"]
 [ext_resource type="Script" path="res://scripts/ui/ConsoleUI.gd" id="16_console_ui"]
 [ext_resource type="Script" path="res://scripts/world/UniverseManager.gd" id="17_universe_manager"]
@@ -227,7 +227,7 @@ script = ExtResource("11_inventory_ui")
 [node name="CraftingUI" type="Control" parent="UI"]
 script = ExtResource("12_crafting_ui")
 
-[node name="FurnaceUI" parent="UI" instance=ExtResource("13_furnace_ui")]
+[node name="MachinePanel" parent="UI" instance=ExtResource("13_furnace_ui")]
 
 [node name="ConsoleUI" type="Control" parent="UI"]
 anchor_left = 0.0

@@ -1114,8 +1114,8 @@ func try_open_furnace(auto_only: bool) -> bool:
 	if auto_only:
 		return false
 	var furnace_manager: FurnaceManager = _player.furnace_manager
-	var furnace_ui: FurnaceUI = _player.furnace_ui
-	if furnace_manager == null or furnace_ui == null:
+	var machine_panel: MachinePanel = _player.machine_panel
+	if furnace_manager == null or machine_panel == null:
 		return false
 	var cell := _player.get_current_cell()
 	var dimension := _player.get_current_dimension()
@@ -1137,7 +1137,7 @@ func try_open_furnace(auto_only: bool) -> bool:
 		if not furnace_manager.has_furnace(dimension, candidate):
 			continue
 		var data: GDFurnaceData = furnace_manager.get_furnace(dimension, candidate)
-		furnace_ui.open(data, dimension, candidate, furnace_manager)
+		machine_panel.open(data, dimension, candidate, furnace_manager)
 		_player.set_input_locked(true)
 		_cooldown_remaining = _player.connector_cooldown
 		return true

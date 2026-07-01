@@ -130,14 +130,41 @@ func _register_species() -> void:
 
 # Register machine type metadata for built-in machines.
 func _register_machine_types() -> void:
-	# Campfire: uses furnace processing logic but with campfire GUI.
+	# Furnace: single input/fuel/output with smelt progress + fuel burn bar.
+	if not GDMachineDefinitionRegistry.has_definition("furnace"):
+		GDMachineDefinitionRegistry.register_definition({
+			"type_key": "furnace",
+			"display_name": "Furnace",
+			"input_slots": 1,
+			"output_slots": 1,
+			"panel_layout": _furnace_panel_layout(),
+		})
+
+	# Campfire: uses furnace processing logic, shares the same panel layout.
 	if not GDMachineDefinitionRegistry.has_definition("campfire"):
 		GDMachineDefinitionRegistry.register_definition({
 			"type_key": "campfire",
 			"display_name": "Campfire",
 			"input_slots": 1,
 			"output_slots": 1,
+			"panel_layout": _furnace_panel_layout(),
 		})
+
+
+# Shared layout for furnace-family machines. Coordinates are offsets
+# relative to the panel's top-left corner (matches Godot Control offsets).
+func _furnace_panel_layout() -> Dictionary:
+	return {
+		"panel_width": 320.0,
+		"panel_height": 220.0,
+		"elements": [
+			{"element_id": "input", "element_type": "slot", "role": "input", "slot_index": 0, "rect": [20.0, 40.0, 76.0, 96.0]},
+			{"element_id": "fuel", "element_type": "slot", "role": "fuel", "slot_index": 0, "rect": [20.0, 104.0, 76.0, 160.0]},
+			{"element_id": "progress", "element_type": "progress_bar", "rect": [92.0, 72.0, 244.0, 92.0]},
+			{"element_id": "output", "element_type": "slot", "role": "output", "slot_index": 0, "rect": [260.0, 56.0, 316.0, 112.0]},
+			{"element_id": "fuel_bar", "element_type": "fuel_bar", "rect": [92.0, 104.0, 108.0, 148.0]},
+		],
+	}
 
 
 func _item(item_id: int, count: int = 1) -> Dictionary:

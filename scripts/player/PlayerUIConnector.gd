@@ -14,7 +14,7 @@ func connect_ui() -> void:
 	var hotbar_ui: HotbarUI = _player.hotbar_ui
 	var inventory_ui: InventoryUI = _player.inventory_ui
 	var crafting_ui: CraftingUI = _player.crafting_ui
-	var furnace_ui: FurnaceUI = _player.furnace_ui
+	var furnace_ui: MachinePanel = _player.machine_panel
 	var knapping_ui: KnappingUI = _player.knapping_ui
 
 	if hotbar_ui:
@@ -118,7 +118,7 @@ func toggle_quest_book() -> void:
 
 
 func close_furnace_if_open() -> bool:
-	var furnace_ui: FurnaceUI = _player.furnace_ui
+	var furnace_ui: MachinePanel = _player.machine_panel
 	if furnace_ui and furnace_ui.visible:
 		furnace_ui.close()
 		_player.set_input_locked(false)

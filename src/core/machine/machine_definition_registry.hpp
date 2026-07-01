@@ -8,6 +8,37 @@
 namespace science_and_theology::gt {
 
 // ============================================================
+// PanelLayout — data-driven machine GUI layout
+// ============================================================
+//
+// A PanelLayout describes which widgets a machine panel should build
+// and where to place them, so a single MachinePanel.tscn can render any
+// furnace-family machine without a per-machine .tscn. The GDScript
+// side reads this structure and dynamically creates slot/progress/bar
+// nodes inside its Content container.
+//
+// Coordinates are offsets relative to the panel's top-left corner, in
+// the same convention as Godot Control offset_left/top/right/bottom.
+
+// A single widget descriptor inside a machine panel layout.
+struct PanelElement {
+    std::string element_id;       // unique id within panel, e.g. "input_slot"
+    std::string element_type;     // "slot" | "progress_bar" | "fuel_bar" | "energy_bar" | "fluid_tank"
+    std::string role;             // slot role: "input" | "fuel" | "output" (empty for bars)
+    int32_t slot_index = 0;       // slot index within its role (for multi-slot machines)
+    float offset_left = 0.0f;     // rect left offset relative to panel
+    float offset_top = 0.0f;      // rect top offset relative to panel
+    float offset_right = 0.0f;    // rect right offset relative to panel
+    float offset_bottom = 0.0f;   // rect bottom offset relative to panel
+};
+
+struct PanelLayout {
+    float panel_width = 320.0f;             // total panel width in px
+    float panel_height = 220.0f;            // total panel height in px
+    std::vector<PanelElement> elements;    // ordered list of widgets to build
+};
+
+// ============================================================
 // MachineDefinition — metadata for a machine type
 // ============================================================
 //
@@ -32,6 +63,7 @@ struct MachineDefinition {
     int32_t input_slots = 1;       // number of input slots
     int32_t output_slots = 1;      // number of output slots
     int32_t power_capacity = 0;    // max energy storage (EU)
+    PanelLayout layout;            // data-driven GUI layout consumed by MachinePanel.gd
 };
 
 class MachineDefinitionRegistry {

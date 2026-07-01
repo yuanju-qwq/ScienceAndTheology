@@ -42,6 +42,12 @@ public:
     //   input_slots (int, optional, default 1).
     //   output_slots (int, optional, default 1).
     //   power_capacity (int, optional, default 0): max EU storage.
+    //   panel_layout (Dictionary, optional): data-driven GUI layout. Fields:
+    //     panel_width (float), panel_height (float),
+    //     elements (Array[Dictionary]) where each element has:
+    //       element_id (String), element_type (String),
+    //       role (String), slot_index (int),
+    //       rect (Array[float]): [left, top, right, bottom] offsets.
     static bool register_definition(const godot::Dictionary& def);
 
     // Returns true if a machine type is registered.
