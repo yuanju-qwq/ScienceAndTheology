@@ -114,6 +114,13 @@ func _ready() -> void:
 	_connect_command_server()
 
 
+func _print_perf(label: String, started_usec: int) -> void:
+	print("[Perf] %s elapsed_ms=%.2f" % [
+		label,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
+
+
 func _process(delta: float) -> void:
 	if not auto_update or not is_initialized:
 		return
@@ -136,31 +143,49 @@ func _process(delta: float) -> void:
 func initialize() -> void:
 	if is_initialized:
 		return
+	var total_started_usec := Time.get_ticks_usec()
+	var stage_started_usec := total_started_usec
 
 	if world_data == null:
 		world_data = GDWorldData.new()
 		world_data.seed = world_seed if world_seed != 0 else randi()
 	if world_data:
 		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
+	_print_perf("ChunkRendererBridge.initialize.world_data_setup", stage_started_usec)
 
 	if worldgen_config == null:
 		push_error("ChunkRendererBridge: worldgen_config must be provided by UniverseManager.")
 		return
+	stage_started_usec = Time.get_ticks_usec()
 	world_data.worldgen_config = worldgen_config
 
 	_resolve_runtime_material_ids()
 	_build_collidable_material_mask()
+	_print_perf("ChunkRendererBridge.initialize.resolve_materials", stage_started_usec)
 
+	stage_started_usec = Time.get_ticks_usec()
 	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
 		world_data.chunk_ready.connect(_on_chunk_ready)
+	_print_perf("ChunkRendererBridge.initialize.connect_signals", stage_started_usec)
 
+	stage_started_usec = Time.get_ticks_usec()
 	_build_materials()
+	var atlas_tile_count := _get_block_atlas_tile_count()
+	_print_perf("ChunkRendererBridge.initialize.build_materials count=%d atlas_tiles=%d" % [
+		_materials.size(),
+		atlas_tile_count,
+	], stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_connect_planet_lod_manager()
 	if auto_generate_start_chunks:
 		_generate_initial_chunks()
+	_print_perf("ChunkRendererBridge.initialize.initial_chunks queued=%d" %
+			_pending_view_queue.size(), stage_started_usec)
 
 	is_initialized = true
 	chunk_bridge_ready.emit()
+	_print_perf("ChunkRendererBridge.initialize total dimension=%s" %
+			String(active_dimension), total_started_usec)
 
 
 # --- Public API ---
@@ -202,33 +227,60 @@ func is_chunk_visible(chunk: Vector3i) -> bool:
 # Initialize with a multi-planet universe config.
 # Called by UniverseManager instead of the default single-planet initialize().
 func initialize_for_universe(config: Resource, initial_dimension: StringName) -> void:
+	var total_started_usec := Time.get_ticks_usec()
+	var stage_started_usec := total_started_usec
 	if is_initialized:
 		_clear_all_chunk_views()
+		_print_perf("ChunkRendererBridge.initialize_for_universe.clear_old_views", stage_started_usec)
+		stage_started_usec = Time.get_ticks_usec()
 
 	if world_data == null:
 		world_data = GDWorldData.new()
 		world_data.seed = world_seed if world_seed != 0 else randi()
 	if world_data:
 		world_data.set_max_async_results_per_frame(max_async_results_per_frame)
+	_print_perf("ChunkRendererBridge.initialize_for_universe.world_data_setup", stage_started_usec)
 
+	stage_started_usec = Time.get_ticks_usec()
 	worldgen_config = config
 	world_data.worldgen_config = worldgen_config
 	active_dimension = initial_dimension
 
 	_resolve_runtime_material_ids()
 	_build_collidable_material_mask()
+	_print_perf("ChunkRendererBridge.initialize_for_universe.resolve_materials", stage_started_usec)
 
+	stage_started_usec = Time.get_ticks_usec()
 	if not world_data.chunk_ready.is_connected(_on_chunk_ready):
 		world_data.chunk_ready.connect(_on_chunk_ready)
+	_print_perf("ChunkRendererBridge.initialize_for_universe.connect_signals", stage_started_usec)
 
+	stage_started_usec = Time.get_ticks_usec()
 	_build_materials()
+	var atlas_tile_count := _get_block_atlas_tile_count()
+	_print_perf("ChunkRendererBridge.initialize_for_universe.build_materials count=%d atlas_tiles=%d" % [
+		_materials.size(),
+		atlas_tile_count,
+	], stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_connect_planet_lod_manager()
 	_connect_command_server()
 	if auto_generate_start_chunks:
 		_generate_initial_chunks()
+	_print_perf("ChunkRendererBridge.initialize_for_universe.initial_chunks queued=%d" %
+			_pending_view_queue.size(), stage_started_usec)
 
 	is_initialized = true
 	chunk_bridge_ready.emit()
+	_print_perf("ChunkRendererBridge.initialize_for_universe total dimension=%s" %
+			String(active_dimension), total_started_usec)
+
+
+func _get_block_atlas_tile_count() -> int:
+	var tiles: Variant = _block_atlas.get("tiles", {})
+	if tiles is Dictionary:
+		return (tiles as Dictionary).size()
+	return 0
 
 
 # Switch the active dimension (planet) being rendered.

@@ -171,17 +171,36 @@ func load_mods() -> void:
 	if _loaded:
 		return
 	_loaded = true
+	var total_started_usec := Time.get_ticks_usec()
+	var stage_started_usec := total_started_usec
 	if not dry_run:
 		_seed_builtin_recipe_names()
+		_print_perf("ModLoader.seed_builtin_recipe_names", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	var manifests := _discover_and_dedup()
+	_print_perf("ModLoader.discover_and_dedup manifests=%d" % manifests.size(), stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_ordered_manifests = _resolve_load_order(manifests)
+	_print_perf("ModLoader.resolve_load_order ordered=%d" % _ordered_manifests.size(), stage_started_usec)
 	_ordered_manifests_ids.clear()
 	for m in _ordered_manifests:
 		_ordered_manifests_ids.append(m.mod_id)
 	if not dry_run:
+		stage_started_usec = Time.get_ticks_usec()
 		_register_packs()
+		_print_perf("ModLoader.register_packs packs=%d" % _ordered_manifests.size(), stage_started_usec)
+		stage_started_usec = Time.get_ticks_usec()
 		_notify_all_loaded()
+		_print_perf("ModLoader.notify_all_loaded packs=%d" % _ordered_manifests_ids.size(), stage_started_usec)
 	_print_report()
+	_print_perf("ModLoader.load_mods total dry_run=%s" % str(dry_run), total_started_usec)
+
+
+func _print_perf(label: String, started_usec: int) -> void:
+	print("[Perf] %s elapsed_ms=%.2f" % [
+		label,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
 
 # Ordered manifests (filled by load_mods). Kept as members so tests
 # can inspect order without re-running.

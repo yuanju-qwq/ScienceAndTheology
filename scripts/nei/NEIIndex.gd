@@ -53,6 +53,7 @@ func ensure_built() -> void:
 
 
 func rebuild() -> void:
+	var total_started_usec := Time.get_ticks_usec()
 	_built = false
 	_all_items.clear()
 	_all_recipes.clear()
@@ -68,11 +69,31 @@ func rebuild() -> void:
 	_by_category.clear()
 	_item_sources.clear()
 	_item_tooltips.clear()
+	var stage_started_usec := Time.get_ticks_usec()
 	_index_items()
+	_print_perf("NEIIndex.index_items items=%d" % _all_items.size(), stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_index_ore_dict()
+	_print_perf("NEIIndex.index_ore_dict ores=%d" % _ore_dict.size(), stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_index_crafting_recipes()
+	_print_perf("NEIIndex.index_crafting_recipes recipes=%d" % _all_recipes.size(), stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_index_machine_recipes()
+	var machine_recipe_label := "NEIIndex.index_machine_recipes total_recipes=%d machines=%d" % [
+		_all_recipes.size(),
+		_by_machine.size(),
+	]
+	_print_perf(machine_recipe_label, stage_started_usec)
 	_built = true
+	_print_perf("NEIIndex.rebuild total", total_started_usec)
+
+
+func _print_perf(label: String, started_usec: int) -> void:
+	print("[Perf] %s elapsed_ms=%.2f" % [
+		label,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
 
 
 func get_all_item_ids() -> Array[int]:

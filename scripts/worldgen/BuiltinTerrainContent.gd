@@ -218,6 +218,7 @@ static var _logged_albedo_fallback_visuals: Dictionary = {}
 # All planets share the same material set and biome/ore/rock rules,
 # but each planet has its own dimension_id and PlanetConfig.
 static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]) -> Resource:
+	var started_usec := Time.get_ticks_usec()
 	# Register GT-style materials (elements, alloys, gems, fluids) BEFORE terrain.
 	# This ensures ItemRegistry can resolve item keys (e.g. "crushed.copper") from terrain drops.
 	MaterialDefinitions.register_all()
@@ -247,6 +248,11 @@ static func create_config_for_universe(universe_planets: Array[PlanetDescriptor]
 		registered_count += 1
 		print("[TerrainContent] registered planet: dim=%s center=%s radius=%.1f" % [planet.dimension_id, planet.local_center, planet.planet_radius])
 	print("[TerrainContent] create_config_for_universe: total_planets=%d registered=%d" % [universe_planets.size(), registered_count])
+	print("[Perf] BuiltinTerrainContent.create_config_for_universe total_planets=%d registered=%d elapsed_ms=%.2f" % [
+		universe_planets.size(),
+		registered_count,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
 
 	return registry.freeze()
 

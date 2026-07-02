@@ -88,6 +88,7 @@ var _settings_ui: SettingsUI
 
 func _ready() -> void:
 	_ensure_save_root()
+	_sync_identity_to_session()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 	_show_main_menu()
@@ -1174,6 +1175,20 @@ func _parse_seed_value() -> int:
 	return text.hash()
 
 
+# ── Identity helpers ──────────────────────────────────────────────────────────
+
+
+func _sync_identity_to_session() -> void:
+	var identity_manager := get_node_or_null(^"/root/IdentityManager")
+	if identity_manager == null:
+		return
+	var identity: Dictionary = identity_manager.get_identity()
+	GameSession.identity = identity
+	GameSession.player_save_key = identity_manager.get_player_save_key()
+	GameSession.build_channel = identity_manager.get_build_channel()
+	GameSession.can_host_lan = identity_manager.can_host_lan()
+
+
 # ── Button callbacks ──────────────────────────────────────────────────────────
 
 
@@ -1182,7 +1197,11 @@ func _on_single_player() -> void:
 
 
 func _on_multiplayer() -> void:
-	_set_status("多人游戏 — 即将推出")
+	_sync_identity_to_session()
+	if GameSession.can_host_lan:
+		_set_status("多人游戏 — 可加入服务器，也可开启局域网（界面即将推出）")
+	else:
+		_set_status("多人游戏 — 可加入服务器；开启局域网需要 Steam 账号")
 
 
 func _on_settings() -> void:

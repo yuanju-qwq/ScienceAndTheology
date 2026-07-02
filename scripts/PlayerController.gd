@@ -208,6 +208,8 @@ var _satiation: GDSatiationData = null
 var _satiation_tick_timer := 0.0
 const _SATIATION_TICK_INTERVAL := 0.05
 var _status_bars: Node = null
+var _player_save_data: Dictionary = {}
+var _player_save_loaded := false
 
 
 func _notification(what: int) -> void:
@@ -215,6 +217,135 @@ func _notification(what: int) -> void:
 		_is_quitting = true
 		_do_save()
 		get_tree().quit.call_deferred()
+
+
+# --- Player save identity ---
+
+func _load_player_save_data() -> void:
+	var save_dir := _get_current_save_dir()
+	if save_dir == "":
+		return
+	var identity := _get_current_identity()
+	if identity.is_empty():
+		return
+	var service := _get_player_save_service()
+	if service == null:
+		return
+
+	_player_save_data = service.load_player(save_dir, identity)
+	_player_save_loaded = not _player_save_data.is_empty()
+	if _player_save_loaded:
+		print("[PlayerController] loaded player save key=%s" % str(identity.get("player_key", "")))
+
+
+func _apply_player_save_basics() -> void:
+	if not _player_save_loaded:
+		return
+	game_mode = int(_player_save_data.get("game_mode", game_mode))
+	_health_current = float(_player_save_data.get("health", _health_current))
+	selected_hotbar = clampi(int(_player_save_data.get("selected_hotbar", selected_hotbar)), 0, 8)
+	if universe_manager != null:
+		universe_manager.player_game_mode = game_mode
+		universe_manager.player_health = _health_current
+
+
+func _get_current_identity() -> Dictionary:
+	var identity_manager := get_node_or_null(^"/root/IdentityManager")
+	if identity_manager == null:
+		return {}
+	return identity_manager.get_identity()
+
+
+func _get_player_save_service() -> Node:
+	return get_node_or_null(^"/root/PlayerSaveService")
+
+
+func _get_current_save_dir() -> String:
+	var game_session := get_node_or_null(^"/root/GameSession")
+	if game_session != null:
+		var session_path := str(game_session.get("save_path"))
+		if session_path != "":
+			return session_path
+	if universe_manager != null:
+		return universe_manager.get_save_dir()
+	return ""
+
+
+func _apply_player_save_transform() -> void:
+	if not _player_save_loaded:
+		return
+	var pos_data: Dictionary = _player_save_data.get("position", {})
+	if pos_data.is_empty():
+		return
+
+	var saved_dimension := StringName(str(pos_data.get("dimension", "")))
+	if saved_dimension != &"" and universe_manager != null:
+		var current_dimension := (
+			universe_manager.active_planet.dimension_id
+			if universe_manager.active_planet != null else &"")
+		if current_dimension != saved_dimension:
+			var planet := universe_manager.get_planet_by_dimension(saved_dimension)
+			if planet != null:
+				universe_manager.travel_to_planet(planet)
+			else:
+				push_warning("[PlayerController] saved player dimension not found: %s"
+					% String(saved_dimension))
+
+	var position_data: Array = pos_data.get("global_position", [])
+	if position_data.size() >= 3:
+		global_position = _array_to_vector3(position_data, global_position)
+		velocity = Vector3.ZERO
+		_spawn_freeze = true
+		_spawn_freeze_logged = false
+	rotation.y = float(pos_data.get("rotation_y", rotation.y))
+	_pitch = float(pos_data.get("pitch", _pitch))
+
+
+func _save_player_data() -> bool:
+	var save_dir := _get_current_save_dir()
+	if save_dir == "":
+		return false
+	var identity := _get_current_identity()
+	if identity.is_empty():
+		return false
+	var service := _get_player_save_service()
+	if service == null:
+		return false
+	return service.save_player(save_dir, identity, _build_player_save_data(identity))
+
+
+func _build_player_save_data(identity: Dictionary) -> Dictionary:
+	var service := _get_player_save_service()
+	return {
+		"identity": identity.duplicate(true),
+		"game_mode": game_mode,
+		"health": _health_current,
+		"selected_hotbar": selected_hotbar,
+		"position": {
+			"dimension": String(get_current_dimension()),
+			"global_position": _vector3_to_array(global_position),
+			"rotation_y": rotation.y,
+			"pitch": _pitch,
+		},
+		"inventory": (
+			service.export_inventory(inventory) if service != null else {}),
+		"equipment": (
+			service.export_equipment(equipment) if service != null else {}),
+		"source_law": (
+			_source_law.to_dict() if _source_law != null else {}),
+		"satiation": (
+			_satiation.to_dict() if _satiation != null else {}),
+	}
+
+
+func _vector3_to_array(value: Vector3) -> Array:
+	return [value.x, value.y, value.z]
+
+
+func _array_to_vector3(value: Array, fallback: Vector3) -> Vector3:
+	if value.size() < 3:
+		return fallback
+	return Vector3(float(value[0]), float(value[1]), float(value[2]))
 
 
 func _ready() -> void:
@@ -236,6 +367,8 @@ func _ready() -> void:
 	if universe_manager != null:
 		game_mode = universe_manager.player_game_mode
 		_health_current = universe_manager.player_health
+	_load_player_save_data()
+	_apply_player_save_basics()
 	_setup_inventory()
 	_setup_player_avatar()
 	_setup_creative_inventory()
@@ -248,6 +381,7 @@ func _ready() -> void:
 	_health_current = mini(_health_current, _get_health_max())
 	_connect_quest_system()
 	_setup_exit_menu()
+	_apply_player_save_transform()
 	_update_camera_rotation()
 	if camera:
 		hand = HandController.new()
@@ -794,8 +928,16 @@ func _setup_vitals() -> void:
 	_source_law = GDPlayerSourceLawData.new()
 	_satiation = GDSatiationData.new()
 
-	# Restore saved data if available.
-	if universe_manager != null:
+	# New per-player saves live in saves/<world>/players/. Fall back to
+	# legacy universe_meta fields so old worlds migrate naturally on next save.
+	if _player_save_loaded:
+		var source_law_data: Dictionary = _player_save_data.get("source_law", {})
+		var satiation_data: Dictionary = _player_save_data.get("satiation", {})
+		if not source_law_data.is_empty():
+			_source_law.from_dict(source_law_data)
+		if not satiation_data.is_empty():
+			_satiation.from_dict(satiation_data)
+	elif universe_manager != null:
 		if not universe_manager.player_source_law_dict.is_empty():
 			_source_law.from_dict(universe_manager.player_source_law_dict)
 		if not universe_manager.player_satiation_dict.is_empty():
@@ -882,7 +1024,15 @@ func _setup_inventory() -> void:
 	inventory.init(inventory_width, inventory_height)
 	equipment = GDPlayerEquipment.new()
 
-	if give_debug_starting_items:
+	var loaded_inventory := false
+	if _player_save_loaded:
+		var service := _get_player_save_service()
+		if service != null:
+			loaded_inventory = service.apply_inventory(
+				inventory, _player_save_data.get("inventory", {}))
+			service.apply_equipment(equipment, _player_save_data.get("equipment", {}))
+
+	if give_debug_starting_items and not loaded_inventory:
 		inventory.set_slot(0, ItemDatabase.ITEM_IRON_PICKAXE, 1)
 		inventory.set_slot(1, ItemDatabase.ITEM_IRON_SHOVEL, 1)
 		inventory.set_slot(2, ItemDatabase.ITEM_WORKBENCH, 8)
@@ -1301,6 +1451,11 @@ func _on_exit_menu_resume() -> void:
 
 
 func _do_save() -> void:
+	var player_ok := _save_player_data()
+	if player_ok:
+		print("[PlayerController] player saved before exit")
+	else:
+		push_warning("[PlayerController] failed to save player before exit")
 	if universe_manager != null:
 		universe_manager.player_game_mode = game_mode
 		universe_manager.player_health = _health_current

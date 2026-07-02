@@ -5,6 +5,13 @@ const TIER_LV := 1
 
 var _loaded := false
 
+func _print_perf(label: String, started_usec: int) -> void:
+	print("[Perf] %s elapsed_ms=%.2f" % [
+		label,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
+
+
 func _ready() -> void:
 	load_content()
 
@@ -13,7 +20,12 @@ func load_content() -> void:
 		return
 	_loaded = true
 
+	var total_started_usec := Time.get_ticks_usec()
+	var stage_started_usec := total_started_usec
 	_bootstrap_item_registries()
+	_print_perf("ContentDatabase.bootstrap_item_registries", stage_started_usec)
+
+	stage_started_usec = Time.get_ticks_usec()
 	BuiltinFluids.register_all()
 	_register_fuels()
 	_register_fluid_fuels()
@@ -26,7 +38,9 @@ func load_content() -> void:
 	_register_species()
 	BuiltinBiomeOverrides.register_all()
 	_register_machine_types()
+	_print_perf("ContentDatabase.register_builtin_content", stage_started_usec)
 
+	stage_started_usec = Time.get_ticks_usec()
 	GDCraftingManager.clear()
 	GDRecipeDatabase.clear()
 	GDCraftingManager.clear_load_report()
@@ -34,6 +48,7 @@ func load_content() -> void:
 
 	var crafting_registered: int = GDCraftingManager.register_recipes(_crafting_recipes())
 	var processing_registered: int = GDRecipeDatabase.register_recipes(_processing_recipes())
+	_print_perf("ContentDatabase.register_recipes", stage_started_usec)
 	var recipe_maps: PackedStringArray = GDRecipeDatabase.get_machine_types()
 	print("ContentDatabase: loaded crafting=%d processing=%d recipe_maps=%s" %
 			[crafting_registered, processing_registered, str(recipe_maps)])
@@ -47,6 +62,7 @@ func load_content() -> void:
 	var machine_report: Array = GDRecipeDatabase.get_load_report()
 	if not machine_report.is_empty():
 		push_warning("ContentDatabase processing load report: %s" % str(machine_report))
+	_print_perf("ContentDatabase.load_content total", total_started_usec)
 
 # 热重载入口：复位所有 C++ registry + GD 缓存，然后重新执行完整注册流程。
 # 适用于 GDScript 改动 BuiltinXxx 后不重启工程刷新内容。

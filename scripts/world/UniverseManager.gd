@@ -193,17 +193,64 @@ func get_quest_system() -> GDQuestSystem:
 
 
 func _ready() -> void:
+	var total_started_usec := Time.get_ticks_usec()
+	var stage_started_usec := total_started_usec
 	_apply_game_session_overrides()
+	_print_perf("UniverseManager.apply_game_session_overrides", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_generate_universe()
+	_print_perf("UniverseManager.generate_universe systems=%d mode=%s" % [
+		systems.size(),
+		universe_mode,
+	], stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_load_player_game_mode()
+	_print_perf("UniverseManager.load_player_game_mode", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_realize_initial_system()
+	_print_perf("UniverseManager.realize_initial_system realized=%d bodies=%d" % [
+		get_realized_system_count(),
+		all_planets.size(),
+	], stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_apply_planet_overrides()
+	_print_perf("UniverseManager.apply_planet_overrides", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_find_references()
+	_print_perf("UniverseManager.find_references", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_create_virtual_simulator()
+	_print_perf("UniverseManager.create_virtual_simulator", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_create_save_manager()
+	_print_perf("UniverseManager.create_save_manager", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_create_lod_managers_for_realized()
+	_print_perf("UniverseManager.create_lod_managers_for_realized lod_count=%d" %
+			_lod_managers.size(), stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_create_floating_origin()
+	_print_perf("UniverseManager.create_floating_origin", stage_started_usec)
+	stage_started_usec = Time.get_ticks_usec()
 	_set_initial_active_planet()
+	var active_name := "null"
+	if active_planet != null:
+		active_name = active_planet.display_name
+	_print_perf("UniverseManager.set_initial_active_planet active=%s" % active_name,
+			stage_started_usec)
+	_print_perf("UniverseManager._ready total systems=%d realized=%d bodies=%d lod=%d" % [
+		systems.size(),
+		get_realized_system_count(),
+		all_planets.size(),
+		_lod_managers.size(),
+	], total_started_usec)
+
+
+func _print_perf(label: String, started_usec: int) -> void:
+	print("[Perf] %s elapsed_ms=%.2f" % [
+		label,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
 
 
 func _process(delta: float) -> void:
@@ -544,17 +591,32 @@ func _update_system_realization() -> void:
 
 # Create LOD managers for all currently realized systems.
 func _create_lod_managers_for_realized() -> void:
+	var started_usec := Time.get_ticks_usec()
+	var realized_count := 0
 	for sys in systems:
 		if sys.is_realized():
+			realized_count += 1
 			_create_lod_managers_for_system(sys)
+	_print_perf("UniverseManager.create_lod_managers_for_realized systems=%d lod_count=%d" % [
+		realized_count,
+		_lod_managers.size(),
+	], started_usec)
 
 
 # Create LOD managers for a single realized system.
 func _create_lod_managers_for_system(system: StarSystemDescriptor) -> void:
+	var started_usec := Time.get_ticks_usec()
+	var before_count := _lod_managers.size()
 	for star in system.stars:
 		_create_star_lod(star)
 	for planet in system.planets:
 		_create_planet_lod(planet)
+	_print_perf("UniverseManager.create_lod_managers_for_system system=%s stars=%d planets=%d added=%d" % [
+		String(system.system_id),
+		system.stars.size(),
+		system.planets.size(),
+		_lod_managers.size() - before_count,
+	], started_usec)
 
 
 func _create_planet_lod(planet: PlanetDescriptor) -> void:
@@ -714,10 +776,22 @@ func _set_active_station(station: StationDescriptor) -> void:
 
 	if _chunk_bridge != null:
 		if not _bridge_initialized:
+			var bridge_setup_started_usec := Time.get_ticks_usec()
+			var config_started_usec := Time.get_ticks_usec()
 			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
+			_print_perf("UniverseManager.create_terrain_config station=%s planets=%d" % [
+				String(station.dimension_id),
+				all_planets.size(),
+			], config_started_usec)
+			var init_started_usec := Time.get_ticks_usec()
 			_chunk_bridge.initialize_for_universe(config, station.dimension_id)
+			_print_perf("UniverseManager.chunk_bridge_initialize station=%s" %
+					String(station.dimension_id), init_started_usec)
 			_bridge_initialized = true
+			var tick_started_usec := Time.get_ticks_usec()
 			_initializetick_system()
+			_print_perf("UniverseManager.initialize_tick_system_after_bridge", tick_started_usec)
+			_print_perf("UniverseManager.first_bridge_setup total", bridge_setup_started_usec)
 		else:
 			_chunk_bridge.set_active_dimension(station.dimension_id)
 
@@ -730,10 +804,22 @@ func _set_active_planet(planet: PlanetDescriptor) -> void:
 
 	if _chunk_bridge != null and not planet.is_star:
 		if not _bridge_initialized:
+			var bridge_setup_started_usec := Time.get_ticks_usec()
+			var config_started_usec := Time.get_ticks_usec()
 			var config := BuiltinTerrainContentScript.create_config_for_universe(all_planets)
+			_print_perf("UniverseManager.create_terrain_config planet=%s planets=%d" % [
+				String(planet.dimension_id),
+				all_planets.size(),
+			], config_started_usec)
+			var init_started_usec := Time.get_ticks_usec()
 			_chunk_bridge.initialize_for_universe(config, planet.dimension_id)
+			_print_perf("UniverseManager.chunk_bridge_initialize planet=%s" %
+					String(planet.dimension_id), init_started_usec)
 			_bridge_initialized = true
+			var tick_started_usec := Time.get_ticks_usec()
 			_initializetick_system()
+			_print_perf("UniverseManager.initialize_tick_system_after_bridge", tick_started_usec)
+			_print_perf("UniverseManager.first_bridge_setup total", bridge_setup_started_usec)
 		else:
 			_chunk_bridge.set_active_dimension(planet.dimension_id)
 
@@ -1357,6 +1443,7 @@ func get_runtime_metrics() -> Dictionary:
 func _initializetick_system() -> void:
 	if tick_system == null or tick_system_initialized:
 		return
+	var started_usec := Time.get_ticks_usec()
 
 	var world_data: GDWorldData = _chunk_bridge.get_world_data() if _chunk_bridge else null
 	if world_data == null:
@@ -1387,12 +1474,14 @@ func _initializetick_system() -> void:
 
 	# Initialize quest system after tick system is ready.
 	_initializequest_system()
+	_print_perf("UniverseManager.initializetick_system total", started_usec)
 
 
 # Initialize the GDQuestSystem with quest content and tick counter.
 func _initializequest_system() -> void:
 	if quest_system == null or quest_system_initialized:
 		return
+	var started_usec := Time.get_ticks_usec()
 
 	# Load quest content from QuestDatabase.
 	var quest_db := preload("res://scripts/quest/QuestDatabase.gd").new()
@@ -1401,6 +1490,7 @@ func _initializequest_system() -> void:
 	quest_db.load_content(quest_system)
 
 	quest_system_initialized = true
+	_print_perf("UniverseManager.initializequest_system total", started_usec)
 
 
 # Drive the simulation tick each frame.

@@ -22,6 +22,8 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameSession="*res://scripts/GameSession.gd"
+IdentityManager="*res://scripts/auth/IdentityManager.gd"
+PlayerSaveService="*res://scripts/save/PlayerSaveService.gd"
 KeyBindings="*res://scripts/KeyBindings.gd"
 ItemDatabase="*res://scripts/item/ItemDatabase.gd"
 ContentDatabase="*res://scripts/content/ContentDatabase.gd"

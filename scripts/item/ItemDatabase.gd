@@ -322,9 +322,10 @@ var _key_to_id: Dictionary = {}   # item_key (String) -> item_id (int)
 var _id_to_key: Dictionary = {}   # item_id (int) -> item_key (String)
 var _current_category: int = -1
 var _item_categories: Dictionary = {}  # item_id -> int (Category)
+var _register_all_items_call_count := 0
 
 func _ready() -> void:
-	_register_all_items()
+	_register_all_items("ready")
 
 # 清空所有 GD 端缓存（用于热重载前的复位）。
 # 注意：C++ 端 ItemRegistry 的复位由 GDRegistryBank.reset_all() 负责。
@@ -342,11 +343,13 @@ func clear() -> void:
 # 且 MaterialRegistry 已重新 finalize()（material item 由 C++ 侧生成）。
 func reload() -> void:
 	clear()
-	_register_all_items()
+	_register_all_items("reload")
 
 # 集中执行所有 item 注册；可被 _ready() 与热重载流程重复调用。
 # 调用前应先 clear() 并已通过 GDRegistryBank.reset_all() 复位 C++ ItemRegistry。
-func _register_all_items() -> void:
+func _register_all_items(context: String = "direct") -> void:
+	var started_usec := Time.get_ticks_usec()
+	_register_all_items_call_count += 1
 	_register_material_items()
 	_register_tool_items()
 	_register_component_items()
@@ -359,6 +362,13 @@ func _register_all_items() -> void:
 	_set_category(-1)
 	_register_non_material_keys()
 	_register_material_item_keys()
+	print("[Perf] ItemDatabase._register_all_items context=%s call=%d items=%d keys=%d elapsed_ms=%.2f" % [
+		context,
+		_register_all_items_call_count,
+		_items.size(),
+		_key_to_id.size(),
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
 
 func get_item(item_id: int) -> ItemDef:
 	return _items.get(item_id)

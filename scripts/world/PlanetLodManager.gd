@@ -122,6 +122,7 @@ var _is_space_env_active := false
 
 
 func _ready() -> void:
+	var started_usec := Time.get_ticks_usec()
 	_create_lod_meshes()
 	_create_horizon_fog()
 	_create_space_sky()
@@ -136,6 +137,12 @@ func _ready() -> void:
 	# of the creation-time planet_center (= universe_position).
 	_reposition_meshes(get_effective_center())
 	_is_initialized = true
+	print("[Perf] PlanetLodManager._ready node=%s radius=%.1f lod=%d elapsed_ms=%.2f" % [
+		name,
+		planet_radius,
+		_current_lod_level,
+		float(Time.get_ticks_usec() - started_usec) / 1000.0,
+	])
 
 
 func _process(delta: float) -> void:
