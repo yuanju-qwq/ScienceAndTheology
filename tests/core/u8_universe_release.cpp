@@ -343,7 +343,7 @@ void test_tick_system_profiler_records_subsystems() {
     ticks.set_profiler_enabled(true);
     ticks.set_profiler_log_interval_ticks(1);
     ticks.register_subsystem(std::make_unique<ProfileTestSystem>());
-    ticks.add_player_chunk(kSinglePlayerId, "overworld", 0, 0, 0);
+    ticks.add_player_chunk(kSinglePlayerHandle, "overworld", 0, 0, 0);
     ticks.tick(0.05f);
 
     auto top = ticks.profiler_snapshot_top(8);

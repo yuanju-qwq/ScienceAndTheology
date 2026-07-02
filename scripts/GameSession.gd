@@ -9,12 +9,17 @@ var world_name: String = ""
 # The absolute path to the world's save directory (e.g., user://saves/MyWorld/).
 var save_path: String = ""
 
-# Current local identity snapshot. Player saves are keyed by player_save_key
-# inside the selected world's players/ directory.
+# Current local identity snapshot. Player saves are keyed by player_uuid inside
+# the selected world's players/ directory. player_save_key is kept as a legacy
+# alias for older UI code.
 var identity: Dictionary = {}
+var player_uuid: String = ""
 var player_save_key: String = ""
 var build_channel: String = "offline"
 var can_host_lan: bool = false
+var lan_transport_modes: Array[String] = []
+var preferred_lan_transport: String = ""
+var dedicated_transport_mode: String = "direct_dedicated"
 
 # Universe generation mode: "solar_system" or "random".
 var universe_mode: String = "solar_system"

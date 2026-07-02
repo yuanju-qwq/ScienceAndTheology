@@ -35,7 +35,7 @@ namespace science_and_theology {
 
 // Sector 转换事件。
 struct SectorTransitionEvent {
-    uint64_t player_id;
+    uint64_t player_handle;
     SectorId from_sector;
     SectorId to_sector;
     GlobalPos pos;              // 转换时的玩家位置
@@ -59,10 +59,10 @@ public:
     // --- 玩家管理 ---
 
     // 注册玩家，指定初始 Sector。
-    void register_player(uint64_t player_id, SectorId initial_sector);
+    void register_player(uint64_t player_handle, SectorId initial_sector);
 
     // 注销玩家。
-    void unregister_player(uint64_t player_id);
+    void unregister_player(uint64_t player_handle);
 
     // --- 转换检测 ---
 
@@ -70,13 +70,13 @@ public:
     // 若玩家跨入新 Sector，返回转换事件。
     // 不切换全局 active_dimension，只更新玩家 current_sector。
     std::optional<SectorTransitionEvent> update_player_position(
-        uint64_t player_id,
+        uint64_t player_handle,
         const GlobalPos& pos,
         const SectorManager& sector_manager);
 
     // 手动设置玩家当前 Sector（用于上层强制切换或初始化）。
     std::optional<SectorTransitionEvent> set_player_sector(
-        uint64_t player_id,
+        uint64_t player_handle,
         SectorId new_sector,
         const SectorManager& sector_manager,
         const std::string& reason = "");
@@ -84,14 +84,14 @@ public:
     // --- 查询 ---
 
     // 返回玩家当前 Sector。
-    SectorId get_current_sector(uint64_t player_id) const;
+    SectorId get_current_sector(uint64_t player_handle) const;
 
     // 返回玩家是否在指定 Sector 内。
-    bool is_in_sector(uint64_t player_id, SectorId sector) const;
+    bool is_in_sector(uint64_t player_handle, SectorId sector) const;
 
     // 返回玩家历史转换记录（诊断用，最多保留最近 N 条）。
     std::vector<SectorTransitionEvent> get_transition_history(
-        uint64_t player_id, size_t max_count = 10) const;
+        uint64_t player_handle, size_t max_count = 10) const;
 
     // --- 管理 ---
 

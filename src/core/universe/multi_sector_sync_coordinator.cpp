@@ -32,7 +32,7 @@ std::string MultiSectorSyncCoordinator::sector_to_dimension_id(SectorId sector) 
 // 玩家生命周期
 // ============================================================
 
-void MultiSectorSyncCoordinator::register_player(PlayerId id,
+void MultiSectorSyncCoordinator::register_player(PlayerHandle id,
                                                   const GlobalPos& pos,
                                                   const GlobalPos& velocity,
                                                   SectorId current_sector) {
@@ -60,7 +60,7 @@ void MultiSectorSyncCoordinator::register_player(PlayerId id,
     }
 }
 
-void MultiSectorSyncCoordinator::unregister_player(PlayerId id) {
+void MultiSectorSyncCoordinator::unregister_player(PlayerHandle id) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     auto it = std::find(registered_players_.begin(),
@@ -87,7 +87,7 @@ void MultiSectorSyncCoordinator::unregister_player(PlayerId id) {
 }
 
 std::optional<FlightModeChangeEvent> MultiSectorSyncCoordinator::update_player(
-    PlayerId id,
+    PlayerHandle id,
     const GlobalPos& pos,
     const GlobalPos& velocity) {
 
@@ -99,7 +99,7 @@ std::optional<FlightModeChangeEvent> MultiSectorSyncCoordinator::update_player(
 }
 
 void MultiSectorSyncCoordinator::set_landing_target(
-    PlayerId id,
+    PlayerHandle id,
     const std::string& celestial_id,
     double distance_to_surface) {
 
@@ -108,7 +108,7 @@ void MultiSectorSyncCoordinator::set_landing_target(
     }
 }
 
-void MultiSectorSyncCoordinator::clear_landing_target(PlayerId id) {
+void MultiSectorSyncCoordinator::clear_landing_target(PlayerHandle id) {
     if (interest_manager_) {
         interest_manager_->clear_landing_target(id);
     }
@@ -133,7 +133,7 @@ std::vector<ObserverSendBatch> MultiSectorSyncCoordinator::tick() {
     // --- 阶段 1：对每个玩家计算兴趣集合，更新 SectorObserverMap ---
 
     struct PlayerInterestInfo {
-        PlayerId player_id;
+        PlayerHandle player_handle;
         SectorId sector;
         InterestSet interest;
     };
@@ -141,9 +141,9 @@ std::vector<ObserverSendBatch> MultiSectorSyncCoordinator::tick() {
     std::vector<PlayerInterestInfo> interests;
     interests.reserve(registered_players_.size());
 
-    for (PlayerId pid : registered_players_) {
+    for (PlayerHandle pid : registered_players_) {
         PlayerInterestInfo info;
-        info.player_id = pid;
+        info.player_handle = pid;
 
         if (interest_manager_ && sector_manager_ && universe_core_) {
             info.interest = interest_manager_->compute_interest(
@@ -172,7 +172,7 @@ std::vector<ObserverSendBatch> MultiSectorSyncCoordinator::tick() {
 
     // --- 阶段 2：构建 observer_views，批量计算 delta ---
 
-    std::vector<std::pair<PlayerId, std::vector<ChunkKey>>> observer_views;
+    std::vector<std::pair<PlayerHandle, std::vector<ChunkKey>>> observer_views;
     observer_views.reserve(interests.size());
 
     for (const auto& info : interests) {
@@ -194,27 +194,27 @@ std::vector<ObserverSendBatch> MultiSectorSyncCoordinator::tick() {
                                 static_cast<int>(sck.coord.cy),
                                 static_cast<int>(sck.coord.cz));
         }
-        observer_views.emplace_back(info.player_id, std::move(chunks));
+        observer_views.emplace_back(info.player_handle, std::move(chunks));
     }
 
     // 批量计算 delta
-    std::vector<std::pair<PlayerId, StateDelta>> deltas;
+    std::vector<std::pair<PlayerHandle, StateDelta>> deltas;
     if (state_sync_server_ && !observer_views.empty()) {
         deltas = state_sync_server_->compute_deltas_batch(observer_views);
     }
 
     // --- 阶段 3：应用 per-observer、per-channel 预算，构建发送批次 ---
 
-    // 构建 player_id → delta 的映射
-    std::unordered_map<PlayerId, StateDelta> delta_map;
+    // 构建 player_handle → delta 的映射
+    std::unordered_map<PlayerHandle, StateDelta> delta_map;
     for (auto& [pid, delta] : deltas) {
         delta_map[pid] = std::move(delta);
     }
 
     for (const auto& info : interests) {
         ObserverSendBatch batch = build_batch_for(
-            info.player_id, info.sector, info.interest,
-            delta_map.count(info.player_id) ? delta_map[info.player_id] : StateDelta{});
+            info.player_handle, info.sector, info.interest,
+            delta_map.count(info.player_handle) ? delta_map[info.player_handle] : StateDelta{});
 
         batches.push_back(std::move(batch));
     }
@@ -238,7 +238,7 @@ std::vector<ObserverSendBatch> MultiSectorSyncCoordinator::tick() {
 // ============================================================
 
 ObserverSendBatch MultiSectorSyncCoordinator::build_batch_for(
-    PlayerId observer,
+    PlayerHandle observer,
     SectorId sector,
     const InterestSet& interest,
     const StateDelta& delta) {
@@ -365,7 +365,7 @@ ObserverSendBatch MultiSectorSyncCoordinator::build_batch_for(
 // 查询
 // ============================================================
 
-ObserverSendBatch MultiSectorSyncCoordinator::get_last_batch(PlayerId id) const {
+ObserverSendBatch MultiSectorSyncCoordinator::get_last_batch(PlayerHandle id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = last_batches_.find(id);
     if (it == last_batches_.end()) {
@@ -375,7 +375,7 @@ ObserverSendBatch MultiSectorSyncCoordinator::get_last_batch(PlayerId id) const 
 }
 
 bool MultiSectorSyncCoordinator::is_chunk_visible_to(
-    PlayerId observer,
+    PlayerHandle observer,
     const SectorChunkKey& chunk) const {
 
     if (!observer_map_) {
@@ -391,7 +391,7 @@ bool MultiSectorSyncCoordinator::is_chunk_visible_to(
     return chunk.sector == player_sector;
 }
 
-bool MultiSectorSyncCoordinator::are_converged(PlayerId a, PlayerId b) const {
+bool MultiSectorSyncCoordinator::are_converged(PlayerHandle a, PlayerHandle b) const {
     if (!observer_map_) {
         return false;
     }
@@ -421,7 +421,7 @@ bool MultiSectorSyncCoordinator::are_converged(PlayerId a, PlayerId b) const {
     return false;
 }
 
-std::vector<PlayerId> MultiSectorSyncCoordinator::all_player_ids() const {
+std::vector<PlayerHandle> MultiSectorSyncCoordinator::all_player_handles() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return registered_players_;
 }

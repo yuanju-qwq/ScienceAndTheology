@@ -57,7 +57,7 @@ public:
     int send_bytes(const std::vector<uint8_t>& data);
 
     // Send a single encoded frame (convenience).
-    int send_frame(PacketType type, uint64_t player_id,
+    int send_frame(PacketType type, uint64_t player_handle,
                    const uint8_t* payload, size_t payload_len,
                    FrameFlags flags = FrameFlags::NONE);
 

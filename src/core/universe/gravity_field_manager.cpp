@@ -156,7 +156,7 @@ GravityFieldManager::compute_best_field(const GlobalPos& pos) const {
     return best;
 }
 
-GravityQueryResult GravityFieldManager::compute_gravity(uint64_t player_id,
+GravityQueryResult GravityFieldManager::compute_gravity(uint64_t player_handle,
                                                          const GlobalPos& pos) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -168,12 +168,12 @@ GravityQueryResult GravityFieldManager::compute_gravity(uint64_t player_id,
     if (best.field == nullptr) {
         // 不在任何重力场影响范围内
         // 清除玩家主导记录
-        player_dominant_.erase(player_id);
+        player_dominant_.erase(player_handle);
         return result;
     }
 
     // 检查滞后机制
-    auto it = player_dominant_.find(player_id);
+    auto it = player_dominant_.find(player_handle);
     if (it != player_dominant_.end() && it->second != best.celestial_id) {
         // 玩家有当前主导场，且与最优场不同
         // 检查当前主导场是否仍在影响范围内
@@ -203,7 +203,7 @@ GravityQueryResult GravityFieldManager::compute_gravity(uint64_t player_id,
     }
 
     // 使用最优场
-    player_dominant_[player_id] = best.celestial_id;
+    player_dominant_[player_handle] = best.celestial_id;
     result.has_gravity = true;
     result.dominant_celestial_id = best.celestial_id;
     result.direction = compute_field_direction(*best.field, pos);

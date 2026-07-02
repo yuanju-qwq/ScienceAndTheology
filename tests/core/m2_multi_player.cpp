@@ -62,16 +62,16 @@ bool test_player_manager_basic() {
     PlayerManager pm;
 
     // Single-player id = 1.
-    check(pm.register_player(kSinglePlayerId), "register single-player id");
-    check(pm.has_player(kSinglePlayerId), "has single player");
+    check(pm.register_player(kSinglePlayerHandle), "register single-player id");
+    check(pm.has_player(kSinglePlayerHandle), "has single player");
     check(pm.player_count() == 1, "count == 1");
-    check(pm.get_player(kSinglePlayerId) != nullptr, "get_player non-null");
-    check(pm.get_player(kSinglePlayerId)->id == kSinglePlayerId, "id matches");
+    check(pm.get_player(kSinglePlayerHandle) != nullptr, "get_player non-null");
+    check(pm.get_player(kSinglePlayerHandle)->id == kSinglePlayerHandle, "id matches");
 
     // Reject invalid id.
-    check(!pm.register_player(kInvalidPlayerId), "reject invalid id 0");
+    check(!pm.register_player(kInvalidPlayerHandle), "reject invalid id 0");
     // Reject duplicate.
-    check(!pm.register_player(kSinglePlayerId), "reject duplicate id");
+    check(!pm.register_player(kSinglePlayerHandle), "reject duplicate id");
 
     // Multi-player: register id 2, 3.
     check(pm.register_player(2), "register player 2");
@@ -88,9 +88,9 @@ bool test_player_manager_basic() {
     check(!pm.unregister_player(999), "unregister unknown fails");
 
     // set_player_chunk updates position.
-    check(pm.set_player_chunk(kSinglePlayerId, "overworld", 5, -3, 2),
+    check(pm.set_player_chunk(kSinglePlayerHandle, "overworld", 5, -3, 2),
           "set_player_chunk ok");
-    auto* st = pm.get_player(kSinglePlayerId);
+    auto* st = pm.get_player(kSinglePlayerHandle);
     check(st != nullptr, "state non-null");
     check(st->current_dimension == "overworld", "dim matches");
     check(st->current_cx == 5 && st->current_cy == -3 && st->current_cz == 2,
@@ -114,7 +114,7 @@ bool test_tick_single_player() {
     ts.set_active_radius(4);
 
     // Single player at origin.
-    ts.add_player_chunk(kSinglePlayerId, "overworld", 0, 0, 0);
+    ts.add_player_chunk(kSinglePlayerHandle, "overworld", 0, 0, 0);
     ts.tick(0.05f);  // triggers rebuild_chunk_sets
 
     // Active chunks: |x| <= 4 → x in [-4, 4] = 9 chunks.
@@ -264,8 +264,8 @@ bool test_single_player_degenerates() {
     TickSystem ts(&world);
     ts.set_active_radius(2);
 
-    // Exactly one player with kSinglePlayerId.
-    ts.add_player_chunk(kSinglePlayerId, "overworld", 0, 0, 0);
+    // Exactly one player with kSinglePlayerHandle.
+    ts.add_player_chunk(kSinglePlayerHandle, "overworld", 0, 0, 0);
     ts.tick(0.05f);
 
     check(ts.player_count() == 1, "single player count == 1");

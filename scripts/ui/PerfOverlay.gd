@@ -10,6 +10,7 @@ var _label: Label
 var _bg: ColorRect
 var _tick_system: GDTickSystem = null
 var _chunk_bridge: ChunkRendererBridge = null
+var _perf_monitor: Node = null
 
 # TPS 测量
 var _last_tick_count := 0
@@ -63,9 +64,11 @@ func _process(delta: float) -> void:
 	_refresh_text()
 
 
-func setup(tick_system: GDTickSystem, chunk_bridge: ChunkRendererBridge) -> void:
+func setup(tick_system: GDTickSystem, chunk_bridge: ChunkRendererBridge,
+		perf_monitor: Node = null) -> void:
 	_tick_system = tick_system
 	_chunk_bridge = chunk_bridge
+	_perf_monitor = perf_monitor
 	if _tick_system != null:
 		_last_tick_count = _tick_system.get_tick_count()
 		_last_dirty_count = _tick_system.get_dirty_chunks().size()
@@ -126,7 +129,21 @@ func _refresh_text() -> void:
 			dirty_chunks = _tick_system.get_dirty_chunks().size()
 		net_text += " | Chunks: %d/%d dirty:%d" % [visible_chunks, active_chunks, dirty_chunks]
 
+	var frame_text := ""
+	if _perf_monitor != null and _perf_monitor.has_method("get_frame_stats"):
+		var raw_frame_stats: Variant = _perf_monitor.call("get_frame_stats")
+		var frame_stats: Dictionary = raw_frame_stats if raw_frame_stats is Dictionary else {}
+		frame_text = "Frame: %.1fms p95:%.1f max:%.1f spike:%d/%d" % [
+			float(frame_stats.get("last_ms", 0.0)),
+			float(frame_stats.get("p95_ms", 0.0)),
+			float(frame_stats.get("max_ms", 0.0)),
+			int(frame_stats.get("total_spikes", 0)),
+			int(frame_stats.get("total_serious_spikes", 0)),
+		]
+
 	_label.text = tps_text + "\n" + net_text
+	if frame_text != "":
+		_label.text += "\n" + frame_text
 
 	# 动态调整背景高度。
 	var line_count := _label.get_line_count()

@@ -118,10 +118,10 @@ int64_t GDNetworkServer::get_session_count() const {
     return core_ ? static_cast<int64_t>(core_->session_count()) : 0;
 }
 
-godot::PackedInt64Array GDNetworkServer::get_logged_in_player_ids() const {
+godot::PackedInt64Array GDNetworkServer::get_logged_in_player_handles() const {
     godot::PackedInt64Array arr;
     if (!core_) return arr;
-    auto ids = core_->logged_in_player_ids();
+    auto ids = core_->logged_in_player_handles();
     arr.resize(static_cast<int64_t>(ids.size()));
     auto* ptr = arr.ptrw();
     for (size_t i = 0; i < ids.size(); ++i) {
@@ -130,9 +130,9 @@ godot::PackedInt64Array GDNetworkServer::get_logged_in_player_ids() const {
     return arr;
 }
 
-void GDNetworkServer::kick_player(int64_t player_id, const String& reason) {
+void GDNetworkServer::kick_player(int64_t player_handle, const String& reason) {
     if (core_) {
-        core_->kick_player(static_cast<uint64_t>(player_id),
+        core_->kick_player(static_cast<uint64_t>(player_handle),
                           reason.utf8().get_data());
     }
 }
@@ -140,7 +140,7 @@ void GDNetworkServer::kick_player(int64_t player_id, const String& reason) {
 // --- Callbacks ---
 
 std::vector<uint8_t> GDNetworkServer::on_command(
-    uint64_t player_id, uint64_t client_tick,
+    uint64_t player_handle, uint64_t client_tick,
     const std::vector<uint8_t>& payload) {
     (void)client_tick;  // client_tick flows through the command Dictionary
     if (!command_server_) return {};
@@ -149,8 +149,8 @@ std::vector<uint8_t> GDNetworkServer::on_command(
     godot::Dictionary cmd = bytes_to_dict(payload);
     if (cmd.is_empty()) return {};
 
-    // Ensure the command carries the correct player_id.
-    cmd["player_id"] = static_cast<int64_t>(player_id);
+    // Ensure the command carries the correct player_handle.
+    cmd["player_handle"] = static_cast<int64_t>(player_handle);
 
     // Execute the command via the authoritative command server.
     godot::Dictionary result = command_server_->submit_command(cmd);
@@ -174,8 +174,8 @@ GDNetworkServer::on_produce_deltas() {
     // M5: Enumerate actual logged-in player IDs instead of assuming
     // sequential 1..N (players may join/leave in any order, leaving
     // gaps in the ID space).
-    auto player_ids = core_->logged_in_player_ids();
-    if (player_ids.empty()) return deltas;
+    auto player_handles = core_->logged_in_player_handles();
+    if (player_handles.empty()) return deltas;
 
     // Get all dirty chunks from the tick system.
     godot::Array dirty = tick_system_->get_dirty_chunks();
@@ -191,9 +191,9 @@ GDNetworkServer::on_produce_deltas() {
     // the same planet all receive the delta (the single-observer
     // compute_delta_for would clear flags after the first observer).
     godot::Array observer_views;
-    for (uint64_t pid : player_ids) {
-        const int64_t player_id = static_cast<int64_t>(pid);
-        godot::String player_dim = tick_system_->get_player_dimension(player_id);
+    for (uint64_t pid : player_handles) {
+        const int64_t player_handle = static_cast<int64_t>(pid);
+        godot::String player_dim = tick_system_->get_player_dimension(player_handle);
         if (player_dim.is_empty()) continue;  // player not registered yet
 
         // Filter dirty chunks to only those in the player's dimension.
@@ -210,7 +210,7 @@ GDNetworkServer::on_produce_deltas() {
         if (player_dirty.is_empty()) continue;
 
         godot::Dictionary view;
-        view["player_id"] = player_id;
+        view["player_handle"] = player_handle;
         view["chunks"] = player_dirty;
         observer_views.append(view);
     }
@@ -221,7 +221,7 @@ GDNetworkServer::on_produce_deltas() {
     godot::Array batch_results = tick_system_->compute_deltas_batch(observer_views);
     for (int64_t i = 0; i < batch_results.size(); ++i) {
         godot::Dictionary entry = batch_results[i];
-        int64_t pid = entry["player_id"];
+        int64_t pid = entry["player_handle"];
         godot::Dictionary delta = entry["delta"];
         if (!delta.is_empty()) {
             deltas.emplace_back(static_cast<uint64_t>(pid), dict_to_bytes(delta));
@@ -230,7 +230,7 @@ GDNetworkServer::on_produce_deltas() {
     return deltas;
 }
 
-bool GDNetworkServer::on_login(uint64_t player_id,
+bool GDNetworkServer::on_login(uint64_t player_handle,
                                const std::vector<uint8_t>& credentials,
                                std::string& reject_reason) {
     (void)credentials;
@@ -238,17 +238,17 @@ bool GDNetworkServer::on_login(uint64_t player_id,
         reject_reason = "command server not configured";
         return false;
     }
-    UtilityFunctions::print("[GDNetworkServer] player ", player_id, " connected");
-    emit_signal("player_connected", static_cast<int64_t>(player_id));
+    UtilityFunctions::print("[GDNetworkServer] player ", player_handle, " connected");
+    emit_signal("player_connected", static_cast<int64_t>(player_handle));
     return true;
 }
 
-void GDNetworkServer::on_disconnect(uint64_t player_id) {
+void GDNetworkServer::on_disconnect(uint64_t player_handle) {
     if (command_server_) {
-        command_server_->unregister_player(static_cast<int64_t>(player_id));
+        command_server_->unregister_player(static_cast<int64_t>(player_handle));
     }
-    UtilityFunctions::print("[GDNetworkServer] player ", player_id, " disconnected");
-    emit_signal("player_disconnected", static_cast<int64_t>(player_id));
+    UtilityFunctions::print("[GDNetworkServer] player ", player_handle, " disconnected");
+    emit_signal("player_disconnected", static_cast<int64_t>(player_handle));
 }
 
 // --- Serialization helpers ---
@@ -303,10 +303,10 @@ void GDNetworkServer::_bind_methods() {
                          &GDNetworkServer::get_player_count);
     ClassDB::bind_method(D_METHOD("get_session_count"),
                          &GDNetworkServer::get_session_count);
-    ClassDB::bind_method(D_METHOD("get_logged_in_player_ids"),
-                         &GDNetworkServer::get_logged_in_player_ids);
+    ClassDB::bind_method(D_METHOD("get_logged_in_player_handles"),
+                         &GDNetworkServer::get_logged_in_player_handles);
 
-    ClassDB::bind_method(D_METHOD("kick_player", "player_id", "reason"),
+    ClassDB::bind_method(D_METHOD("kick_player", "player_handle", "reason"),
                          &GDNetworkServer::kick_player);
 
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "command_server",
@@ -321,9 +321,9 @@ void GDNetworkServer::_bind_methods() {
                  "set_server_name", "get_server_name");
 
     ADD_SIGNAL(MethodInfo("player_connected",
-                          PropertyInfo(Variant::INT, "player_id")));
+                          PropertyInfo(Variant::INT, "player_handle")));
     ADD_SIGNAL(MethodInfo("player_disconnected",
-                          PropertyInfo(Variant::INT, "player_id")));
+                          PropertyInfo(Variant::INT, "player_handle")));
 }
 
 } // namespace science_and_theology

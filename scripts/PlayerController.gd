@@ -235,7 +235,8 @@ func _load_player_save_data() -> void:
 	_player_save_data = service.load_player(save_dir, identity)
 	_player_save_loaded = not _player_save_data.is_empty()
 	if _player_save_loaded:
-		print("[PlayerController] loaded player save key=%s" % str(identity.get("player_key", "")))
+		print("[PlayerController] loaded player save uuid=%s" %
+			str(identity.get("player_uuid", "")))
 
 
 func _apply_player_save_basics() -> void:
@@ -1041,7 +1042,7 @@ func _setup_inventory() -> void:
 		equipment.equip(GDPlayerEquipment.SLOT_MAIN_HAND, ItemDatabase.ITEM_IRON_PICKAXE)
 
 	if command_server != null:
-		command_server.register_player(GameCommandServer.LOCAL_PLAYER_ID, inventory, equipment)
+		command_server.register_player(GameCommandServer.LOCAL_PLAYER_HANDLE, inventory, equipment)
 		if not command_server.inventory_synced.is_connected(_on_server_inventory_synced):
 			command_server.inventory_synced.connect(_on_server_inventory_synced)
 

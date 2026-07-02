@@ -3,7 +3,7 @@ extends GDGameCommandServer
 
 # Single-player local player id. Multi-player assigns higher ids to
 # remote clients; the local host is always 1.
-const LOCAL_PLAYER_ID := 1
+const LOCAL_PLAYER_HANDLE := 1
 
 const COMMAND_MINE_BLOCK: StringName = &"mine_block"
 const COMMAND_PLACE_BLOCK: StringName = &"place_block"

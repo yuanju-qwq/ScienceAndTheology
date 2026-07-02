@@ -1184,9 +1184,13 @@ func _sync_identity_to_session() -> void:
 		return
 	var identity: Dictionary = identity_manager.get_identity()
 	GameSession.identity = identity
-	GameSession.player_save_key = identity_manager.get_player_save_key()
+	GameSession.player_uuid = identity_manager.get_player_uuid()
+	GameSession.player_save_key = GameSession.player_uuid
 	GameSession.build_channel = identity_manager.get_build_channel()
 	GameSession.can_host_lan = identity_manager.can_host_lan()
+	GameSession.lan_transport_modes = identity_manager.get_lan_transport_modes()
+	GameSession.preferred_lan_transport = identity_manager.get_preferred_lan_transport()
+	GameSession.dedicated_transport_mode = identity_manager.get_dedicated_transport_mode()
 
 
 # ── Button callbacks ──────────────────────────────────────────────────────────
@@ -1199,7 +1203,11 @@ func _on_single_player() -> void:
 func _on_multiplayer() -> void:
 	_sync_identity_to_session()
 	if GameSession.can_host_lan:
-		_set_status("多人游戏 — 可加入服务器，也可开启局域网（界面即将推出）")
+		var transport_text := "LAN"
+		if GameSession.lan_transport_modes.has("steam_p2p"):
+			transport_text = "LAN + Steam P2P"
+		_set_status("多人游戏 — 可加入服务器，也可开启局域网（%s，界面即将推出）" %
+			transport_text)
 	else:
 		_set_status("多人游戏 — 可加入服务器；开启局域网需要 Steam 账号")
 

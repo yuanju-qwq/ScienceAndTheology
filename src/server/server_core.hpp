@@ -20,7 +20,7 @@ namespace server {
 
 // A connected client session.
 struct ClientSession {
-    uint64_t player_id = 0;
+    uint64_t player_handle = 0;
     TcpConnection conn;
     std::string remote_ip;
     uint16_t remote_port = 0;
@@ -39,26 +39,26 @@ struct ClientSession {
 // the CommandQueue. Returns the response payload to send back to the
 // submitting client (may be empty if no response is needed).
 using CommandExecutor = std::function<std::vector<uint8_t>(
-    uint64_t player_id,
+    uint64_t player_handle,
     uint64_t client_tick,
     const std::vector<uint8_t>& payload)>;
 
 // Produce per-client sync deltas for this tick. Called once per tick.
-// Returns a list of (player_id, payload) pairs; ServerCore sends each
+// Returns a list of (player_handle, payload) pairs; ServerCore sends each
 // payload to the matching client as a SYNC_DELTA frame.
 using DeltaProducer = std::function<std::vector<std::pair<uint64_t, std::vector<uint8_t>>>()>;
 
-// Called when a player logs in (after player_id is assigned).
+// Called when a player logs in (after player_handle is assigned).
 // The host can register the player in PlayerManager here.
 // Return true to accept, false to reject (with reason).
 using LoginHandler = std::function<bool(
-    uint64_t player_id,
+    uint64_t player_handle,
     const std::vector<uint8_t>& credentials,
     std::string& reject_reason)>;
 
 // Called when a player disconnects (graceful or error).
 // The host can unregister the player from PlayerManager here.
-using DisconnectHandler = std::function<void(uint64_t player_id)>;
+using DisconnectHandler = std::function<void(uint64_t player_handle)>;
 
 // ServerCore — the authoritative server's network + session orchestrator.
 //
@@ -121,7 +121,7 @@ public:
     // Returns the player IDs of all currently logged-in players.
     // Use this instead of assuming sequential IDs 1..N (M5: players may
     // join/leave in any order, leaving gaps in the ID space).
-    std::vector<uint64_t> logged_in_player_ids() const;
+    std::vector<uint64_t> logged_in_player_handles() const;
 
     // Set the server name reported in LAN discovery replies.
     void set_server_name(const std::string& name) { server_name_ = name; }
@@ -135,27 +135,27 @@ public:
     // Send a SYNC_DELTA / SYNC_SNAPSHOT frame to a specific player.
     // Used by the host when it produces deltas outside the normal
     // DeltaProducer callback (e.g. immediate snapshot on login).
-    bool send_to_player(uint64_t player_id, PacketType type,
+    bool send_to_player(uint64_t player_handle, PacketType type,
                         const std::vector<uint8_t>& payload);
 
     // Broadcast a player position update (POS_UPDATE) to all clients
     // except the originator. The host calls this when it receives a
     // position update from one client and wants to relay it.
-    void broadcast_position(uint64_t originator_player_id,
+    void broadcast_position(uint64_t originator_player_handle,
                             const std::vector<uint8_t>& payload);
 
     // Kick a player (sends KICK frame then closes the connection).
-    void kick_player(uint64_t player_id, const std::string& reason);
+    void kick_player(uint64_t player_handle, const std::string& reason);
 
 private:
-    // Assign the next available player_id. PlayerId 0 is invalid;
-    // ids start at 1 (matching kSinglePlayerId convention).
-    uint64_t allocate_player_id();
+    // Assign the next available player_handle. PlayerHandle 0 is invalid;
+    // ids start at 1 (matching kSinglePlayerHandle convention).
+    uint64_t allocate_player_handle();
 
     // Handle a decoded frame from a specific session.
     void handle_frame(ClientSession& session, const Frame& frame);
 
-    // Handle CMD_LOGIN: validate credentials, assign player_id, send reply.
+    // Handle CMD_LOGIN: validate credentials, assign player_handle, send reply.
     void handle_login(ClientSession& session, const Frame& frame);
 
     // Handle a UDP datagram (position update or discovery request).
@@ -171,8 +171,8 @@ private:
     // Clean up sessions marked for close.
     void cleanup_sessions();
 
-    // Find a session by player_id. Returns nullptr if not found.
-    ClientSession* find_session(uint64_t player_id);
+    // Find a session by player_handle. Returns nullptr if not found.
+    ClientSession* find_session(uint64_t player_handle);
 
     // Count logged-in sessions WITHOUT locking (caller must hold sessions_mutex_).
     // Used by handle_login which is called from within the poll() lock.
@@ -186,13 +186,13 @@ private:
     UdpSocket udp_socket_;
     bool udp_bound_ = false;
 
-    // Active client sessions, keyed by player_id (0 = not yet logged in,
+    // Active client sessions, keyed by player_handle (0 = not yet logged in,
     // stored in a separate list).
     std::vector<std::unique_ptr<ClientSession>> sessions_;
     mutable std::mutex sessions_mutex_;
 
-    // Next player_id to assign.
-    std::atomic<uint64_t> next_player_id_{1};
+    // Next player_handle to assign.
+    std::atomic<uint64_t> next_player_handle_{1};
 
     // Command queue (filled by network, drained by tick).
     CommandQueue command_queue_;

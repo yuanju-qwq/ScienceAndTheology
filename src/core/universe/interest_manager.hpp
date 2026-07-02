@@ -98,38 +98,38 @@ public:
     //   5. 返回统一 InterestSet。
     //
     // 参数：
-    //   player_id: 玩家 ID
+    //   player_handle: 玩家 ID
     //   sector_manager: Sector 管理器（用于 chunk streaming）
     //   core: 统一宇宙核心（用于天体 LOD）
-    InterestSet compute_interest(uint64_t player_id,
+    InterestSet compute_interest(uint64_t player_handle,
                                  const SectorManager& sector_manager,
                                  const UniverseWorldCore& core);
 
     // --- 便捷方法 ---
 
     // 注册玩家（同时注册到 ChunkStreamingSystem 和 FlightStateTracker）。
-    void register_player(uint64_t player_id,
+    void register_player(uint64_t player_handle,
                          const GlobalPos& pos,
                          const GlobalPos& velocity,
                          SectorId current_sector);
 
     // 注销玩家。
-    void unregister_player(uint64_t player_id);
+    void unregister_player(uint64_t player_handle);
 
     // 更新玩家位置和速度（同时更新 ChunkStreamingSystem 和 FlightStateTracker）。
     // 返回可选的飞行模式切换事件。
     std::optional<FlightModeChangeEvent> update_player(
-        uint64_t player_id,
+        uint64_t player_handle,
         const GlobalPos& pos,
         const GlobalPos& velocity);
 
     // 设置玩家着陆目标。
-    void set_landing_target(uint64_t player_id,
+    void set_landing_target(uint64_t player_handle,
                             const std::string& celestial_id,
                             double distance_to_surface);
 
     // 清除着陆目标。
-    void clear_landing_target(uint64_t player_id);
+    void clear_landing_target(uint64_t player_handle);
 
     // --- 管理 ---
 

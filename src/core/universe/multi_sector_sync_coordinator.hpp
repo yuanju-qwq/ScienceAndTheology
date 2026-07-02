@@ -62,7 +62,7 @@
 #include "sector_observer_map.hpp"
 #include "flight_state_tracker.hpp"
 #include "celestial_lod_system.hpp"
-#include "../player/player_id.hpp"
+#include "../player/player_handle.hpp"
 #include "../world/entity_data.hpp"
 
 namespace science_and_theology {
@@ -77,7 +77,7 @@ struct StateDelta;
 
 // per-observer、per-channel 的发送批次（已应用预算）。
 struct ObserverSendBatch {
-    PlayerId observer = 0;
+    PlayerHandle observer = 0;
     SectorId sector;
 
     // 各通道实际发送的项（已应用预算限制）
@@ -139,27 +139,27 @@ public:
     // --- 玩家生命周期 ---
 
     // 注册玩家（同时注册到 InterestManager、SectorObserverMap、AoiBudgetManager、StateSyncServer）。
-    void register_player(PlayerId id,
+    void register_player(PlayerHandle id,
                          const GlobalPos& pos,
                          const GlobalPos& velocity,
                          SectorId current_sector);
 
     // 注销玩家。
-    void unregister_player(PlayerId id);
+    void unregister_player(PlayerHandle id);
 
     // 更新玩家位置和速度（同时更新 InterestManager）。
     // 返回可选的飞行模式切换事件。
-    std::optional<FlightModeChangeEvent> update_player(PlayerId id,
+    std::optional<FlightModeChangeEvent> update_player(PlayerHandle id,
                                                         const GlobalPos& pos,
                                                         const GlobalPos& velocity);
 
     // 设置玩家着陆目标（委托给 InterestManager）。
-    void set_landing_target(PlayerId id,
+    void set_landing_target(PlayerHandle id,
                             const std::string& celestial_id,
                             double distance_to_surface);
 
     // 清除着陆目标。
-    void clear_landing_target(PlayerId id);
+    void clear_landing_target(PlayerHandle id);
 
     // --- 主 tick：计算并收集所有 delta，应用预算 ---
 
@@ -176,17 +176,17 @@ public:
 
     // 获取上一次 tick 中某观察者的发送批次。
     // 若该观察者未参与上次 tick，返回空批次。
-    ObserverSendBatch get_last_batch(PlayerId id) const;
+    ObserverSendBatch get_last_batch(PlayerHandle id) const;
 
     // 跨 Sector 隔离检查：chunk 是否对观察者可见。
     // 仅当 chunk.sector == 观察者当前 Sector 时可见。
-    bool is_chunk_visible_to(PlayerId observer, const SectorChunkKey& chunk) const;
+    bool is_chunk_visible_to(PlayerHandle observer, const SectorChunkKey& chunk) const;
 
     // 会合检测：两个玩家是否在同一 Sector 且观察集有重叠。
-    bool are_converged(PlayerId a, PlayerId b) const;
+    bool are_converged(PlayerHandle a, PlayerHandle b) const;
 
     // 返回所有注册玩家 id。
-    std::vector<PlayerId> all_player_ids() const;
+    std::vector<PlayerHandle> all_player_handles() const;
 
     // 注册玩家数量。
     size_t player_count() const;
@@ -203,7 +203,7 @@ private:
 
     // 构建单个玩家的发送批次（应用预算）。
     ObserverSendBatch build_batch_for(
-        PlayerId observer,
+        PlayerHandle observer,
         SectorId sector,
         const InterestSet& interest,
         const StateDelta& delta);
@@ -218,10 +218,10 @@ private:
     const UniverseWorldCore* universe_core_ = nullptr;
 
     // 上一次 tick 的发送批次（per-observer）。
-    std::unordered_map<PlayerId, ObserverSendBatch> last_batches_;
+    std::unordered_map<PlayerHandle, ObserverSendBatch> last_batches_;
 
     // 注册的玩家 id 列表（按注册顺序）。
-    std::vector<PlayerId> registered_players_;
+    std::vector<PlayerHandle> registered_players_;
 };
 
 } // namespace science_and_theology

@@ -112,7 +112,7 @@ public:
     // 计算玩家当前位置的重力。
     // 多重力场重叠时通过滞后机制选择主导场。
     // 玩家 id 用于跟踪每个玩家的主导场历史（滞后机制）。
-    GravityQueryResult compute_gravity(uint64_t player_id,
+    GravityQueryResult compute_gravity(uint64_t player_handle,
                                         const GlobalPos& pos) const;
 
     // 计算单个重力场在指定位置的引力大小。
@@ -153,7 +153,7 @@ private:
     std::unordered_map<std::string, GravityField> fields_;
 
     // 每个玩家当前的主导重力场（滞后机制用）。
-    // key: player_id, value: celestial_id
+    // key: player_handle, value: celestial_id
     mutable std::unordered_map<uint64_t, std::string> player_dominant_;
 };
 

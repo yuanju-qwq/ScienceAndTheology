@@ -41,7 +41,7 @@ void ServerCore::stop() {
         for (auto& session : sessions_) {
             if (session->conn.is_valid() && session->logged_in) {
                 const std::string reason = "server shutting down";
-                session->conn.send_frame(PacketType::KICK, session->player_id,
+                session->conn.send_frame(PacketType::KICK, session->player_handle,
                     reinterpret_cast<const uint8_t*>(reason.data()),
                     reason.size());
             }
@@ -88,22 +88,22 @@ size_t ServerCore::session_count() const {
     return sessions_.size();
 }
 
-std::vector<uint64_t> ServerCore::logged_in_player_ids() const {
+std::vector<uint64_t> ServerCore::logged_in_player_handles() const {
     std::vector<uint64_t> ids;
     std::lock_guard<std::mutex> lock(sessions_mutex_);
     ids.reserve(sessions_.size());
     for (const auto& s : sessions_) {
         if (s->logged_in) {
-            ids.push_back(s->player_id);
+            ids.push_back(s->player_handle);
         }
     }
     return ids;
 }
 
-uint64_t ServerCore::allocate_player_id() {
-    // PlayerId 0 is invalid; ids start at 1.
+uint64_t ServerCore::allocate_player_handle() {
+    // PlayerHandle 0 is invalid; ids start at 1.
     // Cap at kMaxPlayers (design §7 Q3: 20 players).
-    return next_player_id_.fetch_add(1);
+    return next_player_handle_.fetch_add(1);
 }
 
 void ServerCore::poll(int timeout_ms) {
@@ -115,7 +115,7 @@ void ServerCore::poll(int timeout_ms) {
         session->conn = std::move(*conn);
         // Note: remote IP/port extraction omitted for brevity; can be
         // added via getpeername() if needed for logging.
-        session->player_id = 0;  // not yet logged in
+        session->player_handle = 0;  // not yet logged in
         session->logged_in = false;
 
         // Enforce player cap before accepting login (checked again in
@@ -184,9 +184,9 @@ void ServerCore::poll(int timeout_ms) {
         std::vector<QueuedCommand> cmds;
         command_queue_.drain_all(cmds);
         for (auto& cmd : cmds) {
-            auto response = command_executor_(cmd.player_id, cmd.client_tick, cmd.payload);
+            auto response = command_executor_(cmd.player_handle, cmd.client_tick, cmd.payload);
             if (!response.empty()) {
-                send_to_player(cmd.player_id, PacketType::SYNC_DELTA, response);
+                send_to_player(cmd.player_handle, PacketType::SYNC_DELTA, response);
             }
         }
     }
@@ -223,7 +223,7 @@ void ServerCore::handle_frame(ClientSession& session, const Frame& frame) {
             }
             // Enqueue for tick-time execution.
             QueuedCommand cmd;
-            cmd.player_id = session.player_id;
+            cmd.player_handle = session.player_handle;
             cmd.client_tick = 0;  // TODO: extract from payload if present
             cmd.payload = frame.payload;
             command_queue_.push(std::move(cmd));
@@ -236,7 +236,7 @@ void ServerCore::handle_frame(ClientSession& session, const Frame& frame) {
 
         case PacketType::HEARTBEAT:
             // Echo back a heartbeat to keep the connection alive.
-            session.conn.send_frame(PacketType::HEARTBEAT, session.player_id,
+            session.conn.send_frame(PacketType::HEARTBEAT, session.player_handle,
                                     nullptr, 0);
             break;
 
@@ -287,9 +287,9 @@ void ServerCore::handle_login(ClientSession& session, const Frame& frame) {
         }
     }
 
-    // Allocate player_id.
-    const uint64_t pid = allocate_player_id();
-    session.player_id = pid;
+    // Allocate player_handle.
+    const uint64_t pid = allocate_player_handle();
+    session.player_handle = pid;
     session.logged_in = true;
 
     // Let the host register the player.
@@ -298,7 +298,7 @@ void ServerCore::handle_login(ClientSession& session, const Frame& frame) {
         if (!login_handler_(pid, frame.payload, reject_reason)) {
             send_login_reject(session, reject_reason);
             session.logged_in = false;
-            session.player_id = 0;
+            session.player_handle = 0;
             session.marked_for_close = true;
             return;
         }
@@ -319,7 +319,7 @@ void ServerCore::handle_udp_datagram(const UdpDatagram& gram) {
     switch (frame.type) {
         case PacketType::POS_UPDATE:
             // Relay to all other logged-in clients.
-            broadcast_position(frame.player_id, frame.payload);
+            broadcast_position(frame.player_handle, frame.payload);
             break;
 
         case PacketType::DISCOVER_REQ:
@@ -347,12 +347,12 @@ void ServerCore::handle_discovery_request(const UdpDatagram& gram) {
 }
 
 void ServerCore::send_login_accept(ClientSession& session) {
-    // Payload: [player_id:u64]
+    // Payload: [player_handle:u64]
     std::vector<uint8_t> payload(8);
     for (int i = 0; i < 8; ++i) {
-        payload[i] = static_cast<uint8_t>((session.player_id >> (i * 8)) & 0xFF);
+        payload[i] = static_cast<uint8_t>((session.player_handle >> (i * 8)) & 0xFF);
     }
-    session.conn.send_frame(PacketType::LOGIN_ACCEPT, session.player_id,
+    session.conn.send_frame(PacketType::LOGIN_ACCEPT, session.player_handle,
                             payload.data(), payload.size());
 }
 
@@ -362,13 +362,13 @@ void ServerCore::send_login_reject(ClientSession& session, const std::string& re
         reason.size());
 }
 
-bool ServerCore::send_to_player(uint64_t player_id, PacketType type,
+bool ServerCore::send_to_player(uint64_t player_handle, PacketType type,
                                 const std::vector<uint8_t>& payload) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
     for (auto& session : sessions_) {
-        if (session->logged_in && session->player_id == player_id) {
+        if (session->logged_in && session->player_handle == player_handle) {
             if (!session->conn.is_valid()) return false;
-            const int n = session->conn.send_frame(type, player_id,
+            const int n = session->conn.send_frame(type, player_handle,
                 payload.data(), payload.size());
             return n > 0;
         }
@@ -376,23 +376,23 @@ bool ServerCore::send_to_player(uint64_t player_id, PacketType type,
     return false;
 }
 
-void ServerCore::broadcast_position(uint64_t originator_player_id,
+void ServerCore::broadcast_position(uint64_t originator_player_handle,
                                     const std::vector<uint8_t>& payload) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
     for (auto& session : sessions_) {
         if (!session->logged_in) continue;
-        if (session->player_id == originator_player_id) continue;  // don't echo back
+        if (session->player_handle == originator_player_handle) continue;  // don't echo back
         if (!session->conn.is_valid()) continue;
-        session->conn.send_frame(PacketType::POS_UPDATE, originator_player_id,
+        session->conn.send_frame(PacketType::POS_UPDATE, originator_player_handle,
             payload.data(), payload.size());
     }
 }
 
-void ServerCore::kick_player(uint64_t player_id, const std::string& reason) {
+void ServerCore::kick_player(uint64_t player_handle, const std::string& reason) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
     for (auto& session : sessions_) {
-        if (session->logged_in && session->player_id == player_id) {
-            session->conn.send_frame(PacketType::KICK, player_id,
+        if (session->logged_in && session->player_handle == player_handle) {
+            session->conn.send_frame(PacketType::KICK, player_handle,
                 reinterpret_cast<const uint8_t*>(reason.data()),
                 reason.size());
             session->marked_for_close = true;
@@ -415,7 +415,7 @@ void ServerCore::cleanup_sessions() {
                 }
                 session->shutdown_sent = true;
                 if (session->logged_in) {
-                    disconnected_ids.push_back(session->player_id);
+                    disconnected_ids.push_back(session->player_handle);
                     session->logged_in = false;
                 }
             }
@@ -441,10 +441,10 @@ void ServerCore::cleanup_sessions() {
     }
 }
 
-ClientSession* ServerCore::find_session(uint64_t player_id) {
+ClientSession* ServerCore::find_session(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(sessions_mutex_);
     for (auto& session : sessions_) {
-        if (session->logged_in && session->player_id == player_id) {
+        if (session->logged_in && session->player_handle == player_handle) {
             return session.get();
         }
     }

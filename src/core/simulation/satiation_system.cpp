@@ -33,13 +33,13 @@ void SatiationSystem::tick_active(const ChunkKey& chunk, float delta,
     // Emit satiation_changed if value changed
     if (event_bus_ && new_satiation != old_satiation) {
         event_bus_->emit(GameEvent::satiation_changed(
-            player_id_, old_satiation, new_satiation));
+            player_handle_, old_satiation, new_satiation));
     }
 
     // Emit hunger_level_changed if level changed
     if (event_bus_ && new_level != old_level) {
         event_bus_->emit(GameEvent::hunger_level_changed(
-            player_id_,
+            player_handle_,
             static_cast<int>(old_level),
             static_cast<int>(new_level)));
         last_hunger_level_ = new_level;
@@ -48,7 +48,7 @@ void SatiationSystem::tick_active(const ChunkKey& chunk, float delta,
     // Emit source_essence_changed if total changed
     if (event_bus_ && new_essence != old_essence) {
         event_bus_->emit(GameEvent::source_essence_changed(
-            player_id_, old_essence, new_essence));
+            player_handle_, old_essence, new_essence));
         last_source_essence_total_ = new_essence;
     }
 }
@@ -83,8 +83,8 @@ void SatiationSystem::set_satiation_data(SatiationData* data) {
     }
 }
 
-void SatiationSystem::set_player_id(uint64_t player_id) {
-    player_id_ = player_id;
+void SatiationSystem::set_player_handle(uint64_t player_handle) {
+    player_handle_ = player_handle;
 }
 
 } // namespace science_and_theology

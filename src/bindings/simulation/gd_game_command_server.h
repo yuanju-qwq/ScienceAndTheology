@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <unordered_map>
 
-#include "core/player/player_id.hpp"
+#include "core/player/player_handle.hpp"
 #include "core/player/player_manager.hpp"
 #include "core/player/tool_def.hpp"
 
@@ -34,15 +34,15 @@ public:
     godot::Resource* get_world_data() const;
 
     // Register or update a player with an explicit id.
-    // Single-player mode uses player_id = 1 (kSinglePlayerId).
+    // Single-player mode uses player_handle = 1 (kSinglePlayerHandle).
     // If the player is already registered, rebinds the inventory/equipment
-    // pointers (upsert). Returns false only if player_id is invalid.
-    bool register_player(int64_t player_id,
+    // pointers (upsert). Returns false only if player_handle is invalid.
+    bool register_player(int64_t player_handle,
                          godot::Resource* inventory,
                          godot::Resource* equipment);
 
     // Unregister a player (multi-player).
-    bool unregister_player(int64_t player_id);
+    bool unregister_player(int64_t player_handle);
 
     // Returns the number of registered players.
     int64_t get_player_count() const;
@@ -67,8 +67,8 @@ protected:
 private:
     static constexpr int32_t kSecondaryNone = -1;
 
-    // Resolve the player for the current command. Reads "player_id" from
-    // the command dict (default kSinglePlayerId). Sets current_player_.
+    // Resolve the player for the current command. Reads "player_handle" from
+    // the command dict (default kSinglePlayerHandle). Sets current_player_.
     // Returns nullptr and emits a rejection if the player is not registered.
     PlayerState* resolve_command_player(const godot::Dictionary& command,
                                         const godot::StringName& command_type);

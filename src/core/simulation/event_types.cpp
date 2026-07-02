@@ -218,19 +218,19 @@ GameEvent GameEvent::region_temperature_changed(
 
 // --- Source law event factories ---
 
-GameEvent GameEvent::source_law_changed(uint64_t player_id) {
+GameEvent GameEvent::source_law_changed(uint64_t player_handle) {
     GameEvent ev;
     ev.type = GameEventType::SOURCE_LAW_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.timestamp = now_ms();
     return ev;
 }
 
 GameEvent GameEvent::organ_transformed(
-    uint64_t player_id, int slot, int element) {
+    uint64_t player_handle, int slot, int element) {
     GameEvent ev;
     ev.type = GameEventType::ORGAN_TRANSFORMED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.int_data["slot"] = slot;
     ev.int_data["element"] = element;
     ev.timestamp = now_ms();
@@ -238,20 +238,20 @@ GameEvent GameEvent::organ_transformed(
 }
 
 GameEvent GameEvent::organ_purified(
-    uint64_t player_id, int slot) {
+    uint64_t player_handle, int slot) {
     GameEvent ev;
     ev.type = GameEventType::ORGAN_PURIFIED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.int_data["slot"] = slot;
     ev.timestamp = now_ms();
     return ev;
 }
 
 GameEvent GameEvent::stability_changed(
-    uint64_t player_id, float old_val, float new_val) {
+    uint64_t player_handle, float old_val, float new_val) {
     GameEvent ev;
     ev.type = GameEventType::STABILITY_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.float_data["old_val"] = static_cast<double>(old_val);
     ev.float_data["new_val"] = static_cast<double>(new_val);
     ev.timestamp = now_ms();
@@ -259,10 +259,10 @@ GameEvent GameEvent::stability_changed(
 }
 
 GameEvent GameEvent::mutation_changed(
-    uint64_t player_id, float old_val, float new_val) {
+    uint64_t player_handle, float old_val, float new_val) {
     GameEvent ev;
     ev.type = GameEventType::MUTATION_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.float_data["old_val"] = static_cast<double>(old_val);
     ev.float_data["new_val"] = static_cast<double>(new_val);
     ev.timestamp = now_ms();
@@ -270,10 +270,10 @@ GameEvent GameEvent::mutation_changed(
 }
 
 GameEvent GameEvent::mana_changed(
-    uint64_t player_id, int old_val, int new_val) {
+    uint64_t player_handle, int old_val, int new_val) {
     GameEvent ev;
     ev.type = GameEventType::MANA_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.int_data["old_val"] = old_val;
     ev.int_data["new_val"] = new_val;
     ev.timestamp = now_ms();
@@ -283,10 +283,10 @@ GameEvent GameEvent::mana_changed(
 // --- Satiation event factories ---
 
 GameEvent GameEvent::satiation_changed(
-    uint64_t player_id, float old_val, float new_val) {
+    uint64_t player_handle, float old_val, float new_val) {
     GameEvent ev;
     ev.type = GameEventType::SATIATION_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.float_data["old_val"] = static_cast<double>(old_val);
     ev.float_data["new_val"] = static_cast<double>(new_val);
     ev.timestamp = now_ms();
@@ -294,10 +294,10 @@ GameEvent GameEvent::satiation_changed(
 }
 
 GameEvent GameEvent::hunger_level_changed(
-    uint64_t player_id, int old_level, int new_level) {
+    uint64_t player_handle, int old_level, int new_level) {
     GameEvent ev;
     ev.type = GameEventType::HUNGER_LEVEL_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.int_data["old_level"] = old_level;
     ev.int_data["new_level"] = new_level;
     ev.timestamp = now_ms();
@@ -305,10 +305,10 @@ GameEvent GameEvent::hunger_level_changed(
 }
 
 GameEvent GameEvent::source_essence_changed(
-    uint64_t player_id, float old_total, float new_total) {
+    uint64_t player_handle, float old_total, float new_total) {
     GameEvent ev;
     ev.type = GameEventType::SOURCE_ESSENCE_CHANGED;
-    ev.source_id = player_id;
+    ev.source_id = player_handle;
     ev.float_data["old_total"] = static_cast<double>(old_total);
     ev.float_data["new_total"] = static_cast<double>(new_total);
     ev.timestamp = now_ms();

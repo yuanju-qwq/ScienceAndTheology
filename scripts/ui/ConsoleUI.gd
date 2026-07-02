@@ -198,6 +198,8 @@ func _register_default_commands() -> void:
 		PermissionLevel.CHEATER)
 	register_command("perf", _cmd_perf, "Toggle TPS and network data overlay",
 		PermissionLevel.CHEATER)
+	register_command("spikes", _cmd_spikes, "Show recent frame spike diagnostics",
+		PermissionLevel.CHEATER)
 	register_command("spark", _cmd_spark,
 		"Tick profiler controls (usage: /spark profiler <start|stop|top|status>)",
 		PermissionLevel.CHEATER)
@@ -465,11 +467,30 @@ func _cmd_perf(_args: String) -> void:
 			if _player.universe_manager != null:
 				tick_sys = _player.universe_manager.tick_system
 			chunk_bridge = _player.world
-		_perf_overlay.setup(tick_sys, chunk_bridge)
+		_perf_overlay.setup(tick_sys, chunk_bridge, _get_runtime_perf_monitor())
 
 	_perf_overlay.toggle()
 	var state := "ON" if _perf_overlay.visible else "OFF"
 	print_line("[color=cyan]Perf overlay: %s[/color]" % state)
+
+
+# /spikes [n] — print recent frame spike diagnostics on demand.
+func _cmd_spikes(args: String) -> void:
+	var monitor := _get_runtime_perf_monitor()
+	if monitor == null:
+		print_line("[color=red]No RuntimePerfMonitor available[/color]")
+		return
+	if not monitor.has_method("get_spike_report"):
+		print_line("[color=red]RuntimePerfMonitor has no spike report API[/color]")
+		return
+	var limit := 8
+	var trimmed := args.strip_edges()
+	if trimmed.is_valid_int():
+		limit = clampi(trimmed.to_int(), 1, 32)
+	var report: Variant = monitor.call("get_spike_report", limit)
+	if typeof(report) == TYPE_PACKED_STRING_ARRAY or typeof(report) == TYPE_ARRAY:
+		for line in report:
+			print_line(str(line))
 
 
 # /spark profiler ... — command-style profiler controls inspired by Spark.
@@ -591,6 +612,13 @@ func _get_tick_system_for_profiler() -> GDTickSystem:
 	var scene := get_tree().current_scene
 	if scene != null:
 		return scene.get_node_or_null("GDTickSystem") as GDTickSystem
+	return null
+
+
+func _get_runtime_perf_monitor() -> Node:
+	var scene := get_tree().current_scene
+	if scene != null:
+		return scene.get_node_or_null("RuntimePerfMonitor")
 	return null
 
 

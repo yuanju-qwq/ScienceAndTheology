@@ -107,10 +107,10 @@ int TcpConnection::send_bytes(const std::vector<uint8_t>& data) {
     return send_bytes(data.data(), data.size());
 }
 
-int TcpConnection::send_frame(PacketType type, uint64_t player_id,
+int TcpConnection::send_frame(PacketType type, uint64_t player_handle,
                               const uint8_t* payload, size_t payload_len,
                               FrameFlags flags) {
-    auto wire = encode_frame(type, player_id, payload, payload_len, flags);
+    auto wire = encode_frame(type, player_handle, payload, payload_len, flags);
     if (wire.empty() && payload_len > 0) return -1;
     return send_bytes(wire);
 }

@@ -146,13 +146,13 @@ public:
 
     // --- Multi-player active set API ---
     // Register/update a player's chunk position for active set computation.
-    // Single-player mode uses player_id = 1 (kSinglePlayerId).
-    void add_player_chunk(int64_t player_id,
+    // Single-player mode uses player_handle = 1 (kSinglePlayerHandle).
+    void add_player_chunk(int64_t player_handle,
                           const godot::String& dimension,
                           int cx, int cy, int cz);
 
     // Remove a player from the active set computation.
-    void remove_player_chunk(int64_t player_id);
+    void remove_player_chunk(int64_t player_handle);
 
     // Remove all players from the active set computation.
     void clear_player_chunks();
@@ -163,7 +163,7 @@ public:
     // Returns the dimension the player is currently in, or empty string
     // if the player is not registered. Used by the network layer to
     // filter deltas by player dimension (M5: multi-planet concurrent).
-    godot::String get_player_dimension(int64_t player_id) const;
+    godot::String get_player_dimension(int64_t player_handle) const;
 
     // Active chunk radius.
     int64_t get_active_radius() const;
@@ -223,12 +223,12 @@ public:
     // Call each frame; GDScript rendering layer uses this to update proxies.
     godot::Array get_dirty_chunks() const;
 
-    // Compute delta for a specific observer (player_id) over the given
+    // Compute delta for a specific observer (player_handle) over the given
     // chunk list. Returns dict:
     //   { "flags": int, "timestamp": int,
     //     "chunks_modified": Array, "entities_created": Array, ... }
-    // Single-player mode uses player_id = 1 (kSinglePlayerId).
-    godot::Dictionary compute_delta_for(int64_t player_id,
+    // Single-player mode uses player_handle = 1 (kSinglePlayerHandle).
+    godot::Dictionary compute_delta_for(int64_t player_handle,
                                         const godot::Array& chunk_keys);
 
     // M5: Compute deltas for multiple observers in batch. Dirty flags
@@ -236,9 +236,9 @@ public:
     // multiple observers in the same dimension all see the same dirty
     // state.
     // observer_views: Array of Dictionaries, each with:
-    //   { "player_id": int, "chunks": Array of chunk Dictionaries }
+    //   { "player_handle": int, "chunks": Array of chunk Dictionaries }
     // Returns: Array of Dictionaries, each with:
-    //   { "player_id": int, "delta": Dictionary }
+    //   { "player_handle": int, "delta": Dictionary }
     godot::Array compute_deltas_batch(const godot::Array& observer_views);
 
     // Create a full snapshot for a chunk.

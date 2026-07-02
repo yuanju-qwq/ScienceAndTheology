@@ -76,7 +76,7 @@ uint32_t crc32_compute(const uint8_t* data, size_t length) {
 }
 
 std::vector<uint8_t> encode_frame(PacketType type,
-                                  uint64_t player_id,
+                                  uint64_t player_handle,
                                   const uint8_t* payload,
                                   size_t payload_len,
                                   FrameFlags flags) {
@@ -103,8 +103,8 @@ std::vector<uint8_t> encode_frame(PacketType type,
     // flags
     write_u16_le(p, static_cast<uint16_t>(flags));
     p += 2;
-    // player_id
-    write_u64_le(p, player_id);
+    // player_handle
+    write_u64_le(p, player_handle);
     p += 8;
     // payload_len
     write_u32_le(p, static_cast<uint32_t>(payload_len));
@@ -152,7 +152,7 @@ DecodeResult decode_frame(std::vector<uint8_t>& buffer) {
 
     const PacketType type = static_cast<PacketType>(p[5]);
     const FrameFlags flags = static_cast<FrameFlags>(read_u16_le(p + 6));
-    const uint64_t player_id = read_u64_le(p + 8);
+    const uint64_t player_handle = read_u64_le(p + 8);
     const uint32_t payload_len = read_u32_le(p + 16);
 
     if (payload_len > kMaxPayloadSize) {
@@ -180,7 +180,7 @@ DecodeResult decode_frame(std::vector<uint8_t>& buffer) {
     frame.version = version;
     frame.type = type;
     frame.flags = flags;
-    frame.player_id = player_id;
+    frame.player_handle = player_handle;
     if (payload_len > 0) {
         frame.payload.assign(buffer.data() + kFrameHeaderSize,
                              buffer.data() + kFrameHeaderSize + payload_len);

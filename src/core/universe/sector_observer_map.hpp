@@ -46,13 +46,13 @@ public:
 
     // 注册玩家。
     // 初始 current_sector 可为 SectorId{0}（未进入任何 Sector）。
-    void register_player(uint64_t player_id);
+    void register_player(uint64_t player_handle);
 
     // 注销玩家。
-    void unregister_player(uint64_t player_id);
+    void unregister_player(uint64_t player_handle);
 
     // 查询玩家是否已注册。
-    bool has_player(uint64_t player_id) const;
+    bool has_player(uint64_t player_handle) const;
 
     // 玩家数量。
     size_t player_count() const;
@@ -61,10 +61,10 @@ public:
 
     // 设置玩家当前 Sector。
     // 切换 Sector 时会清空旧的 observed_chunks。
-    void set_player_sector(uint64_t player_id, SectorId sector);
+    void set_player_sector(uint64_t player_handle, SectorId sector);
 
     // 获取玩家当前 Sector。
-    SectorId get_player_sector(uint64_t player_id) const;
+    SectorId get_player_sector(uint64_t player_handle) const;
 
     // 查询某 Sector 内的所有玩家。
     std::vector<uint64_t> players_in_sector(SectorId sector) const;
@@ -77,20 +77,20 @@ public:
     // 设置玩家观察的 chunk 集合。
     // 这些 chunk 必须属于玩家当前 Sector（不属于的会被忽略）。
     // 会替换之前的观察集。
-    void set_observed_chunks(uint64_t player_id,
+    void set_observed_chunks(uint64_t player_handle,
                               const std::vector<SectorChunkKey>& chunks);
 
     // 添加观察的单个 chunk。
-    void add_observed_chunk(uint64_t player_id, const SectorChunkKey& chunk);
+    void add_observed_chunk(uint64_t player_handle, const SectorChunkKey& chunk);
 
     // 移除观察的单个 chunk。
-    void remove_observed_chunk(uint64_t player_id, const SectorChunkKey& chunk);
+    void remove_observed_chunk(uint64_t player_handle, const SectorChunkKey& chunk);
 
     // 获取玩家观察的所有 chunk。
-    std::vector<SectorChunkKey> get_observed_chunks(uint64_t player_id) const;
+    std::vector<SectorChunkKey> get_observed_chunks(uint64_t player_handle) const;
 
     // 获取玩家观察的 chunk 数量。
-    size_t observed_chunk_count(uint64_t player_id) const;
+    size_t observed_chunk_count(uint64_t player_handle) const;
 
     // 查询哪些玩家在观察某个 chunk。
     std::vector<uint64_t> observers_of_chunk(const SectorChunkKey& chunk) const;
@@ -104,12 +104,12 @@ public:
     bool are_in_same_sector(uint64_t player_a, uint64_t player_b) const;
 
     // 获取与指定玩家在同一 Sector 的所有其他玩家。
-    std::vector<uint64_t> peers_in_same_sector(uint64_t player_id) const;
+    std::vector<uint64_t> peers_in_same_sector(uint64_t player_handle) const;
 
     // --- 查询 ---
 
     // 返回所有已注册玩家 id。
-    std::vector<uint64_t> all_player_ids() const;
+    std::vector<uint64_t> all_player_handles() const;
 
     // 返回所有有玩家的 Sector。
     std::vector<SectorId> occupied_sectors() const;

@@ -436,7 +436,7 @@ LOD 4：Billboard。
 ```cpp
 class CelestialLodSystem {
 public:
-    LodLevel choose_lod(PlayerId player, PlanetId planet);
+    LodLevel choose_lod(PlayerHandle player, PlanetId planet);
     PlanetVisualData build_visual(PlanetId planet, LodLevel lod);
 };
 ```
@@ -462,8 +462,8 @@ public:
 class ChunkStreamingSystem {
 public:
     void update_player_interest(PlayerSession& player);
-    void request_chunks(PlayerId player, std::span<ChunkKey> chunks);
-    void unload_far_chunks(PlayerId player);
+    void request_chunks(PlayerHandle player, std::span<ChunkKey> chunks);
+    void unload_far_chunks(PlayerHandle player);
 };
 ```
 
@@ -888,7 +888,7 @@ LandingApproach：接近星球或空间站，开始预加载真实 chunk。
 ```cpp
 struct VehicleGroup {
     EntityId vehicle;
-    std::vector<PlayerId> passengers;
+    std::vector<PlayerHandle> passengers;
 };
 ```
 

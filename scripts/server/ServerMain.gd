@@ -115,19 +115,19 @@ func _setup_network(args: Args) -> void:
 
 # --- Player lifecycle ---
 
-func _on_player_connected(player_id: int) -> void:
-	print("[ServerMain] player %d connected, registering..." % player_id)
+func _on_player_connected(player_handle: int) -> void:
+	print("[ServerMain] player %d connected, registering..." % player_handle)
 	var inventory := GDPlayerInventory.new()
 	inventory.init(INVENTORY_WIDTH, INVENTORY_HEIGHT)
 	var equipment := GDPlayerEquipment.new()
-	_command_server.register_player(player_id, inventory, equipment)
-	_tick_system.add_player_chunk(player_id, SPAWN_DIMENSION,
+	_command_server.register_player(player_handle, inventory, equipment)
+	_tick_system.add_player_chunk(player_handle, SPAWN_DIMENSION,
 		SPAWN_CX, SPAWN_CY, SPAWN_CZ)
 
 
-func _on_player_disconnected(player_id: int) -> void:
-	print("[ServerMain] player %d disconnected, cleaning up..." % player_id)
-	_tick_system.remove_player_chunk(player_id)
+func _on_player_disconnected(player_handle: int) -> void:
+	print("[ServerMain] player %d disconnected, cleaning up..." % player_handle)
+	_tick_system.remove_player_chunk(player_handle)
 	# unregister_player is already called in C++ GDNetworkServer::on_disconnect.
 
 

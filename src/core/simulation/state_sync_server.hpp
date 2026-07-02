@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "state_sync_common.hpp"
-#include "../player/player_id.hpp"
+#include "../player/player_handle.hpp"
 #include "../world/world_data.hpp"
 
 namespace science_and_theology {
@@ -16,10 +16,10 @@ namespace science_and_theology {
 // In multiplayer: C++ server sends deltas over network.
 //
 // Observer model:
-//   Each observer (identified by PlayerId) has its own view of the
+//   Each observer (identified by PlayerHandle) has its own view of the
 //   world. compute_delta_for(observer, chunks) returns the delta for
 //   that observer's visible chunks. In M1 (single-player), there is
-//   exactly one observer (kSinglePlayerId) and the per-observer
+//   exactly one observer (kSinglePlayerHandle) and the per-observer
 //   tracking degenerates to the legacy compute_delta() behavior.
 class StateSyncServer {
 public:
@@ -39,15 +39,15 @@ public:
     // --- Per-observer API (multi-player) ---
 
     // Register an observer. Idempotent.
-    void register_observer(PlayerId id);
+    void register_observer(PlayerHandle id);
 
     // Unregister an observer.
-    void unregister_observer(PlayerId id);
+    void unregister_observer(PlayerHandle id);
 
     // Compute a delta for a specific observer over the given observed
     // chunks. In M1, this delegates to the shared dirty map (same as
     // compute_delta). Per-observer dirty tracking is M3+ scope.
-    StateDelta compute_delta_for(PlayerId observer,
+    StateDelta compute_delta_for(PlayerHandle observer,
                                  const std::vector<ChunkKey>& observed_chunks);
 
     // M5: Compute deltas for multiple observers in batch. Each observer
@@ -58,11 +58,11 @@ public:
     // after the first observer, starving the rest).
     // observer_views: list of (observer_id, observed_chunks) pairs.
     // Returns: list of (observer_id, delta) pairs in the same order.
-    std::vector<std::pair<PlayerId, StateDelta>> compute_deltas_batch(
-        const std::vector<std::pair<PlayerId, std::vector<ChunkKey>>>& observer_views);
+    std::vector<std::pair<PlayerHandle, StateDelta>> compute_deltas_batch(
+        const std::vector<std::pair<PlayerHandle, std::vector<ChunkKey>>>& observer_views);
 
     // Returns true if the observer is registered.
-    bool has_observer(PlayerId id) const;
+    bool has_observer(PlayerHandle id) const;
 
     // --- Snapshot / dirty query API ---
 
@@ -94,7 +94,7 @@ private:
 
     // Registered observers. In M1 this is informational; per-observer
     // dirty tracking is M3+ scope. Kept as a set for API completeness.
-    std::unordered_map<PlayerId, bool> observers_;
+    std::unordered_map<PlayerHandle, bool> observers_;
 
     // Shared dirty-map delta computation used by compute_delta_for.
     // Clears dirty flags for the returned categories.

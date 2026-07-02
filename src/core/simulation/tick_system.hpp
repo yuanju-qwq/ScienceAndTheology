@@ -9,7 +9,7 @@
 #include "event_bus.hpp"
 #include "state_sync_server.hpp"
 #include "tick_profiler.hpp"
-#include "../player/player_id.hpp"
+#include "../player/player_handle.hpp"
 #include "../world/world_data.hpp"
 
 namespace science_and_theology {
@@ -72,17 +72,17 @@ public:
     // within active_radius_ of ANY player. Sleep tier is determined by
     // the minimum distance to any player.
     //
-    // Single-player mode uses exactly one player (kSinglePlayerId = 1).
+    // Single-player mode uses exactly one player (kSinglePlayerHandle = 1).
 
     // Register a player's chunk position. Adds the player to the active
     // set computation. If the player is already registered, updates its
     // position. Idempotent.
-    void add_player_chunk(PlayerId id,
+    void add_player_chunk(PlayerHandle id,
                           const std::string& dimension,
                           int cx, int cy, int cz);
 
     // Remove a player from the active set computation.
-    void remove_player_chunk(PlayerId id);
+    void remove_player_chunk(PlayerHandle id);
 
     // Remove all players from the active set computation.
     void clear_player_chunks();
@@ -93,7 +93,7 @@ public:
     // Returns the dimension the player is currently in, or empty string
     // if the player is not registered. Used by the network layer to
     // filter deltas by player dimension (M5: multi-planet concurrent).
-    std::string get_player_dimension(PlayerId id) const;
+    std::string get_player_dimension(PlayerHandle id) const;
 
     // How many chunks around the player are ACTIVE (radius, Chebyshev).
     void set_active_radius(int radius) { active_radius_ = radius; }
@@ -253,14 +253,14 @@ private:
 
     // Multi-player active set tracking.
     // Each entry is a player's current chunk position.
-    // Single-player mode: one entry with id = kSinglePlayerId.
+    // Single-player mode: one entry with id = kSinglePlayerHandle.
     struct PlayerChunkPos {
         std::string dimension = "overworld";
         int cx = 0;
         int cy = 0;
         int cz = 0;
     };
-    std::unordered_map<PlayerId, PlayerChunkPos> player_chunks_;
+    std::unordered_map<PlayerHandle, PlayerChunkPos> player_chunks_;
 
     // Cached flag: set when any player position changes, cleared after
     // rebuild_chunk_sets(). Avoids rebuilding every tick when stationary.

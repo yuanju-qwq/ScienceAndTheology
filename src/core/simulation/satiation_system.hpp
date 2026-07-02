@@ -47,12 +47,12 @@ public:
     SatiationData* satiation_data() const { return satiation_data_; }
 
     // Set the player id used in emitted events.
-    void set_player_id(uint64_t player_id);
-    uint64_t player_id() const { return player_id_; }
+    void set_player_handle(uint64_t player_handle);
+    uint64_t player_handle() const { return player_handle_; }
 
 private:
     SatiationData* satiation_data_ = nullptr;
-    uint64_t player_id_ = 0;
+    uint64_t player_handle_ = 0;
     HungerLevel last_hunger_level_ = HungerLevel::SATIATED;
     float last_source_essence_total_ = 0.0f;
 };

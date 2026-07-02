@@ -16,7 +16,7 @@ struct Frame {
     uint8_t version = 0;
     PacketType type = PacketType::HEARTBEAT;
     FrameFlags flags = FrameFlags::NONE;
-    uint64_t player_id = 0;
+    uint64_t player_handle = 0;
     std::vector<uint8_t> payload;
 
     bool is_compressed() const {
@@ -42,26 +42,26 @@ uint32_t crc32_compute(const uint8_t* data, size_t length);
 // Encode a frame into a byte buffer ready for transmission.
 // Returns the complete wire bytes (header + payload + crc32).
 std::vector<uint8_t> encode_frame(PacketType type,
-                                  uint64_t player_id,
+                                  uint64_t player_handle,
                                   const uint8_t* payload,
                                   size_t payload_len,
                                   FrameFlags flags = FrameFlags::NONE);
 
 // Convenience overload for string payloads.
 inline std::vector<uint8_t> encode_frame_string(PacketType type,
-                                                uint64_t player_id,
+                                                uint64_t player_handle,
                                                 const std::string& payload,
                                                 FrameFlags flags = FrameFlags::NONE) {
-    return encode_frame(type, player_id,
+    return encode_frame(type, player_handle,
                         reinterpret_cast<const uint8_t*>(payload.data()),
                         payload.size(), flags);
 }
 
 // Convenience overload for empty payloads (e.g. heartbeat).
 inline std::vector<uint8_t> encode_frame_empty(PacketType type,
-                                               uint64_t player_id,
+                                               uint64_t player_handle,
                                                FrameFlags flags = FrameFlags::NONE) {
-    return encode_frame(type, player_id, nullptr, 0, flags);
+    return encode_frame(type, player_handle, nullptr, 0, flags);
 }
 
 // Attempt to decode one frame from the front of a receive buffer.

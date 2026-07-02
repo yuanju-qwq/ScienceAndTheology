@@ -47,7 +47,7 @@ bool test_frame_roundtrip() {
         check(result.status == DecodeStatus::OK, "empty decode OK");
         check(result.frame.has_value(), "empty frame present");
         check(result.frame->type == PacketType::HEARTBEAT, "type matches");
-        check(result.frame->player_id == 42, "player_id matches");
+        check(result.frame->player_handle == 42, "player_handle matches");
         check(result.frame->payload.empty(), "payload empty");
         check(buf.empty(), "buffer consumed");
     }
@@ -59,7 +59,7 @@ bool test_frame_roundtrip() {
         std::vector<uint8_t> buf(wire.begin(), wire.end());
         auto result = decode_frame(buf);
         check(result.status == DecodeStatus::OK, "small decode OK");
-        check(result.frame->player_id == 7, "pid 7");
+        check(result.frame->player_handle == 7, "pid 7");
         check(result.frame->payload.size() == payload.size(), "payload size");
         std::string decoded(result.frame->payload.begin(),
                             result.frame->payload.end());
@@ -150,9 +150,9 @@ bool test_command_queue() {
     size_t n = q.drain_all(drained);
     check(n == 3, "drained 3");
     check(drained.size() == 3, "out vector size 3");
-    check(drained[0].player_id == 1, "FIFO order 1");
-    check(drained[1].player_id == 2, "FIFO order 2");
-    check(drained[2].player_id == 3, "FIFO order 3");
+    check(drained[0].player_handle == 1, "FIFO order 1");
+    check(drained[1].player_handle == 2, "FIFO order 2");
+    check(drained[2].player_handle == 3, "FIFO order 3");
     check(q.empty(), "empty after drain");
 
     // drain_some with cap.
@@ -250,7 +250,7 @@ bool test_network_roundtrip() {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     check(connected, "client connected within timeout");
-    check(client.player_id() != 0, "client got player_id");
+    check(client.player_handle() != 0, "client got player_handle");
     check(assigned_pid != 0, "server login handler called");
 
     // Send a command.

@@ -13,7 +13,7 @@ namespace server {
 //
 // Frame layout (little-endian, 20-byte header):
 //   ┌──────────┬─────────┬──────┬──────────┬───────────┬─────────────┬─────────┬────────┐
-//   │ magic(4) │ ver(1)  │type(1)│ flags(2) │ player_id(8)│ payload_len(4)│ payload │ crc32(4)│
+//   │ magic(4) │ ver(1)  │type(1)│ flags(2) │ player_handle(8)│ payload_len(4)│ payload │ crc32(4)│
 //   └──────────┴─────────┴──────┴──────────┴───────────┴─────────────┴─────────┴────────┘
 //
 // magic = "SNT1" (0x53 0x4E 0x54 0x31)
@@ -54,7 +54,7 @@ enum class PacketType : uint8_t {
     DISCOVER_REPLY  = 31,  // server → unicast: discovery reply
 
     // --- Control ---
-    LOGIN_ACCEPT  = 40,  // server → client: login accepted (payload = assigned player_id)
+    LOGIN_ACCEPT  = 40,  // server → client: login accepted (payload = assigned player_handle)
     LOGIN_REJECT  = 41,  // server → client: login rejected (payload = reason string)
     HEARTBEAT     = 42,  // bidirectional: keepalive
     KICK          = 43,  // server → client: forced disconnect (payload = reason string)

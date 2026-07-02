@@ -1,4 +1,4 @@
-[gd_scene load_steps=33 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=34 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -19,6 +19,7 @@
 [ext_resource type="Script" path="res://scripts/world/DayNightCycle.gd" id="18_day_night_cycle"]
 [ext_resource type="Script" path="res://scripts/ui/ProbePanel.gd" id="19_probe_panel"]
 [ext_resource type="Script" path="res://scripts/world/PrototypeBaselineMonitor.gd" id="21_baseline_monitor"]
+[ext_resource type="Script" path="res://scripts/world/RuntimePerfMonitor.gd" id="22_runtime_perf_monitor"]
 [ext_resource type="Script" path="res://scripts/ui/Crosshair.gd" id="22_crosshair"]
 [ext_resource type="Script" path="res://scripts/world/CharcoalPitManager.gd" id="23_charcoal_pit"]
 [ext_resource type="Script" path="res://scripts/world/PitKilnManager.gd" id="24_pit_kiln"]
@@ -123,6 +124,9 @@ tick_system_path = NodePath("../GDTickSystem")
 
 [node name="PrototypeBaselineMonitor" type="Node" parent="."]
 script = ExtResource("21_baseline_monitor")
+
+[node name="RuntimePerfMonitor" type="Node" parent="."]
+script = ExtResource("22_runtime_perf_monitor")
 
 [node name="GDTickSystem" type="GDTickSystem" parent="."]
 

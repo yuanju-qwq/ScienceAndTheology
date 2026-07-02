@@ -200,7 +200,7 @@ func try_mine_target(target: Dictionary) -> bool:
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_MINE_BLOCK,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"dimension": target.get("dimension", OVERWORLD),
 		"chunk": target.get("chunk", Vector3i.ZERO),
 		"local": target.get("local", Vector3i.ZERO),
@@ -423,7 +423,7 @@ func try_place_block(target: Dictionary) -> bool:
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_PLACE_BLOCK,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"dimension": _player.get_current_dimension(),
 		"cell": place_cell,
 		"anchor_cell": anchor_cell,
@@ -598,7 +598,7 @@ func try_tfc_charcoal_pit(target: Dictionary) -> bool:
 				if cmd:
 					cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
 						"item_id": ItemDatabase.ITEM_CHARCOAL, "count": count,
-						"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+						"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE})
 			return true
 		return mgr.light(dim, cell)
 
@@ -663,7 +663,7 @@ func try_tfc_pit_kiln(target: Dictionary) -> bool:
 				if cmd:
 					cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
 						"item_id": item_id, "count": count,
-						"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+						"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE})
 			return true
 		# Not ready — try light
 		if held == ItemDatabase.ITEM_FLINT_AND_STEEL:
@@ -732,7 +732,7 @@ func try_tfc_bloomery(target: Dictionary) -> bool:
 				if cmd:
 					cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
 						"item_id": ItemDatabase.ITEM_IRON_BLOOM, "count": yield_count,
-						"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+						"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE})
 			return true
 
 	# Use bellows
@@ -817,7 +817,7 @@ func try_tfc_anvil(target: Dictionary) -> bool:
 			if cmd:
 				cmd.submit_command({"type": GameCommandServer.COMMAND_ADD_INVENTORY_ITEM,
 					"item_id": ItemDatabase.ITEM_WROUGHT_IRON_INGOT, "count": 1,
-					"player_id": GameCommandServer.LOCAL_PLAYER_ID})
+					"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE})
 			_player.inventory_changed.emit()
 			return true
 

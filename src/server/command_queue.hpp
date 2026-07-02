@@ -16,7 +16,7 @@ namespace server {
 // The payload is an opaque blob — the server core decodes it via the
 // host's command executor (GDGameCommandServer in M3, native C++ later).
 struct QueuedCommand {
-    uint64_t player_id = 0;       // who submitted the command
+    uint64_t player_handle = 0;       // who submitted the command
     uint64_t client_tick = 0;     // optional client prediction tick
     std::vector<uint8_t> payload; // serialized command (format defined by host)
 };
@@ -42,7 +42,7 @@ public:
     void push(QueuedCommand cmd);
 
     // Push a command by move (convenience).
-    void push(uint64_t player_id, std::vector<uint8_t> payload, uint64_t client_tick = 0);
+    void push(uint64_t player_handle, std::vector<uint8_t> payload, uint64_t client_tick = 0);
 
     // Drain all pending commands into `out` (thread-safe, non-blocking).
     // Clears the queue. Returns the number of commands drained.

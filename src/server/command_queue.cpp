@@ -11,11 +11,11 @@ void CommandQueue::push(QueuedCommand cmd) {
     cv_.notify_one();
 }
 
-void CommandQueue::push(uint64_t player_id,
+void CommandQueue::push(uint64_t player_handle,
                         std::vector<uint8_t> payload,
                         uint64_t client_tick) {
     QueuedCommand cmd;
-    cmd.player_id = player_id;
+    cmd.player_handle = player_handle;
     cmd.client_tick = client_tick;
     cmd.payload = std::move(payload);
     push(std::move(cmd));

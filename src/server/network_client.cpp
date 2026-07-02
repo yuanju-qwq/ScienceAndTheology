@@ -76,7 +76,7 @@ void NetworkClient::disconnect() {
     // Send graceful logout if connected.
     if (tcp_conn_.is_valid() &&
         (state_ == ClientState::CONNECTED || state_ == ClientState::LOGGING_IN)) {
-        tcp_conn_.send_frame(PacketType::CMD_LOGOUT, player_id_, nullptr, 0);
+        tcp_conn_.send_frame(PacketType::CMD_LOGOUT, player_handle_, nullptr, 0);
     }
 
     tcp_conn_.close();
@@ -84,7 +84,7 @@ void NetworkClient::disconnect() {
         udp_socket_.close();
         udp_bound_ = false;
     }
-    player_id_ = 0;
+    player_handle_ = 0;
     set_state(ClientState::DISCONNECTED);
 }
 
@@ -142,7 +142,7 @@ void NetworkClient::poll(int timeout_ms) {
             const Frame& frame = *result.frame;
             if (frame.type == PacketType::POS_UPDATE) {
                 if (position_handler_) {
-                    position_handler_(frame.player_id, frame.payload);
+                    position_handler_(frame.player_handle, frame.payload);
                 }
             }
         }
@@ -183,7 +183,7 @@ bool NetworkClient::submit_command(const std::vector<uint8_t>& payload,
     // is expected to include it in the serialized command payload.
     (void)client_tick;
 
-    const int n = tcp_conn_.send_frame(PacketType::CMD_COMMAND, player_id_,
+    const int n = tcp_conn_.send_frame(PacketType::CMD_COMMAND, player_handle_,
                                        payload.data(), payload.size());
     return n > 0;
 }
@@ -192,7 +192,7 @@ bool NetworkClient::send_position_update(const std::vector<uint8_t>& payload) {
     if (state_ != ClientState::CONNECTED) return false;
     if (!udp_bound_) return false;
 
-    auto wire = encode_frame(PacketType::POS_UPDATE, player_id_,
+    auto wire = encode_frame(PacketType::POS_UPDATE, player_handle_,
                              payload.data(), payload.size());
     return udp_socket_.send_to(server_host_, server_udp_port_, wire);
 }
@@ -235,11 +235,11 @@ void NetworkClient::set_state(ClientState new_state) {
 void NetworkClient::handle_frame(const Frame& frame) {
     switch (frame.type) {
         case PacketType::LOGIN_ACCEPT:
-            // Payload: [player_id:u64]
+            // Payload: [player_handle:u64]
             if (frame.payload.size() >= 8) {
-                player_id_ = 0;
+                player_handle_ = 0;
                 for (int i = 0; i < 8; ++i) {
-                    player_id_ |= static_cast<uint64_t>(frame.payload[i]) << (i * 8);
+                    player_handle_ |= static_cast<uint64_t>(frame.payload[i]) << (i * 8);
                 }
                 set_state(ClientState::CONNECTED);
             }
@@ -265,7 +265,7 @@ void NetworkClient::handle_frame(const Frame& frame) {
 
         case PacketType::POS_UPDATE:
             if (position_handler_) {
-                position_handler_(frame.player_id, frame.payload);
+                position_handler_(frame.player_handle, frame.payload);
             }
             break;
 

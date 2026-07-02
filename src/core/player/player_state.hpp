@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-#include "player_id.hpp"
+#include "player_handle.hpp"
 #include "inventory.hpp"
 #include "equipment.hpp"
 
@@ -26,7 +26,7 @@ namespace science_and_theology {
 // TickSystem are present. Mana / spell book / source law data will
 // be added in later milestones.
 struct PlayerState {
-    PlayerId id = kInvalidPlayerId;
+    PlayerHandle id = kInvalidPlayerHandle;
 
     // Owned by GDPlayerInventory / GDPlayerEquipment in the binding layer.
     // nullptr means the player has no inventory/equipment bound yet.
@@ -39,7 +39,7 @@ struct PlayerState {
     int current_cy = 0;
     int current_cz = 0;
 
-    bool is_valid() const { return id != kInvalidPlayerId; }
+    bool is_valid() const { return id != kInvalidPlayerHandle; }
 };
 
 } // namespace science_and_theology

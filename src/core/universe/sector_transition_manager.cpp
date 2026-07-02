@@ -8,17 +8,17 @@ namespace science_and_theology {
 // 玩家管理
 // ============================================================
 
-void SectorTransitionManager::register_player(uint64_t player_id,
+void SectorTransitionManager::register_player(uint64_t player_handle,
                                                SectorId initial_sector) {
     std::lock_guard<std::mutex> lock(mutex_);
     PlayerState ps;
     ps.current_sector = initial_sector;
-    players_[player_id] = std::move(ps);
+    players_[player_handle] = std::move(ps);
 }
 
-void SectorTransitionManager::unregister_player(uint64_t player_id) {
+void SectorTransitionManager::unregister_player(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(mutex_);
-    players_.erase(player_id);
+    players_.erase(player_handle);
 }
 
 // ============================================================
@@ -26,7 +26,7 @@ void SectorTransitionManager::unregister_player(uint64_t player_id) {
 // ============================================================
 
 std::optional<SectorTransitionEvent> SectorTransitionManager::update_player_position(
-    uint64_t player_id,
+    uint64_t player_handle,
     const GlobalPos& pos,
     const SectorManager& sector_manager) {
 
@@ -35,7 +35,7 @@ std::optional<SectorTransitionEvent> SectorTransitionManager::update_player_posi
     SectorQueryResult q = sector_manager.find_sector(block_pos);
 
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return std::nullopt;
     }
@@ -56,7 +56,7 @@ std::optional<SectorTransitionEvent> SectorTransitionManager::update_player_posi
 
     // 发生 Sector 转换
     SectorTransitionEvent event;
-    event.player_id = player_id;
+    event.player_handle = player_handle;
     event.from_sector = ps.current_sector;
     event.to_sector = new_sector;
     event.pos = pos;
@@ -80,13 +80,13 @@ std::optional<SectorTransitionEvent> SectorTransitionManager::update_player_posi
 }
 
 std::optional<SectorTransitionEvent> SectorTransitionManager::set_player_sector(
-    uint64_t player_id,
+    uint64_t player_handle,
     SectorId new_sector,
     const SectorManager& sector_manager,
     const std::string& reason) {
 
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return std::nullopt;
     }
@@ -98,7 +98,7 @@ std::optional<SectorTransitionEvent> SectorTransitionManager::set_player_sector(
     }
 
     SectorTransitionEvent event;
-    event.player_id = player_id;
+    event.player_handle = player_handle;
     event.from_sector = ps.current_sector;
     event.to_sector = new_sector;
     event.pos = GlobalPos{};
@@ -123,18 +123,18 @@ std::optional<SectorTransitionEvent> SectorTransitionManager::set_player_sector(
 // 查询
 // ============================================================
 
-SectorId SectorTransitionManager::get_current_sector(uint64_t player_id) const {
+SectorId SectorTransitionManager::get_current_sector(uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return SectorId{0};
     }
     return it->second.current_sector;
 }
 
-bool SectorTransitionManager::is_in_sector(uint64_t player_id, SectorId sector) const {
+bool SectorTransitionManager::is_in_sector(uint64_t player_handle, SectorId sector) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return false;
     }
@@ -142,10 +142,10 @@ bool SectorTransitionManager::is_in_sector(uint64_t player_id, SectorId sector) 
 }
 
 std::vector<SectorTransitionEvent> SectorTransitionManager::get_transition_history(
-    uint64_t player_id, size_t max_count) const {
+    uint64_t player_handle, size_t max_count) const {
 
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return {};
     }

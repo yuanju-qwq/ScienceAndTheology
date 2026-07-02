@@ -62,7 +62,7 @@ inline const char* lod_pipeline_state_name(LodPipelineState s) {
 
 // LOD 链路转换事件。
 struct LodPipelineTransition {
-    uint64_t player_id;
+    uint64_t player_handle;
     std::string celestial_id;
     LodPipelineState old_state;
     LodPipelineState new_state;
@@ -98,10 +98,10 @@ public:
     // --- 玩家管理 ---
 
     // 注册玩家。
-    void register_player(uint64_t player_id);
+    void register_player(uint64_t player_handle);
 
     // 注销玩家。
-    void unregister_player(uint64_t player_id);
+    void unregister_player(uint64_t player_handle);
 
     // --- 链路更新 ---
 
@@ -112,7 +112,7 @@ public:
     // landing_target_id: 着陆目标天体 id（LandingApproach 模式时有效）
     // 返回本次更新产生的转换事件列表。
     std::vector<LodPipelineTransition> update(
-        uint64_t player_id,
+        uint64_t player_handle,
         const GlobalPos& player_pos,
         const std::vector<CelestialLodResult>& lod_results,
         FlightMode flight_mode,
@@ -121,12 +121,12 @@ public:
     // --- 查询 ---
 
     // 查询玩家对某天体的当前链路状态。
-    LodPipelineState get_state(uint64_t player_id,
+    LodPipelineState get_state(uint64_t player_handle,
                                const std::string& celestial_id) const;
 
     // 查询玩家对所有天体的链路状态。
     std::vector<std::pair<std::string, LodPipelineState>> get_all_states(
-        uint64_t player_id) const;
+        uint64_t player_handle) const;
 
     // 判断玩家对某天体是否处于需要真实 chunk 的状态。
     // Approach、Simplified、Real 状态需要真实 chunk（程度不同）。
@@ -152,7 +152,7 @@ private:
     mutable std::mutex mutex_;
 
     // 玩家对每个天体的链路状态。
-    // key: player_id, value: {celestial_id -> state}
+    // key: player_handle, value: {celestial_id -> state}
     std::unordered_map<uint64_t,
                        std::unordered_map<std::string, PlayerCelestialState>> states_;
 };

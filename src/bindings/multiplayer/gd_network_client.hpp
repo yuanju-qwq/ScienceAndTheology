@@ -73,8 +73,8 @@ public:
 
     bool is_connected() const;
 
-    // The player_id assigned by the server (0 if not connected).
-    int64_t get_player_id() const;
+    // The player_handle assigned by the server (0 if not connected).
+    int64_t get_player_handle() const;
 
 protected:
     static void _bind_methods();
@@ -82,7 +82,7 @@ protected:
 private:
     // NetworkClient callbacks — bridge to Godot signals.
     void on_sync(server::PacketType type, const std::vector<uint8_t>& payload);
-    void on_position(uint64_t player_id, const std::vector<uint8_t>& payload);
+    void on_position(uint64_t player_handle, const std::vector<uint8_t>& payload);
     void on_state_changed(server::ClientState new_state);
 
     // Serialize/deserialize Dictionary ↔ byte vector.

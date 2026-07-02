@@ -2,10 +2,10 @@
 
 namespace science_and_theology {
 
-bool PlayerManager::register_player(PlayerId id,
+bool PlayerManager::register_player(PlayerHandle id,
                                     gt::Inventory* inventory,
                                     gt::Equipment* equipment) {
-    if (id == kInvalidPlayerId) return false;
+    if (id == kInvalidPlayerHandle) return false;
     if (players_.find(id) != players_.end()) return false;
 
     auto state = std::make_unique<PlayerState>();
@@ -16,25 +16,25 @@ bool PlayerManager::register_player(PlayerId id,
     return true;
 }
 
-bool PlayerManager::unregister_player(PlayerId id) {
+bool PlayerManager::unregister_player(PlayerHandle id) {
     return players_.erase(id) > 0;
 }
 
-bool PlayerManager::bind_inventory(PlayerId id, gt::Inventory* inventory) {
+bool PlayerManager::bind_inventory(PlayerHandle id, gt::Inventory* inventory) {
     auto it = players_.find(id);
     if (it == players_.end()) return false;
     it->second->inventory = inventory;
     return true;
 }
 
-bool PlayerManager::bind_equipment(PlayerId id, gt::Equipment* equipment) {
+bool PlayerManager::bind_equipment(PlayerHandle id, gt::Equipment* equipment) {
     auto it = players_.find(id);
     if (it == players_.end()) return false;
     it->second->equipment = equipment;
     return true;
 }
 
-bool PlayerManager::set_player_chunk(PlayerId id,
+bool PlayerManager::set_player_chunk(PlayerHandle id,
                                      const std::string& dimension,
                                      int cx, int cy, int cz) {
     auto it = players_.find(id);
@@ -47,24 +47,24 @@ bool PlayerManager::set_player_chunk(PlayerId id,
     return true;
 }
 
-bool PlayerManager::has_player(PlayerId id) const {
+bool PlayerManager::has_player(PlayerHandle id) const {
     return players_.find(id) != players_.end();
 }
 
-PlayerState* PlayerManager::get_player(PlayerId id) {
+PlayerState* PlayerManager::get_player(PlayerHandle id) {
     auto it = players_.find(id);
     if (it == players_.end()) return nullptr;
     return it->second.get();
 }
 
-const PlayerState* PlayerManager::get_player(PlayerId id) const {
+const PlayerState* PlayerManager::get_player(PlayerHandle id) const {
     auto it = players_.find(id);
     if (it == players_.end()) return nullptr;
     return it->second.get();
 }
 
-std::vector<PlayerId> PlayerManager::all_ids() const {
-    std::vector<PlayerId> ids;
+std::vector<PlayerHandle> PlayerManager::all_ids() const {
+    std::vector<PlayerHandle> ids;
     ids.reserve(players_.size());
     for (const auto& pair : players_) {
         ids.push_back(pair.first);

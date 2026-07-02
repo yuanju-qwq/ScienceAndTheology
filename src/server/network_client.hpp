@@ -20,7 +20,7 @@ enum class ClientState {
     DISCONNECTED,
     CONNECTING,    // TCP connect in progress
     LOGGING_IN,    // TCP connected, waiting for LOGIN_ACCEPT
-    CONNECTED,     // logged in, player_id assigned
+    CONNECTED,     // logged in, player_handle assigned
     REJECTED,      // login was rejected
     DISCONNECTED_ERROR,  // dropped due to error
 };
@@ -43,7 +43,7 @@ using ClientSyncHandler = std::function<void(
 
 // Called when a POS_UPDATE frame arrives (another player's position).
 using ClientPositionHandler = std::function<void(
-    uint64_t player_id,
+    uint64_t player_handle,
     const std::vector<uint8_t>& payload)>;
 
 // Called when the connection state changes.
@@ -95,7 +95,7 @@ public:
 
     ClientState state() const { return state_; }
     bool is_connected() const { return state_ == ClientState::CONNECTED; }
-    uint64_t player_id() const { return player_id_; }
+    uint64_t player_handle() const { return player_handle_; }
 
     // --- Host callbacks ---
 
@@ -124,7 +124,7 @@ private:
 
     // Client state.
     std::atomic<ClientState> state_{ClientState::DISCONNECTED};
-    uint64_t player_id_ = 0;
+    uint64_t player_handle_ = 0;
     std::string pending_password_;
 
     // Discovery socket (separate from the position UDP socket so the

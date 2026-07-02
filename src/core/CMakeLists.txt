@@ -35,7 +35,7 @@ target_sources(snt_core PRIVATE
 
 # Player systems
 target_sources(snt_core PRIVATE
-    player/player_id.hpp
+    player/player_handle.hpp
     player/player_state.hpp
     player/player_manager.hpp
     player/player_manager.cpp

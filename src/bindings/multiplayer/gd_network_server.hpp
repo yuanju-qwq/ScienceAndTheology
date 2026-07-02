@@ -30,7 +30,7 @@ class GDTickSystem;
 //     → send SYNC_DELTA back to that client
 //
 //   Per-tick delta production:
-//     → GDTickSystem.compute_delta_for(player_id, chunk_keys)
+//     → GDTickSystem.compute_delta_for(player_handle, chunk_keys)
 //     → serialize delta Dictionary via var_to_bytes
 //     → send SYNC_DELTA to that client
 //
@@ -91,22 +91,22 @@ public:
 
     // Returns the player IDs of all currently logged-in players.
     // Use this instead of assuming sequential IDs 1..N (M5).
-    godot::PackedInt64Array get_logged_in_player_ids() const;
+    godot::PackedInt64Array get_logged_in_player_handles() const;
 
     // Kick a player by id.
-    void kick_player(int64_t player_id, const godot::String& reason);
+    void kick_player(int64_t player_handle, const godot::String& reason);
 
 protected:
     static void _bind_methods();
 
 private:
     // ServerCore callbacks — bridge to Godot types.
-    std::vector<uint8_t> on_command(uint64_t player_id, uint64_t client_tick,
+    std::vector<uint8_t> on_command(uint64_t player_handle, uint64_t client_tick,
                                     const std::vector<uint8_t>& payload);
     std::vector<std::pair<uint64_t, std::vector<uint8_t>>> on_produce_deltas();
-    bool on_login(uint64_t player_id, const std::vector<uint8_t>& credentials,
+    bool on_login(uint64_t player_handle, const std::vector<uint8_t>& credentials,
                   std::string& reject_reason);
-    void on_disconnect(uint64_t player_id);
+    void on_disconnect(uint64_t player_handle);
 
     // Serialize/deserialize Dictionary ↔ byte vector.
     static std::vector<uint8_t> dict_to_bytes(const godot::Dictionary& dict);

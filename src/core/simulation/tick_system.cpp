@@ -156,8 +156,8 @@ void TickSystem::tick(float delta) {
 }
 
 void TickSystem::add_player_chunk(
-    PlayerId id, const std::string& dimension, int cx, int cy, int cz) {
-    if (id == kInvalidPlayerId) return;
+    PlayerHandle id, const std::string& dimension, int cx, int cy, int cz) {
+    if (id == kInvalidPlayerHandle) return;
 
     auto it = player_chunks_.find(id);
     if (it != player_chunks_.end()) {
@@ -186,7 +186,7 @@ void TickSystem::add_player_chunk(
     }
 }
 
-void TickSystem::remove_player_chunk(PlayerId id) {
+void TickSystem::remove_player_chunk(PlayerHandle id) {
     if (player_chunks_.erase(id) > 0) {
         player_chunks_dirty_ = true;
     }
@@ -198,7 +198,7 @@ void TickSystem::clear_player_chunks() {
     player_chunks_dirty_ = true;
 }
 
-std::string TickSystem::get_player_dimension(PlayerId id) const {
+std::string TickSystem::get_player_dimension(PlayerHandle id) const {
     auto it = player_chunks_.find(id);
     if (it == player_chunks_.end()) return std::string();
     return it->second.dimension;

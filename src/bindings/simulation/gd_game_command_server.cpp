@@ -156,13 +156,13 @@ Resource* GDGameCommandServer::get_world_data() const {
     return world_data_;
 }
 
-bool GDGameCommandServer::register_player(int64_t player_id,
+bool GDGameCommandServer::register_player(int64_t player_handle,
                                           Resource* inventory,
                                           Resource* equipment) {
-    PlayerId pid = static_cast<PlayerId>(player_id);
-    if (pid == kInvalidPlayerId) {
+    PlayerHandle pid = static_cast<PlayerHandle>(player_handle);
+    if (pid == kInvalidPlayerHandle) {
         UtilityFunctions::push_warning(
-            "GDGameCommandServer: register_player received invalid player_id 0");
+            "GDGameCommandServer: register_player received invalid player_handle 0");
         return false;
     }
 
@@ -181,15 +181,15 @@ bool GDGameCommandServer::register_player(int64_t player_id,
     }
     if (!player_manager_.register_player(pid, inv_ptr, eq_ptr)) {
         UtilityFunctions::push_warning(
-            "GDGameCommandServer: register_player failed for player_id ",
-            player_id);
+            "GDGameCommandServer: register_player failed for player_handle ",
+            player_handle);
         return false;
     }
     return true;
 }
 
-bool GDGameCommandServer::unregister_player(int64_t player_id) {
-    PlayerId pid = static_cast<PlayerId>(player_id);
+bool GDGameCommandServer::unregister_player(int64_t player_handle) {
+    PlayerHandle pid = static_cast<PlayerHandle>(player_handle);
     return player_manager_.unregister_player(pid);
 }
 
@@ -199,16 +199,16 @@ int64_t GDGameCommandServer::get_player_count() const {
 
 PlayerState* GDGameCommandServer::resolve_command_player(
         const Dictionary& command, const StringName& command_type) {
-    // Read player_id from the command. Default to kSinglePlayerId (1)
+    // Read player_handle from the command. Default to kSinglePlayerHandle (1)
     // for backward compatibility with single-player callers that don't
     // include the field.
-    const int64_t raw_id = static_cast<int64_t>(command.get("player_id",
-        static_cast<int64_t>(kSinglePlayerId)));
-    const PlayerId pid = static_cast<PlayerId>(raw_id);
+    const int64_t raw_id = static_cast<int64_t>(command.get("player_handle",
+        static_cast<int64_t>(kSinglePlayerHandle)));
+    const PlayerHandle pid = static_cast<PlayerHandle>(raw_id);
 
     PlayerState* state = player_manager_.get_player(pid);
     if (state == nullptr) {
-        reject(command_type, "player_id " + String::num_int64(raw_id) +
+        reject(command_type, "player_handle " + String::num_int64(raw_id) +
                              " is not registered");
         current_player_ = nullptr;
         return nullptr;
@@ -1978,9 +1978,9 @@ void GDGameCommandServer::_bind_methods() {
                          &GDGameCommandServer::set_world_data);
     ClassDB::bind_method(D_METHOD("get_world_data"),
                          &GDGameCommandServer::get_world_data);
-    ClassDB::bind_method(D_METHOD("register_player", "player_id", "inventory", "equipment"),
+    ClassDB::bind_method(D_METHOD("register_player", "player_handle", "inventory", "equipment"),
                          &GDGameCommandServer::register_player);
-    ClassDB::bind_method(D_METHOD("unregister_player", "player_id"),
+    ClassDB::bind_method(D_METHOD("unregister_player", "player_handle"),
                          &GDGameCommandServer::unregister_player);
     ClassDB::bind_method(D_METHOD("get_player_count"),
                          &GDGameCommandServer::get_player_count);

@@ -25,7 +25,7 @@ func _run() -> void:
 	var inventory := GDPlayerInventory.new()
 	inventory.init(9, 4)
 	var equipment := GDPlayerEquipment.new()
-	command_server.register_player(GameCommandServer.LOCAL_PLAYER_ID, inventory, equipment)
+	command_server.register_player(GameCommandServer.LOCAL_PLAYER_HANDLE, inventory, equipment)
 	command_server.set_furnace_manager(furnace_manager)
 
 	command_server.furnace_synced.connect(func(dimension: StringName, cell: Vector3i) -> void:
@@ -48,7 +48,7 @@ func _run() -> void:
 
 	var result: Dictionary = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"object_type": GameCommandServer.OBJECT_FURNACE,
 		"dimension": OVERWORLD,
 		"cell": cell,
@@ -63,7 +63,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_PLACE_OBJECT,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"object_type": GameCommandServer.OBJECT_FURNACE,
 		"dimension": OVERWORLD,
 		"cell": cell,
@@ -80,7 +80,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_FURNACE_INSERT_INPUT,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"dimension": OVERWORLD,
 		"cell": cell,
 		"item_id": copper_crushed,
@@ -90,7 +90,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_FURNACE_INSERT_FUEL,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"dimension": OVERWORLD,
 		"cell": cell,
 		"item_id": fuel_item,
@@ -111,7 +111,7 @@ func _run() -> void:
 
 	result = command_server.submit_command({
 		"type": GameCommandServer.COMMAND_FURNACE_TAKE_OUTPUT,
-		"player_id": GameCommandServer.LOCAL_PLAYER_ID,
+		"player_handle": GameCommandServer.LOCAL_PLAYER_HANDLE,
 		"dimension": OVERWORLD,
 		"cell": cell,
 	})

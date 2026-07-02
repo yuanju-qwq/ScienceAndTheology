@@ -160,33 +160,33 @@ struct GameEvent {
 
     // --- Source law event factories ---
 
-    static GameEvent source_law_changed(uint64_t player_id);
+    static GameEvent source_law_changed(uint64_t player_handle);
 
     static GameEvent organ_transformed(
-        uint64_t player_id, int slot, int element);
+        uint64_t player_handle, int slot, int element);
 
     static GameEvent organ_purified(
-        uint64_t player_id, int slot);
+        uint64_t player_handle, int slot);
 
     static GameEvent stability_changed(
-        uint64_t player_id, float old_val, float new_val);
+        uint64_t player_handle, float old_val, float new_val);
 
     static GameEvent mutation_changed(
-        uint64_t player_id, float old_val, float new_val);
+        uint64_t player_handle, float old_val, float new_val);
 
     static GameEvent mana_changed(
-        uint64_t player_id, int old_val, int new_val);
+        uint64_t player_handle, int old_val, int new_val);
 
     // --- Satiation event factories ---
 
     static GameEvent satiation_changed(
-        uint64_t player_id, float old_val, float new_val);
+        uint64_t player_handle, float old_val, float new_val);
 
     static GameEvent hunger_level_changed(
-        uint64_t player_id, int old_level, int new_level);
+        uint64_t player_handle, int old_level, int new_level);
 
     static GameEvent source_essence_changed(
-        uint64_t player_id, float old_total, float new_total);
+        uint64_t player_handle, float old_total, float new_total);
 
     // --- Ecosystem event factories ---
 

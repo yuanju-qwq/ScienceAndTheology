@@ -119,22 +119,22 @@ public:
     // --- 玩家状态 ---
 
     // 注册一个玩家会话的流式加载状态。
-    // 若 PlayerId 已存在则更新。
-    void register_player(uint64_t player_id, const PlayerStreamingState& state);
+    // 若 PlayerHandle 已存在则更新。
+    void register_player(uint64_t player_handle, const PlayerStreamingState& state);
 
     // 注销玩家会话。
-    void unregister_player(uint64_t player_id);
+    void unregister_player(uint64_t player_handle);
 
     // 更新玩家位置和速度。
-    void update_player_position(uint64_t player_id,
+    void update_player_position(uint64_t player_handle,
                                 const GlobalPos& pos,
                                 const GlobalPos& velocity);
 
     // 设置玩家当前 Sector。
-    void set_player_sector(uint64_t player_id, SectorId sector);
+    void set_player_sector(uint64_t player_handle, SectorId sector);
 
     // 设置高速预测模式。
-    void set_high_speed_prediction(uint64_t player_id, bool enabled, double preload_seconds);
+    void set_high_speed_prediction(uint64_t player_handle, bool enabled, double preload_seconds);
 
     // --- 核心更新 ---
 
@@ -148,16 +148,16 @@ public:
     //   4. 对超出卸载距离的 loaded_chunks 标记为 chunks_to_unload。
     //   5. 按 max_chunk_requests_per_frame 截断 chunks_to_load。
     //   6. 更新 loaded_chunks。
-    StreamingUpdateResult update_player(uint64_t player_id,
+    StreamingUpdateResult update_player(uint64_t player_handle,
                                         const SectorManager& sector_manager);
 
     // --- 查询 ---
 
     // 返回玩家当前已加载的 chunk 数量。
-    size_t get_loaded_chunk_count(uint64_t player_id) const;
+    size_t get_loaded_chunk_count(uint64_t player_handle) const;
 
     // 返回玩家当前所在 Sector。
-    SectorId get_player_sector(uint64_t player_id) const;
+    SectorId get_player_sector(uint64_t player_handle) const;
 
     // --- 管理 ---
 

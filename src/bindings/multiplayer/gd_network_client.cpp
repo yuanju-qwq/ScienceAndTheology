@@ -75,8 +75,8 @@ bool GDNetworkClient::is_connected() const {
     return client_ && client_->is_connected();
 }
 
-int64_t GDNetworkClient::get_player_id() const {
-    return client_ ? static_cast<int64_t>(client_->player_id()) : 0;
+int64_t GDNetworkClient::get_player_handle() const {
+    return client_ ? static_cast<int64_t>(client_->player_handle()) : 0;
 }
 
 // --- Callbacks ---
@@ -95,10 +95,10 @@ void GDNetworkClient::on_sync(server::PacketType type,
     emit_signal("sync_received", type_name, data);
 }
 
-void GDNetworkClient::on_position(uint64_t player_id,
+void GDNetworkClient::on_position(uint64_t player_handle,
                                   const std::vector<uint8_t>& payload) {
     godot::Dictionary data = bytes_to_dict(payload);
-    emit_signal("position_received", static_cast<int64_t>(player_id), data);
+    emit_signal("position_received", static_cast<int64_t>(player_handle), data);
 }
 
 void GDNetworkClient::on_state_changed(server::ClientState new_state) {
@@ -106,7 +106,7 @@ void GDNetworkClient::on_state_changed(server::ClientState new_state) {
     emit_signal("state_changed", state_str);
 
     if (new_state == server::ClientState::CONNECTED) {
-        emit_signal("connected", get_player_id());
+        emit_signal("connected", get_player_handle());
     } else if (new_state == server::ClientState::REJECTED ||
                new_state == server::ClientState::DISCONNECTED_ERROR) {
         emit_signal("disconnected", state_str);
@@ -164,18 +164,18 @@ void GDNetworkClient::_bind_methods() {
 
     ClassDB::bind_method(D_METHOD("get_state"), &GDNetworkClient::get_state);
     ClassDB::bind_method(D_METHOD("is_connected"), &GDNetworkClient::is_connected);
-    ClassDB::bind_method(D_METHOD("get_player_id"), &GDNetworkClient::get_player_id);
+    ClassDB::bind_method(D_METHOD("get_player_handle"), &GDNetworkClient::get_player_handle);
 
     ADD_SIGNAL(MethodInfo("sync_received",
                           PropertyInfo(Variant::STRING, "type"),
                           PropertyInfo(Variant::DICTIONARY, "data")));
     ADD_SIGNAL(MethodInfo("position_received",
-                          PropertyInfo(Variant::INT, "player_id"),
+                          PropertyInfo(Variant::INT, "player_handle"),
                           PropertyInfo(Variant::DICTIONARY, "data")));
     ADD_SIGNAL(MethodInfo("state_changed",
                           PropertyInfo(Variant::STRING, "state")));
     ADD_SIGNAL(MethodInfo("connected",
-                          PropertyInfo(Variant::INT, "player_id")));
+                          PropertyInfo(Variant::INT, "player_handle")));
     ADD_SIGNAL(MethodInfo("disconnected",
                           PropertyInfo(Variant::STRING, "reason")));
     ADD_SIGNAL(MethodInfo("server_discovered",

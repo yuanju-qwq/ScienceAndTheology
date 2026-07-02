@@ -13,9 +13,13 @@ func load_player(save_dir: String, identity: Dictionary) -> Dictionary:
 	if path == "":
 		return {}
 	if not FileAccess.file_exists(path):
-		if debug_player_save:
-			print("[PlayerSaveService] no player save at %s" % path)
-		return {}
+		var legacy_path := get_legacy_player_path(save_dir, identity)
+		if legacy_path != "" and legacy_path != path and FileAccess.file_exists(legacy_path):
+			path = legacy_path
+		else:
+			if debug_player_save:
+				print("[PlayerSaveService] no player save at %s" % path)
+			return {}
 
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
@@ -53,7 +57,9 @@ func save_player(save_dir: String, identity: Dictionary, player_data: Dictionary
 	var data := player_data.duplicate(true)
 	data["format_version"] = FORMAT_VERSION
 	data["identity"] = identity.duplicate(true)
+	data["player_uuid"] = get_player_uuid(identity)
 	data["player_key"] = get_player_key(identity)
+	data["legacy_player_key"] = get_legacy_player_key(identity)
 	data["updated_at"] = Time.get_datetime_string_from_system()
 
 	var file := FileAccess.open(path, FileAccess.WRITE)
@@ -81,10 +87,38 @@ func get_player_path(save_dir: String, identity: Dictionary) -> String:
 	return _join_path(get_players_dir(save_dir), key + ".json")
 
 
+func get_legacy_player_path(save_dir: String, identity: Dictionary) -> String:
+	var key := get_legacy_player_key(identity)
+	if save_dir.strip_edges() == "" or key == "":
+		return ""
+	return _join_path(get_players_dir(save_dir), key + ".json")
+
+
 func get_player_key(identity: Dictionary) -> String:
+	var uuid := get_player_uuid(identity)
+	if uuid != "":
+		return _sanitize_key(uuid)
 	var key := str(identity.get("player_key", "")).strip_edges()
-	if key != "":
+	if key != "" and key.find("_") < 0:
 		return _sanitize_key(key)
+	return get_legacy_player_key(identity)
+
+
+func get_player_uuid(identity: Dictionary) -> String:
+	var uuid := str(identity.get("player_uuid", "")).strip_edges().to_lower()
+	if uuid != "":
+		return uuid
+	var key := str(identity.get("player_key", "")).strip_edges().to_lower()
+	if _is_uuid(key):
+		return key
+	var provider := str(identity.get("provider", "offline")).strip_edges()
+	var account_id := str(identity.get("account_id", "")).strip_edges()
+	if provider == "offline" and _is_uuid(account_id):
+		return account_id.to_lower()
+	return ""
+
+
+func get_legacy_player_key(identity: Dictionary) -> String:
 	var provider := str(identity.get("provider", "offline")).strip_edges()
 	var account_id := str(identity.get("account_id", "")).strip_edges()
 	if account_id == "":
@@ -181,3 +215,17 @@ func _sanitize_key(raw: String) -> String:
 		else:
 			result += "_"
 	return result
+
+
+func _is_uuid(value: String) -> bool:
+	var text := value.strip_edges().to_lower()
+	if text.length() != 36:
+		return false
+	for i in range(text.length()):
+		var ch := text.substr(i, 1)
+		if i == 8 or i == 13 or i == 18 or i == 23:
+			if ch != "-":
+				return false
+		elif "0123456789abcdef".find(ch) < 0:
+			return false
+	return true

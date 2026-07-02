@@ -23,22 +23,22 @@ const StreamingConfig& ChunkStreamingSystem::config() const {
 // 玩家状态
 // ============================================================
 
-void ChunkStreamingSystem::register_player(uint64_t player_id,
+void ChunkStreamingSystem::register_player(uint64_t player_handle,
                                            const PlayerStreamingState& state) {
     std::lock_guard<std::mutex> lock(mutex_);
-    players_[player_id] = state;
+    players_[player_handle] = state;
 }
 
-void ChunkStreamingSystem::unregister_player(uint64_t player_id) {
+void ChunkStreamingSystem::unregister_player(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(mutex_);
-    players_.erase(player_id);
+    players_.erase(player_handle);
 }
 
-void ChunkStreamingSystem::update_player_position(uint64_t player_id,
+void ChunkStreamingSystem::update_player_position(uint64_t player_handle,
                                                   const GlobalPos& pos,
                                                   const GlobalPos& velocity) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -46,20 +46,20 @@ void ChunkStreamingSystem::update_player_position(uint64_t player_id,
     it->second.velocity = velocity;
 }
 
-void ChunkStreamingSystem::set_player_sector(uint64_t player_id, SectorId sector) {
+void ChunkStreamingSystem::set_player_sector(uint64_t player_handle, SectorId sector) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
     it->second.current_sector = sector;
 }
 
-void ChunkStreamingSystem::set_high_speed_prediction(uint64_t player_id,
+void ChunkStreamingSystem::set_high_speed_prediction(uint64_t player_handle,
                                                      bool enabled,
                                                      double preload_seconds) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -72,7 +72,7 @@ void ChunkStreamingSystem::set_high_speed_prediction(uint64_t player_id,
 // ============================================================
 
 StreamingUpdateResult ChunkStreamingSystem::update_player(
-    uint64_t player_id,
+    uint64_t player_handle,
     const SectorManager& sector_manager) {
     StreamingUpdateResult result;
 
@@ -80,7 +80,7 @@ StreamingUpdateResult ChunkStreamingSystem::update_player(
     StreamingConfig cfg;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = players_.find(player_id);
+        auto it = players_.find(player_handle);
         if (it == players_.end()) {
             return result;
         }
@@ -159,7 +159,7 @@ StreamingUpdateResult ChunkStreamingSystem::update_player(
     // 更新 loaded_chunks：移除卸载的，添加本次加载的
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = players_.find(player_id);
+        auto it = players_.find(player_handle);
         if (it == players_.end()) {
             return result;
         }
@@ -374,18 +374,18 @@ int ChunkStreamingSystem::chunk_distance(const ChunkCoord& a, const ChunkCoord& 
 // 查询
 // ============================================================
 
-size_t ChunkStreamingSystem::get_loaded_chunk_count(uint64_t player_id) const {
+size_t ChunkStreamingSystem::get_loaded_chunk_count(uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return 0;
     }
     return it->second.loaded_chunks.size();
 }
 
-SectorId ChunkStreamingSystem::get_player_sector(uint64_t player_id) const {
+SectorId ChunkStreamingSystem::get_player_sector(uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return SectorId{0};
     }

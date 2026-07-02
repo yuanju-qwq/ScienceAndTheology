@@ -13,31 +13,31 @@ void StateSyncServer::mark_dirty(
     mark_dirty(key, flags);
 }
 
-void StateSyncServer::register_observer(PlayerId id) {
+void StateSyncServer::register_observer(PlayerHandle id) {
     observers_[id] = true;
 }
 
-void StateSyncServer::unregister_observer(PlayerId id) {
+void StateSyncServer::unregister_observer(PlayerHandle id) {
     observers_.erase(id);
 }
 
-bool StateSyncServer::has_observer(PlayerId id) const {
+bool StateSyncServer::has_observer(PlayerHandle id) const {
     return observers_.find(id) != observers_.end();
 }
 
 StateDelta StateSyncServer::compute_delta_for(
-    PlayerId observer, const std::vector<ChunkKey>& observed_chunks) {
+    PlayerHandle observer, const std::vector<ChunkKey>& observed_chunks) {
     // M1: single shared dirty map. Per-observer dirty tracking is M3+.
     // Auto-register the observer so callers don't have to.
-    if (observer != kInvalidPlayerId) {
+    if (observer != kInvalidPlayerHandle) {
         register_observer(observer);
     }
     return compute_delta(observed_chunks);
 }
 
-std::vector<std::pair<PlayerId, StateDelta>> StateSyncServer::compute_deltas_batch(
-    const std::vector<std::pair<PlayerId, std::vector<ChunkKey>>>& observer_views) {
-    std::vector<std::pair<PlayerId, StateDelta>> results;
+std::vector<std::pair<PlayerHandle, StateDelta>> StateSyncServer::compute_deltas_batch(
+    const std::vector<std::pair<PlayerHandle, std::vector<ChunkKey>>>& observer_views) {
+    std::vector<std::pair<PlayerHandle, StateDelta>> results;
     results.reserve(observer_views.size());
 
     auto now = std::chrono::steady_clock::now().time_since_epoch();
@@ -49,7 +49,7 @@ std::vector<std::pair<PlayerId, StateDelta>> StateSyncServer::compute_deltas_bat
     std::unordered_set<ChunkKey> observed_set;
 
     for (const auto& [observer, chunks] : observer_views) {
-        if (observer != kInvalidPlayerId) {
+        if (observer != kInvalidPlayerHandle) {
             register_observer(observer);
         }
 

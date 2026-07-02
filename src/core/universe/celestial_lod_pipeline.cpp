@@ -8,14 +8,14 @@ namespace science_and_theology {
 // 玩家管理
 // ============================================================
 
-void CelestialLodPipeline::register_player(uint64_t player_id) {
+void CelestialLodPipeline::register_player(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(mutex_);
-    states_[player_id];  // 创建空 map
+    states_[player_handle];  // 创建空 map
 }
 
-void CelestialLodPipeline::unregister_player(uint64_t player_id) {
+void CelestialLodPipeline::unregister_player(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(mutex_);
-    states_.erase(player_id);
+    states_.erase(player_handle);
 }
 
 // ============================================================
@@ -23,7 +23,7 @@ void CelestialLodPipeline::unregister_player(uint64_t player_id) {
 // ============================================================
 
 std::vector<LodPipelineTransition> CelestialLodPipeline::update(
-    uint64_t player_id,
+    uint64_t player_handle,
     const GlobalPos& player_pos,
     const std::vector<CelestialLodResult>& lod_results,
     FlightMode flight_mode,
@@ -32,7 +32,7 @@ std::vector<LodPipelineTransition> CelestialLodPipeline::update(
     std::vector<LodPipelineTransition> transitions;
 
     std::lock_guard<std::mutex> lock(mutex_);
-    auto player_it = states_.find(player_id);
+    auto player_it = states_.find(player_handle);
     if (player_it == states_.end()) {
         return transitions;
     }
@@ -72,7 +72,7 @@ std::vector<LodPipelineTransition> CelestialLodPipeline::update(
 
         if (next != old_state) {
             LodPipelineTransition t;
-            t.player_id = player_id;
+            t.player_handle = player_handle;
             t.celestial_id = lod.celestial_id;
             t.old_state = old_state;
             t.new_state = next;
@@ -104,11 +104,11 @@ std::vector<LodPipelineTransition> CelestialLodPipeline::update(
 // ============================================================
 
 LodPipelineState CelestialLodPipeline::get_state(
-    uint64_t player_id,
+    uint64_t player_handle,
     const std::string& celestial_id) const {
 
     std::lock_guard<std::mutex> lock(mutex_);
-    auto player_it = states_.find(player_id);
+    auto player_it = states_.find(player_handle);
     if (player_it == states_.end()) {
         return LodPipelineState::Distant;
     }
@@ -120,11 +120,11 @@ LodPipelineState CelestialLodPipeline::get_state(
 }
 
 std::vector<std::pair<std::string, LodPipelineState>>
-CelestialLodPipeline::get_all_states(uint64_t player_id) const {
+CelestialLodPipeline::get_all_states(uint64_t player_handle) const {
     std::vector<std::pair<std::string, LodPipelineState>> result;
 
     std::lock_guard<std::mutex> lock(mutex_);
-    auto player_it = states_.find(player_id);
+    auto player_it = states_.find(player_handle);
     if (player_it == states_.end()) {
         return result;
     }

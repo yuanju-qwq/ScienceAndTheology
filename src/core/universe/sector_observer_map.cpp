@@ -8,18 +8,18 @@ namespace science_and_theology {
 // 玩家管理
 // ============================================================
 
-void SectorObserverMap::register_player(uint64_t player_id) {
+void SectorObserverMap::register_player(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (players_.count(player_id) > 0) {
+    if (players_.count(player_handle) > 0) {
         return;
     }
-    players_.emplace(player_id, PlayerEntry{});
+    players_.emplace(player_handle, PlayerEntry{});
 }
 
-void SectorObserverMap::unregister_player(uint64_t player_id) {
+void SectorObserverMap::unregister_player(uint64_t player_handle) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -31,7 +31,7 @@ void SectorObserverMap::unregister_player(uint64_t player_id) {
         auto sit = sector_players_.find(old_sector);
         if (sit != sector_players_.end()) {
             auto& vec = sit->second;
-            vec.erase(std::remove(vec.begin(), vec.end(), player_id), vec.end());
+            vec.erase(std::remove(vec.begin(), vec.end(), player_handle), vec.end());
             if (vec.empty()) {
                 sector_players_.erase(sit);
             }
@@ -41,9 +41,9 @@ void SectorObserverMap::unregister_player(uint64_t player_id) {
     players_.erase(it);
 }
 
-bool SectorObserverMap::has_player(uint64_t player_id) const {
+bool SectorObserverMap::has_player(uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return players_.count(player_id) > 0;
+    return players_.count(player_handle) > 0;
 }
 
 size_t SectorObserverMap::player_count() const {
@@ -55,10 +55,10 @@ size_t SectorObserverMap::player_count() const {
 // Sector 管理
 // ============================================================
 
-void SectorObserverMap::set_player_sector(uint64_t player_id, SectorId sector) {
+void SectorObserverMap::set_player_sector(uint64_t player_handle, SectorId sector) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -75,7 +75,7 @@ void SectorObserverMap::set_player_sector(uint64_t player_id, SectorId sector) {
         auto sit = sector_players_.find(old_sector);
         if (sit != sector_players_.end()) {
             auto& vec = sit->second;
-            vec.erase(std::remove(vec.begin(), vec.end(), player_id), vec.end());
+            vec.erase(std::remove(vec.begin(), vec.end(), player_handle), vec.end());
             if (vec.empty()) {
                 sector_players_.erase(sit);
             }
@@ -89,13 +89,13 @@ void SectorObserverMap::set_player_sector(uint64_t player_id, SectorId sector) {
 
     // 添加到新 Sector 反向索引
     if (sector.is_valid()) {
-        sector_players_[sector].push_back(player_id);
+        sector_players_[sector].push_back(player_handle);
     }
 }
 
-SectorId SectorObserverMap::get_player_sector(uint64_t player_id) const {
+SectorId SectorObserverMap::get_player_sector(uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return SectorId{0};
     }
@@ -125,12 +125,12 @@ size_t SectorObserverMap::player_count_in_sector(SectorId sector) const {
 // ============================================================
 
 void SectorObserverMap::set_observed_chunks(
-    uint64_t player_id,
+    uint64_t player_handle,
     const std::vector<SectorChunkKey>& chunks) {
 
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -146,11 +146,11 @@ void SectorObserverMap::set_observed_chunks(
     }
 }
 
-void SectorObserverMap::add_observed_chunk(uint64_t player_id,
+void SectorObserverMap::add_observed_chunk(uint64_t player_handle,
                                             const SectorChunkKey& chunk) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -161,11 +161,11 @@ void SectorObserverMap::add_observed_chunk(uint64_t player_id,
     }
 }
 
-void SectorObserverMap::remove_observed_chunk(uint64_t player_id,
+void SectorObserverMap::remove_observed_chunk(uint64_t player_handle,
                                                const SectorChunkKey& chunk) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return;
     }
@@ -174,10 +174,10 @@ void SectorObserverMap::remove_observed_chunk(uint64_t player_id,
 }
 
 std::vector<SectorChunkKey> SectorObserverMap::get_observed_chunks(
-    uint64_t player_id) const {
+    uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return {};
     }
@@ -186,9 +186,9 @@ std::vector<SectorChunkKey> SectorObserverMap::get_observed_chunks(
                                         it->second.observed_chunks.end());
 }
 
-size_t SectorObserverMap::observed_chunk_count(uint64_t player_id) const {
+size_t SectorObserverMap::observed_chunk_count(uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return 0;
     }
@@ -237,10 +237,10 @@ bool SectorObserverMap::are_in_same_sector(uint64_t player_a,
 }
 
 std::vector<uint64_t> SectorObserverMap::peers_in_same_sector(
-    uint64_t player_id) const {
+    uint64_t player_handle) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto it = players_.find(player_id);
+    auto it = players_.find(player_handle);
     if (it == players_.end()) {
         return {};
     }
@@ -252,7 +252,7 @@ std::vector<uint64_t> SectorObserverMap::peers_in_same_sector(
 
     std::vector<uint64_t> result;
     for (const auto& [id, entry] : players_) {
-        if (id != player_id && entry.current_sector == sector) {
+        if (id != player_handle && entry.current_sector == sector) {
             result.push_back(id);
         }
     }
@@ -263,7 +263,7 @@ std::vector<uint64_t> SectorObserverMap::peers_in_same_sector(
 // 查询
 // ============================================================
 
-std::vector<uint64_t> SectorObserverMap::all_player_ids() const {
+std::vector<uint64_t> SectorObserverMap::all_player_handles() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<uint64_t> result;
     result.reserve(players_.size());
