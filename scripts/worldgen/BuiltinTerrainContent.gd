@@ -207,6 +207,10 @@ const FLAG_GRAVITY_FALL := 64
 const FLAG_COLLAPSE_RISK := 128
 const FLAG_SUPPORT_BEAM := 256
 
+const TERRAIN_ORE_BASE_TEXTURE := "res://resource/terrain/ore/ore_base_32.png"
+
+static var _logged_albedo_fallback_visuals: Dictionary = {}
+
 
 # Create a multi-planet config from an array of PlanetDescriptor resources.
 # Registers base terrain rules, biome rules, ore vein rules, rock layer rules,
@@ -2026,14 +2030,32 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		{ "material_key": "snt:ladder", "dimension": "overworld",
 		  "albedo_color": Color(0.55, 0.30, 0.15), "cull_disabled": true },
 		{ "material_key": "snt:workbench", "dimension": "overworld",
-	  "albedo_color": Color(0.60, 0.40, 0.20) },
-	{ "material_key": "snt:fence", "dimension": "overworld",
-	  "albedo_color": Color(0.50, 0.32, 0.16), "cull_disabled": true },
-	{ "material_key": "snt:deepstone", "dimension": "overworld",
-	  "albedo_color": Color(0.30, 0.30, 0.32) },
+		  "albedo_color": Color(0.60, 0.40, 0.20) },
+		{ "material_key": "snt:fence", "dimension": "overworld",
+		  "albedo_color": Color(0.50, 0.32, 0.16), "cull_disabled": true },
+		{ "material_key": "snt:deepstone", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.30, 0.32) },
 		{ "material_key": "snt:core_barrier", "dimension": "overworld",
 		  "albedo_color": Color(0.10, 0.0, 0.15),
 		  "emissive_color": Color(0.15, 0.0, 0.25), "roughness": 0.5 },
+
+		# Planetary rock visuals.
+		{ "material_key": "snt:granite_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.55, 0.54, 0.52) },
+		{ "material_key": "snt:basalt_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.28, 0.28, 0.30) },
+		{ "material_key": "snt:marble_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.78, 0.76, 0.72) },
+		{ "material_key": "snt:sandstone_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.72, 0.60, 0.42) },
+		{ "material_key": "snt:shale_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.33, 0.34, 0.36) },
+		{ "material_key": "snt:komatiite_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.30, 0.36, 0.28) },
+		{ "material_key": "snt:regolith_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.62, 0.56, 0.48) },
+		{ "material_key": "snt:anorthosite_rock", "dimension": "overworld",
+		  "albedo_color": Color(0.72, 0.73, 0.70) },
 
 		# Tree species visuals.
 		{ "material_key": "snt:oak_wood", "dimension": "overworld",
@@ -2150,6 +2172,7 @@ static func _register_builtin_material_visuals(registry: GDTerrainContentRegistr
 		  "albedo_color": Color(0.90, 0.55, 0.15), "cull_disabled": true },
 	]
 	_apply_builtin_material_textures(visuals)
+	_log_albedo_fallback_visuals(visuals)
 	for visual in visuals:
 		registry.register_material_visual(visual)
 
@@ -2173,14 +2196,14 @@ static func _apply_builtin_material_textures(visuals: Array) -> void:
 		"snt:deepstone": "res://resource/terrain/stone/deepstone_tile_32.png",
 		"snt:core_barrier": "res://resource/terrain/utility/core_barrier_tile_32.png",
 		"snt:farmland": "res://resource/terrain/soil/farmland_tile_32.png",
-		"snt:granite": "res://resource/terrain/stone/granite_tile_32.png",
-		"snt:basalt": "res://resource/terrain/stone/basalt_tile_32.png",
-		"snt:marble": "res://resource/terrain/stone/marble_tile_32.png",
-		"snt:sandstone": "res://resource/terrain/stone/sandstone_tile_32.png",
-		"snt:shale": "res://resource/terrain/stone/shale_tile_32.png",
-		"snt:komatiite": "res://resource/terrain/stone/komatiite_tile_32.png",
-		"snt:regolith": "res://resource/terrain/stone/regolith_tile_32.png",
-		"snt:anorthosite": "res://resource/terrain/stone/anorthosite_tile_32.png",
+		"snt:granite_rock": "res://resource/terrain/stone/granite_tile_32.png",
+		"snt:basalt_rock": "res://resource/terrain/stone/basalt_tile_32.png",
+		"snt:marble_rock": "res://resource/terrain/stone/marble_tile_32.png",
+		"snt:sandstone_rock": "res://resource/terrain/stone/sandstone_tile_32.png",
+		"snt:shale_rock": "res://resource/terrain/stone/shale_tile_32.png",
+		"snt:komatiite_rock": "res://resource/terrain/stone/komatiite_tile_32.png",
+		"snt:regolith_rock": "res://resource/terrain/stone/regolith_tile_32.png",
+		"snt:anorthosite_rock": "res://resource/terrain/stone/anorthosite_tile_32.png",
 	}
 	var crop_textures := {
 		"seed": "res://resource/terrain/crop/crop_seed_32.png",
@@ -2188,34 +2211,14 @@ static func _apply_builtin_material_textures(visuals: Array) -> void:
 		"growing": "res://resource/terrain/crop/crop_growing_32.png",
 		"mature": "res://resource/terrain/crop/crop_mature_32.png",
 	}
-	var ore_textures := {
-		"snt:ore_coal": "res://resource/terrain/ore/ore_coal_tile_32.png",
-		"snt:ore_copper": "res://resource/terrain/ore/ore_copper_tile_32.png",
-		"snt:ore_iron": "res://resource/terrain/ore/ore_iron_tile_32.png",
-		"snt:ore_tin": "res://resource/terrain/ore/ore_tin_tile_32.png",
-		"snt:ore_zinc": "res://resource/terrain/ore/ore_zinc_tile_32.png",
-		"snt:ore_lead": "res://resource/terrain/ore/ore_lead_tile_32.png",
-		"snt:ore_silver": "res://resource/terrain/ore/ore_silver_tile_32.png",
-		"snt:ore_gold": "res://resource/terrain/ore/ore_gold_tile_32.png",
-		"snt:ore_nickel": "res://resource/terrain/ore/ore_nickel_tile_32.png",
-		"snt:ore_bauxite": "res://resource/terrain/ore/ore_bauxite_tile_32.png",
-		"snt:ore_manganese": "res://resource/terrain/ore/ore_manganese_tile_32.png",
-		"snt:ore_tungsten": "res://resource/terrain/ore/ore_tungsten_tile_32.png",
-		"snt:ore_titanium": "res://resource/terrain/ore/ore_titanium_tile_32.png",
-		"snt:ore_platinum": "res://resource/terrain/ore/ore_platinum_tile_32.png",
-		"snt:ore_cobalt": "res://resource/terrain/ore/ore_cobalt_tile_32.png",
-		"snt:ore_uranium": "res://resource/terrain/ore/ore_uranium_tile_32.png",
-		"snt:ore_sulfur": "res://resource/terrain/ore/ore_sulfur_tile_32.png",
-		"snt:ore_diamond": "res://resource/terrain/ore/ore_diamond_tile_32.png",
-		"snt:ore_ruby": "res://resource/terrain/ore/ore_ruby_tile_32.png",
-		"snt:ore_sapphire": "res://resource/terrain/ore/ore_sapphire_tile_32.png",
-	}
 	for visual: Dictionary in visuals:
 		var key := str(visual.get("material_key", ""))
 		if key.is_empty() or key == "snt:air":
 			continue
 		if key.begins_with("snt:ore_"):
-			_set_cube_texture(visual, ore_textures.get(key, "res://resource/terrain/ore/ore_base_32.png"))
+			var ore_path := _resolve_ore_texture_path(key)
+			if not ore_path.is_empty():
+				_set_cube_texture(visual, ore_path)
 		elif cube_textures.has(key):
 			_set_cube_texture(visual, cube_textures[key])
 		elif key == "snt:wood" or key == "snt:log_pile" or key.ends_with("_wood"):
@@ -2241,11 +2244,58 @@ static func _apply_builtin_material_textures(visuals: Array) -> void:
 			_set_cube_texture(visual, crop_textures["mature"])
 
 
+static func _resolve_ore_texture_path(material_key: String) -> String:
+	var ore_name := material_key.substr("snt:ore_".length())
+	var texture_path := "res://resource/terrain/ore/ore_%s_tile_32.png" % ore_name
+	if ResourceLoader.exists(texture_path):
+		return texture_path
+	if ResourceLoader.exists(TERRAIN_ORE_BASE_TEXTURE):
+		return TERRAIN_ORE_BASE_TEXTURE
+	return ""
+
+
+static func _log_albedo_fallback_visuals(visuals: Array) -> void:
+	var fallback_keys: Array[String] = []
+	for visual: Dictionary in visuals:
+		if not bool(visual.get("enabled", true)):
+			continue
+		var material_key := str(visual.get("material_key", ""))
+		if material_key.is_empty():
+			material_key = "material_id:%d" % int(visual.get("material_id", -1))
+		var dimension := str(visual.get("dimension", ""))
+		var log_key := "%s|%s" % [dimension, material_key]
+		if _logged_albedo_fallback_visuals.has(log_key):
+			continue
+		if not _visual_uses_albedo_fallback(visual):
+			continue
+		_logged_albedo_fallback_visuals[log_key] = true
+		fallback_keys.append("%s@%s" % [material_key, dimension])
+	if fallback_keys.is_empty():
+		return
+	var joined := ""
+	for fallback_key: String in fallback_keys:
+		if not joined.is_empty():
+			joined += ", "
+		joined += fallback_key
+	print("[TerrainContent] albedo_color fallback visuals: %s" % joined)
+
+
+static func _visual_uses_albedo_fallback(visual: Dictionary) -> bool:
+	for face_key: String in ["top", "bottom", "sides"]:
+		var face: Dictionary = visual.get(face_key, {})
+		var texture_path := str(face.get("texture_path", ""))
+		if texture_path.is_empty() or not ResourceLoader.exists(texture_path):
+			return true
+	return false
+
+
 static func _set_cube_texture(
 		visual: Dictionary,
 		sides_path: String,
 		top_path: String = "",
 		bottom_path: String = "") -> void:
+	if sides_path.is_empty():
+		return
 	if top_path.is_empty():
 		top_path = sides_path
 	if bottom_path.is_empty():
