@@ -14,7 +14,7 @@ enum ActivationMode {
 @export var dimension: StringName = OVERWORLD
 @export var cell_position: Vector3i = Vector3i.ZERO
 @export var title_key := "ui.mechanism"
-@export var action_label := "Use Mechanism"
+@export var action_label := "mechanism.use"
 @export var flag_name: StringName = &""
 @export var activation_mode := ActivationMode.INTERACT
 @export var one_shot := true

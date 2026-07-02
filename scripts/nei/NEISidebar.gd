@@ -210,7 +210,7 @@ func _make_item_slot(item_id: int, count: int, is_bookmark: bool) -> SlotUI:
 func _build_item_tooltip(item_id: int) -> String:
 	var def = ItemDatabase.get_item(item_id)
 	if def == null:
-		return "Item #%d (unregistered)" % item_id
+		return tr("nei.info.unregistered_item_format") % item_id
 	var lines := PackedStringArray()
 	lines.append(tr(def.title_key))
 	var key := NEIIndex.get_item_key(item_id)
@@ -239,7 +239,7 @@ func _update_pager() -> void:
 	var total_pages := _total_pages()
 	_prev_btn.disabled = _page <= 0
 	_next_btn.disabled = _page >= total_pages - 1
-	_page_label.text = "%d/%d" % [_page + 1, total_pages]
+	_page_label.text = tr("nei.sidebar.page_format") % [_page + 1, total_pages]
 
 
 func _on_page_delta(delta: int) -> void:

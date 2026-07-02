@@ -4,15 +4,18 @@ var slot_index: int = 0
 var source_law_data: Resource = null
 
 var SLOT_NAMES: Array = [
-	"Heart", "Bone", "Blood", "Lung", "Eye", "Nerve", "Skin"
+	"organ.slot.heart", "organ.slot.bone", "organ.slot.blood", "organ.slot.lung",
+	"organ.slot.eye", "organ.slot.nerve", "organ.slot.skin"
 ]
 
 var ELEMENT_NAMES: Array = [
-	"Fire", "Water", "Earth", "Air", "Light", "Dark", "Order", "Chaos"
+	"element.fire", "element.water", "element.earth", "element.air",
+	"element.light", "element.dark", "element.order", "element.chaos"
 ]
 
 var QUALITY_NAMES: Array = [
-	"Flawed", "Common", "Good", "Pure", "Ancient", "Perfect"
+	"quality.flawed", "quality.common", "quality.good", "quality.pure",
+	"quality.ancient", "quality.perfect"
 ]
 
 var QUALITY_COLORS: Array = [
@@ -29,7 +32,7 @@ var level_label: Label
 
 func _ready() -> void:
 	_build_ui()
-	slot_name.text = SLOT_NAMES[slot_index] if slot_index < SLOT_NAMES.size() else "Unknown"
+	slot_name.text = tr(SLOT_NAMES[slot_index]) if slot_index < SLOT_NAMES.size() else tr("organ.slot.unknown")
 	_refresh_display()
 
 
@@ -100,13 +103,13 @@ func _refresh_display() -> void:
 		var level: int = organ.get("level", 0)
 		var degree: int = organ.get("sublimation_degree", 0)
 
-		element_label.text = ELEMENT_NAMES[elem_idx] if elem_idx < ELEMENT_NAMES.size() else "?"
-		quality_label.text = QUALITY_NAMES[quality_idx] if quality_idx < QUALITY_NAMES.size() else "?"
+		element_label.text = tr(ELEMENT_NAMES[elem_idx]) if elem_idx < ELEMENT_NAMES.size() else "?"
+		quality_label.text = tr(QUALITY_NAMES[quality_idx]) if quality_idx < QUALITY_NAMES.size() else "?"
 		quality_label.add_theme_color_override(
 			"font_color",
 			QUALITY_COLORS[quality_idx] if quality_idx < QUALITY_COLORS.size() else Color.WHITE
 		)
-		level_label.text = "Lv %d" % level
+		level_label.text = tr("organ.level_format") % level
 		sublimation_bar.value = degree
 		sublimation_bar.max_value = 10
 		sublimation_bar.visible = true
@@ -116,6 +119,6 @@ func _refresh_display() -> void:
 	else:
 		sublimation_bar.visible = false
 		element_label.visible = false
-		quality_label.text = "Normal"
+		quality_label.text = tr("quality.normal")
 		quality_label.add_theme_color_override("font_color", Color.GRAY)
 		level_label.text = ""

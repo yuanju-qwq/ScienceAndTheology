@@ -243,7 +243,7 @@ func _make_mechanism_from_dict(data: Dictionary) -> MapMechanism:
 			int(data.get("cell_y", 0)),
 			int(data.get("cell_z", 0)))
 	mechanism.title_key = str(data.get("title_key", "ui.mechanism"))
-	mechanism.action_label = str(data.get("action_label", "Use Mechanism"))
+	mechanism.action_label = str(data.get("action_label", "mechanism.use"))
 	mechanism.flag_name = StringName(str(data.get("flag_name", "")))
 	mechanism.activation_mode = int(data.get("activation_mode", MapMechanism.ActivationMode.INTERACT)) as MapMechanism.ActivationMode
 	mechanism.one_shot = bool(data.get("one_shot", true))

@@ -81,7 +81,7 @@ func _build_ui() -> void:
 
 	# Title.
 	_title_label = Label.new()
-	_title_label.text = "Create Space Station"
+	_title_label.text = tr("station.create_title")
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_vbox.add_child(_title_label)
 
@@ -89,32 +89,32 @@ func _build_ui() -> void:
 	_vbox.add_child(HSeparator.new())
 
 	# Station name.
-	_vbox.add_child(_make_label("Station Name:"))
+	_vbox.add_child(_make_label(tr("station.name_label")))
 	_name_edit = LineEdit.new()
-	_name_edit.placeholder_text = "My Station"
-	_name_edit.text = "Outpost"
+	_name_edit.placeholder_text = tr("station.name_placeholder")
+	_name_edit.text = tr("station.default_name")
 	_vbox.add_child(_name_edit)
 
 	# Station type.
-	_vbox.add_child(_make_label("Station Type:"))
+	_vbox.add_child(_make_label(tr("station.type_label")))
 	_type_option = OptionButton.new()
-	_type_option.add_item("Outpost (1x1x1 chunks)", StationDescriptor.StationType.OUTPOST)
-	_type_option.add_item("Habitat (3x1x3 chunks)", StationDescriptor.StationType.HABITAT)
-	_type_option.add_item("Factory (5x1x5 chunks)", StationDescriptor.StationType.FACTORY)
+	_type_option.add_item(tr("station.type_outpost"), StationDescriptor.StationType.OUTPOST)
+	_type_option.add_item(tr("station.type_habitat"), StationDescriptor.StationType.HABITAT)
+	_type_option.add_item(tr("station.type_factory"), StationDescriptor.StationType.FACTORY)
 	_vbox.add_child(_type_option)
 
 	# Orbit height.
-	_vbox.add_child(_make_label("Orbit Height (above surface):"))
+	_vbox.add_child(_make_label(tr("station.orbit_label")))
 	_orbit_spin = SpinBox.new()
 	_orbit_spin.min_value = 500.0
 	_orbit_spin.max_value = 50000.0
 	_orbit_spin.step = 500.0
 	_orbit_spin.value = 2000.0
-	_orbit_spin.suffix = " units"
+	_orbit_spin.suffix = tr("station.orbit_suffix")
 	_vbox.add_child(_orbit_spin)
 
 	# Gravity multiplier.
-	_vbox.add_child(_make_label("Gravity (1.0 = normal, 0.0 = zero-G):"))
+	_vbox.add_child(_make_label(tr("station.gravity_label")))
 	_gravity_spin = SpinBox.new()
 	_gravity_spin.min_value = 0.0
 	_gravity_spin.max_value = 2.0
@@ -131,12 +131,12 @@ func _build_ui() -> void:
 	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 
 	_confirm_btn = Button.new()
-	_confirm_btn.text = "Create Station"
+	_confirm_btn.text = tr("station.confirm")
 	_confirm_btn.pressed.connect(_on_confirm)
 	hbox.add_child(_confirm_btn)
 
 	_cancel_btn = Button.new()
-	_cancel_btn.text = "Cancel"
+	_cancel_btn.text = tr("station.cancel")
 	_cancel_btn.pressed.connect(_on_cancel)
 	hbox.add_child(_cancel_btn)
 

@@ -777,61 +777,61 @@ func _register_tool_items() -> void:
 
 	# mining_level: 0=wood, 1=stone/flint, 2=copper/bronze/iron, 3=steel, 4=diamond
 	_register(ITEM_WOODEN_PICKAXE, "wooden_pickaxe", brown, 1,
-			_make_tool_def(pick, 0, 1.5, 60, 2.0, "Wood"), "tools/wooden_pickaxe_icon_32.png")
+			_make_tool_def(pick, 0, 1.5, 60, 2.0, "material.wood"), "tools/wooden_pickaxe_icon_32.png")
 	_register(ITEM_STONE_PICKAXE, "stone_pickaxe", gray, 1,
-			_make_tool_def(pick, 1, 2.0, 130, 3.0, "Stone"), "tools/stone_pickaxe_icon_32.png")
+			_make_tool_def(pick, 1, 2.0, 130, 3.0, "material.stone"), "tools/stone_pickaxe_icon_32.png")
 	_register(ITEM_IRON_PICKAXE, "iron_pickaxe", silver, 1,
-			_make_tool_def(pick, 2, 3.0, 250, 4.0, "Iron"), "tools/iron_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.0, 250, 4.0, "material.iron"), "tools/iron_pickaxe_icon_32.png")
 	_register(ITEM_WOODEN_AXE, "wooden_axe", brown, 1,
-			_make_tool_def(axe, 0, 1.5, 60, 3.0, "Wood"), "tools/wooden_axe_icon_32.png")
+			_make_tool_def(axe, 0, 1.5, 60, 3.0, "material.wood"), "tools/wooden_axe_icon_32.png")
 	_register(ITEM_STONE_AXE, "stone_axe", gray, 1,
-			_make_tool_def(axe, 1, 2.0, 130, 4.0, "Stone"), "tools/stone_axe_icon_32.png")
+			_make_tool_def(axe, 1, 2.0, 130, 4.0, "material.stone"), "tools/stone_axe_icon_32.png")
 	_register(ITEM_IRON_AXE, "iron_axe", silver, 1,
-			_make_tool_def(axe, 2, 3.0, 250, 5.0, "Iron"), "tools/iron_axe_icon_32.png")
+			_make_tool_def(axe, 2, 3.0, 250, 5.0, "material.iron"), "tools/iron_axe_icon_32.png")
 	_register(ITEM_WOODEN_SHOVEL, "wooden_shovel", brown, 1,
-			_make_tool_def(shovel, 0, 1.5, 60, 1.5, "Wood"), "tools/wooden_shovel_icon_32.png")
+			_make_tool_def(shovel, 0, 1.5, 60, 1.5, "material.wood"), "tools/wooden_shovel_icon_32.png")
 	_register(ITEM_STONE_SHOVEL, "stone_shovel", gray, 1,
-			_make_tool_def(shovel, 1, 2.0, 130, 2.5, "Stone"), "tools/stone_shovel_icon_32.png")
+			_make_tool_def(shovel, 1, 2.0, 130, 2.5, "material.stone"), "tools/stone_shovel_icon_32.png")
 	_register(ITEM_IRON_SHOVEL, "iron_shovel", silver, 1,
-			_make_tool_def(shovel, 2, 3.0, 250, 3.5, "Iron"), "tools/iron_shovel_icon_32.png")
+			_make_tool_def(shovel, 2, 3.0, 250, 3.5, "material.iron"), "tools/iron_shovel_icon_32.png")
 	_register(ITEM_WOODEN_SWORD, "wooden_sword", brown, 1,
-			_make_tool_def(sword, 0, 1.0, 60, 4.0, "Wood"), "tools/wooden_sword_icon_32.png")
+			_make_tool_def(sword, 0, 1.0, 60, 4.0, "material.wood"), "tools/wooden_sword_icon_32.png")
 	_register(ITEM_STONE_SWORD, "stone_sword", gray, 1,
-			_make_tool_def(sword, 1, 1.0, 130, 5.0, "Stone"), "tools/stone_sword_icon_32.png")
+			_make_tool_def(sword, 1, 1.0, 130, 5.0, "material.stone"), "tools/stone_sword_icon_32.png")
 	_register(ITEM_IRON_SWORD, "iron_sword", silver, 1,
-			_make_tool_def(sword, 2, 1.0, 250, 6.0, "Iron"), "tools/iron_sword_icon_32.png")
+			_make_tool_def(sword, 2, 1.0, 250, 6.0, "material.iron"), "tools/iron_sword_icon_32.png")
 
 	# TFC expansion: copper/bronze/steel + parallel bronze variants
 	_register(ITEM_COPPER_PICKAXE, "copper_pickaxe", copper_col, 1,
-			_make_tool_def(pick, 2, 2.5, 180, 3.5, "Copper"), "tools/copper_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 2.5, 180, 3.5, "material.copper"), "tools/copper_pickaxe_icon_32.png")
 	_register(ITEM_COPPER_AXE, "copper_axe", copper_col, 1,
-			_make_tool_def(axe, 2, 2.5, 180, 4.5, "Copper"), "tools/copper_axe_icon_32.png")
+			_make_tool_def(axe, 2, 2.5, 180, 4.5, "material.copper"), "tools/copper_axe_icon_32.png")
 	_register(ITEM_COPPER_SHOVEL, "copper_shovel", copper_col, 1,
-			_make_tool_def(shovel, 2, 2.5, 180, 3.0, "Copper"), "tools/copper_shovel_icon_32.png")
+			_make_tool_def(shovel, 2, 2.5, 180, 3.0, "material.copper"), "tools/copper_shovel_icon_32.png")
 	_register(ITEM_COPPER_SWORD, "copper_sword", copper_col, 1,
-			_make_tool_def(sword, 2, 1.0, 180, 5.5, "Copper"), "tools/copper_sword_icon_32.png")
+			_make_tool_def(sword, 2, 1.0, 180, 5.5, "material.copper"), "tools/copper_sword_icon_32.png")
 
 	# Tin Bronze, Bismuth Bronze, Black Bronze — parallel mining_level=2
 	_register(ITEM_TIN_BRONZE_PICKAXE, "tin_bronze_pickaxe", bronze_col, 1,
-			_make_tool_def(pick, 2, 3.5, 400, 4.5, "Tin Bronze"), "tools/tin_bronze_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.5, 400, 4.5, "material.tin_bronze"), "tools/tin_bronze_pickaxe_icon_32.png")
 	_register(ITEM_TIN_BRONZE_AXE, "tin_bronze_axe", bronze_col, 1,
-			_make_tool_def(axe, 2, 3.5, 400, 5.5, "Tin Bronze"), "tools/tin_bronze_axe_icon_32.png")
+			_make_tool_def(axe, 2, 3.5, 400, 5.5, "material.tin_bronze"), "tools/tin_bronze_axe_icon_32.png")
 	_register(ITEM_BISMUTH_BRONZE_PICKAXE, "bismuth_bronze_pickaxe", bronze_col, 1,
-			_make_tool_def(pick, 2, 3.0, 520, 4.2, "Bismuth Bronze"), "tools/bismuth_bronze_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.0, 520, 4.2, "material.bismuth_bronze"), "tools/bismuth_bronze_pickaxe_icon_32.png")
 	_register(ITEM_BISMUTH_BRONZE_AXE, "bismuth_bronze_axe", bronze_col, 1,
-			_make_tool_def(axe, 2, 3.0, 520, 5.2, "Bismuth Bronze"), "tools/bismuth_bronze_axe_icon_32.png")
+			_make_tool_def(axe, 2, 3.0, 520, 5.2, "material.bismuth_bronze"), "tools/bismuth_bronze_axe_icon_32.png")
 	_register(ITEM_BLACK_BRONZE_PICKAXE, "black_bronze_pickaxe", bronze_col, 1,
-			_make_tool_def(pick, 2, 3.2, 460, 4.8, "Black Bronze"), "tools/black_bronze_pickaxe_icon_32.png")
+			_make_tool_def(pick, 2, 3.2, 460, 4.8, "material.black_bronze"), "tools/black_bronze_pickaxe_icon_32.png")
 
 	# Steel: mining_level=3 (unlocks diamond-tier ores)
 	_register(ITEM_STEEL_PICKAXE, "steel_pickaxe", steel_col, 1,
-			_make_tool_def(pick, 3, 4.5, 800, 6.0, "Steel"), "tools/steel_pickaxe_icon_32.png")
+			_make_tool_def(pick, 3, 4.5, 800, 6.0, "material.steel"), "tools/steel_pickaxe_icon_32.png")
 	_register(ITEM_STEEL_AXE, "steel_axe", steel_col, 1,
-			_make_tool_def(axe, 3, 4.5, 800, 7.0, "Steel"), "tools/steel_axe_icon_32.png")
+			_make_tool_def(axe, 3, 4.5, 800, 7.0, "material.steel"), "tools/steel_axe_icon_32.png")
 	_register(ITEM_STEEL_SHOVEL, "steel_shovel", steel_col, 1,
-			_make_tool_def(shovel, 3, 4.5, 800, 5.0, "Steel"), "tools/steel_shovel_icon_32.png")
+			_make_tool_def(shovel, 3, 4.5, 800, 5.0, "material.steel"), "tools/steel_shovel_icon_32.png")
 	_register(ITEM_STEEL_SWORD, "steel_sword", steel_col, 1,
-			_make_tool_def(sword, 3, 1.0, 800, 8.0, "Steel"), "tools/steel_sword_icon_32.png")
+			_make_tool_def(sword, 3, 1.0, 800, 8.0, "material.steel"), "tools/steel_sword_icon_32.png")
 
 	# Knapping tool heads (used to compose tools)
 	_register(ITEM_STONE_AXE_HEAD, "stone_axe_head", gray, 16,
@@ -849,10 +849,10 @@ func _register_tool_items() -> void:
 
 	# Stone tools (from knapping + assembly)
 	_register(ITEM_STONE_HOE, "stone_hoe", gray, 1,
-			_make_tool_def(ToolDef.ToolType.HOE, 1, 1.5, 120, 2.0, "Stone"),
+			_make_tool_def(ToolDef.ToolType.HOE, 1, 1.5, 120, 2.0, "material.stone"),
 			"tools/stone_hoe_icon_32.png")
 	_register(ITEM_STONE_KNIFE, "stone_knife", gray, 1,
-			_make_tool_def(ToolDef.ToolType.KNIFE, 1, 1.0, 100, 3.0, "Stone"),
+			_make_tool_def(ToolDef.ToolType.KNIFE, 1, 1.0, 100, 3.0, "material.stone"),
 			"tools/stone_knife_icon_32.png")
 
 
@@ -989,7 +989,7 @@ func _register_tfc_items() -> void:
 			64, null, "tfc/iron_bloom_icon_32.png")
 
 	# Hammer tool (forge welding)
-	var hammer_tool := _make_tool_def(ToolDef.ToolType.NONE, 0, 1.0, 200, 1.0, "Iron")
+	var hammer_tool := _make_tool_def(ToolDef.ToolType.NONE, 0, 1.0, 200, 1.0, "material.iron")
 	_register(ITEM_HAMMER, "item.hammer", Color(0.55, 0.55, 0.58),
 			1, hammer_tool, "tools/hammer_icon_32.png")
 	_register(ITEM_BELLOWS, "item.bellows", Color(0.60, 0.42, 0.25),

@@ -50,4 +50,5 @@ window/stretch/aspect="expand"
 
 [internationalization]
 
+locale/translation_add="res://locale/en.csv"
 locale/translation_add="res://locale/zh.csv"

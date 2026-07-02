@@ -65,22 +65,7 @@ func _add_stats_to(container: VBoxContainer, stat_keys: Array) -> void:
 
 
 func _stat_display_name(key: String) -> String:
-	match key:
-		"health_max": return "Max Health"
-		"mana_max": return "Max Mana"
-		"physical_attack": return "Phys Attack"
-		"magic_power": return "Magic Power"
-		"physical_defense": return "Phys Defense"
-		"element_resistance": return "Elem Resist"
-		"move_speed": return "Move Speed"
-		"attack_speed": return "Atk Speed"
-		"cast_speed": return "Cast Speed"
-		"crit_rate": return "Crit Rate"
-		"crit_damage": return "Crit Damage"
-		"dodge_rate": return "Dodge Rate"
-		"health_regen": return "HP Regen"
-		"mana_regen": return "MP Regen"
-	return key
+	return tr("stat." + key)
 
 
 func setup(p: PlayerController) -> void:

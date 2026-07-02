@@ -113,13 +113,13 @@ func _initialize_ui() -> void:
 	_content_pages.append(_backpack_page)
 
 	var title := Label.new()
-	title.text = "Inventory"
+	title.text = tr("inventory.title")
 	title.position = Vector2(312, 4)
 	title.size = Vector2(200, 24)
 	_backpack_page.add_child(title)
 
 	var avatar_label := Label.new()
-	avatar_label.text = "Player"
+	avatar_label.text = tr("inventory.player")
 	avatar_label.position = Vector2(8, 4)
 	avatar_label.size = Vector2(120, 24)
 	_backpack_page.add_child(avatar_label)
@@ -152,7 +152,7 @@ func _initialize_ui() -> void:
 	var equip_y := 32
 
 	var equip_label := Label.new()
-	equip_label.text = "Equipment"
+	equip_label.text = tr("inventory.equipment")
 	equip_label.position = Vector2(equip_x, 4)
 	equip_label.size = Vector2(120, 24)
 	_backpack_page.add_child(equip_label)
@@ -163,7 +163,7 @@ func _initialize_ui() -> void:
 	_backpack_page.add_child(equip_container)
 
 	_equip_slot_ids = _get_equipment_slot_ids()
-	var equip_names := ["Main Hand", "Off Hand", "Head", "Chest", "Arm", "Legs", "Feet"]
+	var equip_names := ["equip.main_hand", "equip.off_hand", "equip.head", "equip.chest", "equip.arm", "equip.legs", "equip.feet"]
 	for i in _equip_slot_ids.size():
 		var slot := SlotUI.new()
 		slot.slot_index = _equip_slot_ids[i]
@@ -174,7 +174,7 @@ func _initialize_ui() -> void:
 		equip_container.add_child(slot)
 		equip_slots.append(slot)
 		var label := Label.new()
-		label.text = equip_names[i]
+		label.text = tr(equip_names[i])
 		label.position = Vector2(SLOT_SIZE + 4, i * (SLOT_SIZE + PADDING) + 8)
 		label.size = Vector2(90, 20)
 		equip_container.add_child(label)
@@ -197,7 +197,7 @@ func _initialize_ui() -> void:
 
 
 func _build_tab_bar() -> void:
-	var tab_names := ["Backpack", "Sublimation", "Combat Stats"]
+	var tab_names := ["inventory.tab_backpack", "inventory.tab_sublimation", "inventory.tab_combat"]
 	var tab_w := PANEL_W / len(tab_names)
 	var bar_y := 2
 
@@ -208,7 +208,7 @@ func _build_tab_bar() -> void:
 
 	for i in len(tab_names):
 		var btn := Button.new()
-		btn.text = tab_names[i]
+		btn.text = tr(tab_names[i])
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.custom_minimum_size = Vector2(tab_w, TAB_H)
 		btn.toggle_mode = true

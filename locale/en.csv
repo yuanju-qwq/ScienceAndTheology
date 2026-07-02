@@ -894,3 +894,391 @@ nei.tooltip.hint,R: recipes  U: usage  M: machines  B: bookmark
 # ============================================================
 nei.key.toggle_nei_panel,NEI Item Browser
 nei.key.toggle_nei_mode,NEI Mode Toggle
+
+# ============================================================
+# Quest Book UI
+# ============================================================
+quest_book.title,Quest Book
+quest_book.locked,Locked
+quest_book.available,Available
+quest_book.in_progress,In Progress
+quest_book.completed,Completed
+quest_book.unknown,Unknown
+quest_book.conditions,Conditions
+quest_book.rewards,Rewards
+quest_book.claim_reward,Claim Reward
+quest_book.claimed,Claimed
+quest_book.progress,%d / %d completed
+quest_book.status,Status: %s
+quest_book.reward_item,  + %s x%d
+quest_book.reward_select_one,  + Choose one reward
+quest_book.reward_unlock,  + Unlocks: %s
+quest_book.reward_unknown,  + Unknown reward
+quest_book.condition_done,  [x] %s (%d/%d)
+quest_book.condition_pending,  [ ] %s (%d/%d)
+
+# ============================================================
+# Quest chapters
+# ============================================================
+quest.chapter.stone_age,Stone Age
+quest.chapter.bronze_age,Bronze Age
+quest.chapter.steam_age,Steam Age
+quest.chapter.lv,Low Voltage
+quest.chapter.mv,Medium Voltage
+quest.chapter.magic,Source Law
+
+# ============================================================
+# Stone Age quests
+# ============================================================
+quest.stone_age.first_steps.title,First Steps
+quest.stone_age.first_steps.desc,"Punch a tree. Get wood. This is where it all begins.\n\nMine a wood log to start your journey into industrial civilization."
+quest.stone_age.getting_stone.title,Getting Stone
+quest.stone_age.getting_stone.desc,"Stone is the foundation of all tools. Mine some cobblestone to craft your first tools."
+quest.stone_age.crafting_table.title,Crafting Table
+quest.stone_age.crafting_table.desc,"Place a workbench to unlock more complex crafting recipes.\n\nThe workbench is your gateway to the GT tool system."
+quest.stone_age.stone_furnace.title,Stone Furnace
+quest.stone_age.stone_furnace.desc,"Smelt your first metal. Place a stone furnace to begin ore processing.\n\nThe stone furnace is slow but reliable — it will serve you until the Bronze Age."
+quest.stone_age.first_ingot.title,First Ingot
+quest.stone_age.first_ingot.desc,"Smelt an iron ingot in your furnace.\n\nIron is the backbone of the industrial age. Every machine starts here."
+quest.stone_age.gt_hammer.title,The GT Hammer
+quest.stone_age.gt_hammer.desc,"Craft a GT Hammer — the most essential tool in GregTech.\n\nThe hammer is used for plate crafting, machine assembly, and many other operations."
+quest.stone_age.wrench.title,Wrench
+quest.stone_age.wrench.desc,"Craft a wrench to rotate and disassemble machines.\n\nWithout a wrench, you cannot properly interact with GT machines."
+quest.stone_age.machine_hull.title,Basic Machine Hull
+quest.stone_age.machine_hull.desc,"Craft a basic machine hull — the shell of every LV machine.\n\nThis is your first step toward electrification."
+quest.stone_age.macerator_hint.title,The Macerator Awaits
+quest.stone_age.macerator_hint.desc,"You now have a machine hull and a motor. The macerator doubles your ore output!\n\nCraft a macerator to enter the world of ore multiplication."
+quest.stone_age.wild_foraging.title,Wild Foraging
+quest.stone_age.wild_foraging.desc,"You found a wild crop! Mine it to collect seeds.\n\nWild crops drop seeds at any growth stage — mature crops also drop the crop itself."
+quest.stone_age.first_farm.title,First Farm
+quest.stone_age.first_farm.desc,"Till a dirt block with a shovel to create farmland, then plant seeds on top.\n\nRight-click dirt with a shovel to till. Right-click farmland with seeds to plant."
+quest.stone_age.bone_meal.title,Bone Meal Fertilizer
+quest.stone_age.bone_meal.desc,"Use bone meal on a crop to instantly advance it one growth stage.\n\nRight-click a crop with bone meal to fertilize it."
+quest.stone_age.first_harvest.title,First Harvest
+quest.stone_age.first_harvest.desc,"Wait for your crop to mature, then right-click it to harvest.\n\nCrops grow through four stages: seed → sprout → growing → mature. Only mature crops can be harvested."
+quest.stone_age.bread_making.title,Bread Making
+quest.stone_age.bread_making.desc,"Mill wheat into flour at a workbench, then bake bread in a furnace.\n\nBread is a reliable food source for your adventures."
+quest.bronze_age.bronze_smelting.title,Bronze Smelting
+quest.bronze_age.bronze_smelting.desc,"Alloy copper and tin to create bronze — the metal that defines an age.\n\nBronze machines are more efficient than their stone counterparts."
+quest.bronze_age.bronze_hull.title,Bronze Machine Hull
+quest.bronze_age.bronze_hull.desc,"Craft a bronze machine hull for steam-age machines.\n\nSteam power awaits!"
+quest.steam_age.steel.title,Steel Production
+quest.steam_age.steel.desc,"Produce steel — the bridge between steam and electricity.\n\nSteel is required for LV machines and beyond."
+
+# ============================================================
+# NEI Panel (additional keys)
+# ============================================================
+nei.info.all_recipe_types,All recipe types
+nei.info.crafting_only,Crafting only
+nei.info.machine_type,Machine: %s
+nei.info.item_number,Item #%d
+nei.info.unregistered_item,Unregistered item
+nei.info.item_unregistered,This item id is not registered.
+nei.info.no_related_machines,No related machines.
+nei.info.related_machines,Related Machines
+nei.info.show_recipes,Show Recipes
+nei.info.show_usages,Show Usages
+nei.info.shortcuts_text,"Hover item + R/U/M. Creative: middle click or Shift+left gives one stack. B to bookmark."
+nei.info.no_item_selected,No item selected
+nei.info.no_search_results,No search results
+nei.info.machine_meta_format,"Recipes: %d | Usages: %d | Min tier: %s | EU/t: %s"
+
+# ============================================================
+# Mechanism labels
+# ============================================================
+mechanism.use,Use Mechanism
+
+# ============================================================
+# Tool tip labels
+# ============================================================
+tooltip.unknown_material,Unknown
+tooltip.type_mining_level,"Type: %s  |  Mining Level: %d"
+tooltip.speed_durability,"Speed: %.1f  |  Durability: %d"
+tooltip.attack,Attack: %.1f
+
+# ============================================================
+# Organ / Element / Quality names
+# ============================================================
+organ.slot.heart,Heart
+organ.slot.bone,Bone
+organ.slot.blood,Blood
+organ.slot.lung,Lung
+organ.slot.eye,Eye
+organ.slot.nerve,Nerve
+organ.slot.skin,Skin
+organ.slot.unknown,Unknown
+organ.level_format,Lv %d
+organ.sand_armor_core,Sand Armor Rock Core
+organ.tidal_lung,Tidal Lung
+organ.thunder_nerve,Thunder Nerve
+organ.blazing_heart,Blazing Heart
+organ.radiance_eye,Radiance Eye
+quality.normal,Normal
+quality.flawed,Flawed
+quality.common,Common
+quality.good,Good
+quality.pure,Pure
+quality.ancient,Ancient
+quality.perfect,Perfect
+element.fire,Fire
+element.water,Water
+element.earth,Earth
+element.air,Air
+element.light,Light
+element.dark,Dark
+element.order,Order
+element.chaos,Chaos
+
+# ============================================================
+# TFC bronze alloy material names
+# ============================================================
+material.tin_bronze,Tin Bronze
+material.bismuth_bronze,Bismuth Bronze
+material.black_bronze,Black Bronze
+
+# ============================================================
+# Sublimation panel
+# ============================================================
+sublimation.source,Source
+sublimation.stability,Stability
+sublimation.mutation,Mutation
+sublimation.mana,Mana
+sublimation.organ_slots,Organ Slots
+sublimation.skills,Skills
+sublimation.mutation_format,%.0f%% (%s)
+sublimation.path_format,Path: %s
+sublimation.level_format,Level: %d
+sublimation.skill_format,%s (Mana: %d)
+mutation.normal,Normal
+mutation.mild_pollution,Mild Pollution
+mutation.symptoms,Symptoms
+mutation.severe,Severe Mutation
+mutation.runaway,Source Runaway
+path.none,Mortal
+
+# ============================================================
+# Stat display names
+# ============================================================
+stat.health_max,Max Health
+stat.mana_max,Max Mana
+stat.physical_attack,Phys Attack
+stat.magic_power,Magic Power
+stat.physical_defense,Phys Defense
+stat.element_resistance,Elem Resist
+stat.move_speed,Move Speed
+stat.attack_speed,Atk Speed
+stat.cast_speed,Cast Speed
+stat.crit_rate,Crit Rate
+stat.crit_damage,Crit Damage
+stat.dodge_rate,Dodge Rate
+stat.health_regen,HP Regen
+stat.mana_regen,MP Regen
+
+# ============================================================
+# Inventory UI
+# ============================================================
+inventory.title,Inventory
+inventory.player,Player
+inventory.equipment,Equipment
+inventory.tab_backpack,Backpack
+inventory.tab_sublimation,Sublimation
+inventory.tab_combat,Combat Stats
+equip.main_hand,Main Hand
+equip.off_hand,Off Hand
+equip.head,Head
+equip.chest,Chest
+equip.arm,Arm
+equip.legs,Legs
+equip.feet,Feet
+
+# ============================================================
+# NEI Panel (extra labels)
+# ============================================================
+nei.info.browser_title,NEI Content Browser
+nei.info.search_placeholder,"Search: iron  @macerator  fluid:steam  tier:lv"
+nei.info.search_help,"Tokens: id:12 key:plate @machine fluid:water tier:lv | R/U/M on hovered item"
+nei.info.item_page_format,%d items | page %d / %d
+nei.info.recipe_page_format,%d recipes | page %d / %d
+nei.info.prev_page,Prev
+nei.info.next_page,Next
+nei.info.unregistered_item_format,Item #%d (unregistered)
+nei.sidebar.page_format,%d/%d
+
+# ============================================================
+# Knapping UI
+# ============================================================
+knapping.title,Knapping
+knapping.title_format,Knapping - %s
+knapping.pickup,Pick Up
+knapping.pickup_format,Pick Up %s
+knapping.close,Close
+knapping.stone,Stone
+knapping.status_chip,Click to chip away stone
+knapping.status_ready,Tool head ready! Pick it up.
+knapping.status_chipping,Keep chipping...
+knapping.failed_format,Failed to craft: %s
+
+# ============================================================
+# Station setup UI
+# ============================================================
+station.create_title,Create Space Station
+station.name_label,Station Name:
+station.name_placeholder,My Station
+station.default_name,Outpost
+station.type_label,Station Type:
+station.type_outpost,Outpost (1x1x1 chunks)
+station.type_habitat,Habitat (3x1x3 chunks)
+station.type_factory,Factory (5x1x5 chunks)
+station.orbit_label,Orbit Height (above surface):
+station.orbit_suffix, units
+station.gravity_label,Gravity (1.0 = normal, 0.0 = zero-G):
+station.confirm,Create Station
+station.cancel,Cancel
+
+# ============================================================
+# Loading overlay
+# ============================================================
+loading.title,Loading World
+loading.generating,Generating terrain...
+loading.generating_progress,Generating terrain... %d/%d chunks
+loading.entering,Entering world...
+
+# ============================================================
+# Probe panel
+# ============================================================
+probe.hardness,Hardness: %.1f
+probe.indestructible,Indestructible
+probe.tool,Tool: %s
+probe.level,Level: %d
+probe.key,Key: %s
+probe.drops,Drops: %s
+probe.drops_none,Drops: none
+probe.flag_walkable,Walkable
+probe.flag_solid,Solid
+probe.flag_liquid,Liquid
+probe.flag_mineable,Mineable
+probe.flag_climbable,Climbable
+probe.flag_gravity,GravityFall
+probe.flag_collapse,CollapseRisk
+probe.flag_support,SupportBeam
+probe.flags,Flags: %s
+probe.tool_match,Tool: MATCH
+probe.tool_mismatch,Tool: MISMATCH
+probe.tool_none,Tool: NONE
+
+# ============================================================
+# Main menu
+# ============================================================
+menu.game_title,ScienceAndTheology
+menu.game_subtitle,Science & Theology
+menu.single_player,Single Player
+menu.multiplayer,Multiplayer
+menu.settings,Settings
+menu.quit,Quit Game
+menu.select_world,Select World
+menu.refresh,Refresh
+menu.search_world,Search worlds...
+menu.sort_newest,Newest first
+menu.sort_oldest,Oldest first
+menu.sort_name_az,Name A→Z
+menu.sort_name_za,Name Z→A
+menu.new_world,New World
+menu.load_world,Load World
+menu.rename,Rename
+menu.delete,Delete
+menu.back,Back
+menu.new_world_title,New World
+menu.world_name,World Name
+menu.world_name_placeholder,Enter world name
+menu.game_mode,Game Mode
+menu.mode_survival,Survival
+menu.mode_creative,Creative
+menu.mode_observer,Observer
+menu.default_permission,Default Permission
+menu.perm_player,Player (no cheats)
+menu.perm_cheater,Cheater (allow cheats)
+menu.perm_admin,Admin (full control)
+menu.universe_mode,Universe Mode
+menu.universe_standard,Standard Solar System
+menu.universe_random,Random Galaxies
+menu.world_seed,World Seed
+menu.seed_placeholder,Leave empty for random
+menu.create_world,Create World
+menu.cancel,Cancel
+menu.world_settings,World Settings
+menu.planet_settings,Planet Settings
+menu.day_night_cycle,Day/Night Cycle
+menu.day_length,Day length (sec)
+menu.seasons,Seasons
+menu.ecosystem,Ecosystem
+menu.collapse,Block Collapse
+menu.gravity,Gravity Fall (Gravel)
+menu.save,Save
+menu.planet_size,Initial Planet Size
+menu.size_small,Small
+menu.size_medium,Medium
+menu.size_large,Large
+menu.size_huge,Huge
+menu.terrain,Terrain
+menu.terrain_flat,Flat
+menu.terrain_hilly,Hilly
+menu.terrain_mountain,Mountainous
+menu.terrain_extreme,Extreme
+menu.sea_level,Sea Level
+menu.sea_none,No Ocean
+menu.sea_low,Low
+menu.sea_medium,Medium
+menu.sea_high,High
+menu.caves,Cave Density
+menu.caves_sparse,Sparse
+menu.caves_normal,Normal
+menu.caves_dense,Dense
+menu.atmosphere,Atmosphere Type
+menu.atmos_vacuum,Vacuum
+menu.atmos_thin,Thin
+menu.atmos_breathable,Breathable
+menu.atmos_toxic,Toxic
+menu.atmos_corrosive,Corrosive
+menu.default_random,Default (seed random)
+
+# ============================================================
+# Exit/pause menu
+# ============================================================
+exit_menu.title,Game Paused
+exit_menu.resume,Resume
+exit_menu.settings,Settings
+exit_menu.main_menu,Return to Main Menu
+exit_menu.quit,Quit Game
+
+# ============================================================
+# Settings UI
+# ============================================================
+settings.title,Key Bindings
+settings.reset,Reset Defaults
+settings.back,Back
+settings.listening,Press new key...
+
+# ============================================================
+# Key binding display names
+# ============================================================
+keybind.inventory,Inventory
+keybind.crafting,Crafting Table
+keybind.quest_book,Quest Book
+keybind.mouse_toggle,Release Mouse
+keybind.debug,Debug Panel
+keybind.build_mode,Build Coordinate
+keybind.nei_panel,NEI Item Browser
+keybind.nei_mode,NEI Mode Toggle
+
+# ============================================================
+# Player status bars
+# ============================================================
+status.hp,HP
+status.food,Fd
+
+# ============================================================
+# Crafting UI format strings
+# ============================================================
+crafting.output_format,%s x%d
+crafting.input_format,  %s x%d [%d]
+crafting.tool_format,  Tool: %s %s

@@ -17,16 +17,17 @@ var organ_container: VBoxContainer
 var skill_list: ItemList
 
 var PATH_NAMES: Dictionary = {
-	0: "Mortal",
-	1: "Sand Armor",
-	2: "Tidal",
-	3: "Storm",
-	4: "Furnace",
-	5: "Radiance",
+	0: "path.none",
+	1: "path.sand_armor",
+	2: "path.tidal",
+	3: "path.storm",
+	4: "path.furnace",
+	5: "path.radiance",
 }
 
 var MUTATION_STAGE_NAMES: Array = [
-	"Normal", "Mild Pollution", "Symptoms", "Severe Mutation", "Source Runaway"
+	"mutation.normal", "mutation.mild_pollution", "mutation.symptoms",
+	"mutation.severe", "mutation.runaway"
 ]
 
 
@@ -66,7 +67,7 @@ func _build_ui() -> void:
 	src_bar_container.add_child(source_label)
 	src_bar_container.add_child(source_bar)
 	var src_title := Label.new()
-	src_title.text = "Source "
+	src_title.text = tr("sublimation.source") + " "
 	src_title.custom_minimum_size = Vector2(label_w, 0)
 	src_row.add_child(src_title)
 	src_row.add_child(src_bar_container)
@@ -79,7 +80,7 @@ func _build_ui() -> void:
 	stb_bar_container.add_child(stability_label)
 	stb_bar_container.add_child(stability_bar)
 	var stb_title := Label.new()
-	stb_title.text = "Stability "
+	stb_title.text = tr("sublimation.stability") + " "
 	stb_title.custom_minimum_size = Vector2(label_w, 0)
 	stb_row.add_child(stb_title)
 	stb_row.add_child(stb_bar_container)
@@ -92,7 +93,7 @@ func _build_ui() -> void:
 	mut_bar_container.add_child(mutation_label)
 	mut_bar_container.add_child(mutation_bar)
 	var mut_title := Label.new()
-	mut_title.text = "Mutation "
+	mut_title.text = tr("sublimation.mutation") + " "
 	mut_title.custom_minimum_size = Vector2(label_w, 0)
 	mut_row.add_child(mut_title)
 	mut_row.add_child(mut_bar_container)
@@ -105,7 +106,7 @@ func _build_ui() -> void:
 	mana_bar_container.add_child(mana_label)
 	mana_bar_container.add_child(mana_bar)
 	var mana_title := Label.new()
-	mana_title.text = "Mana "
+	mana_title.text = tr("sublimation.mana") + " "
 	mana_title.custom_minimum_size = Vector2(label_w, 0)
 	mana_row.add_child(mana_title)
 	mana_row.add_child(mana_bar_container)
@@ -114,7 +115,7 @@ func _build_ui() -> void:
 	main_vbox.add_child(HSeparator.new())
 
 	var organ_header := Label.new()
-	organ_header.text = "Organ Slots"
+	organ_header.text = tr("sublimation.organ_slots")
 	main_vbox.add_child(organ_header)
 
 	var scroll := ScrollContainer.new()
@@ -129,7 +130,7 @@ func _build_ui() -> void:
 	main_vbox.add_child(HSeparator.new())
 
 	var skill_header := Label.new()
-	skill_header.text = "Skills"
+	skill_header.text = tr("sublimation.skills")
 	main_vbox.add_child(skill_header)
 
 	skill_list = ItemList.new()
@@ -192,7 +193,7 @@ func refresh() -> void:
 	mutation_bar.value = mutation
 	mutation_bar.max_value = 100.0
 	var stage_idx: int = _get_mutation_stage(mutation)
-	mutation_label.text = "%.0f%% (%s)" % [mutation, MUTATION_STAGE_NAMES[stage_idx]]
+	mutation_label.text = tr("sublimation.mutation_format") % [mutation, tr(MUTATION_STAGE_NAMES[stage_idx])]
 
 	var mana_current: int = source_law_data.get_mana_current()
 	var mana_max: int = source_law_data.get_mana_max()
@@ -202,8 +203,8 @@ func refresh() -> void:
 
 	var path_id: int = source_law_data.get_path_id()
 	var sub_level: int = source_law_data.get_sublimation_level()
-	path_label.text = "Path: %s" % PATH_NAMES.get(path_id, "Unknown")
-	level_label.text = "Level: %d" % sub_level
+	path_label.text = tr("sublimation.path_format") % tr(PATH_NAMES.get(path_id, "path.none"))
+	level_label.text = tr("sublimation.level_format") % sub_level
 
 	for slot_ui in organ_slot_uis:
 		if slot_ui is OrganSlotUI:
@@ -214,7 +215,7 @@ func refresh() -> void:
 	for skill_dict in skills:
 		var name: String = tr(skill_dict.get("title_key", "ui.unknown"))
 		var cost: int = skill_dict.get("mana_cost", 0)
-		skill_list.add_item("%s (Mana: %d)" % [name, cost])
+		skill_list.add_item(tr("sublimation.skill_format") % [name, cost])
 
 
 func _get_mutation_stage(mutation: float) -> int:

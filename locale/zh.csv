@@ -893,3 +893,391 @@ nei.tooltip.hint,R:配方 U:用途 M:机器 B:收藏
 # ============================================================
 nei.key.toggle_nei_panel,NEI物品查询
 nei.key.toggle_nei_mode,NEI模式切换
+
+# ============================================================
+# Quest Book UI (任务书界面)
+# ============================================================
+quest_book.title,任务书
+quest_book.locked,已锁定
+quest_book.available,可接取
+quest_book.in_progress,进行中
+quest_book.completed,已完成
+quest_book.unknown,未知
+quest_book.conditions,条件
+quest_book.rewards,奖励
+quest_book.claim_reward,领取奖励
+quest_book.claimed,已领取
+quest_book.progress,已完成 %d / %d
+quest_book.status,状态：%s
+quest_book.reward_item,  + %s x%d
+quest_book.reward_select_one,  + 选择一项奖励
+quest_book.reward_unlock,  + 解锁：%s
+quest_book.reward_unknown,  + 未知奖励
+quest_book.condition_done,  [x] %s (%d/%d)
+quest_book.condition_pending,  [ ] %s (%d/%d)
+
+# ============================================================
+# Quest chapters (任务章节)
+# ============================================================
+quest.chapter.stone_age,石器时代
+quest.chapter.bronze_age,青铜时代
+quest.chapter.steam_age,蒸汽时代
+quest.chapter.lv,低压时代
+quest.chapter.mv,中压时代
+quest.chapter.magic,源律
+
+# ============================================================
+# Stone Age quests (石器时代任务)
+# ============================================================
+quest.stone_age.first_steps.title,第一步
+quest.stone_age.first_steps.desc,砍树获取木头。一切从这里开始。\n\n挖掘原木来开启你的工业化文明之旅。
+quest.stone_age.getting_stone.title,获取石头
+quest.stone_age.getting_stone.desc,石头是一切工具的基础。挖掘一些石头来制作你的第一批工具。
+quest.stone_age.crafting_table.title,合成台
+quest.stone_age.crafting_table.desc,放置工作台以解锁更复杂的合成配方。\n\n工作台是你进入GT工具系统的入口。
+quest.stone_age.stone_furnace.title,石炉
+quest.stone_age.stone_furnace.desc,冶炼你的第一块金属。放置石炉开始矿石处理。\n\n石炉虽慢但可靠——它将一直为你服务到青铜时代。
+quest.stone_age.first_ingot.title,第一块锭
+quest.stone_age.first_ingot.desc,在熔炉中冶炼一块铁锭。\n\n铁是工业时代的支柱。每台机器都从这里开始。
+quest.stone_age.gt_hammer.title,GT锤子
+quest.stone_age.gt_hammer.desc,制作GT锤子——GregTech中最重要的工具。\n\n锤子用于板材制作、机器组装以及许多其他操作。
+quest.stone_age.wrench.title,扳手
+quest.stone_age.wrench.desc,制作扳手以旋转和拆卸机器。\n\n没有扳手，你将无法正常操作GT机器。
+quest.stone_age.machine_hull.title,基础机器外壳
+quest.stone_age.machine_hull.desc,制作基础机器外壳——每台低压机器的外壳。\n\n这是你迈向电气化的第一步。
+quest.stone_age.macerator_hint.title,粉碎机在等待
+quest.stone_age.macerator_hint.desc,你现在有了机器外壳和马达。粉碎机可以让矿石产量翻倍！\n\n制作粉碎机以进入矿石增产的世界。
+quest.stone_age.wild_foraging.title,野外采集
+quest.stone_age.wild_foraging.desc,你发现了野生作物！挖掘它以收集种子。\n\n野生作物在任何生长阶段都会掉落种子——成熟作物还会掉落作物本身。
+quest.stone_age.first_farm.title,第一片农场
+quest.stone_age.first_farm.desc,用锹翻耕泥土块以创建农田，然后在上面种植种子。\n\n右键点击泥土使用锹翻耕。右键点击农田种植种子。
+quest.stone_age.bone_meal.title,骨粉肥料
+quest.stone_age.bone_meal.desc,对作物使用骨粉以立即推进一个生长阶段。\n\n右键点击作物使用骨粉施肥。
+quest.stone_age.first_harvest.title,第一次收获
+quest.stone_age.first_harvest.desc,等待作物成熟，然后右键点击收获。\n\n作物经过四个阶段：种子→幼苗→生长→成熟。只有成熟作物可以收获。
+quest.stone_age.bread_making.title,面包制作
+quest.stone_age.bread_making.desc,在工作台将小麦磨成面粉，然后在熔炉中烤制成面包。\n\n面包是你冒险旅途中可靠的食物来源。
+quest.bronze_age.bronze_smelting.title,青铜冶炼
+quest.bronze_age.bronze_smelting.desc,将铜和锡熔炼成青铜——定义了一个时代的金属。\n\n青铜机器比石制机器更高效。
+quest.bronze_age.bronze_hull.title,青铜机器外壳
+quest.bronze_age.bronze_hull.desc,为蒸汽时代机器制作青铜机器外壳。\n\n蒸汽动力在等待！
+quest.steam_age.steel.title,钢铁生产
+quest.steam_age.steel.desc,生产钢铁——连接蒸汽与电力的桥梁。\n\n低压机器及更高级机器需要钢铁。
+
+# ============================================================
+# NEI Panel (附加键)
+# ============================================================
+nei.info.all_recipe_types,所有配方类型
+nei.info.crafting_only,仅合成
+nei.info.machine_type,机器：%s
+nei.info.item_number,物品 #%d
+nei.info.unregistered_item,未注册物品
+nei.info.item_unregistered,此物品ID未注册。
+nei.info.no_related_machines,无相关机器。
+nei.info.related_machines,相关机器
+nei.info.show_recipes,查看配方
+nei.info.show_usages,查看用途
+nei.info.shortcuts_text,悬浮物品按R/U/M。创造模式中键或Shift+左键给一组。B收藏。
+nei.info.no_item_selected,未选择物品
+nei.info.no_search_results,无搜索结果
+nei.info.machine_meta_format,配方: %d | 用途: %d | 最低等级: %s | EU/t: %s
+
+# ============================================================
+# Mechanism labels (机关标签)
+# ============================================================
+mechanism.use,使用机关
+
+# ============================================================
+# Tool tip labels (工具提示)
+# ============================================================
+tooltip.unknown_material,未知
+tooltip.type_mining_level,类型: %s | 挖掘等级: %d
+tooltip.speed_durability,速度: %.1f | 耐久: %d
+tooltip.attack,攻击: %.1f
+
+# ============================================================
+# Organ / Element / Quality names (器官/元素/品质名称)
+# ============================================================
+organ.slot.heart,心脏
+organ.slot.bone,骨骼
+organ.slot.blood,血液
+organ.slot.lung,肺
+organ.slot.eye,眼睛
+organ.slot.nerve,神经
+organ.slot.skin,皮肤
+organ.slot.unknown,未知
+organ.level_format,Lv %d
+organ.sand_armor_core,沙铠岩核
+organ.tidal_lung,潮汐肺
+organ.thunder_nerve,雷霆神经
+organ.blazing_heart,炽焰心脏
+organ.radiance_eye,辉耀之眼
+quality.normal,普通
+quality.flawed,瑕疵
+quality.common,普通
+quality.good,良好
+quality.pure,纯净
+quality.ancient,古老
+quality.perfect,完美
+element.fire,火
+element.water,水
+element.earth,地
+element.air,风
+element.light,光
+element.dark,暗
+element.order,秩序
+element.chaos,混沌
+
+# ============================================================
+# TFC bronze alloy material names (青铜合金材料名称)
+# ============================================================
+material.tin_bronze,锡青铜
+material.bismuth_bronze,铋青铜
+material.black_bronze,黑青铜
+
+# ============================================================
+# Sublimation panel (升华面板)
+# ============================================================
+sublimation.source,源质
+sublimation.stability,稳定度
+sublimation.mutation,变异
+sublimation.mana,魔力
+sublimation.organ_slots,器官槽位
+sublimation.skills,技能
+sublimation.mutation_format,%.0f%% (%s)
+sublimation.path_format,路径: %s
+sublimation.level_format,等级: %d
+sublimation.skill_format,%s (魔力: %d)
+mutation.normal,正常
+mutation.mild_pollution,轻度污染
+mutation.symptoms,症状出现
+mutation.severe,严重变异
+mutation.runaway,源质失控
+path.none,凡人
+
+# ============================================================
+# Stat display names (属性名称)
+# ============================================================
+stat.health_max,最大生命
+stat.mana_max,最大魔力
+stat.physical_attack,物理攻击
+stat.magic_power,魔法强度
+stat.physical_defense,物理防御
+stat.element_resistance,元素抗性
+stat.move_speed,移动速度
+stat.attack_speed,攻击速度
+stat.cast_speed,施法速度
+stat.crit_rate,暴击率
+stat.crit_damage,暴击伤害
+stat.dodge_rate,闪避率
+stat.health_regen,生命回复
+stat.mana_regen,魔力回复
+
+# ============================================================
+# Inventory UI (背包界面)
+# ============================================================
+inventory.title,背包
+inventory.player,玩家
+inventory.equipment,装备
+inventory.tab_backpack,背包
+inventory.tab_sublimation,升华
+inventory.tab_combat,战斗属性
+equip.main_hand,主手
+equip.off_hand,副手
+equip.head,头部
+equip.chest,胸部
+equip.arm,手臂
+equip.legs,腿部
+equip.feet,脚部
+
+# ============================================================
+# NEI Panel (额外标签)
+# ============================================================
+nei.info.browser_title,NEI物品浏览器
+nei.info.search_placeholder,搜索: iron  @macerator  fluid:steam  tier:lv
+nei.info.search_help,关键词: id:12 key:plate @machine fluid:water tier:lv | 悬浮按R/U/M
+nei.info.item_page_format,%d个物品 | 第%d/%d页
+nei.info.recipe_page_format,%d个配方 | 第%d/%d页
+nei.info.prev_page,上一页
+nei.info.next_page,下一页
+nei.info.unregistered_item_format,物品 #%d (未注册)
+nei.sidebar.page_format,%d/%d
+
+# ============================================================
+# Knapping UI (打制石器界面)
+# ============================================================
+knapping.title,打制石器
+knapping.title_format,打制石器 - %s
+knapping.pickup,拾取
+knapping.pickup_format,拾取 %s
+knapping.close,关闭
+knapping.stone,石头
+knapping.status_chip,点击敲掉石块
+knapping.status_ready,工具头做好了！拾取它。
+knapping.status_chipping,继续敲打...
+knapping.failed_format,制作失败: %s
+
+# ============================================================
+# Station setup UI (空间站设置界面)
+# ============================================================
+station.create_title,创建空间站
+station.name_label,空间站名称:
+station.name_placeholder,我的空间站
+station.default_name,前哨站
+station.type_label,空间站类型:
+station.type_outpost,前哨站 (1x1x1区块)
+station.type_habitat,居住舱 (3x1x3区块)
+station.type_factory,工厂 (5x1x5区块)
+station.orbit_label,轨道高度 (地表以上):
+station.orbit_suffix, 单位
+station.gravity_label,重力 (1.0=正常, 0.0=零重力):
+station.confirm,创建空间站
+station.cancel,取消
+
+# ============================================================
+# Loading overlay (加载界面)
+# ============================================================
+loading.title,加载世界中
+loading.generating,正在生成地形...
+loading.generating_progress,正在生成地形... %d/%d 区块
+loading.entering,正在进入世界...
+
+# ============================================================
+# Probe panel (探查面板)
+# ============================================================
+probe.hardness,硬度: %.1f
+probe.indestructible,不可破坏
+probe.tool,工具: %s
+probe.level,等级: %d
+probe.key,键: %s
+probe.drops,掉落: %s
+probe.drops_none,掉落: 无
+probe.flag_walkable,可行走
+probe.flag_solid,实体
+probe.flag_liquid,液体
+probe.flag_mineable,可挖掘
+probe.flag_climbable,可攀爬
+probe.flag_gravity,重力掉落
+probe.flag_collapse,坍塌风险
+probe.flag_support,支撑梁
+probe.flags,标签: %s
+probe.tool_match,工具: 匹配
+probe.tool_mismatch,工具: 不匹配
+probe.tool_none,工具: 无
+
+# ============================================================
+# Main menu (主菜单)
+# ============================================================
+menu.game_title,科学与神学
+menu.game_subtitle,Science & Theology
+menu.single_player,单人游戏
+menu.multiplayer,多人游戏
+menu.settings,设置
+menu.quit,退出游戏
+menu.select_world,选择世界
+menu.refresh,刷新
+menu.search_world,搜索世界...
+menu.sort_newest,最新优先
+menu.sort_oldest,最旧优先
+menu.sort_name_az,名称 A→Z
+menu.sort_name_za,名称 Z→A
+menu.new_world,新建世界
+menu.load_world,加载世界
+menu.rename,重命名
+menu.delete,删除
+menu.back,返回
+menu.new_world_title,新建世界
+menu.world_name,世界名称
+menu.world_name_placeholder,输入世界名称
+menu.game_mode,游戏模式
+menu.mode_survival,生存模式
+menu.mode_creative,创造模式
+menu.mode_observer,观察者模式
+menu.default_permission,默认权限
+menu.perm_player,玩家(禁止作弊)
+menu.perm_cheater,作弊者(允许作弊)
+menu.perm_admin,管理员(完全控制)
+menu.universe_mode,宇宙模式
+menu.universe_standard,标准太阳系
+menu.universe_random,随机星系
+menu.world_seed,世界种子
+menu.seed_placeholder,留空则随机生成
+menu.create_world,创建世界
+menu.cancel,取消
+menu.world_settings,世界设置
+menu.planet_settings,星球参数
+menu.day_night_cycle,日夜循环
+menu.day_length,白天长度(秒)
+menu.seasons,季节变化
+menu.ecosystem,生态系统
+menu.collapse,方块坍塌
+menu.gravity,重力掉落(沙砾)
+menu.save,保存
+menu.planet_size,初始星球大小
+menu.size_small,小
+menu.size_medium,中
+menu.size_large,大
+menu.size_huge,巨大
+menu.terrain,地形起伏
+menu.terrain_flat,平坦
+menu.terrain_hilly,丘陵
+menu.terrain_mountain,山地
+menu.terrain_extreme,陡峭
+menu.sea_level,海平面
+menu.sea_none,无海洋
+menu.sea_low,低
+menu.sea_medium,中
+menu.sea_high,高
+menu.caves,洞穴密度
+menu.caves_sparse,稀少
+menu.caves_normal,正常
+menu.caves_dense,密集
+menu.atmosphere,大气类型
+menu.atmos_vacuum,真空
+menu.atmos_thin,稀薄
+menu.atmos_breathable,可呼吸
+menu.atmos_toxic,有毒
+menu.atmos_corrosive,腐蚀性
+menu.default_random,默认(种子随机)
+
+# ============================================================
+# Exit/pause menu (暂停菜单)
+# ============================================================
+exit_menu.title,游戏暂停
+exit_menu.resume,继续游戏
+exit_menu.settings,设置
+exit_menu.main_menu,返回主菜单
+exit_menu.quit,退出游戏
+
+# ============================================================
+# Settings UI (设置界面)
+# ============================================================
+settings.title,按键绑定
+settings.reset,恢复默认
+settings.back,返回
+settings.listening,按下新按键...
+
+# ============================================================
+# Key binding display names (按键绑定名称)
+# ============================================================
+keybind.inventory,背包
+keybind.crafting,合成台
+keybind.quest_book,任务书
+keybind.mouse_toggle,释放鼠标
+keybind.debug,调试面板
+keybind.build_mode,建造坐标
+keybind.nei_panel,NEI物品查询
+keybind.nei_mode,NEI模式切换
+
+# ============================================================
+# Player status bars (状态栏)
+# ============================================================
+status.hp,生命
+status.food,饱食度
+
+# ============================================================
+# Crafting UI format strings (合成界面格式)
+# ============================================================
+crafting.output_format,%s x%d
+crafting.input_format,  %s x%d [%d]
+crafting.tool_format,  工具: %s %s

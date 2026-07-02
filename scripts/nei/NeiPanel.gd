@@ -130,7 +130,7 @@ func _build_ui() -> void:
 	add_child(bg)
 
 	var header := Label.new()
-	header.text = "NEI Content Browser"
+	header.text = tr("nei.info.browser_title")
 	header.position = Vector2(8, 4)
 	header.size = Vector2(320, 24)
 	header.add_theme_color_override("font_color", Color(0.82, 0.90, 1.0))
@@ -145,7 +145,7 @@ func _build_ui() -> void:
 
 	# History navigation bar — back/forward through viewed items.
 	_back_btn = Button.new()
-	_back_btn.text = "< Back"
+	_back_btn.text = tr("nei.history.back")
 	_back_btn.position = Vector2(size.x - 180, 4)
 	_back_btn.size = Vector2(70, 22)
 	_back_btn.disabled = true
@@ -153,7 +153,7 @@ func _build_ui() -> void:
 	add_child(_back_btn)
 
 	_forward_btn = Button.new()
-	_forward_btn.text = "Fwd >"
+	_forward_btn.text = tr("nei.history.forward")
 	_forward_btn.position = Vector2(size.x - 108, 4)
 	_forward_btn.size = Vector2(70, 22)
 	_forward_btn.disabled = true
@@ -163,14 +163,14 @@ func _build_ui() -> void:
 	_search_box = LineEdit.new()
 	_search_box.position = Vector2(8, 38)
 	_search_box.size = Vector2(LEFT_W - 16, 26)
-	_search_box.placeholder_text = "Search: iron  @macerator  fluid:steam  tier:lv"
+	_search_box.placeholder_text = tr("nei.info.search_placeholder")
 	_search_box.text_changed.connect(_on_search)
 	add_child(_search_box)
 
 	_search_help = Label.new()
 	_search_help.position = Vector2(8, 66)
 	_search_help.size = Vector2(LEFT_W - 16, 20)
-	_search_help.text = "Tokens: id:12 key:plate @machine fluid:water tier:lv | R/U/M on hovered item"
+	_search_help.text = tr("nei.info.search_help")
 	_search_help.add_theme_color_override("font_color", Color(0.55, 0.63, 0.72))
 	_search_help.add_theme_font_size_override("font_size", 10)
 	add_child(_search_help)
@@ -276,12 +276,12 @@ func _populate_machine_filter() -> void:
 		return
 	var current := _machine_filter
 	_machine_filter_box.clear()
-	_machine_filter_box.add_item("All recipe types")
+	_machine_filter_box.add_item(tr("nei.info.all_recipe_types"))
 	_machine_filter_box.set_item_metadata(0, MACHINE_FILTER_ALL)
-	_machine_filter_box.add_item("Crafting only")
+	_machine_filter_box.add_item(tr("nei.info.crafting_only"))
 	_machine_filter_box.set_item_metadata(1, MACHINE_FILTER_CRAFTING)
 	for machine in NEIIndex.get_machine_types():
-		_machine_filter_box.add_item("Machine: %s" % machine)
+		_machine_filter_box.add_item(tr("nei.info.machine_type") % machine)
 		_machine_filter_box.set_item_metadata(_machine_filter_box.get_item_count() - 1, str(machine))
 
 	var selected_index := 0
@@ -330,7 +330,7 @@ func _update_item_pager() -> void:
 	var total_pages := _item_total_pages()
 	_item_prev_btn.disabled = _item_page <= 0
 	_item_next_btn.disabled = _item_page >= total_pages - 1
-	_item_page_label.text = "%d items | page %d / %d" % [_filtered_ids.size(), _item_page + 1, total_pages]
+	_item_page_label.text = tr("nei.info.item_page_format") % [_filtered_ids.size(), _item_page + 1, total_pages]
 
 
 func _on_item_page_delta(delta: int) -> void:
@@ -362,8 +362,8 @@ func _select_item_tracked(item_id: int, record_history: bool) -> void:
 	var def = ItemDatabase.get_item(item_id)
 	if def == null:
 		_icon.texture = null
-		_title.text = "Item #%d" % item_id
-		_subtitle.text = "Unregistered item"
+		_title.text = tr("nei.info.item_number") % item_id
+		_subtitle.text = tr("nei.info.unregistered_item")
 	else:
 		_icon.texture = def.icon
 		_title.text = tr(def.title_key)
@@ -424,8 +424,8 @@ func _apply_history_entry(entry: Dictionary) -> void:
 		_subtitle.text = _subtitle_for(_current_item_id, def)
 	else:
 		_icon.texture = null
-		_title.text = "Item #%d" % _current_item_id
-		_subtitle.text = "Unregistered item"
+		_title.text = tr("nei.info.item_number") % _current_item_id
+		_subtitle.text = tr("nei.info.unregistered_item")
 	_populate_machine_filter()
 	_rebuild_tabs()
 	_show_detail()
@@ -492,37 +492,33 @@ func _clear_detail() -> void:
 func _show_info() -> void:
 	var def = ItemDatabase.get_item(_current_item_id)
 	if def == null:
-		_add_text("This item id is not registered.", Color(0.85, 0.6, 0.6))
+		_add_text(tr("nei.info.item_unregistered"), Color(0.85, 0.6, 0.6))
 		return
-	_add_section("Base")
-	_add_kv("Item ID", str(_current_item_id))
+	_add_section(tr("nei.info.base"))
+	_add_kv(tr("nei.info.item_id"), str(_current_item_id))
 	var key := NEIIndex.get_item_key(_current_item_id)
-	_add_kv("Item Key", key if not key.is_empty() else "-")
-	_add_kv("Max Stack", str(def.max_stack))
-	# Source/mod tag — mirrors NEI's mod display.
+	_add_kv(tr("nei.info.item_key"), key if not key.is_empty() else "-")
+	_add_kv(tr("nei.info.max_stack"), str(def.max_stack))
 	var source := NEIIndex.get_item_source(_current_item_id)
-	_add_kv("Source", source)
-	# Category subset.
-	_add_kv("Category", NEIIndex.get_item_tooltip_text(_current_item_id).get_slice(" ", 0) if false else _category_label(int(def.category)))
-	# Ore dictionary entries — mirrors NEI's ore dict display.
+	_add_kv(tr("nei.info.source"), source)
+	_add_kv(tr("nei.info.category"), _category_label(int(def.category)))
 	var ores := NEIIndex.get_ores_for_item(_current_item_id)
 	if not ores.is_empty():
-		_add_kv("Ore Dict", ", ".join(ores))
-	# Bookmark status.
+		_add_kv(tr("nei.info.ore_dict"), ", ".join(ores))
 	if NEISettings != null:
-		_add_kv("Bookmarked", "Yes (B to remove)" if NEISettings.is_bookmarked(_current_item_id) else "No (B to add)")
-	_add_section("Recipe Summary")
-	_add_kv("Recipes", str(NEIIndex.get_recipes_for_output(_current_item_id).size()))
-	_add_kv("Usages", str(NEIIndex.get_recipes_for_input(_current_item_id).size()))
-	_add_kv("Shortcuts", "Hover item + R/U/M. Creative: middle click or Shift+left gives one stack. B to bookmark.")
+		_add_kv(tr("nei.info.bookmarked"), tr("nei.info.bookmarked_yes") if NEISettings.is_bookmarked(_current_item_id) else tr("nei.info.bookmarked_no"))
+	_add_section(tr("nei.info.recipe_summary"))
+	_add_kv(tr("nei.info.recipes"), str(NEIIndex.get_recipes_for_output(_current_item_id).size()))
+	_add_kv(tr("nei.info.usages"), str(NEIIndex.get_recipes_for_input(_current_item_id).size()))
+	_add_kv(tr("nei.info.shortcuts"), tr("nei.info.shortcuts_text"))
 
 	var related := _related_machine_text()
 	if not related.is_empty():
-		_add_kv("Machines", related)
+		_add_kv(tr("nei.info.machines"), related)
 
 	var tooltip_lines: Array = def.get_tooltip_lines()
 	if not tooltip_lines.is_empty():
-		_add_section("Tooltip")
+		_add_section(tr("nei.info.tooltip"))
 		for line in tooltip_lines:
 			_add_text(str(line), Color(0.78, 0.84, 0.92))
 
@@ -530,14 +526,14 @@ func _show_info() -> void:
 # Map an ItemDef.Category enum value to a display label.
 func _category_label(category: int) -> String:
 	match category:
-		ItemDef.Category.MATERIALS: return "Materials"
-		ItemDef.Category.TOOLS: return "Tools"
-		ItemDef.Category.COMPONENTS: return "Components"
-		ItemDef.Category.PLACEABLES: return "Placeables"
-		ItemDef.Category.RESOURCES: return "Resources"
-		ItemDef.Category.FOOD: return "Food"
-		ItemDef.Category.MISC: return "Misc"
-	return "Misc"
+		ItemDef.Category.MATERIALS: return tr("creative.category.materials")
+		ItemDef.Category.TOOLS: return tr("creative.category.tools")
+		ItemDef.Category.COMPONENTS: return tr("creative.category.components")
+		ItemDef.Category.PLACEABLES: return tr("creative.category.placeables")
+		ItemDef.Category.RESOURCES: return tr("creative.category.resources")
+		ItemDef.Category.FOOD: return tr("creative.category.food")
+		ItemDef.Category.MISC: return tr("creative.category.misc")
+	return tr("creative.category.misc")
 
 
 func _related_machine_text() -> String:
@@ -556,9 +552,9 @@ func _related_machine_text() -> String:
 func _show_machines() -> void:
 	var groups := _machine_groups_for_current_item()
 	if groups.is_empty():
-		_add_text("No related machines.", Color(0.62, 0.64, 0.72))
+		_add_text(tr("nei.info.no_related_machines"), Color(0.62, 0.64, 0.72))
 		return
-	_add_section("Related Machines")
+	_add_section(tr("nei.info.related_machines"))
 	for machine in groups.keys():
 		var group: Dictionary = groups[machine]
 		var card := PanelContainer.new()
@@ -573,7 +569,7 @@ func _show_machines() -> void:
 		box.add_child(title)
 
 		var meta := Label.new()
-		meta.text = "Recipes: %d | Usages: %d | Min tier: %s | EU/t: %s" % [
+		meta.text = tr("nei.info.machine_meta_format") % [
 			int(group.get("recipes", 0)),
 			int(group.get("usages", 0)),
 			str(group.get("min_tier", "-")),
@@ -584,11 +580,11 @@ func _show_machines() -> void:
 
 		var buttons := HBoxContainer.new()
 		var recipe_btn := Button.new()
-		recipe_btn.text = "Show Recipes"
+		recipe_btn.text = tr("nei.info.show_recipes")
 		recipe_btn.pressed.connect(_on_machine_jump.bind(str(machine), "recipes"))
 		buttons.add_child(recipe_btn)
 		var usage_btn := Button.new()
-		usage_btn.text = "Show Usages"
+		usage_btn.text = tr("nei.info.show_usages")
 		usage_btn.pressed.connect(_on_machine_jump.bind(str(machine), "usage"))
 		buttons.add_child(usage_btn)
 		box.add_child(buttons)
@@ -664,18 +660,18 @@ func _add_recipe_pager(total: int, total_pages: int) -> void:
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var prev := Button.new()
-	prev.text = "Prev"
+	prev.text = tr("nei.info.prev_page")
 	prev.disabled = _recipe_page <= 0
 	prev.pressed.connect(_on_recipe_page_delta.bind(-1))
 	row.add_child(prev)
 	var label := Label.new()
-	label.text = "%d recipes | page %d / %d" % [total, _recipe_page + 1, total_pages]
+	label.text = tr("nei.info.recipe_page_format") % [total, _recipe_page + 1, total_pages]
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(label)
 	var next := Button.new()
-	next.text = "Next"
+	next.text = tr("nei.info.next_page")
 	next.disabled = _recipe_page >= total_pages - 1
 	next.pressed.connect(_on_recipe_page_delta.bind(1))
 	row.add_child(next)
@@ -723,8 +719,8 @@ func _recipe_card(ref: NEIIndexScript.RecipeRef) -> Control:
 		transfer_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		box.add_child(transfer_row)
 		var craft_btn := Button.new()
-		craft_btn.text = "Craft (transfer)"
-		craft_btn.tooltip_text = "Attempt to craft this recipe using inventory items"
+		craft_btn.text = tr("nei.transfer.craft")
+		craft_btn.tooltip_text = tr("nei.transfer.craft_tip")
 		craft_btn.pressed.connect(_on_recipe_transfer.bind(ref))
 		transfer_row.add_child(craft_btn)
 	return card
@@ -973,8 +969,8 @@ func _on_search(query: String) -> void:
 		_select_item(_filtered_ids[0])
 	elif _filtered_ids.is_empty():
 		_clear_detail()
-		_title.text = "No item selected"
-		_subtitle.text = "No search results"
+		_title.text = tr("nei.info.no_item_selected")
+		_subtitle.text = tr("nei.info.no_search_results")
 		_icon.texture = null
 	# Record non-empty searches in the search history.
 	if not query.strip_edges().is_empty() and NEISettings != null:

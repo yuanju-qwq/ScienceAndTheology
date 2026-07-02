@@ -47,8 +47,8 @@ func _build_ui() -> void:
 	for i in range(defs.size()):
 		var def: Dictionary = defs[i]
 		var btn := Button.new()
-		btn.text = str(def.get("label", ""))
-		btn.tooltip_text = str(def.get("tooltip", ""))
+		btn.text = tr(str(def.get("label_key", "")))
+		btn.tooltip_text = tr(str(def.get("tooltip_key", "")))
 		btn.toggle_mode = true
 		btn.button_pressed = false
 		btn.position = Vector2(start_x + i * (BUTTON_SIZE.x + BUTTON_SPACING), 4)
@@ -64,17 +64,17 @@ func _build_ui() -> void:
 # Definition of all utility buttons.
 func _utility_defs() -> Array[Dictionary]:
 	return [
-		{"name": "magnet", "label": "Mag", "tooltip": "Magnet: pull dropped items to player"},
-		{"name": "delete", "label": "Del", "tooltip": "Delete: click inventory items to remove"},
-		{"name": "infinite", "label": "Inf", "tooltip": "Infinite: placed blocks are not consumed"},
-		{"name": "chunk_loader", "label": "Chk", "tooltip": "Chunk loader: keep nearby chunks loaded"},
-		{"name": "block_highlight", "label": "Bx", "tooltip": "Block highlight: show bounding boxes"},
-		{"name": "entity_radar", "label": "Ent", "tooltip": "Entity radar: show nearby entities"},
-		{"name": "time_dawn", "label": "Dawn", "tooltip": "Set time to dawn (read-only if unsupported)"},
-		{"name": "time_noon", "label": "Noon", "tooltip": "Set time to noon"},
-		{"name": "time_dusk", "label": "Dusk", "tooltip": "Set time to dusk"},
-		{"name": "time_midnight", "label": "Night", "tooltip": "Set time to midnight"},
-		{"name": "rain", "label": "Rain", "tooltip": "Toggle rain"},
+		{"name": "magnet", "label_key": "nei.util.magnet", "tooltip_key": "nei.util.magnet_tip"},
+		{"name": "delete", "label_key": "nei.util.delete", "tooltip_key": "nei.util.delete_tip"},
+		{"name": "infinite", "label_key": "nei.util.infinite", "tooltip_key": "nei.util.infinite_tip"},
+		{"name": "chunk_loader", "label_key": "nei.util.chunk_loader", "tooltip_key": "nei.util.chunk_loader_tip"},
+		{"name": "block_highlight", "label_key": "nei.util.block_highlight", "tooltip_key": "nei.util.block_highlight_tip"},
+		{"name": "entity_radar", "label_key": "nei.util.entity_radar", "tooltip_key": "nei.util.entity_radar_tip"},
+		{"name": "time_dawn", "label_key": "nei.util.time_dawn", "tooltip_key": "nei.util.time_dawn_tip"},
+		{"name": "time_noon", "label_key": "nei.util.time_noon", "tooltip_key": "nei.util.time_noon_tip"},
+		{"name": "time_dusk", "label_key": "nei.util.time_dusk", "tooltip_key": "nei.util.time_dusk_tip"},
+		{"name": "time_midnight", "label_key": "nei.util.time_midnight", "tooltip_key": "nei.util.time_midnight_tip"},
+		{"name": "rain", "label_key": "nei.util.rain", "tooltip_key": "nei.util.rain_tip"},
 	]
 
 

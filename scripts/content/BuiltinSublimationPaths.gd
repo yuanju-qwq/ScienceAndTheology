@@ -45,7 +45,7 @@ static func _register_sand_armor() -> void:
 		"organ_stages": [
 			{
 				"slot": SLOT_BONE,
-				"organ_name": "Sand Armor Rock Core",
+				"organ_name": "organ.sand_armor_core",
 				"element": ELEMENT_EARTH,
 				"min_sublimation_level": 1,
 				"sublimation_degree_granted": 1,
@@ -75,7 +75,7 @@ static func _register_tidal() -> void:
 		"organ_stages": [
 			{
 				"slot": SLOT_LUNG,
-				"organ_name": "Tidal Lung",
+				"organ_name": "organ.tidal_lung",
 				"element": ELEMENT_WATER,
 				"min_sublimation_level": 1,
 				"sublimation_degree_granted": 1,
@@ -93,7 +93,7 @@ static func _register_storm() -> void:
 		"organ_stages": [
 			{
 				"slot": SLOT_NERVE,
-				"organ_name": "Thunder Nerve",
+				"organ_name": "organ.thunder_nerve",
 				"element": ELEMENT_AIR,
 				"min_sublimation_level": 1,
 				"sublimation_degree_granted": 1,
@@ -111,7 +111,7 @@ static func _register_furnace() -> void:
 		"organ_stages": [
 			{
 				"slot": SLOT_HEART,
-				"organ_name": "Blazing Heart",
+				"organ_name": "organ.blazing_heart",
 				"element": ELEMENT_FIRE,
 				"min_sublimation_level": 1,
 				"sublimation_degree_granted": 1,
@@ -129,7 +129,7 @@ static func _register_radiance() -> void:
 		"organ_stages": [
 			{
 				"slot": SLOT_EYE,
-				"organ_name": "Radiance Eye",
+				"organ_name": "organ.radiance_eye",
 				"element": ELEMENT_LIGHT,
 				"min_sublimation_level": 1,
 				"sublimation_degree_granted": 1,

@@ -230,7 +230,7 @@ func _build_ui() -> void:
 	# Title label.
 	var title := Label.new()
 	title.name = "TitleLabel"
-	title.text = "ScienceAndTheology"
+	title.text = tr("menu.game_title")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", TITLE_FONT_SIZE)
 	title.add_theme_color_override("font_color", COLOR_TEXT)
@@ -244,7 +244,7 @@ func _build_ui() -> void:
 	# Subtitle label.
 	var subtitle := Label.new()
 	subtitle.name = "SubtitleLabel"
-	subtitle.text = "Science & Theology"
+	subtitle.text = tr("menu.game_subtitle")
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", SUBTITLE_FONT_SIZE)
 	subtitle.add_theme_color_override("font_color", COLOR_TEXT_DIM)
@@ -283,7 +283,7 @@ func _build_main_menu() -> void:
 	_main_menu_vbox.add_theme_constant_override("separation", BUTTON_GAP)
 	add_child(_main_menu_vbox)
 
-	var labels := ["单人游戏", "多人游戏", "设置", "退出游戏"]
+	var labels := ["menu.single_player", "menu.multiplayer", "menu.settings", "menu.quit"]
 	var callbacks: Array[Callable] = [
 		_on_single_player,
 		_on_multiplayer,
@@ -330,13 +330,13 @@ func _build_world_list_panel() -> void:
 	title_row.add_theme_constant_override("separation", 8)
 
 	var title_label := Label.new()
-	title_label.text = "选择世界"
+	title_label.text = tr("menu.select_world")
 	title_label.add_theme_font_size_override("font_size", 22)
 	title_label.add_theme_color_override("font_color", COLOR_TEXT)
 	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_row.add_child(title_label)
 
-	var refresh_btn := _make_button("刷新", 60, 28)
+	var refresh_btn := _make_button("menu.refresh", 60, 28)
 	refresh_btn.add_theme_font_size_override("font_size", 12)
 	refresh_btn.pressed.connect(_on_refresh_worlds)
 	title_row.add_child(refresh_btn)
@@ -349,7 +349,7 @@ func _build_world_list_panel() -> void:
 
 	_search_input = LineEdit.new()
 	_search_input.name = "SearchInput"
-	_search_input.placeholder_text = "搜索世界..."
+	_search_input.placeholder_text = tr("menu.search_world")
 	_search_input.custom_minimum_size = Vector2(0, SEARCH_HEIGHT)
 	_search_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_search_input.text_changed.connect(_on_search_changed)
@@ -358,10 +358,10 @@ func _build_world_list_panel() -> void:
 	_sort_option = OptionButton.new()
 	_sort_option.name = "SortOption"
 	_sort_option.custom_minimum_size = Vector2(SORT_WIDTH, SEARCH_HEIGHT)
-	_sort_option.add_item("最新优先", 0)
-	_sort_option.add_item("最旧优先", 1)
-	_sort_option.add_item("名称 A→Z", 2)
-	_sort_option.add_item("名称 Z→A", 3)
+	_sort_option.add_item(tr("menu.sort_newest"), 0)
+	_sort_option.add_item(tr("menu.sort_oldest"), 1)
+	_sort_option.add_item(tr("menu.sort_name_az"), 2)
+	_sort_option.add_item(tr("menu.sort_name_za"), 3)
 	_sort_option.selected = 0
 	_sort_option.item_selected.connect(_on_sort_changed)
 	search_row.add_child(_sort_option)
@@ -387,25 +387,25 @@ func _build_world_list_panel() -> void:
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var btn_new := _make_button("新建世界", 100, BUTTON_HEIGHT)
+	var btn_new := _make_button("menu.new_world", 100, BUTTON_HEIGHT)
 	btn_new.pressed.connect(_on_new_world)
 	btn_row.add_child(btn_new)
 
-	var btn_load := _make_button("加载世界", 100, BUTTON_HEIGHT)
+	var btn_load := _make_button("menu.load_world", 100, BUTTON_HEIGHT)
 	btn_load.pressed.connect(_on_load_world)
 	btn_row.add_child(btn_load)
 
-	var btn_rename := _make_button("重命名", 80, BUTTON_HEIGHT)
+	var btn_rename := _make_button("menu.rename", 80, BUTTON_HEIGHT)
 	btn_rename.pressed.connect(_on_rename_world)
 	btn_row.add_child(btn_rename)
 
-	var btn_delete := _make_button("删除", 80, BUTTON_HEIGHT)
+	var btn_delete := _make_button("menu.delete", 80, BUTTON_HEIGHT)
 	btn_delete.pressed.connect(_on_delete_world)
 	btn_delete.add_theme_color_override("font_color", Color(0.90, 0.45, 0.45, 1.0))
 	btn_delete.add_theme_color_override("font_hover_color", Color(1.0, 0.55, 0.55, 1.0))
 	btn_row.add_child(btn_delete)
 
-	var btn_back := _make_button("返回", 80, BUTTON_HEIGHT)
+	var btn_back := _make_button("menu.back", 80, BUTTON_HEIGHT)
 	btn_back.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	btn_back.pressed.connect(_show_main_menu)
 	btn_row.add_child(btn_back)
@@ -447,7 +447,7 @@ func _build_new_world_dialog() -> void:
 
 	# Dialog title.
 	var dialog_title := Label.new()
-	dialog_title.text = "新建世界"
+	dialog_title.text = tr("menu.new_world_title")
 	dialog_title.add_theme_font_size_override("font_size", 20)
 	dialog_title.add_theme_color_override("font_color", COLOR_TEXT)
 	vbox.add_child(dialog_title)
@@ -459,14 +459,14 @@ func _build_new_world_dialog() -> void:
 	var name_row := HBoxContainer.new()
 	name_row.add_theme_constant_override("separation", 8)
 	var name_label := Label.new()
-	name_label.text = "世界名称"
+	name_label.text = tr("menu.world_name")
 	name_label.add_theme_font_size_override("font_size", 14)
 	name_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	name_label.custom_minimum_size = Vector2(80, 0)
 	name_row.add_child(name_label)
 	_new_world_input = LineEdit.new()
 	_new_world_input.name = "WorldNameInput"
-	_new_world_input.placeholder_text = "输入世界名称"
+	_new_world_input.placeholder_text = tr("menu.world_name_placeholder")
 	_new_world_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_new_world_input.custom_minimum_size = Vector2(0, 32)
 	name_row.add_child(_new_world_input)
@@ -476,16 +476,16 @@ func _build_new_world_dialog() -> void:
 	var gm_row := HBoxContainer.new()
 	gm_row.add_theme_constant_override("separation", 8)
 	var gm_label := Label.new()
-	gm_label.text = "游戏模式"
+	gm_label.text = tr("menu.game_mode")
 	gm_label.add_theme_font_size_override("font_size", 14)
 	gm_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	gm_label.custom_minimum_size = Vector2(80, 0)
 	gm_row.add_child(gm_label)
 	_game_mode_option = OptionButton.new()
 	_game_mode_option.name = "GameModeOption"
-	_game_mode_option.add_item("生存模式", 0)
-	_game_mode_option.add_item("创造模式", 1)
-	_game_mode_option.add_item("观察者模式", 2)
+	_game_mode_option.add_item(tr("menu.mode_survival"), 0)
+	_game_mode_option.add_item(tr("menu.mode_creative"), 1)
+	_game_mode_option.add_item(tr("menu.mode_observer"), 2)
 	_game_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_game_mode_option.custom_minimum_size = Vector2(0, 32)
 	_game_mode_option.selected = 0
@@ -496,16 +496,16 @@ func _build_new_world_dialog() -> void:
 	var perm_row := HBoxContainer.new()
 	perm_row.add_theme_constant_override("separation", 8)
 	var perm_label := Label.new()
-	perm_label.text = "默认权限"
+	perm_label.text = tr("menu.default_permission")
 	perm_label.add_theme_font_size_override("font_size", 14)
 	perm_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	perm_label.custom_minimum_size = Vector2(80, 0)
 	perm_row.add_child(perm_label)
 	_permission_option = OptionButton.new()
 	_permission_option.name = "PermissionOption"
-	_permission_option.add_item("玩家(禁止作弊)", 0)
-	_permission_option.add_item("作弊者(允许作弊)", 1)
-	_permission_option.add_item("管理员(完全控制)", 2)
+	_permission_option.add_item(tr("menu.perm_player"), 0)
+	_permission_option.add_item(tr("menu.perm_cheater"), 1)
+	_permission_option.add_item(tr("menu.perm_admin"), 2)
 	_permission_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_permission_option.custom_minimum_size = Vector2(0, 32)
 	_permission_option.selected = 1
@@ -516,15 +516,15 @@ func _build_new_world_dialog() -> void:
 	var mode_row := HBoxContainer.new()
 	mode_row.add_theme_constant_override("separation", 8)
 	var mode_label := Label.new()
-	mode_label.text = "宇宙模式"
+	mode_label.text = tr("menu.universe_mode")
 	mode_label.add_theme_font_size_override("font_size", 14)
 	mode_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	mode_label.custom_minimum_size = Vector2(80, 0)
 	mode_row.add_child(mode_label)
 	_universe_mode_option = OptionButton.new()
 	_universe_mode_option.name = "UniverseModeOption"
-	_universe_mode_option.add_item("标准太阳系", 0)
-	_universe_mode_option.add_item("随机星系", 1)
+	_universe_mode_option.add_item(tr("menu.universe_standard"), 0)
+	_universe_mode_option.add_item(tr("menu.universe_random"), 1)
 	_universe_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_universe_mode_option.custom_minimum_size = Vector2(0, 32)
 	_universe_mode_option.item_selected.connect(_on_universe_mode_changed)
@@ -535,14 +535,14 @@ func _build_new_world_dialog() -> void:
 	var seed_row := HBoxContainer.new()
 	seed_row.add_theme_constant_override("separation", 8)
 	var seed_label := Label.new()
-	seed_label.text = "世界种子"
+	seed_label.text = tr("menu.world_seed")
 	seed_label.add_theme_font_size_override("font_size", 14)
 	seed_label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	seed_label.custom_minimum_size = Vector2(80, 0)
 	seed_row.add_child(seed_label)
 	_seed_input = LineEdit.new()
 	_seed_input.name = "SeedInput"
-	_seed_input.placeholder_text = "留空则随机生成"
+	_seed_input.placeholder_text = tr("menu.seed_placeholder")
 	_seed_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_seed_input.custom_minimum_size = Vector2(0, 32)
 	seed_row.add_child(_seed_input)
@@ -560,11 +560,11 @@ func _build_new_world_dialog() -> void:
 	cfg_row.add_theme_constant_override("separation", 10)
 	cfg_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	_world_settings_btn = _make_button("📋 世界设置", 180, 36)
+	_world_settings_btn = _make_button("menu.world_settings", 180, 36)
 	_world_settings_btn.pressed.connect(_open_world_settings)
 	cfg_row.add_child(_world_settings_btn)
 
-	_planet_settings_btn = _make_button("🪐 星球参数", 180, 36)
+	_planet_settings_btn = _make_button("menu.planet_settings", 180, 36)
 	_planet_settings_btn.pressed.connect(_open_planet_settings)
 	cfg_row.add_child(_planet_settings_btn)
 
@@ -578,11 +578,11 @@ func _build_new_world_dialog() -> void:
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var btn_create := _make_button("创建世界", 140, BUTTON_HEIGHT)
+	var btn_create := _make_button("menu.create_world", 140, BUTTON_HEIGHT)
 	btn_create.pressed.connect(_on_create_world)
 	btn_row.add_child(btn_create)
 
-	var btn_cancel := _make_button("取消", 120, BUTTON_HEIGHT)
+	var btn_cancel := _make_button("menu.cancel", 120, BUTTON_HEIGHT)
 	btn_cancel.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	btn_cancel.pressed.connect(_on_cancel_new_world)
 	btn_row.add_child(btn_cancel)
@@ -605,7 +605,7 @@ func _make_separator() -> HSeparator:
 
 func _make_label(text: String, width: int) -> Label:
 	var label := Label.new()
-	label.text = text
+	label.text = tr(text)
 	label.add_theme_font_size_override("font_size", 12)
 	label.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	if width > 0:
@@ -615,7 +615,7 @@ func _make_label(text: String, width: int) -> Label:
 
 func _make_checkbox(label: String, default_value: bool) -> CheckBox:
 	var cb := CheckBox.new()
-	cb.text = label
+	cb.text = tr(label)
 	cb.button_pressed = default_value
 	cb.add_theme_font_size_override("font_size", 13)
 	cb.add_theme_color_override("font_color", COLOR_TEXT)
@@ -638,7 +638,7 @@ func _make_spinbox(min_val: float, max_val: float, default_val: float, step_val:
 
 func _build_world_settings_window() -> void:
 	_ws_window = Window.new()
-	_ws_window.title = "世界设置"
+	_ws_window.title = tr("menu.world_settings")
 	_ws_window.transient = true
 	_ws_window.exclusive = true
 	_ws_window.initial_position = Window.WINDOW_INITIAL_POSITION_CENTER_MAIN_WINDOW_SCREEN
@@ -667,9 +667,9 @@ func _build_world_settings_window() -> void:
 	# Day/night cycle.
 	var dn_row := HBoxContainer.new()
 	dn_row.add_theme_constant_override("separation", 8)
-	_ws_day_night = _make_checkbox("日夜循环", true)
+	_ws_day_night = _make_checkbox("menu.day_night_cycle", true)
 	dn_row.add_child(_ws_day_night)
-	dn_row.add_child(_make_label("白天长度(秒)", 100))
+	dn_row.add_child(_make_label("menu.day_length", 100))
 	_ws_day_length = _make_spinbox(60, 3600, 600, 50)
 	dn_row.add_child(_ws_day_length)
 	dn_row.add_child(_make_label("", 0))
@@ -678,7 +678,7 @@ func _build_world_settings_window() -> void:
 	# Seasons toggle.
 	var sn_row := HBoxContainer.new()
 	sn_row.add_theme_constant_override("separation", 8)
-	_ws_seasons = _make_checkbox("季节变化", true)
+	_ws_seasons = _make_checkbox("menu.seasons", true)
 	sn_row.add_child(_ws_seasons)
 	sn_row.add_child(_make_label("", 0))
 	inner.add_child(sn_row)
@@ -686,7 +686,7 @@ func _build_world_settings_window() -> void:
 	# Ecosystem toggle.
 	var ec_row := HBoxContainer.new()
 	ec_row.add_theme_constant_override("separation", 8)
-	_ws_ecosystem = _make_checkbox("生态系统", true)
+	_ws_ecosystem = _make_checkbox("menu.ecosystem", true)
 	ec_row.add_child(_ws_ecosystem)
 	ec_row.add_child(_make_label("", 0))
 	inner.add_child(ec_row)
@@ -694,7 +694,7 @@ func _build_world_settings_window() -> void:
 	# Collapse toggle.
 	var cl_row := HBoxContainer.new()
 	cl_row.add_theme_constant_override("separation", 8)
-	_ws_collapse = _make_checkbox("方块坍塌", true)
+	_ws_collapse = _make_checkbox("menu.collapse", true)
 	cl_row.add_child(_ws_collapse)
 	cl_row.add_child(_make_label("", 0))
 	inner.add_child(cl_row)
@@ -702,7 +702,7 @@ func _build_world_settings_window() -> void:
 	# Gravity toggle.
 	var gr_row := HBoxContainer.new()
 	gr_row.add_theme_constant_override("separation", 8)
-	_ws_gravity = _make_checkbox("重力掉落(沙砾)", true)
+	_ws_gravity = _make_checkbox("menu.gravity", true)
 	gr_row.add_child(_ws_gravity)
 	gr_row.add_child(_make_label("", 0))
 	inner.add_child(gr_row)
@@ -715,11 +715,11 @@ func _build_world_settings_window() -> void:
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var save_btn := _make_button("保存", 100, 34)
+	var save_btn := _make_button("menu.save", 100, 34)
 	save_btn.pressed.connect(_save_world_settings)
 	btn_row.add_child(save_btn)
 
-	var cancel_btn := _make_button("取消", 100, 34)
+	var cancel_btn := _make_button("menu.cancel", 100, 34)
 	cancel_btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	cancel_btn.pressed.connect(_close_world_settings)
 	btn_row.add_child(cancel_btn)
@@ -758,7 +758,7 @@ func _close_world_settings() -> void:
 
 func _build_planet_settings_window() -> void:
 	_ps_window = Window.new()
-	_ps_window.title = "初始星球参数"
+	_ps_window.title = tr("menu.planet_settings")
 	_ps_window.transient = true
 	_ps_window.exclusive = true
 	_ps_window.initial_position = Window.WINDOW_INITIAL_POSITION_CENTER_MAIN_WINDOW_SCREEN
@@ -786,14 +786,14 @@ func _build_planet_settings_window() -> void:
 	# Size preset.
 	var sz_row := HBoxContainer.new()
 	sz_row.add_theme_constant_override("separation", 8)
-	sz_row.add_child(_make_label("初始星球大小", 120))
+	sz_row.add_child(_make_label("menu.planet_size", 120))
 	_ps_size = OptionButton.new()
 	_ps_size.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_ps_size.add_item("默认(种子随机)", 0)
-	_ps_size.add_item("小", 1)
-	_ps_size.add_item("中", 2)
-	_ps_size.add_item("大", 3)
-	_ps_size.add_item("巨大", 4)
+	_ps_size.add_item(tr("menu.default_random"), 0)
+	_ps_size.add_item(tr("menu.size_small"), 1)
+	_ps_size.add_item(tr("menu.size_medium"), 2)
+	_ps_size.add_item(tr("menu.size_large"), 3)
+	_ps_size.add_item(tr("menu.size_huge"), 4)
 	_ps_size.selected = 0
 	sz_row.add_child(_ps_size)
 	inner.add_child(sz_row)
@@ -801,14 +801,14 @@ func _build_planet_settings_window() -> void:
 	# Terrain preset.
 	var tr_row := HBoxContainer.new()
 	tr_row.add_theme_constant_override("separation", 8)
-	tr_row.add_child(_make_label("地形起伏", 120))
+	tr_row.add_child(_make_label("menu.terrain", 120))
 	_ps_terrain = OptionButton.new()
 	_ps_terrain.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_ps_terrain.add_item("默认(种子随机)", 0)
-	_ps_terrain.add_item("平坦", 1)
-	_ps_terrain.add_item("丘陵", 2)
-	_ps_terrain.add_item("山地", 3)
-	_ps_terrain.add_item("陡峭", 4)
+	_ps_terrain.add_item(tr("menu.default_random"), 0)
+	_ps_terrain.add_item(tr("menu.terrain_flat"), 1)
+	_ps_terrain.add_item(tr("menu.terrain_hilly"), 2)
+	_ps_terrain.add_item(tr("menu.terrain_mountain"), 3)
+	_ps_terrain.add_item(tr("menu.terrain_extreme"), 4)
 	_ps_terrain.selected = 0
 	tr_row.add_child(_ps_terrain)
 	inner.add_child(tr_row)
@@ -816,14 +816,14 @@ func _build_planet_settings_window() -> void:
 	# Sea level preset.
 	var sl_row := HBoxContainer.new()
 	sl_row.add_theme_constant_override("separation", 8)
-	sl_row.add_child(_make_label("海平面", 120))
+	sl_row.add_child(_make_label("menu.sea_level", 120))
 	_ps_sea_level = OptionButton.new()
 	_ps_sea_level.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_ps_sea_level.add_item("默认(种子随机)", 0)
-	_ps_sea_level.add_item("无海洋", 1)
-	_ps_sea_level.add_item("低", 2)
-	_ps_sea_level.add_item("中", 3)
-	_ps_sea_level.add_item("高", 4)
+	_ps_sea_level.add_item(tr("menu.default_random"), 0)
+	_ps_sea_level.add_item(tr("menu.sea_none"), 1)
+	_ps_sea_level.add_item(tr("menu.sea_low"), 2)
+	_ps_sea_level.add_item(tr("menu.sea_medium"), 3)
+	_ps_sea_level.add_item(tr("menu.sea_high"), 4)
 	_ps_sea_level.selected = 0
 	sl_row.add_child(_ps_sea_level)
 	inner.add_child(sl_row)
@@ -831,13 +831,13 @@ func _build_planet_settings_window() -> void:
 	# Cave density preset.
 	var cv_row := HBoxContainer.new()
 	cv_row.add_theme_constant_override("separation", 8)
-	cv_row.add_child(_make_label("洞穴密度", 120))
+	cv_row.add_child(_make_label("menu.caves", 120))
 	_ps_caves = OptionButton.new()
 	_ps_caves.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_ps_caves.add_item("默认(种子随机)", 0)
-	_ps_caves.add_item("稀少", 1)
-	_ps_caves.add_item("正常", 2)
-	_ps_caves.add_item("密集", 3)
+	_ps_caves.add_item(tr("menu.default_random"), 0)
+	_ps_caves.add_item(tr("menu.caves_sparse"), 1)
+	_ps_caves.add_item(tr("menu.caves_normal"), 2)
+	_ps_caves.add_item(tr("menu.caves_dense"), 3)
 	_ps_caves.selected = 0
 	cv_row.add_child(_ps_caves)
 	inner.add_child(cv_row)
@@ -845,15 +845,15 @@ func _build_planet_settings_window() -> void:
 	# Atmosphere preset.
 	var at_row := HBoxContainer.new()
 	at_row.add_theme_constant_override("separation", 8)
-	at_row.add_child(_make_label("大气类型", 120))
+	at_row.add_child(_make_label("menu.atmosphere", 120))
 	_ps_atmosphere = OptionButton.new()
 	_ps_atmosphere.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_ps_atmosphere.add_item("默认(种子随机)", 0)
-	_ps_atmosphere.add_item("真空", 1)
-	_ps_atmosphere.add_item("稀薄", 2)
-	_ps_atmosphere.add_item("可呼吸", 3)
-	_ps_atmosphere.add_item("有毒", 4)
-	_ps_atmosphere.add_item("腐蚀性", 5)
+	_ps_atmosphere.add_item(tr("menu.default_random"), 0)
+	_ps_atmosphere.add_item(tr("menu.atmos_vacuum"), 1)
+	_ps_atmosphere.add_item(tr("menu.atmos_thin"), 2)
+	_ps_atmosphere.add_item(tr("menu.atmos_breathable"), 3)
+	_ps_atmosphere.add_item(tr("menu.atmos_toxic"), 4)
+	_ps_atmosphere.add_item(tr("menu.atmos_corrosive"), 5)
 	_ps_atmosphere.selected = 0
 	at_row.add_child(_ps_atmosphere)
 	inner.add_child(at_row)
@@ -866,11 +866,11 @@ func _build_planet_settings_window() -> void:
 	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var save_btn := _make_button("保存", 100, 34)
+	var save_btn := _make_button("menu.save", 100, 34)
 	save_btn.pressed.connect(_save_planet_settings)
 	btn_row.add_child(save_btn)
 
-	var cancel_btn := _make_button("取消", 100, 34)
+	var cancel_btn := _make_button("menu.cancel", 100, 34)
 	cancel_btn.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	cancel_btn.pressed.connect(_close_planet_settings)
 	btn_row.add_child(cancel_btn)
@@ -923,7 +923,7 @@ func _preset_name(index: int, options: Array[String]) -> String:
 
 func _make_button(text: String, width: int, height: int) -> Button:
 	var btn := Button.new()
-	btn.text = text
+	btn.text = tr(text)
 	btn.custom_minimum_size = Vector2(width, height)
 
 	var normal := StyleBoxFlat.new()

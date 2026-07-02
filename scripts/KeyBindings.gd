@@ -9,14 +9,14 @@ const SECTION := "bindings"
 # 动作定义：[action_name, display_name, default_keycode]
 # 只包含可在设置界面修改的动作。
 const ACTION_DEFS: Array[Array] = [
-	[&"toggle_inventory",  "背包",       KEY_E],
-	[&"toggle_crafting",   "合成台",     KEY_C],
-	[&"toggle_quest_book", "任务书",     KEY_J],
-	[&"toggle_mouse",      "释放鼠标",   KEY_TAB],
-	[&"toggle_debug",      "调试面板",   KEY_F3],
-	[&"toggle_build_mode", "建造坐标",   KEY_G],
-	[&"toggle_nei_panel",  "NEI物品查询", KEY_R],
-	[&"toggle_nei_mode",   "NEI模式切换", KEY_O],
+	[&"toggle_inventory",  "keybind.inventory",       KEY_E],
+	[&"toggle_crafting",   "keybind.crafting",        KEY_C],
+	[&"toggle_quest_book", "keybind.quest_book",      KEY_J],
+	[&"toggle_mouse",      "keybind.mouse_toggle",    KEY_TAB],
+	[&"toggle_debug",      "keybind.debug",           KEY_F3],
+	[&"toggle_build_mode", "keybind.build_mode",      KEY_G],
+	[&"toggle_nei_panel",  "keybind.nei_panel",       KEY_R],
+	[&"toggle_nei_mode",   "keybind.nei_mode",        KEY_O],
 ]
 
 # Gameplay UI actions that may still be handled while another gameplay UI has

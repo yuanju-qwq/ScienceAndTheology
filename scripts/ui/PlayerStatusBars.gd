@@ -56,8 +56,8 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if _player == null:
 		return
-	_draw_bar(0, "HP", _health_current, _health_max, HP_COLOR)
-	_draw_bar(1, "Fd", _hunger_current, _hunger_max,
+	_draw_bar(0, tr("status.hp"), _health_current, _health_max, HP_COLOR)
+	_draw_bar(1, tr("status.food"), _hunger_current, _hunger_max,
 		STARVING_COLOR if _is_starving else HUNGER_COLOR)
 
 

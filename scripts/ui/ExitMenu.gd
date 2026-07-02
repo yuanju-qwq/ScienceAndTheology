@@ -73,22 +73,22 @@ func _build_ui() -> void:
 	# Title.
 	var title := Label.new()
 	title.name = "TitleLabel"
-	title.text = "游戏暂停"
+	title.text = tr("exit_menu.title")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", TITLE_FONT_SIZE)
 	title.add_theme_color_override("font_color", COLOR_TEXT)
 	_vbox.add_child(title)
 
 	# Buttons.
-	_add_button("继续游戏", _on_resume)
-	_add_button("设置", _on_settings)
-	_add_button("返回主菜单", _on_return_to_main)
-	_add_button("退出游戏", _on_quit)
+	_add_button("exit_menu.resume", _on_resume)
+	_add_button("exit_menu.settings", _on_settings)
+	_add_button("exit_menu.main_menu", _on_return_to_main)
+	_add_button("exit_menu.quit", _on_quit)
 
 
 func _add_button(text: String, callback: Callable) -> void:
 	var btn := Button.new()
-	btn.text = text
+	btn.text = tr(text)
 	btn.custom_minimum_size = Vector2(BUTTON_WIDTH, BUTTON_HEIGHT)
 
 	var normal := StyleBoxFlat.new()

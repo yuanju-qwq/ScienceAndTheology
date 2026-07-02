@@ -141,13 +141,13 @@ func _rebuild() -> void:
 	# Compact info line: hardness + tool + level.
 	var info_parts: PackedStringArray = []
 	if hardness >= 0.0:
-		info_parts.append("Hardness: %.1f" % hardness)
+		info_parts.append(tr("probe.hardness") % hardness)
 	else:
-		info_parts.append("Indestructible")
+		info_parts.append(tr("probe.indestructible"))
 	if tool_tag != "":
-		info_parts.append("Tool: %s" % tool_tag.capitalize())
+		info_parts.append(tr("probe.tool") % tool_tag.capitalize())
 	if mining_level > 0:
-		info_parts.append("Level: %d" % mining_level)
+		info_parts.append(tr("probe.level") % mining_level)
 	_info_label.text = "  |  ".join(info_parts)
 
 	# Detail line (only in full mode).
@@ -157,7 +157,7 @@ func _rebuild() -> void:
 		# Key.
 		var key: String = _mat_def.get("key", "")
 		if key != "":
-			detail_parts.append("Key: %s" % key)
+			detail_parts.append(tr("probe.key") % key)
 
 		# Drops.
 		var drops: Array = _mat_def.get("drops", [])
@@ -170,43 +170,43 @@ func _rebuild() -> void:
 					drop_names.append("%s x%d" % [item_key, count])
 				else:
 					drop_names.append(item_key)
-			detail_parts.append("Drops: %s" % ", ".join(drop_names))
+			detail_parts.append(tr("probe.drops") % ", ".join(drop_names))
 		else:
-			detail_parts.append("Drops: none")
+			detail_parts.append(tr("probe.drops_none"))
 
 		# Flags.
 		var flags: int = int(_mat_def.get("flags", 0))
 		var flag_names: PackedStringArray = []
 		if flags & 0x01:
-			flag_names.append("Walkable")
+			flag_names.append(tr("probe.flag_walkable"))
 		if flags & 0x02:
-			flag_names.append("Solid")
+			flag_names.append(tr("probe.flag_solid"))
 		if flags & 0x04:
-			flag_names.append("Liquid")
+			flag_names.append(tr("probe.flag_liquid"))
 		if flags & 0x08:
-			flag_names.append("Mineable")
+			flag_names.append(tr("probe.flag_mineable"))
 		if flags & 0x10:
-			flag_names.append("Climbable")
+			flag_names.append(tr("probe.flag_climbable"))
 		if flags & 0x20:
-			flag_names.append("Indestructible")
+			flag_names.append(tr("probe.indestructible"))
 		if flags & 0x40:
-			flag_names.append("GravityFall")
+			flag_names.append(tr("probe.flag_gravity"))
 		if flags & 0x80:
-			flag_names.append("CollapseRisk")
+			flag_names.append(tr("probe.flag_collapse"))
 		if flags & 0x100:
-			flag_names.append("SupportBeam")
+			flag_names.append(tr("probe.flag_support"))
 		if flag_names.size() > 0:
-			detail_parts.append("Flags: %s" % ", ".join(flag_names))
+			detail_parts.append(tr("probe.flags") % ", ".join(flag_names))
 
 		# Tool match status.
 		if tool_tag != "" and _tool_def != null:
 			var matches := ToolDef.check_tool_match(_tool_def, tool_tag, mining_level)
 			if matches:
-				detail_parts.append("Tool: MATCH")
+				detail_parts.append(tr("probe.tool_match"))
 			else:
-				detail_parts.append("Tool: MISMATCH")
+				detail_parts.append(tr("probe.tool_mismatch"))
 		elif tool_tag != "" and _tool_def == null:
-			detail_parts.append("Tool: NONE")
+			detail_parts.append(tr("probe.tool_none"))
 
 		_detail_label.text = "  |  ".join(detail_parts)
 		_detail_label.visible = true

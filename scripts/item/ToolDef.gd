@@ -32,9 +32,9 @@ static func check_tool_match(
 func get_tooltip_lines() -> PackedStringArray:
 	var lines := PackedStringArray()
 	var type_name := str(ToolType.keys()[tool_type])
-	var mat_display := material_key if not material_key.is_empty() else "Unknown"
-	lines.append("%s %s" % [mat_display, type_name])
-	lines.append("Type: %s  |  Mining Level: %d" % [type_name, mining_level])
-	lines.append("Speed: %.1f  |  Durability: %d" % [speed, durability])
-	lines.append("Attack: %.1f" % [attack_damage])
+	var mat_display := tr(material_key) if not material_key.is_empty() else tr("tooltip.unknown_material")
+	lines.append(mat_display + " " + tr(type_name))
+	lines.append(tr("tooltip.type_mining_level") % [tr(type_name), mining_level])
+	lines.append(tr("tooltip.speed_durability") % [speed, durability])
+	lines.append(tr("tooltip.attack") % [attack_damage])
 	return lines

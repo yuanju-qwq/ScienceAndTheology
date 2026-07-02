@@ -191,7 +191,7 @@ func _select_category(category: String) -> void:
 
 		var out_name := tr(GDCraftingManager.get_item_title_key(out_id))
 		var out_label := Label.new()
-		out_label.text = "%s x%d" % [out_name, out_count]
+		out_label.text = tr("crafting.output_format") % [out_name, out_count]
 		out_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		out_box.add_child(out_label)
 
@@ -210,7 +210,7 @@ func _select_category(category: String) -> void:
 			var in_name := tr(GDCraftingManager.get_item_title_key(in_id))
 			var color := Color(0.4, 1.0, 0.4) if have_count >= in_count else Color(1.0, 0.4, 0.4)
 			var in_label := Label.new()
-			in_label.text = "  %s x%d [%d]" % [in_name, in_count, have_count]
+			in_label.text = tr("crafting.input_format") % [in_name, in_count, have_count]
 			in_label.modulate = color
 			input_box.add_child(in_label)
 
@@ -223,7 +223,8 @@ func _select_category(category: String) -> void:
 			if inventory_valid and equipment_valid:
 				has_tool = _player_has_tool(tool)
 			var t_label := Label.new()
-			t_label.text = "  Tool: %s %s" % [tool, "✓" if has_tool else "✗"]
+			var tick := "✓" if has_tool else "✗"
+			t_label.text = tr("crafting.tool_format") % [tool, tick]
 			t_label.modulate = Color(0.4, 1.0, 0.4) if has_tool else Color(1.0, 0.4, 0.4)
 			input_box.add_child(t_label)
 			if not has_tool:

@@ -153,7 +153,7 @@ func update_connector_prompt() -> void:
 			var mechanism: MapMechanism = mechanism_manager.get_mechanism_at(dimension, cell)
 			if mechanism != null and mechanism.requires_interaction():
 				text = "E  %s" % (
-						mechanism.action_label
+						tr(mechanism.action_label)
 						if mechanism.action_label != ""
 						else tr(mechanism.title_key))
 

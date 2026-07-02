@@ -71,7 +71,7 @@ func _ensure_ui_nodes() -> void:
 	if _title == null:
 		_title = Label.new()
 		_title.name = "Title"
-		_title.text = "Knapping"
+		_title.text = tr("knapping.title")
 		_title.position = Vector2(20, 12)
 		_title.size = Vector2(260, 24)
 		_panel.add_child(_title)
@@ -84,21 +84,21 @@ func _ensure_ui_nodes() -> void:
 	if _pickup_btn == null:
 		_pickup_btn = Button.new()
 		_pickup_btn.name = "PickupBtn"
-		_pickup_btn.text = "Pick Up"
+		_pickup_btn.text = tr("knapping.pickup")
 		_pickup_btn.position = Vector2(20, 250)
 		_pickup_btn.size = Vector2(160, 36)
 		_panel.add_child(_pickup_btn)
 	if _close_btn == null:
 		_close_btn = Button.new()
 		_close_btn.name = "CloseBtn"
-		_close_btn.text = "Close"
+		_close_btn.text = tr("knapping.close")
 		_close_btn.position = Vector2(200, 250)
 		_close_btn.size = Vector2(80, 36)
 		_panel.add_child(_close_btn)
 	if _status_label == null:
 		_status_label = Label.new()
 		_status_label.name = "StatusLabel"
-		_status_label.text = "Click to chip away stone"
+	_status_label.text = tr("knapping.status_chip")
 		_status_label.position = Vector2(20, 300)
 		_status_label.size = Vector2(260, 32)
 		_panel.add_child(_status_label)
@@ -149,10 +149,10 @@ func open(stone_item_id: int) -> void:
 			btn.button_pressed = true
 			btn.disabled = false
 	var stone_key := ItemDatabase.get_item_key_by_id(stone_item_id)
-	var disp := tr("item." + stone_key) if not stone_key.is_empty() else "Stone"
-	_title.text = "Knapping - %s" % disp
+	var disp := tr("item." + stone_key) if not stone_key.is_empty() else tr("knapping.stone")
+	_title.text = tr("knapping.title_format") % disp
 	_pickup_btn.disabled = true
-	_status_label.text = "Click to chip away stone"
+	_status_label.text = tr("knapping.status_chip")
 
 
 func close() -> void:
@@ -176,11 +176,11 @@ func _on_cell_toggled(index: int) -> void:
 	var matched := _find_matching_pattern()
 	if matched != "":
 		_pickup_btn.disabled = false
-		_status_label.text = "Tool head ready! Pick it up."
-		_pickup_btn.text = "Pick Up %s" % tr("item." + matched)
+		_status_label.text = tr("knapping.status_ready")
+		_pickup_btn.text = tr("knapping.pickup_format") % tr("item." + matched)
 	else:
 		_pickup_btn.disabled = true
-		_status_label.text = "Keep chipping..."
+		_status_label.text = tr("knapping.status_chipping")
 
 
 func _find_matching_pattern() -> String:
@@ -215,7 +215,7 @@ func _on_pickup() -> void:
 		"stone_item_id": _stone_item_id,
 	})
 	if not bool(result.get("ok", false)):
-		_status_label.text = "Failed to craft: %s" % str(result.get("reason", "unknown"))
+		_status_label.text = tr("knapping.failed_format") % str(result.get("reason", "unknown"))
 		return
 	close()
 

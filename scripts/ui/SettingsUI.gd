@@ -125,7 +125,7 @@ func _build_ui() -> void:
 
 	# 标题。
 	var title := Label.new()
-	title.text = "按键绑定"
+	title.text = tr("settings.title")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_color_override("font_color", COLOR_TEXT)
@@ -144,11 +144,11 @@ func _build_ui() -> void:
 	btn_row.add_theme_constant_override("separation", 10)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 
-	var btn_reset := _make_button("恢复默认", BUTTON_WIDTH, BUTTON_HEIGHT)
+	var btn_reset := _make_button("settings.reset", BUTTON_WIDTH, BUTTON_HEIGHT)
 	btn_reset.pressed.connect(_on_reset)
 	btn_row.add_child(btn_reset)
 
-	var btn_back := _make_button("返回", BUTTON_WIDTH, BUTTON_HEIGHT)
+	var btn_back := _make_button("settings.back", BUTTON_WIDTH, BUTTON_HEIGHT)
 	btn_back.add_theme_color_override("font_color", COLOR_TEXT_DIM)
 	btn_back.pressed.connect(close)
 	btn_row.add_child(btn_back)
@@ -172,7 +172,7 @@ func _make_key_row(action: StringName, display_name: String) -> Control:
 
 	# 动作名称。
 	var name_label := Label.new()
-	name_label.text = display_name
+	name_label.text = tr(display_name)
 	name_label.add_theme_font_size_override("font_size", 15)
 	name_label.add_theme_color_override("font_color", COLOR_TEXT)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -213,7 +213,7 @@ func _style_key_button(btn: Button, listening: bool) -> void:
 
 func _make_button(text: String, width: int, height: int) -> Button:
 	var btn := Button.new()
-	btn.text = text
+	btn.text = tr(text)
 	btn.custom_minimum_size = Vector2(width, height)
 
 	var normal := StyleBoxFlat.new()
@@ -271,7 +271,7 @@ func _on_key_button_pressed(action: StringName, btn: Button) -> void:
 	_stop_listening()
 	_listening_action = action
 	_listening_button = btn
-	btn.text = "按下新按键..."
+	btn.text = tr("settings.listening")
 	_style_key_button(btn, true)
 
 

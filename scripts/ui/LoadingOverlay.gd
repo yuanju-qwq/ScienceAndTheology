@@ -29,7 +29,7 @@ func _ready() -> void:
 	add_child(vbox)
 
 	var title := Label.new()
-	title.text = "Loading World"
+	title.text = tr("loading.title")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", Color(0.85, 0.87, 0.90, 1.0))
@@ -43,7 +43,7 @@ func _ready() -> void:
 	vbox.add_child(_progress_bar)
 
 	_status_label = Label.new()
-	_status_label.text = "Generating terrain..."
+	_status_label.text = tr("loading.generating")
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_status_label.add_theme_color_override("font_color", Color(0.50, 0.52, 0.56, 1.0))
 	vbox.add_child(_status_label)
@@ -63,14 +63,14 @@ func _process(_delta: float) -> void:
 			visible_count += 1
 	var ratio := float(visible_count) / float(_initial_chunks.size())
 	_progress_bar.value = ratio * 100.0
-	_status_label.text = "Generating terrain... %d/%d chunks" % [visible_count, _initial_chunks.size()]
+	_status_label.text = tr("loading.generating_progress") % [visible_count, _initial_chunks.size()]
 
 
 func fade_out_and_free() -> void:
 	if _fading:
 		return
 	_fading = true
-	_status_label.text = "Entering world..."
+	_status_label.text = tr("loading.entering")
 	_progress_bar.value = 100.0
 	# Disable mouse filtering on self and all Control children so input
 	# passes through immediately, not only after the fade tween finishes.
