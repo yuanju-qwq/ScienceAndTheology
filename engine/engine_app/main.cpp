@@ -111,6 +111,16 @@ int main(int argc, char* argv[]) {
             (void)tile;
         });
 
+        // Demonstrate Future<T> (P1 stub: runs synchronously).
+        // P2: real async loading. Use case: load_mesh, load_texture, etc.
+        if (frame_ms < 0.001f) {  // run once on first frame
+            auto fut = js.submit_future<int>([]{
+                return 42;  // pretend this is an expensive load
+            });
+            int value = fut.get();
+            std::printf("[snt_engine] Future<int> demo: got %d\n", value);
+        }
+
         // P1.3: vkAcquireNextImage -> record -> vkQueueSubmit -> vkQueuePresent
     }
 

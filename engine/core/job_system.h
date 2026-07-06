@@ -44,11 +44,48 @@ public:
 
 private:
     friend class JobSystem;
+    template <typename T> friend class Future;
     struct Counter {
         std::atomic<int32_t> value{0};
     };
     std::shared_ptr<Counter> counter_;
     JobHandle(std::shared_ptr<Counter> c) : counter_(std::move(c)) {}
+};
+
+// Future<T>: lightweight typed result wrapper around a JobHandle.
+//
+// Design:
+//   - Result stored in shared_ptr<T> (heap-allocated, shared ownership).
+//   - No .then() chaining (keeps templates shallow, compile times low).
+//   - Use Case: async resource loading; ECS scheduling uses JobHandle directly.
+//
+// Usage:
+//   Future<MeshData> fut = js.submit_future([]{ return load_mesh(); });
+//   MeshData mesh = fut.get();  // blocks until done
+template <typename T>
+class Future {
+public:
+    Future() = default;
+
+    // Wait for the job to complete and return the result.
+    T get() const {
+        wait();
+        return *result_;
+    }
+
+    // Block until the underlying job completes.
+    void wait() const { handle_.wait(); }
+
+    // Returns true if the job has completed (result is ready).
+    bool is_ready() const { return handle_.is_done(); }
+
+private:
+    friend class JobSystem;
+    Future(JobHandle h, std::shared_ptr<T> result)
+        : handle_(std::move(h)), result_(std::move(result)) {}
+
+    JobHandle handle_;
+    std::shared_ptr<T> result_;
 };
 
 // Job function: takes the worker thread index (0..N-1) and a tile index
@@ -90,6 +127,19 @@ public:
     virtual JobHandle parallel_for(int32_t count, JobFunc func,
                                    int32_t batch_size = 1);
 
+    // Submit a job that returns a value, wrapped in Future<T>.
+    // Use for async resource loading (e.g. load_mesh, load_texture).
+    // Dependencies: jobs that must complete before this one starts.
+    //
+    // Usage:
+    //   Future<Mesh> m = js.submit_future([]{ return load_mesh(); });
+    //   Future<Tex>  t = js.submit_future([]{ return load_tex(); });
+    //   Mesh mesh = m.get();  // blocks
+    //   Tex  tex  = t.get();
+    template <typename T>
+    Future<T> submit_future(std::function<T()> func,
+                            std::span<JobHandle> dependencies = {});
+
     // Number of worker threads (P1 stub: always 1, the calling thread).
     virtual int32_t worker_count() const;
 
@@ -100,5 +150,22 @@ private:
 // Global default job system instance (defined in job_system.cpp).
 // Main loop and ECS systems use this by default.
 JobSystem& default_job_system();
+
+// ---------------------------------------------------------------------------
+// Template method implementations (must be in header for instantiation).
+// ---------------------------------------------------------------------------
+
+template <typename T>
+Future<T> JobSystem::submit_future(std::function<T()> func,
+                                   std::span<JobHandle> dependencies) {
+    // Result stored in shared_ptr so Future copies share it.
+    auto result = std::make_shared<T>();
+    // Wrap the returning func into a void JobFunc that writes the result.
+    JobFunc wrapped = [result, f = std::move(func)](int32_t, int32_t) {
+        *result = f();
+    };
+    JobHandle handle = submit(std::move(wrapped), dependencies);
+    return Future<T>(std::move(handle), std::move(result));
+}
 
 }  // namespace snt::core
