@@ -177,12 +177,6 @@ var _gravity_multiplier := 1.0
 
 # --- Atmosphere hazard system ---
 
-# Default damage rates used when no active planet is available.
-# These match PlanetDescriptor defaults and serve as fallback values.
-const _DEFAULT_TOXIC_DAMAGE_PER_SEC := 5.0
-const _DEFAULT_CORROSIVE_DAMAGE_PER_SEC := 8.0
-const _DEFAULT_VACUUM_DAMAGE_PER_SEC := 3.0
-
 # Cached reference to the active planet descriptor.
 # Updated each frame by _update_gravity_direction().
 var _active_planet: PlanetDescriptor = null
@@ -191,25 +185,23 @@ var _active_planet: PlanetDescriptor = null
 # Updated each frame alongside gravity.
 var _atmosphere_type: int = PlanetDescriptor.AtmosphereType.BREATHABLE
 
-# Accumulated damage timer for atmosphere hazard ticks.
-var _atmo_damage_timer := 0.0
-
-# Player health system — health_max and health_regen come from C++ CombatAttributes.
-var _health_current: float = 100.0
-# _health_max is computed from _source_law.compute_combat_attributes() each tick.
-var _health_regen_timer := 0.0
-const _HEALTH_REGEN_INTERVAL := 2.0
+# Vitals simulation (health + satiation tick + atmosphere hazard) sunk to C++.
+# Owns health_current and all per-frame timers; GD only pushes context via
+# set_* setters before calling tick(delta).
+var _vitals: GDPlayerVitals = null
 
 # Source Law data — drives health_max, health_regen, rejection damage, etc.
+# Kept as a direct reference for save/load; also passed to _vitals.
 var _source_law: GDPlayerSourceLawData = null
 
 # Satiation (hunger) system — backed by C++ GDSatiationData.
+# Kept as a direct reference for save/load; also passed to _vitals.
 var _satiation: GDSatiationData = null
-var _satiation_tick_timer := 0.0
-const _SATIATION_TICK_INTERVAL := 0.05
 var _status_bars: Node = null
 var _player_save_data: Dictionary = {}
 var _player_save_loaded := false
+# Loaded health from save, applied to _vitals after setup_vitals() binds refs.
+var _pending_health: float = -1.0
 
 
 func _notification(what: int) -> void:
@@ -243,11 +235,14 @@ func _apply_player_save_basics() -> void:
 	if not _player_save_loaded:
 		return
 	game_mode = int(_player_save_data.get("game_mode", game_mode))
-	_health_current = float(_player_save_data.get("health", _health_current))
+	# Health is owned by _vitals; defer the actual set until _setup_vitals
+	# runs. Stash the loaded value so _ready can apply it after
+	# the source_law + satiation refs are bound to _vitals.
+	_pending_health = float(_player_save_data.get("health", 100.0))
 	selected_hotbar = clampi(int(_player_save_data.get("selected_hotbar", selected_hotbar)), 0, 8)
 	if universe_manager != null:
 		universe_manager.player_game_mode = game_mode
-		universe_manager.player_health = _health_current
+		universe_manager.player_health = _pending_health
 
 
 func _get_current_identity() -> Dictionary:
@@ -320,7 +315,8 @@ func _build_player_save_data(identity: Dictionary) -> Dictionary:
 	return {
 		"identity": identity.duplicate(true),
 		"game_mode": game_mode,
-		"health": _health_current,
+		"health": _vitals.get_health_current() if _vitals != null else 100.0,
+		"vitals": _vitals.to_dict() if _vitals != null else {},
 		"selected_hotbar": selected_hotbar,
 		"position": {
 			"dimension": String(get_current_dimension()),
@@ -367,7 +363,8 @@ func _ready() -> void:
 	_connect_universe_manager()
 	if universe_manager != null:
 		game_mode = universe_manager.player_game_mode
-		_health_current = universe_manager.player_health
+		# Defer health assignment to _vitals (created in _setup_vitals below).
+		_pending_health = universe_manager.player_health
 	_load_player_save_data()
 	_apply_player_save_basics()
 	_setup_inventory()
@@ -378,8 +375,12 @@ func _ready() -> void:
 	_connect_console()
 	_connect_crosshair()
 	_setup_vitals()
-	# Clamp current health to computed max (may have increased from organ restoration).
-	_health_current = mini(_health_current, _get_health_max())
+	# Apply any pending health from save/universe to _vitals and clamp to max.
+	if _pending_health >= 0.0:
+		_vitals.set_health_current(mini(_pending_health, _vitals.get_health_max()))
+		_pending_health = -1.0
+	else:
+		_vitals.set_health_current(mini(_vitals.get_health_current(), _vitals.get_health_max()))
 	_connect_quest_system()
 	_setup_exit_menu()
 	_apply_player_save_transform()
@@ -421,8 +422,26 @@ func _physics_process(delta: float) -> void:
 	# sync with spherical gravity when crossing separate chunk colliders.
 	if gravity_direction != Vector3.ZERO:
 		up_direction = -gravity_direction
-	_update_atmosphere_hazard(delta)
-	_process_vitals(delta)
+	# Push per-frame context to vitals (C++) and tick the full vitals sim:
+	# atmosphere hazard + source law rejection + satiation/source_law 20 TPS
+	# tick + starvation damage + health regen + clamp.
+	_vitals.set_game_mode(game_mode)
+	_vitals.set_flight_enabled(_flight_enabled)
+	_vitals.set_gravity_is_zero(gravity_direction == Vector3.ZERO)
+	var vacuum_dps := (
+		_active_planet.vacuum_damage_per_sec
+		if _active_planet != null
+		else GDPlayerVitals.DEFAULT_VACUUM_DAMAGE_PER_SEC)
+	var toxic_dps := (
+		_active_planet.toxic_damage_per_sec
+		if _active_planet != null
+		else GDPlayerVitals.DEFAULT_TOXIC_DAMAGE_PER_SEC)
+	var corrosive_dps := (
+		_active_planet.corrosive_damage_per_sec
+		if _active_planet != null
+		else GDPlayerVitals.DEFAULT_CORROSIVE_DAMAGE_PER_SEC)
+	_vitals.set_atmosphere(_atmosphere_type, vacuum_dps, toxic_dps, corrosive_dps)
+	_vitals.tick(delta)
 	_update_target()
 	if _spawn_freeze:
 		_update_spawn_freeze()
@@ -873,57 +892,13 @@ func _align_body_to_gravity(delta: float) -> void:
 	global_transform.basis = new_basis
 
 
-# --- Atmosphere hazard system ---
+# --- Atmosphere hazard + player vitals (sunk to C++ GDPlayerVitals) ---
+# Per-frame atmosphere damage, source law rejection, satiation/source_law
+# 20 TPS tick, starvation damage, health regen, and clamp all run in C++.
+# GD only pushes per-frame context (game mode, gravity, atmosphere) before
+# calling _vitals.tick(delta) in _physics_process.
 
-# Apply environmental damage based on the current planet's atmosphere type.
-# BREATHABLE: no damage.
-# THIN/NONE: slow suffocation damage without oxygen supply.
-# TOXIC: continuous poison damage without suit.
-# CORROSIVE: heavy damage + equipment degradation without suit.
-# TODO: check player equipment for oxygen mask / hazard suit to negate damage.
-func _update_atmosphere_hazard(delta: float) -> void:
-	# No hazard in non-survival modes.
-	if game_mode != GameMode.SURVIVAL:
-		return
-
-	# No hazard in space (zero-G, no active planet).
-	if gravity_direction == Vector3.ZERO:
-		return
-
-	var damage_rate := 0.0
-
-	match _atmosphere_type:
-		PlanetDescriptor.AtmosphereType.NONE, \
-		PlanetDescriptor.AtmosphereType.THIN:
-			damage_rate = (
-				_active_planet.vacuum_damage_per_sec
-				if _active_planet != null
-				else _DEFAULT_VACUUM_DAMAGE_PER_SEC)
-		PlanetDescriptor.AtmosphereType.TOXIC:
-			damage_rate = (
-				_active_planet.toxic_damage_per_sec
-				if _active_planet != null
-				else _DEFAULT_TOXIC_DAMAGE_PER_SEC)
-		PlanetDescriptor.AtmosphereType.CORROSIVE:
-			damage_rate = (
-				_active_planet.corrosive_damage_per_sec
-				if _active_planet != null
-				else _DEFAULT_CORROSIVE_DAMAGE_PER_SEC)
-		PlanetDescriptor.AtmosphereType.BREATHABLE, _:
-			damage_rate = 0.0
-
-	if damage_rate <= 0.0:
-		_atmo_damage_timer = 0.0
-		return
-
-	_atmo_damage_timer += delta
-	# Apply damage to player health every 1 second.
-	if _atmo_damage_timer >= 1.0:
-		_atmo_damage_timer -= 1.0
-		_health_current -= damage_rate
-
-
-# --- Player vitals (health + hunger) ---
+# --- Player vitals setup ---
 
 func _setup_vitals() -> void:
 	_source_law = GDPlayerSourceLawData.new()
@@ -944,6 +919,15 @@ func _setup_vitals() -> void:
 		if not universe_manager.player_satiation_dict.is_empty():
 			_satiation.from_dict(universe_manager.player_satiation_dict)
 
+	# Bind source_law + satiation to the C++ vitals simulator.
+	_vitals = GDPlayerVitals.new()
+	_vitals.setup(_source_law, _satiation)
+	# Restore vitals-owned timers from save if present.
+	if _player_save_loaded:
+		var vitals_data: Dictionary = _player_save_data.get("vitals", {})
+		if not vitals_data.is_empty():
+			_vitals.from_dict(vitals_data)
+
 	var bars := preload("res://scripts/ui/PlayerStatusBars.gd").new()
 	bars.name = "PlayerStatusBars"
 	bars.setup(self)
@@ -955,67 +939,8 @@ func _setup_vitals() -> void:
 		add_child(bars)
 
 
-func _process_vitals(delta: float) -> void:
-	if game_mode == GameMode.OBSERVER:
-		return
-	if game_mode == GameMode.CREATIVE:
-		return
-	if _source_law == null or _satiation == null:
-		return
-
-	# Tick source law (handles stability/mutation convergence, rejection timer, etc.).
-	# Apply rejection damage if any.
-	if _source_law.is_rejecting():
-		var rej := _source_law.get_rejection()
-		var dpt := float(rej.get("damage_per_tick", 0.0))
-		_health_current -= dpt
-
-	# Tick satiation at 20 TPS.
-	_satiation_tick_timer += delta
-	while _satiation_tick_timer >= _SATIATION_TICK_INTERVAL:
-		_satiation_tick_timer -= _SATIATION_TICK_INTERVAL
-		_satiation.tick()
-		# Tick source law at same rate.
-		_source_law.tick()
-		# Apply starvation damage.
-		var starve_dmg := _satiation.get_starvation_damage_per_tick()
-		if starve_dmg > 0.0:
-			_health_current = maxf(_health_current - starve_dmg, 0.0)
-
-	# Health regen — enhanced by satiation and source law combat attributes.
-	var health_max := _get_health_max()
-	var regen_rate := _get_health_regen()
-	if _health_current < health_max and regen_rate > 0.0:
-		_health_regen_timer += delta
-		var regen_mod := _satiation.get_health_regen_modifier()
-		if regen_mod > 0.0:
-			var interval := _HEALTH_REGEN_INTERVAL
-			while _health_regen_timer >= interval:
-				_health_regen_timer -= interval
-				_health_current = minf(_health_current + regen_rate * regen_mod, health_max)
-	else:
-		_health_regen_timer = 0.0
-
-	# Clamp health to valid range.
-	_health_current = clampi(_health_current, 0, _get_health_max())
-
-
 func get_source_law_data() -> GDPlayerSourceLawData:
 	return _source_law
-
-
-func _get_health_max() -> int:
-	if _source_law == null:
-		return 100
-	var attrs: Dictionary = _source_law.compute_combat_attributes()
-	return int(attrs.get("health_max", 100))
-
-
-func _get_health_regen() -> float:
-	if _source_law == null:
-		return 0.0
-	var attrs: Dictionary = _source_law.compute_combat_attributes()
-	return float(attrs.get("health_regen", 0.0))
 
 
 # --- Inventory and equipment ---
@@ -1459,7 +1384,7 @@ func _do_save() -> void:
 		push_warning("[PlayerController] failed to save player before exit")
 	if universe_manager != null:
 		universe_manager.player_game_mode = game_mode
-		universe_manager.player_health = _health_current
+		universe_manager.player_health = _vitals.get_health_current() if _vitals != null else 100.0
 		if _source_law != null:
 			universe_manager.player_source_law_dict = _source_law.to_dict()
 		if _satiation != null:

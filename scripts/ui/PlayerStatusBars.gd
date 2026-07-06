@@ -44,8 +44,8 @@ func _process(_delta: float) -> void:
 		visible = survival
 	if not survival:
 		return
-	_health_current = _player._health_current
-	_health_max = float(_player._get_health_max())
+	_health_current = _player._vitals.get_health_current()
+	_health_max = float(_player._vitals.get_health_max())
 	_hunger_current = _player._satiation.get_satiation_current()
 	_hunger_max = _player._satiation.get_satiation_max()
 	_hunger_level = _player._satiation.get_hunger_level()

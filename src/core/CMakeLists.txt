@@ -44,6 +44,7 @@ target_sources(snt_core PRIVATE
     player/accessory.cpp
     player/tool_def.cpp
     player/satiation_data.cpp
+    player/player_vitals.cpp
 )
 
 # Common shared systems (used by both GT and AE)

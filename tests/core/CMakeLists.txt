@@ -25,6 +25,21 @@ endif()
 
 add_test(NAME snt.machine_collision_overlay COMMAND snt_machine_collision_overlay)
 
+# Player vitals: per-frame health/hunger/atmosphere simulation sunk from
+# PlayerController.gd. Tests the pure C++ core (PlayerVitals) directly.
+# Design: docs/专用引擎性能优化方向.md (player sim sinking).
+add_executable(snt_player_vitals
+    player_vitals.cpp
+)
+
+target_link_libraries(snt_player_vitals PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_player_vitals PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.player_vitals COMMAND snt_player_vitals)
+
 # Signal network: per-block digital wire conduction, OR-semantics, components
 # Design: docs/network_system_design.md (signal network, digital model)
 add_executable(snt_signal_network_system

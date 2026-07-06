@@ -39,6 +39,7 @@
 #include "player/gd_player_equipment.h"
 #include "player/gd_player_accessory.h"
 #include "player/gd_player_helper.h"
+#include "player/gd_player_vitals.h"
 #include "magic/gd_rune_registry.hpp"
 #include "magic/gd_glyph_registry.hpp"
 #include "magic/gd_glyph_conversion.hpp"

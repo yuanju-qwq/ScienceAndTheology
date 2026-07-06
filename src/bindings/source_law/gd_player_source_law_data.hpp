@@ -105,6 +105,10 @@ public:
     godot::Dictionary to_dict() const;
     void from_dict(const godot::Dictionary& data);
 
+    // Access to underlying C++ data (for PlayerVitals binding).
+    source_law::PlayerSourceLawData& data() { return data_; }
+    const source_law::PlayerSourceLawData& data() const { return data_; }
+
 protected:
     static void _bind_methods();
 

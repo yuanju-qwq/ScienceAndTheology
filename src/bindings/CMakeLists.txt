@@ -37,6 +37,7 @@ set(SOURCES
     player/gd_player_equipment.cpp
     player/gd_player_accessory.cpp
     player/gd_player_helper.cpp
+    player/gd_player_vitals.cpp
     player/gd_satiation_data.cpp
     magic/gd_rune_registry.cpp
     magic/gd_glyph_registry.cpp
