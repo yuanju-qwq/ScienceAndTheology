@@ -10,6 +10,21 @@ endif()
 
 add_test(NAME snt.u0.world_data_smoke COMMAND snt_u0_world_data_smoke)
 
+# Machine collision overlay: per-(dimension, cell) overlay consumed by chunk
+# collision generation so machines get collision without per-object
+# StaticBody3D nodes. Design: docs/专用引擎性能优化方向.md (physics layer).
+add_executable(snt_machine_collision_overlay
+    machine_collision_overlay.cpp
+)
+
+target_link_libraries(snt_machine_collision_overlay PRIVATE snt_core)
+
+if(MSVC)
+    target_compile_options(snt_machine_collision_overlay PRIVATE /utf-8)
+endif()
+
+add_test(NAME snt.machine_collision_overlay COMMAND snt_machine_collision_overlay)
+
 # Signal network: per-block digital wire conduction, OR-semantics, components
 # Design: docs/network_system_design.md (signal network, digital model)
 add_executable(snt_signal_network_system

@@ -1,4 +1,4 @@
-[gd_scene load_steps=35 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=36 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
@@ -27,6 +27,7 @@
 [ext_resource type="Script" path="res://scripts/world/AnvilManager.gd" id="26_anvil"]
 [ext_resource type="Script" path="res://scripts/ui/KnappingUI.gd" id="27_knapping_ui"]
 [ext_resource type="Script" path="res://scripts/world/PhysicsTerrainSyncBridge.gd" id="28_physics_sync"]
+[ext_resource type="Script" path="res://scripts/world/MachineCollisionBridge.gd" id="33_machine_collision_bridge"]
 [ext_resource type="Script" path="res://scripts/world/ShipCommandBridge.gd" id="29_ship_command_bridge"]
 [ext_resource type="Script" path="res://scripts/world/DynamicStructureRenderer.gd" id="30_dynamic_structure_renderer"]
 [ext_resource type="Script" path="res://scripts/player/ShipCoreInteraction.gd" id="31_ship_core_interaction"]
@@ -136,6 +137,9 @@ script = ExtResource("32_frame_budget_controller")
 
 [node name="PhysicsTerrainSyncBridge" type="Node" parent="."]
 script = ExtResource("28_physics_sync")
+
+[node name="MachineCollisionBridge" type="Node" parent="."]
+script = ExtResource("33_machine_collision_bridge")
 
 [node name="GDQuestSystem" type="GDQuestSystem" parent="."]
 

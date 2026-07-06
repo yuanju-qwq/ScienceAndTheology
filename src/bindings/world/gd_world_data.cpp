@@ -444,6 +444,50 @@ int64_t GDWorldData::get_chunk_count() const {
     return static_cast<int64_t>(world_.chunk_count());
 }
 
+// --- Machine collision overlay ---
+
+void GDWorldData::set_machine_collision(
+        const godot::String& dimension_id,
+        int32_t cell_x, int32_t cell_y, int32_t cell_z,
+        bool occupied) {
+    world_.set_machine_collision(
+        dimension_id.utf8().get_data(), cell_x, cell_y, cell_z, occupied);
+}
+
+bool GDWorldData::is_machine_collision(
+        const godot::String& dimension_id,
+        int32_t cell_x, int32_t cell_y, int32_t cell_z) const {
+    return world_.is_machine_collision(
+        dimension_id.utf8().get_data(), cell_x, cell_y, cell_z);
+}
+
+godot::PackedByteArray GDWorldData::get_chunk_machine_collision_mask(
+        const godot::String& dimension_id,
+        int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+        int32_t size_x, int32_t size_y, int32_t size_z) const {
+    auto mask = world_.machine_collision_overlay().get_chunk_mask(
+        dimension_id.utf8().get_data(),
+        chunk_x, chunk_y, chunk_z,
+        size_x, size_y, size_z);
+    godot::PackedByteArray packed;
+    packed.resize(static_cast<int64_t>(mask.size()));
+    if (!mask.empty()) {
+        memcpy(packed.ptrw(), mask.data(), mask.size());
+    }
+    return packed;
+}
+
+int64_t GDWorldData::get_machine_collision_count() const {
+    return static_cast<int64_t>(world_.machine_collision_overlay().size());
+}
+
+int64_t GDWorldData::clear_machine_collision_dimension(
+        const godot::String& dimension_id) {
+    return static_cast<int64_t>(
+        world_.machine_collision_overlay().clear_dimension(
+            dimension_id.utf8().get_data()));
+}
+
 // --- Gameplay config ---
 
 godot::Dictionary GDWorldData::get_gameplay_config() const {
@@ -1404,6 +1448,18 @@ void GDWorldData::_bind_methods() {
                          &GDWorldData::clear);
     ClassDB::bind_method(D_METHOD("get_chunk_count"),
                          &GDWorldData::get_chunk_count);
+
+    // Machine collision overlay.
+    ClassDB::bind_method(D_METHOD("set_machine_collision", "dimension_id", "cell_x", "cell_y", "cell_z", "occupied"),
+                         &GDWorldData::set_machine_collision);
+    ClassDB::bind_method(D_METHOD("is_machine_collision", "dimension_id", "cell_x", "cell_y", "cell_z"),
+                         &GDWorldData::is_machine_collision);
+    ClassDB::bind_method(D_METHOD("get_chunk_machine_collision_mask", "dimension_id", "chunk_x", "chunk_y", "chunk_z", "size_x", "size_y", "size_z"),
+                         &GDWorldData::get_chunk_machine_collision_mask);
+    ClassDB::bind_method(D_METHOD("get_machine_collision_count"),
+                         &GDWorldData::get_machine_collision_count);
+    ClassDB::bind_method(D_METHOD("clear_machine_collision_dimension", "dimension_id"),
+                         &GDWorldData::clear_machine_collision_dimension);
 
     // Gameplay config.
     ClassDB::bind_method(D_METHOD("get_gameplay_config"),

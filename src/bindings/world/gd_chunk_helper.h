@@ -81,10 +81,17 @@ public:
     //   "indices":  PackedInt32Array    - triangle indices
     // Only faces exposed to a non-collidable voxel are included.
     // Intended for a single ConcavePolygonShape3D per chunk.
+    //
+    // machine_collision_mask (optional, same size as `materials`): per-cell
+    // overlay marking cells occupied by machines (furnaces, campfires, ...).
+    // A cell with mask==1 is treated as collidable AND blocks neighbour
+    // faces, so machines get collision coverage without per-object
+    // StaticBody3D nodes. See docs/专用引擎性能优化方向.md (physics layer).
     static godot::Dictionary build_collision_faces(
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
-        const godot::PackedByteArray& collidable_material_mask);
+        const godot::PackedByteArray& collidable_material_mask,
+        const godot::PackedByteArray& machine_collision_mask = godot::PackedByteArray());
 
 protected:
     static void _bind_methods();

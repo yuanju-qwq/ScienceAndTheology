@@ -81,6 +81,8 @@ target_sources(snt_core PRIVATE
     world/block_entity.hpp
     world/block_entity_registry.hpp
     world/block_entity_registry.cpp
+    world/machine_collision_overlay.hpp
+    world/machine_collision_overlay.cpp
 )
 
 # Multiblock system (GT V3 architecture: element → template → definition → runtime → controller)

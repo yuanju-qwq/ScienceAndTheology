@@ -8,6 +8,9 @@
 #     at a transform with a tint color. Used for complex shapes (pipes, cables,
 #     magic structure geometry).
 #   - collision_boxes: axis-aligned boxes used to build the physics shape.
+#   - baked_mesh: cached ArrayMesh combining all boxes with per-vertex color.
+#     Built once by BuiltinBlockModels and consumed by WorldObjectRenderer
+#     via MultiMesh batching (one MultiMesh per model_key).
 #
 # Models are registered by `model_key` (a StringName) in a registry and
 # instantiated by WorldObjectRenderer when an object is placed at a voxel cell.
@@ -34,6 +37,12 @@ extends Resource
 # When non-empty, WorldObjectRenderer builds a StaticBody3D with
 # BoxShape3D children matching these boxes.
 @export var collision_boxes: Array[Dictionary] = []
+
+# Cached ArrayMesh combining all boxes into one mesh with per-vertex color.
+# Built by BuiltinBlockModels.bake_boxes_to_mesh(). Consumed by
+# WorldObjectRenderer via MultiMesh (one instance per placed object).
+# Stays null when boxes is empty (model uses custom_meshes only).
+var baked_mesh: ArrayMesh = null
 
 
 # Convenience constructor for building a model in code.

@@ -300,20 +300,54 @@ bool is_collidable_material(
         && collidable_material_mask[material] != 0;
 }
 
+// Returns true if the cell at (x, y, z) is marked as machine-occupied in the
+// overlay. Empty mask → no cell is machine-occupied. Out-of-range indices are
+// treated as not machine-occupied (the overlay only spans the chunk volume).
+bool is_machine_collision_cell(
+        int32_t x, int32_t y, int32_t z,
+        const godot::PackedByteArray& machine_collision_mask,
+        int32_t size_x, int32_t size_z) {
+    if (machine_collision_mask.size() == 0) {
+        return false;
+    }
+    const int64_t idx = GDChunkHelper::terrain_index(x, y, z, size_x, size_z);
+    if (idx < 0 || idx >= static_cast<int64_t>(machine_collision_mask.size())) {
+        return false;
+    }
+    return machine_collision_mask[idx] != 0;
+}
+
+// A cell is collidable (blocks neighbour faces AND emits its own faces) when
+// either its material is collidable OR the machine overlay marks it.
+bool is_collidable_cell(
+        int32_t x, int32_t y, int32_t z,
+        const godot::PackedByteArray& materials,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        const godot::PackedByteArray& collidable_material_mask,
+        const godot::PackedByteArray& machine_collision_mask) {
+    const int64_t idx = GDChunkHelper::terrain_index(x, y, z, size_x, size_z);
+    if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
+        // Out of terrain range: still check machine overlay (rare but safe).
+        return is_machine_collision_cell(x, y, z, machine_collision_mask,
+                                         size_x, size_z);
+    }
+    const int32_t mat = static_cast<int32_t>(materials[idx]);
+    return is_collidable_material(mat, collidable_material_mask)
+        || is_machine_collision_cell(x, y, z, machine_collision_mask,
+                                     size_x, size_z);
+}
+
 bool is_open_for_collision(
         int32_t x, int32_t y, int32_t z,
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
-        const godot::PackedByteArray& collidable_material_mask) {
+        const godot::PackedByteArray& collidable_material_mask,
+        const godot::PackedByteArray& machine_collision_mask) {
     if (x < 0 || x >= size_x || y < 0 || y >= size_y || z < 0 || z >= size_z) {
         return true;
     }
-    const int64_t idx = GDChunkHelper::terrain_index(x, y, z, size_x, size_z);
-    if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) {
-        return true;
-    }
-    return !is_collidable_material(
-        static_cast<int32_t>(materials[idx]), collidable_material_mask);
+    return !is_collidable_cell(x, y, z, materials, size_x, size_y, size_z,
+                               collidable_material_mask, machine_collision_mask);
 }
 
 // Per-material mesh data accumulator.
@@ -670,7 +704,8 @@ godot::Dictionary GDChunkHelper::build_greedy_mesh(
 godot::Dictionary GDChunkHelper::build_collision_faces(
         const godot::PackedByteArray& materials,
         int32_t size_x, int32_t size_y, int32_t size_z,
-        const godot::PackedByteArray& collidable_material_mask) {
+        const godot::PackedByteArray& collidable_material_mask,
+        const godot::PackedByteArray& machine_collision_mask) {
     std::vector<godot::Vector3> verts;
     std::vector<int32_t> indices;
     int32_t vertex_count = 0;
@@ -681,7 +716,13 @@ godot::Dictionary GDChunkHelper::build_collision_faces(
                 const int64_t idx = terrain_index(x, y, z, size_x, size_z);
                 if (idx < 0 || idx >= static_cast<int64_t>(materials.size())) continue;
                 const int32_t mat = static_cast<int32_t>(materials[idx]);
-                if (!is_collidable_material(mat, collidable_material_mask)) continue;
+                // Cell emits faces if its material is collidable OR the
+                // machine overlay marks this cell as occupied.
+                const bool material_collidable = is_collidable_material(
+                    mat, collidable_material_mask);
+                const bool machine_collidable = is_machine_collision_cell(
+                    x, y, z, machine_collision_mask, size_x, size_z);
+                if (!material_collidable && !machine_collidable) continue;
 
                 // For each of 6 faces, check if exposed.
                 for (int dir = 0; dir < FaceDir::kCount; ++dir) {
@@ -689,7 +730,8 @@ godot::Dictionary GDChunkHelper::build_collision_faces(
                     if (!is_open_for_collision(
                             x + off.x, y + off.y, z + off.z,
                             materials, size_x, size_y, size_z,
-                            collidable_material_mask)) {
+                            collidable_material_mask,
+                            machine_collision_mask)) {
                         continue;
                     }
 
@@ -798,7 +840,11 @@ void GDChunkHelper::_bind_methods() {
         "air_material", "ladder_material", "transparent_material_mask",
         "neighbor_materials"),
                                 &B::build_greedy_mesh);
-    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "collidable_material_mask"),
+    // machine_collision_mask is required at the binding level (no DEFVAL)
+    // because MSVC's preprocessor chokes on a default-constructed
+    // PackedByteArray inside DEFVAL. All in-tree callers pass an explicit
+    // mask (ChunkRendererBridge fetches it via get_chunk_machine_collision_mask).
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("build_collision_faces", "materials", "size_x", "size_y", "size_z", "collidable_material_mask", "machine_collision_mask"),
                                 &B::build_collision_faces);
 }
 

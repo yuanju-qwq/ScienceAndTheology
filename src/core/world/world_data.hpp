@@ -7,6 +7,7 @@
 #include "chunk_data.hpp"
 #include "gameplay_config.hpp"
 #include "block_entity_registry.hpp"
+#include "machine_collision_overlay.hpp"
 #include "../mobile_structure/dynamic_structure.hpp"
 #include "../world_gen/world_gen_config.hpp"
 
@@ -135,6 +136,34 @@ public:
     // Returns the number of pending physics events.
     size_t physics_event_count() const { return physics_events_.size(); }
 
+    // --- Machine collision overlay ---
+
+    // Sparse overlay of cells occupied by machines (furnaces, campfires, ...).
+    // Consumed by chunk collision generation so machines get collision
+    // coverage without per-object Godot StaticBody3D nodes. See design doc
+    // docs/专用引擎性能优化方向.md (physics layer).
+    MachineCollisionOverlay& machine_collision_overlay() {
+        return machine_collision_overlay_;
+    }
+    const MachineCollisionOverlay& machine_collision_overlay() const {
+        return machine_collision_overlay_;
+    }
+
+    // Convenience: mark/clear a machine-occupied cell.
+    void set_machine_collision(const std::string& dimension_id,
+                              int cell_x, int cell_y, int cell_z,
+                              bool occupied) {
+        machine_collision_overlay_.set(
+            dimension_id, cell_x, cell_y, cell_z, occupied);
+    }
+
+    // Convenience: query a machine-occupied cell.
+    bool is_machine_collision(const std::string& dimension_id,
+                              int cell_x, int cell_y, int cell_z) const {
+        return machine_collision_overlay_.is_occupied(
+            dimension_id, cell_x, cell_y, cell_z);
+    }
+
 private:
     ChunkKey make_key(const std::string& dimension_id,
                       int chunk_x, int chunk_y, int chunk_z) const;
@@ -158,6 +187,11 @@ private:
 
     // Dynamic mobile structures (ships, contraptions, future stations).
     mobile_structure::DynamicStructureRegistry mobile_structure_registry_;
+
+    // Machine collision overlay: sparse set of cells occupied by machines so
+    // the chunk collision generator can include them without per-object
+    // Godot physics nodes.
+    MachineCollisionOverlay machine_collision_overlay_;
 };
 
 // --- Inline implementations ---

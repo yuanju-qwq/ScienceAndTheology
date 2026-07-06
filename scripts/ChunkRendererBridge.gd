@@ -781,9 +781,16 @@ func _build_chunk_section_nodes(
 		_create_greedy_mesh_instance(full_section, mid, array_mesh)
 		_create_greedy_mesh_instance(simplified_section, mid, array_mesh)
 
+	# Machine collision overlay: extract this section's sub-region from the
+	# chunk-sized mask so build_collision_faces treats furnace/campfire cells
+	# as collidable without per-object StaticBody3D nodes.
+	var chunk_machine_mask := _get_chunk_machine_collision_mask(
+			chunk, size_x, size_y, size_z)
+	var section_machine_mask := _extract_section_machine_mask(
+			chunk_machine_mask, size_x, size_y, size_z, origin, section_size)
 	var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
 			section_materials, section_size, section_size, section_size,
-			_collidable_material_mask)
+			_collidable_material_mask, section_machine_mask)
 	if not collision_data.is_empty():
 		var col_verts: PackedVector3Array = collision_data.get(
 				"vertices", PackedVector3Array())
@@ -882,6 +889,52 @@ func _extract_section_materials(
 				result[dst_idx] = materials[src_idx] \
 						if src_idx >= 0 and src_idx < materials.size() \
 						else AIR_MATERIAL
+	return result
+
+
+# Fetch the per-chunk machine collision overlay from WorldData.
+# Returns a chunk-sized PackedByteArray (size_x * size_y * size_z) where 1
+# marks a cell occupied by a machine (furnace, campfire, ...). Empty when no
+# machines are present — build_collision_faces treats empty mask as no overlay.
+func _get_chunk_machine_collision_mask(chunk: Vector3i, size_x: int,
+		size_y: int, size_z: int) -> PackedByteArray:
+	if world_data == null:
+		return PackedByteArray()
+	return world_data.get_chunk_machine_collision_mask(
+			String(active_dimension), chunk.x, chunk.y, chunk.z,
+			size_x, size_y, size_z)
+
+
+# Extract a section-sized sub-region from a chunk-sized machine mask.
+# Mirrors _extract_section_materials so the mask aligns 1:1 with the
+# section's local materials array.
+func _extract_section_machine_mask(
+		mask: PackedByteArray,
+		size_x: int,
+		size_y: int,
+		size_z: int,
+		origin: Vector3i,
+		section_size: int) -> PackedByteArray:
+	if mask.is_empty():
+		return PackedByteArray()
+	var result := PackedByteArray()
+	var total := section_size * section_size * section_size
+	result.resize(total)
+	result.fill(0)
+	for y in range(section_size):
+		for z in range(section_size):
+			for x in range(section_size):
+				var source_x := origin.x + x
+				var source_y := origin.y + y
+				var source_z := origin.z + z
+				var dst_idx := (y * section_size + z) * section_size + x
+				if source_x < 0 or source_x >= size_x \
+						or source_y < 0 or source_y >= size_y \
+						or source_z < 0 or source_z >= size_z:
+					continue
+				var src_idx := (source_y * size_z + source_z) * size_x + source_x
+				if src_idx >= 0 and src_idx < mask.size():
+					result[dst_idx] = mask[src_idx]
 	return result
 
 
@@ -1004,9 +1057,14 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 			materials, size_x, size_y, size_z, AIR_MATERIAL, ladder_material_id,
 			_transparent_material_mask, _get_neighbor_materials(chunk))
 
-		# Build collision faces (C++ hot path).
+		# Build collision faces (C++ hot path). Machine overlay is included
+		# so furnace/campfire cells get collision via chunk collision rather
+		# than per-object StaticBody3D nodes.
+		var chunk_machine_mask := _get_chunk_machine_collision_mask(
+				chunk, size_x, size_y, size_z)
 		var collision_data: Dictionary = GDChunkHelper.build_collision_faces(
-			materials, size_x, size_y, size_z, _collidable_material_mask)
+			materials, size_x, size_y, size_z, _collidable_material_mask,
+			chunk_machine_mask)
 
 		for material_id_key: Variant in greedy_mesh.keys():
 			var mid: int = int(material_id_key)

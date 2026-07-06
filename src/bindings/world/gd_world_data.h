@@ -246,6 +246,37 @@ public:
     // Returns the total number of loaded chunks.
     int64_t get_chunk_count() const;
 
+    // --- Machine collision overlay ---
+
+    // Mark or unmark a cell as machine-occupied in the overlay. When marked,
+    // chunk collision generation will include this cell so the machine gets
+    // collision coverage without a per-object Godot StaticBody3D.
+    // See docs/专用引擎性能优化方向.md (physics layer).
+    void set_machine_collision(const godot::String& dimension_id,
+                               int32_t cell_x, int32_t cell_y, int32_t cell_z,
+                               bool occupied);
+
+    // Returns true if a cell is marked as machine-occupied.
+    bool is_machine_collision(const godot::String& dimension_id,
+                              int32_t cell_x, int32_t cell_y,
+                              int32_t cell_z) const;
+
+    // Returns a dense per-cell mask for a chunk: 1 if the cell is
+    // machine-occupied, 0 otherwise. Mask layout matches
+    // GDChunkHelper::terrain_index ordering so callers can index it
+    // alongside the terrain materials array.
+    godot::PackedByteArray get_chunk_machine_collision_mask(
+        const godot::String& dimension_id,
+        int32_t chunk_x, int32_t chunk_y, int32_t chunk_z,
+        int32_t size_x, int32_t size_y, int32_t size_z) const;
+
+    // Returns the total number of machine-occupied cells across all dimensions.
+    int64_t get_machine_collision_count() const;
+
+    // Removes all machine collision entries for a dimension.
+    // Returns the number of entries removed.
+    int64_t clear_machine_collision_dimension(const godot::String& dimension_id);
+
     // --- Gameplay config ---
 
     // Returns the gameplay config as a Dictionary.
