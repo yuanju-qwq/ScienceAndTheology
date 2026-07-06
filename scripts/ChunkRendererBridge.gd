@@ -52,6 +52,28 @@ var workbench_material_id: int = AIR_MATERIAL
 @export var max_chunk_views_per_frame := 1
 @export var mesh_section_size := 8
 @export var max_section_rebuilds_per_frame := 8
+
+# --- Unified per-frame budgets (driven by FrameBudgetController) -------------
+# These fields previously lived on the shell / async subclasses. They are
+# promoted to the base class so FrameBudgetController can set them through a
+# single typed reference without unsafe property access. Subclasses retain
+# their original default values; non-shell bridges simply ignore them.
+
+# Max persistence (single-chunk save) restores processed per frame.
+# Owned by PlanetShellAsyncChunkRendererBridge at runtime.
+@export var max_persistence_restores_per_frame := 4
+
+# Max C++ ChunkData state transitions (ACTIVE<->SLEEPING) per frame.
+# Owned by PlanetShellChunkRendererBridge at runtime.
+@export var max_chunk_state_updates_per_frame := 64
+
+# Max sleeping chunks evicted from GDWorldData memory per frame.
+# Owned by PlanetShellChunkRendererBridge at runtime.
+@export var max_chunk_memory_unloads_per_frame := 8
+
+# Radius (chunk units) on the local tangent plane that keeps full collision.
+# Chunks outside switch to simplified mesh. Owned by PlanetShellChunkRendererBridge.
+@export var horizontal_lod0_radius := 4
 @export var player_node_path: NodePath = ^"../Player"
 @export var auto_update := true
 @export var auto_generate_start_chunks := true

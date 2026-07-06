@@ -48,15 +48,15 @@ const CHUNK_STATE_SLEEPING := 4
 # Manage C++ ChunkData state for shell streaming. This does not remove chunk data;
 # it only marks chunks outside the active shell as SLEEPING so simulation systems
 # can skip them without losing generated/saved terrain.
+# NOTE: max_chunk_state_updates_per_frame is declared on the base ChunkRendererBridge.
 @export var manage_deep_chunk_states := true
 @export var chunk_state_keep_radius := 2
-@export var max_chunk_state_updates_per_frame := 64
 
 # Remove safe sleeping chunks from GDWorldData memory after single-chunk save.
 # This does not delete region-file entries. Region GC is a separate explicit API.
+# NOTE: max_chunk_memory_unloads_per_frame is declared on the base ChunkRendererBridge.
 @export var unload_sleeping_chunks_from_memory := true
 @export var unload_sleeping_chunk_keep_radius := 8
-@export var max_chunk_memory_unloads_per_frame := 8
 @export var protect_indexed_chunks_from_memory_unload := false
 
 # Prune stale tracking metadata outside the current shell. This does not delete
@@ -76,11 +76,8 @@ const CHUNK_STATE_SLEEPING := 4
 
 # Enable per-chunk horizontal LOD inside the visible shell. Near chunks show
 # LOD0_Full with collision; outer chunks show LOD1_Simplified without collision.
+# NOTE: horizontal_lod0_radius is declared on the base ChunkRendererBridge.
 @export var horizontal_lod_enabled := true
-
-# Radius, in chunk units on the local tangent plane, that keeps full collision.
-# Chunks outside this radius remain visible but switch to simplified mesh.
-@export var horizontal_lod0_radius := 4
 
 # Optional visible mesh cap, in chunk units. 0 means use the current view_radius.
 # This is a safety valve for testing before a real heightfield/clipmap LOD exists.

@@ -7,15 +7,20 @@ extends Node
 @export var sample_interval_seconds := 5.0
 @export var capture_duration_seconds := 60.0
 @export var output_path := "user://u0_prototype_baseline.json"
+@export var tick_system_path: NodePath = ^"../GDTickSystem"
 @export var chunk_bridge_path: NodePath = ^"../ChunkRendererBridge"
 @export var universe_manager_path: NodePath = ^"../UniverseManager"
 
 var _elapsed := 0.0
 var _sample_elapsed := 0.0
 var _samples: Array[Dictionary] = []
+var _tick_system: GDTickSystem = null
 var _chunk_bridge: ChunkRendererBridge = null
 var _universe_manager: UniverseManager = null
 var _finished := false
+
+# TPS measurement (delta of tick_count over sample interval).
+var _last_tick_count := 0
 
 
 func _ready() -> void:
@@ -31,8 +36,11 @@ func _ready() -> void:
 	if configured_output != "":
 		output_path = configured_output
 
+	_tick_system = get_node_or_null(tick_system_path) as GDTickSystem
 	_chunk_bridge = get_node_or_null(chunk_bridge_path) as ChunkRendererBridge
 	_universe_manager = get_node_or_null(universe_manager_path) as UniverseManager
+	if _tick_system != null:
+		_last_tick_count = _tick_system.get_tick_count()
 	print("[U0Baseline] capture started: interval=%.1fs duration=%.1fs output=%s" % [
 		sample_interval_seconds, capture_duration_seconds, output_path])
 
@@ -43,19 +51,25 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	_sample_elapsed += delta
 	if _sample_elapsed >= sample_interval_seconds:
+		var interval := _sample_elapsed
 		_sample_elapsed = 0.0
-		_capture_sample()
+		_capture_sample(interval)
 	if _elapsed >= capture_duration_seconds:
 		_finish_capture()
 
 
-func _capture_sample() -> void:
+func _capture_sample(interval: float) -> void:
 	var sample: Dictionary = {
 		"elapsed_seconds": _elapsed,
 		"fps": Engine.get_frames_per_second(),
 		"static_memory_bytes": int(Performance.get_monitor(Performance.MEMORY_STATIC)),
 		"node_count": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
 	}
+	if _tick_system != null:
+		var current_tick := _tick_system.get_tick_count()
+		var tick_delta := current_tick - _last_tick_count
+		sample["tps"] = float(tick_delta) / interval if interval > 0.0 else 0.0
+		_last_tick_count = current_tick
 	if _chunk_bridge != null:
 		sample["chunk_streaming"] = _chunk_bridge.get_streaming_metrics()
 	if _universe_manager != null:
@@ -65,8 +79,13 @@ func _capture_sample() -> void:
 			sample["save_io"] = save_manager.get_io_metrics()
 	_samples.append(sample)
 	_flush_report()
-	print("[U0Baseline] sample=%d elapsed=%.1fs memory_mb=%.1f visible=%d queued=%d" % [
+	var tps_str := ""
+	if _tick_system != null:
+		tps_str = " tps=%.1f" % sample.get("tps", 0.0)
+	print("[U0Baseline] sample=%d elapsed=%.1fs fps=%d%s memory_mb=%.1f visible=%d queued=%d" % [
 		_samples.size(), _elapsed,
+		int(sample.get("fps", 0)),
+		tps_str,
 		float(sample["static_memory_bytes"]) / (1024.0 * 1024.0),
 		_get_chunk_metric(sample, "visible_chunks"),
 		_get_chunk_metric(sample, "queued_chunk_views")])
@@ -80,7 +99,7 @@ func _get_chunk_metric(sample: Dictionary, key: String) -> int:
 func _finish_capture() -> void:
 	_finished = true
 	if _samples.is_empty() or _samples.back().get("elapsed_seconds", 0.0) < _elapsed:
-		_capture_sample()
+		_capture_sample(_sample_elapsed)
 	var saved := _flush_report()
 	print("[U0Baseline] capture complete: samples=%d saved=%s output=%s" % [
 		_samples.size(), str(saved), output_path])

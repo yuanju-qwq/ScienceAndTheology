@@ -10,7 +10,7 @@ class_name PlanetShellAsyncChunkRendererBridge
 extends PlanetShellChunkRendererBridge
 
 @export var persistence_restore_queue_enabled := true
-@export var max_persistence_restores_per_frame := 4
+# NOTE: max_persistence_restores_per_frame is declared on the base ChunkRendererBridge.
 @export var max_persistence_restore_queue_size := 2048
 @export var fallback_to_async_generation_on_restore_miss := true
 
