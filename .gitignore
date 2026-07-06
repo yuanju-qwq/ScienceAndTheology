@@ -26,6 +26,11 @@ builds/
 # godot-cpp (fetched by CMake)
 _builds/
 
+# Self-built engine build artifacts
+engine/build/
+build-engine/
+_deps/
+
 # IDE files
 .vs/
 .idea/
@@ -34,3 +39,20 @@ _builds/
 *.sln
 *.vcxproj
 *.vcxproj.filters
+
+# Self-built engine: build logs
+cmake-full.log
+build-debug.log
+build-*.log
+
+# Self-built engine: pre-downloaded third-party archives.
+# Regenerate via engine/cmake/download_third_party.ps1.
+#engine/third_party/_downloads/
+
+# Self-built engine: extracted third-party source.
+# Regenerate by extracting archives from _downloads/.
+engine/third_party/SDL-release-*/
+
+# Temporary test directories
+test-*/
+

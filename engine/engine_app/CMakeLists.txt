@@ -1,0 +1,12 @@
+# Engine application layer: main loop, scene management.
+
+add_executable(snt_engine_app
+    main.cpp
+)
+target_link_libraries(snt_engine_app PRIVATE
+    snt_engine_settings
+    snt_platform
+    snt_render_backend
+)
+# Output name for convenience.
+set_target_properties(snt_engine_app PROPERTIES OUTPUT_NAME snt_engine)

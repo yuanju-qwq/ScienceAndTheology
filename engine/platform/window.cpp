@@ -1,0 +1,107 @@
+// Platform window implementation using SDL3.
+// P1.1: minimal stub — SDL init + window create + poll events.
+// P1.2 will add full input handling.
+
+#include "window.h"
+
+#include <SDL3/SDL.h>
+
+#include <cstdio>
+
+namespace snt::platform {
+
+Window::Window() = default;
+Window::~Window() { destroy(); }
+
+Window::Window(Window&& other) noexcept
+    : _window(other._window), _should_close(other._should_close) {
+    other._window = nullptr;
+    other._should_close = false;
+}
+
+Window& Window::operator=(Window&& other) noexcept {
+    if (this != &other) {
+        destroy();
+        _window = other._window;
+        _should_close = other._should_close;
+        other._window = nullptr;
+        other._should_close = false;
+    }
+    return *this;
+}
+
+bool Window::create(const WindowDesc& desc) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        std::fprintf(stderr, "[snt::platform] SDL_Init failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    SDL_WindowFlags flags = 0;
+    if (desc.vulkan_enabled) flags |= SDL_WINDOW_VULKAN;
+    if (desc.resizable)      flags |= SDL_WINDOW_RESIZABLE;
+    if (desc.fullscreen)     flags |= SDL_WINDOW_FULLSCREEN;
+
+    _window = SDL_CreateWindow(
+        std::string(desc.title).c_str(),
+        desc.width,
+        desc.height,
+        flags
+    );
+    if (!_window) {
+        std::fprintf(stderr, "[snt::platform] SDL_CreateWindow failed: %s\n", SDL_GetError());
+        return false;
+    }
+
+    _should_close = false;
+    return true;
+}
+
+void Window::destroy() {
+    if (_window) {
+        SDL_DestroyWindow(static_cast<SDL_Window*>(_window));
+        _window = nullptr;
+    }
+    // SDL_Quit deferred until process exit; multiple windows may share SDL.
+}
+
+bool Window::poll_events() {
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        switch (event.type) {
+            case SDL_EVENT_QUIT:
+                _should_close = true;
+                return false;
+            case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+                if (event.window.windowID == SDL_GetWindowID(static_cast<SDL_Window*>(_window))) {
+                    _should_close = true;
+                    return false;
+                }
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                // SDL3 removed the keysym nested struct; key is now directly
+                // on SDL_KeyboardEvent.
+                if (event.key.key == SDLK_ESCAPE) {
+                    _should_close = true;
+                    return false;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return !_should_close;
+}
+
+void* Window::native_handle() const {
+    return _window;
+}
+
+WindowSize Window::size() const {
+    int w = 0, h = 0;
+    if (_window) {
+        SDL_GetWindowSize(static_cast<SDL_Window*>(_window), &w, &h);
+    }
+    return WindowSize{w, h};
+}
+
+} // namespace snt::platform
