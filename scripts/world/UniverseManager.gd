@@ -179,6 +179,22 @@ var floating_origin: FloatingOrigin = null
 # 避免 travel_to_planet 设置活跃星球后被同一帧的逻辑覆盖。
 var _is_traveling := false
 
+# --- Per-process task scheduling buckets -------------------------------------
+# _process runs 10 subsystem updates every frame by default. Most of them are
+# IO-bound or only affect LOD/streaming that the player cannot perceive at
+# 60 FPS. Tasks are split into three buckets so heavy IO runs at lower rate:
+#
+#   every_frame : player universe position + tick driver (gameplay critical)
+#   medium      : 0.2s — distance/LOD/active-planet/loading updates
+#   slow        : 0.5s — system streaming + realization (heaviest IO)
+#
+# Accumulators are independent so each bucket can be tuned without touching
+# the others. Set interval to 0.0 to force a bucket to run every frame.
+const MEDIUM_BUCKET_INTERVAL := 0.2
+const SLOW_BUCKET_INTERVAL := 0.5
+var _medium_bucket_elapsed := 0.0
+var _slow_bucket_elapsed := 0.0
+
 
 func get_station_counter() -> int:
 	return station_counter
@@ -257,19 +273,37 @@ func _process(delta: float) -> void:
 	if _player == null:
 		return
 
-	# 先更新玩家的宇宙坐标（double 精度），后续距离/LOD/重力计算依赖此值。
+	# --- every_frame bucket --------------------------------------------------
+	# Player universe position and tick driver are gameplay-critical: the
+	# first feeds gravity/LOD precision, the second advances simulation.
 	_update_player_universe_position()
-
-	_update_system_streaming()
-	_update_system_distances()
-	_update_system_realization()
-	# 旅行进行中时跳过自动活跃星球切换，避免覆盖 travel_to_planet 的设置。
-	if not _is_traveling:
-		_update_active_planet()
-	_update_distant_body_visibility()
-	_update_planet_loading()
-	_update_station_loading()
 	_drivetick_system(delta)
+
+	# --- medium bucket (0.2s) ------------------------------------------------
+	# Distance / active-planet / visibility / loading updates. These affect
+	# LOD transitions and chunk streaming but are not perceptible at 60 FPS
+	# when throttled to 5 Hz.
+	_medium_bucket_elapsed += delta
+	if _medium_bucket_elapsed >= MEDIUM_BUCKET_INTERVAL:
+		_medium_bucket_elapsed = 0.0
+		_update_system_distances()
+		# 旅行进行中时跳过自动活跃星球切换，避免覆盖 travel_to_planet 的设置。
+		if not _is_traveling:
+			_update_active_planet()
+		_update_distant_body_visibility()
+		_update_planet_loading()
+		_update_station_loading()
+
+	# --- slow bucket (0.5s) --------------------------------------------------
+	# System streaming + realization are the heaviest IO operations
+	# (placeholder generation, planet realization). 2 Hz is sufficient
+	# because the player crosses system-stream boundaries slowly.
+	_slow_bucket_elapsed += delta
+	if _slow_bucket_elapsed >= SLOW_BUCKET_INTERVAL:
+		_slow_bucket_elapsed = 0.0
+		_update_system_streaming()
+		_update_system_realization()
+
 	_maybe_debug_log(delta)
 
 

@@ -11,6 +11,8 @@ var _bg: ColorRect
 var _tick_system: GDTickSystem = null
 var _chunk_bridge: ChunkRendererBridge = null
 var _perf_monitor: Node = null
+# FrameBudgetController reference for governor state display (Phase 5).
+var _budget_controller: FrameBudgetController = null
 
 # TPS 测量
 var _last_tick_count := 0
@@ -65,10 +67,12 @@ func _process(delta: float) -> void:
 
 
 func setup(tick_system: GDTickSystem, chunk_bridge: ChunkRendererBridge,
-		perf_monitor: Node = null) -> void:
+		perf_monitor: Node = null,
+		budget_controller: FrameBudgetController = null) -> void:
 	_tick_system = tick_system
 	_chunk_bridge = chunk_bridge
 	_perf_monitor = perf_monitor
+	_budget_controller = budget_controller
 	if _tick_system != null:
 		_last_tick_count = _tick_system.get_tick_count()
 		_last_dirty_count = _tick_system.get_dirty_chunks().size()
@@ -118,6 +122,7 @@ func _refresh_text() -> void:
 	var net_text := "Net: %s/s" % _format_bytes(_estimated_bytes_per_sec)
 
 	# 附加 streaming 指标。
+	var streaming_text := ""
 	if _chunk_bridge != null:
 		var metrics := _chunk_bridge.get_streaming_metrics()
 		var visible_chunks: int = metrics.get("visible_chunks", 0)
@@ -128,6 +133,16 @@ func _refresh_text() -> void:
 		if _tick_system != null:
 			dirty_chunks = _tick_system.get_dirty_chunks().size()
 		net_text += " | Chunks: %d/%d dirty:%d" % [visible_chunks, active_chunks, dirty_chunks]
+
+		# Detailed mesh/streaming stats (Phase 5): build count, average build
+		# time, queued views, tracked chunks, and async pending requests.
+		streaming_text = "Mesh: %d avg:%.2fms queued:%d tracked:%d pending:%d" % [
+			int(metrics.get("mesh_build_count", 0)),
+			float(metrics.get("mesh_build_average_ms", 0.0)),
+			int(metrics.get("queued_chunk_views", 0)),
+			int(metrics.get("tracked_chunks", 0)),
+			int(metrics.get("async_generation_pending", 0)),
+		]
 
 	var frame_text := ""
 	if _perf_monitor != null and _perf_monitor.has_method("get_frame_stats"):
@@ -141,9 +156,24 @@ func _refresh_text() -> void:
 			int(frame_stats.get("total_serious_spikes", 0)),
 		]
 
+	# Budget governor state (Phase 5): current state + per-group scales.
+	var budget_text := ""
+	if _budget_controller != null:
+		var stats: Dictionary = _budget_controller.get_governor_stats()
+		budget_text = "Budget: %s h:%.2f m:%.2f s:%.2f" % [
+			String(stats.get("state", "")),
+			float(stats.get("heavy_io_scale", 0.0)),
+			float(stats.get("mesh_scale", 0.0)),
+			float(stats.get("streaming_scale", 0.0)),
+		]
+
 	_label.text = tps_text + "\n" + net_text
 	if frame_text != "":
 		_label.text += "\n" + frame_text
+	if streaming_text != "":
+		_label.text += "\n" + streaming_text
+	if budget_text != "":
+		_label.text += "\n" + budget_text
 
 	# 动态调整背景高度。
 	var line_count := _label.get_line_count()

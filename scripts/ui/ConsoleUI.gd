@@ -467,7 +467,8 @@ func _cmd_perf(_args: String) -> void:
 			if _player.universe_manager != null:
 				tick_sys = _player.universe_manager.tick_system
 			chunk_bridge = _player.world
-		_perf_overlay.setup(tick_sys, chunk_bridge, _get_runtime_perf_monitor())
+		_perf_overlay.setup(tick_sys, chunk_bridge, _get_runtime_perf_monitor(),
+				_get_frame_budget_controller())
 
 	_perf_overlay.toggle()
 	var state := "ON" if _perf_overlay.visible else "OFF"
@@ -619,6 +620,14 @@ func _get_runtime_perf_monitor() -> Node:
 	var scene := get_tree().current_scene
 	if scene != null:
 		return scene.get_node_or_null("RuntimePerfMonitor")
+	return null
+
+
+# Locate the FrameBudgetController node for PerfOverlay governor display.
+func _get_frame_budget_controller() -> FrameBudgetController:
+	var scene := get_tree().current_scene
+	if scene != null:
+		return scene.get_node_or_null("FrameBudgetController") as FrameBudgetController
 	return null
 
 
