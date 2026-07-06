@@ -70,6 +70,10 @@ public:
         const godot::StringName& dimension, const godot::Vector3i& cell) const;
     bool has_kiln(const godot::StringName& dimension, const godot::Vector3i& cell) const;
 
+    // Returns all kiln cells as an Array of {dimension: String, cell: Vector3i}.
+    // Used by MachineCollisionBridge to re-apply the overlay on load/dimension switch.
+    godot::Array get_all_kilns() const;
+
     bool insert_input(const godot::StringName& dimension, const godot::Vector3i& cell, int64_t item_id);
     bool cover(const godot::StringName& dimension, const godot::Vector3i& cell);
     bool light(const godot::StringName& dimension, const godot::Vector3i& cell);

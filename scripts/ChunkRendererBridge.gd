@@ -442,24 +442,19 @@ func _resolve_runtime_material_ids() -> void:
 	if worldgen_config == null:
 		push_warning("ChunkRendererBridge: cannot resolve runtime material IDs — no worldgen_config.")
 		return
-	var runtime_ids: Dictionary = worldgen_config.get_runtime_material_ids()
-	ladder_material_id = int(runtime_ids.get("ladder", AIR_MATERIAL))
-	workbench_material_id = int(runtime_ids.get("workbench", AIR_MATERIAL))
+	# Delegated to C++ (GDWorldGenConfig.get_ladder_material_id / get_workbench_material_id).
+	ladder_material_id = worldgen_config.get_ladder_material_id()
+	workbench_material_id = worldgen_config.get_workbench_material_id()
 
 
 @warning_ignore("unsafe_method_access")
 func _build_collidable_material_mask() -> void:
-	_collidable_material_mask.resize(MATERIAL_ID_CAPACITY)
-	_collidable_material_mask.fill(0)
 	if worldgen_config == null:
+		_collidable_material_mask.resize(MATERIAL_ID_CAPACITY)
+		_collidable_material_mask.fill(0)
 		return
-	for definition: Dictionary in worldgen_config.get_material_defs():
-		var material_id := int(definition.get("id", -1))
-		var flags := int(definition.get("flags", 0))
-		if material_id < 0 or material_id >= MATERIAL_ID_CAPACITY:
-			continue
-		if (flags & (MATERIAL_FLAG_WALKABLE | MATERIAL_FLAG_SOLID)) != 0:
-			_collidable_material_mask[material_id] = 1
+	# Delegated to C++ (GDWorldGenConfig.build_collidable_material_mask).
+	_collidable_material_mask = worldgen_config.build_collidable_material_mask()
 
 
 # --- Chunk lifecycle ---
@@ -706,15 +701,11 @@ func _entry_uses_sections(entry: Dictionary) -> bool:
 
 
 func _get_mesh_section_size(size_x: int, size_y: int, size_z: int) -> int:
-	var section_size := int(mesh_section_size)
-	if section_size <= 0:
+	# Delegated to C++ (GDWorldGenConfig.get_mesh_section_size).
+	if worldgen_config == null:
 		return 0
-	if section_size >= mini(mini(size_x, size_y), size_z):
-		return 0
-	if size_x % section_size != 0 or size_y % section_size != 0 \
-			or size_z % section_size != 0:
-		return 0
-	return section_size
+	return worldgen_config.get_mesh_section_size(
+			size_x, size_y, size_z, int(mesh_section_size))
 
 
 func _create_chunk_section_views(
@@ -1099,21 +1090,10 @@ func _create_chunk_view(chunk: Vector3i) -> void:
 
 
 func _get_neighbor_materials(chunk: Vector3i) -> Dictionary:
-	var result := {}
-	if world_data == null:
-		return result
-	for direction in range(FACE_NEIGHBOR_OFFSETS.size()):
-		var neighbor: Vector3i = chunk + FACE_NEIGHBOR_OFFSETS[direction]
-		if not world_data.has_chunk(
-				active_dimension, neighbor.x, neighbor.y, neighbor.z):
-			continue
-		var terrain := world_data.get_chunk_terrain(
-				active_dimension, neighbor.x, neighbor.y, neighbor.z)
-		var materials: PackedByteArray = terrain.get(
-				"materials", PackedByteArray())
-		if not materials.is_empty():
-			result[direction] = materials
-	return result
+	# Delegated to C++ (GDChunkHelper.extract_chunk_neighbor_materials)
+	# for hot-path performance.
+	return GDChunkHelper.extract_chunk_neighbor_materials(
+			world_data, active_dimension, chunk)
 
 
 # Create one shareable ArrayMesh from greedy mesh data for a single material.

@@ -1035,28 +1035,23 @@ func _make_tangent_axis(up: Vector3) -> Vector3:
 
 
 func _chunk_intersects_active_shell(chunk: Vector3i, planet: PlanetDescriptor) -> bool:
+	# Half-diagonal + altitude comparison delegated to C++
+	# (GDPlanetShellHelper.chunk_intersects_active_shell).
 	var center := _chunk_center(chunk)
 	var altitude := planet.local_surface_altitude_at(center)
-	var half_diag := sqrt(3.0) * float(CHUNK_SIZE) * 0.5
-	return altitude >= -planet.active_shell_below - half_diag \
-			and altitude <= planet.active_shell_above + half_diag
+	return GDPlanetShellHelper.chunk_intersects_active_shell(
+			altitude, planet.active_shell_above, planet.active_shell_below,
+			CHUNK_SIZE)
 
 
 func _chunk_tangent_distance(
 		chunk: Vector3i,
 		player_pos: Vector3,
 		planet: PlanetDescriptor) -> float:
-	var center := planet.local_center
-	var up := player_pos - center
-	if up.length_squared() < 0.0001:
-		up = Vector3.UP
-	else:
-		up = up.normalized()
-	var surface_point := center + up * planet.planet_radius
-	var relative := _chunk_center(chunk) - surface_point
-	var radial_height := relative.dot(up)
-	var tangent := relative - up * radial_height
-	return tangent.length()
+	# Delegated to C++ (GDPlanetShellHelper.chunk_tangent_distance).
+	return GDPlanetShellHelper.chunk_tangent_distance(
+			chunk, player_pos, planet.local_center,
+			planet.planet_radius, CHUNK_SIZE)
 
 
 func _enable_all_visible_chunk_collisions() -> void:

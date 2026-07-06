@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
@@ -21,6 +22,10 @@ public:
     bool place_anvil(const godot::StringName& dim, const godot::Vector3i& cell);
     bool remove_anvil(const godot::StringName& dim, const godot::Vector3i& cell);
     bool has_anvil(const godot::StringName& dim, const godot::Vector3i& cell) const;
+
+    // Returns all anvil cells as an Array of {dimension: String, cell: Vector3i}.
+    // Used by MachineCollisionBridge to re-apply the overlay on load/dimension switch.
+    godot::Array get_all_anvils() const;
 
     // Weld: returns a Dictionary with {ok, ingot_item_id, count} on success.
     // The caller (GDScript) must handle item consumption.

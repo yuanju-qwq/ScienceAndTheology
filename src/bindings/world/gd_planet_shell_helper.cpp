@@ -53,7 +53,7 @@ godot::Vector3 chunk_center(const godot::Vector3i& chunk, int32_t chunk_size) {
         (static_cast<float>(chunk.z) + 0.5f) * size);
 }
 
-bool chunk_intersects_active_shell(
+bool chunk_intersects_active_shell_impl(
         const godot::Vector3i& chunk,
         const godot::Vector3& planet_center,
         double planet_radius,
@@ -121,7 +121,7 @@ godot::Array GDPlanetShellHelper::compute_shell_chunk_order(
                     if (seen.has(chunk)) {
                         continue;
                     }
-                    if (!chunk_intersects_active_shell(
+                    if (!chunk_intersects_active_shell_impl(
                             chunk, planet_center, planet_radius,
                             active_shell_above, active_shell_below, chunk_size)) {
                         continue;
@@ -144,6 +144,46 @@ void GDPlanetShellHelper::_bind_methods() {
         "active_shell_above", "active_shell_below", "chunk_size",
         "radius_chunks"),
         &B::compute_shell_chunk_order);
+    godot::ClassDB::bind_static_method("GDPlanetShellHelper",
+        godot::D_METHOD("chunk_tangent_distance",
+            "chunk", "player_pos", "planet_center", "planet_radius", "chunk_size"),
+        &B::chunk_tangent_distance);
+    godot::ClassDB::bind_static_method("GDPlanetShellHelper",
+        godot::D_METHOD("chunk_intersects_active_shell",
+            "altitude_at_center", "active_shell_above", "active_shell_below", "chunk_size"),
+        &B::chunk_intersects_active_shell);
+}
+
+// --- Tangent-plane geometry (sinks of PlanetShellChunkRendererBridge.gd) ---
+
+float GDPlanetShellHelper::chunk_tangent_distance(
+        const godot::Vector3i& chunk,
+        const godot::Vector3& player_pos,
+        const godot::Vector3& planet_center,
+        float planet_radius,
+        int32_t chunk_size) {
+    godot::Vector3 up = player_pos - planet_center;
+    if (up.length_squared() < 1.0e-4f) {
+        up = godot::Vector3(0.0f, 1.0f, 0.0f);
+    } else {
+        up.normalize();
+    }
+    const godot::Vector3 surface_point = planet_center + up * planet_radius;
+    const godot::Vector3 chunk_center_pos = chunk_center(chunk, chunk_size);
+    const godot::Vector3 relative = chunk_center_pos - surface_point;
+    const float radial_height = relative.dot(up);
+    const godot::Vector3 tangent = relative - up * radial_height;
+    return tangent.length();
+}
+
+bool GDPlanetShellHelper::chunk_intersects_active_shell(
+        float altitude_at_center,
+        double active_shell_above,
+        double active_shell_below,
+        int32_t chunk_size) {
+    const double half_diag = std::sqrt(3.0) * static_cast<double>(chunk_size) * 0.5;
+    return altitude_at_center >= -active_shell_below - half_diag
+        && altitude_at_center <= active_shell_above + half_diag;
 }
 
 } // namespace science_and_theology

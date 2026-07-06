@@ -2,6 +2,7 @@
 
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string_name.hpp>
 #include <godot_cpp/variant/vector3i.hpp>
@@ -71,6 +72,10 @@ public:
     bool remove_bloomery(const godot::StringName& dim, const godot::Vector3i& cell);
     godot::Ref<GDBloomeryData> get_bloomery(const godot::StringName& dim, const godot::Vector3i& cell) const;
     bool has_bloomery(const godot::StringName& dim, const godot::Vector3i& cell) const;
+
+    // Returns all bloomery cells as an Array of {dimension: String, cell: Vector3i}.
+    // Used by MachineCollisionBridge to re-apply the overlay on load/dimension switch.
+    godot::Array get_all_bloomeries() const;
 
     bool add_ore(const godot::StringName& dim, const godot::Vector3i& cell);
     bool add_charcoal(const godot::StringName& dim, const godot::Vector3i& cell);

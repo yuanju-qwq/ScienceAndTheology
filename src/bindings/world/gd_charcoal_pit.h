@@ -66,6 +66,10 @@ public:
         const godot::StringName& dimension, const godot::Vector3i& cell) const;
     bool has_pit(const godot::StringName& dimension, const godot::Vector3i& cell) const;
 
+    // Returns all pit cells as an Array of {dimension: String, cell: Vector3i}.
+    // Used by MachineCollisionBridge to re-apply the overlay on load/dimension switch.
+    godot::Array get_all_pits() const;
+
     bool add_log(const godot::StringName& dimension, const godot::Vector3i& cell);
     bool cover(const godot::StringName& dimension, const godot::Vector3i& cell);
     bool light(const godot::StringName& dimension, const godot::Vector3i& cell);

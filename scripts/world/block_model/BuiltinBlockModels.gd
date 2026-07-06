@@ -112,6 +112,8 @@ static func _append_box(st: SurfaceTool, pos: Vector3, size: Vector3, color: Col
 
 # Furnace model: stone body with a dark mouth opening and a hot bar above it.
 # Ports the previous hardcoded BoxMesh combination in WorldObjectRenderer.
+# Collision is handled by MachineCollisionOverlay (furnace cell marked in
+# WorldData, merged into chunk collision by GDChunkHelper::build_collision_faces).
 static func _make_furnace_model() -> BlockModelResource:
 	var boxes: Array[Dictionary] = [
 		{ "position": Vector3(0.0, 0.32, 0.0), "size": Vector3(0.96, 0.72, 0.96),
@@ -121,13 +123,12 @@ static func _make_furnace_model() -> BlockModelResource:
 		{ "position": Vector3(0.0, 0.58, -0.515), "size": Vector3(0.30, 0.08, 0.03),
 		  "color": Color(1.0, 0.35, 0.08) },
 	]
-	var collision: Array[Dictionary] = [
-		{ "position": Vector3(0.0, 0.32, 0.0), "size": Vector3(0.96, 0.72, 0.96) },
-	]
-	return BlockModelResource.create(&"furnace", boxes, [], collision)
+	return BlockModelResource.create(&"furnace", boxes)
 
 
 # Campfire model: a small log pile with a flame on top.
+# Collision is handled by MachineCollisionOverlay (campfire cell marked in
+# WorldData, merged into chunk collision by GDChunkHelper::build_collision_faces).
 static func _make_campfire_model() -> BlockModelResource:
 	var boxes: Array[Dictionary] = [
 		# Log base (two crossed logs).
@@ -146,15 +147,14 @@ static func _make_campfire_model() -> BlockModelResource:
 		{ "position": Vector3(0.0, 0.22, 0.0), "size": Vector3(0.18, 0.16, 0.18),
 		  "color": Color(1.0, 0.70, 0.20) },
 	]
-	var collision: Array[Dictionary] = [
-		{ "position": Vector3(0.0, 0.05, 0.0), "size": Vector3(0.50, 0.20, 0.50) },
-	]
-	return BlockModelResource.create(&"campfire", boxes, [], collision)
+	return BlockModelResource.create(&"campfire", boxes)
 
 
 # Magic structure model: a placeholder runic pedestal with a floating crystal.
 # Rendered as boxes until dedicated magic-structure mesh assets exist; the
 # custom_meshes slot is ready to receive an imported mesh path later.
+# Collision: when a manager places magic structures, it should mark the cell
+# in MachineCollisionOverlay (see MachineCollisionBridge).
 static func _make_magic_structure_model() -> BlockModelResource:
 	var boxes: Array[Dictionary] = [
 		# Pedestal base.
@@ -167,8 +167,4 @@ static func _make_magic_structure_model() -> BlockModelResource:
 		{ "position": Vector3(0.0, 0.55, 0.0), "size": Vector3(0.30, 0.40, 0.30),
 		  "color": Color(0.20, 0.85, 0.90) },
 	]
-	var collision: Array[Dictionary] = [
-		{ "position": Vector3(0.0, -0.30, 0.0), "size": Vector3(0.80, 0.20, 0.80) },
-		{ "position": Vector3(0.0, 0.05, 0.0), "size": Vector3(0.40, 0.50, 0.40) },
-	]
-	return BlockModelResource.create(&"magic_structure", boxes, [], collision)
+	return BlockModelResource.create(&"magic_structure", boxes)

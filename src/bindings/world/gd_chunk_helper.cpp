@@ -7,8 +7,10 @@
 #include <vector>
 
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/object.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/callable.hpp>
+#include <godot_cpp/variant/string.hpp>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -58,6 +60,143 @@ godot::Vector3i GDChunkHelper::world_position_to_chunk(const godot::Vector3& wor
 int64_t GDChunkHelper::terrain_index(int32_t local_x, int32_t local_y, int32_t local_z,
                                       int32_t size_x, int32_t size_z) {
     return static_cast<int64_t>((local_y * size_z + local_z) * size_x + local_x);
+}
+
+// --- Section extraction (chunk → section sub-region) ---
+
+godot::PackedByteArray GDChunkHelper::extract_section(
+        const godot::PackedByteArray& chunk_data,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        const godot::Vector3i& origin, int32_t section_size,
+        uint8_t out_of_range_value) {
+    godot::PackedByteArray result;
+    const int32_t total = section_size * section_size * section_size;
+    result.resize(total);
+    const auto src_ptr = chunk_data.ptr();
+    const auto dst_ptr = result.ptrw();
+    const int64_t src_size = static_cast<int64_t>(chunk_data.size());
+    for (int32_t y = 0; y < section_size; ++y) {
+        for (int32_t z = 0; z < section_size; ++z) {
+            for (int32_t x = 0; x < section_size; ++x) {
+                const int32_t src_x = origin.x + x;
+                const int32_t src_y = origin.y + y;
+                const int32_t src_z = origin.z + z;
+                const int32_t dst_idx = (y * section_size + z) * section_size + x;
+                if (src_x < 0 || src_x >= size_x
+                        || src_y < 0 || src_y >= size_y
+                        || src_z < 0 || src_z >= size_z) {
+                    dst_ptr[dst_idx] = out_of_range_value;
+                    continue;
+                }
+                const int64_t src_idx = terrain_index(src_x, src_y, src_z, size_x, size_z);
+                dst_ptr[dst_idx] = (src_idx >= 0 && src_idx < src_size)
+                    ? src_ptr[src_idx]
+                    : out_of_range_value;
+            }
+        }
+    }
+    return result;
+}
+
+namespace {
+
+// 6 face neighbor offsets, matching FACE_NEIGHBOR_OFFSETS in ChunkRendererBridge.gd.
+// Index order: 0=+Y, 1=-Y, 2=+X, 3=-X, 4=+Z, 5=-Z.
+const std::array<godot::Vector3i, 6> kFaceOffsets = {{
+    godot::Vector3i(0, 1, 0),  godot::Vector3i(0, -1, 0),
+    godot::Vector3i(1, 0, 0),  godot::Vector3i(-1, 0, 0),
+    godot::Vector3i(0, 0, 1),  godot::Vector3i(0, 0, -1),
+}};
+
+// Fetch a chunk's materials from WorldData via its GDScript API.
+// Returns empty PackedByteArray when the chunk is missing or has no materials.
+godot::PackedByteArray fetch_chunk_materials(godot::Object* world_data,
+                                       const godot::StringName& dimension,
+                                       const godot::Vector3i& chunk) {
+    if (world_data == nullptr) return godot::PackedByteArray();
+    godot::Array args;
+    args.append(godot::String(dimension));
+    args.append(chunk.x);
+    args.append(chunk.y);
+    args.append(chunk.z);
+    godot::Variant has = world_data->callv("has_chunk", args);
+    if (has.get_type() != godot::Variant::BOOL || !bool(has)) return godot::PackedByteArray();
+    godot::Variant terrain_v = world_data->callv("get_chunk_terrain", args);
+    if (terrain_v.get_type() != godot::Variant::DICTIONARY) return godot::PackedByteArray();
+    godot::Dictionary terrain = terrain_v;
+    godot::Variant materials_v = terrain.get("materials", godot::Variant());
+    if (materials_v.get_type() != godot::Variant::PACKED_BYTE_ARRAY) return godot::PackedByteArray();
+    return materials_v;
+}
+
+} // namespace
+
+godot::Dictionary GDChunkHelper::extract_section_neighbor_materials(
+        godot::Object* world_data,
+        const godot::StringName& dimension,
+        const godot::Vector3i& chunk,
+        const godot::Vector3i& section,
+        int32_t size_x, int32_t size_y, int32_t size_z,
+        int32_t section_size) {
+    godot::Dictionary result;
+    if (world_data == nullptr) return result;
+    const int32_t sections_x = size_x / section_size;
+    const int32_t sections_y = size_y / section_size;
+    const int32_t sections_z = size_z / section_size;
+    for (int32_t dir = 0; dir < 6; ++dir) {
+        godot::Vector3i neighbor_chunk = chunk;
+        godot::Vector3i neighbor_section = section + kFaceOffsets[dir];
+        // Wrap section index across chunk boundaries.
+        if (neighbor_section.x < 0) {
+            --neighbor_chunk.x; neighbor_section.x = sections_x - 1;
+        } else if (neighbor_section.x >= sections_x) {
+            ++neighbor_chunk.x; neighbor_section.x = 0;
+        }
+        if (neighbor_section.y < 0) {
+            --neighbor_chunk.y; neighbor_section.y = sections_y - 1;
+        } else if (neighbor_section.y >= sections_y) {
+            ++neighbor_chunk.y; neighbor_section.y = 0;
+        }
+        if (neighbor_section.z < 0) {
+            --neighbor_chunk.z; neighbor_section.z = sections_z - 1;
+        } else if (neighbor_section.z >= sections_z) {
+            ++neighbor_chunk.z; neighbor_section.z = 0;
+        }
+        godot::PackedByteArray source_materials;
+        if (neighbor_chunk != chunk) {
+            source_materials = fetch_chunk_materials(world_data, dimension, neighbor_chunk);
+            if (source_materials.size() == 0) continue;
+        } else {
+            // Same chunk: re-use caller's materials. We don't have them here,
+            // so fetch from WorldData. Callers that already have the materials
+            // can pass them via the GDScript wrapper to avoid the extra call.
+            source_materials = fetch_chunk_materials(world_data, dimension, neighbor_chunk);
+            if (source_materials.size() == 0) continue;
+        }
+        const godot::Vector3i origin(
+            neighbor_section.x * section_size,
+            neighbor_section.y * section_size,
+            neighbor_section.z * section_size);
+        // AIR_MATERIAL = 0 for out-of-range.
+        result[dir] = extract_section(source_materials,
+            size_x, size_y, size_z, origin, section_size, 0);
+    }
+    return result;
+}
+
+godot::Dictionary GDChunkHelper::extract_chunk_neighbor_materials(
+        godot::Object* world_data,
+        const godot::StringName& dimension,
+        const godot::Vector3i& chunk) {
+    godot::Dictionary result;
+    if (world_data == nullptr) return result;
+    for (int32_t dir = 0; dir < 6; ++dir) {
+        const godot::Vector3i neighbor_chunk = chunk + kFaceOffsets[dir];
+        godot::PackedByteArray materials = fetch_chunk_materials(world_data, dimension, neighbor_chunk);
+        if (materials.size() == 0) continue;
+        result[dir] = materials;
+    }
+    return result;
 }
 
 bool GDChunkHelper::is_surface_voxel(const godot::Vector3i& local,
@@ -829,6 +968,12 @@ void GDChunkHelper::_bind_methods() {
                                 &B::world_position_to_chunk);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("terrain_index", "local_x", "local_y", "local_z", "size_x", "size_z"),
                                 &B::terrain_index);
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("extract_section", "chunk_data", "size_x", "size_y", "size_z", "origin", "section_size", "out_of_range_value"),
+                                &B::extract_section);
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("extract_section_neighbor_materials", "world_data", "dimension", "chunk", "section", "size_x", "size_y", "size_z", "section_size"),
+                                &B::extract_section_neighbor_materials);
+    godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("extract_chunk_neighbor_materials", "world_data", "dimension", "chunk"),
+                                &B::extract_chunk_neighbor_materials);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("is_surface_voxel", "local", "materials", "size_x", "size_y", "size_z", "air_material", "ladder_material"),
                                 &B::is_surface_voxel);
     godot::ClassDB::bind_static_method("GDChunkHelper", godot::D_METHOD("ladder_facing", "local", "materials", "size_x", "size_y", "size_z", "air_material"),

@@ -29,6 +29,17 @@ bool GDAnvilManager::has_anvil(const StringName& dim, const Vector3i& cell) cons
     return anvils_.find(mk(dim, cell)) != anvils_.end();
 }
 
+Array GDAnvilManager::get_all_anvils() const {
+    Array result;
+    for (const auto& pair : anvils_) {
+        Dictionary d;
+        d["dimension"] = String(pair.first.d.c_str());
+        d["cell"] = Vector3i(pair.first.x, pair.first.y, pair.first.z);
+        result.append(d);
+    }
+    return result;
+}
+
 Dictionary GDAnvilManager::weld(const StringName& dim, const Vector3i& cell) {
     Dictionary result;
     result["ok"] = has_anvil(dim, cell);
@@ -57,6 +68,7 @@ void GDAnvilManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("place_anvil", "dimension", "cell"), &GDAnvilManager::place_anvil);
     ClassDB::bind_method(D_METHOD("remove_anvil", "dimension", "cell"), &GDAnvilManager::remove_anvil);
     ClassDB::bind_method(D_METHOD("has_anvil", "dimension", "cell"), &GDAnvilManager::has_anvil);
+    ClassDB::bind_method(D_METHOD("get_all_anvils"), &GDAnvilManager::get_all_anvils);
     ClassDB::bind_method(D_METHOD("weld", "dimension", "cell"), &GDAnvilManager::weld);
     ClassDB::bind_method(D_METHOD("clear"), &GDAnvilManager::clear);
 

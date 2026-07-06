@@ -25,6 +25,7 @@
 #include "world/gd_bloomery.h"
 #include "world/gd_anvil.h"
 #include "world/gd_chunk_helper.h"
+#include "world/gd_world_object_renderer.h"
 #include "world/gd_planet_shell_helper.h"
 #include "world/gd_chunk_persistence_helper.h"
 #include "world/gd_planet_lod.hpp"
@@ -131,6 +132,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDBloomeryManager>();
     ClassDB::register_class<GDAnvilManager>();
     ClassDB::register_class<GDChunkHelper>();
+    ClassDB::register_class<GDWorldObjectRenderer>();
     ClassDB::register_class<GDPlanetShellHelper>();
     ClassDB::register_class<GDChunkPersistenceHelper>();
     ClassDB::register_class<GDPlanetLod>();

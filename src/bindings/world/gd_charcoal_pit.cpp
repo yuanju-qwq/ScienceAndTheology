@@ -126,6 +126,17 @@ bool GDCharcoalPitManager::has_pit(const StringName& dimension, const Vector3i& 
     return pits_.find(make_key(dimension, cell)) != pits_.end();
 }
 
+Array GDCharcoalPitManager::get_all_pits() const {
+    Array result;
+    for (const auto& pair : pits_) {
+        Dictionary d;
+        d["dimension"] = String(pair.first.dimension.c_str());
+        d["cell"] = Vector3i(pair.first.x, pair.first.y, pair.first.z);
+        result.append(d);
+    }
+    return result;
+}
+
 bool GDCharcoalPitManager::add_log(const StringName& dimension, const Vector3i& cell) {
     const PitKey key = make_key(dimension, cell);
     auto it = pits_.find(key);
@@ -262,6 +273,7 @@ void GDCharcoalPitManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("remove_pit", "dimension", "cell"), &GDCharcoalPitManager::remove_pit);
     ClassDB::bind_method(D_METHOD("get_pit", "dimension", "cell"), &GDCharcoalPitManager::get_pit);
     ClassDB::bind_method(D_METHOD("has_pit", "dimension", "cell"), &GDCharcoalPitManager::has_pit);
+    ClassDB::bind_method(D_METHOD("get_all_pits"), &GDCharcoalPitManager::get_all_pits);
     ClassDB::bind_method(D_METHOD("add_log", "dimension", "cell"), &GDCharcoalPitManager::add_log);
     ClassDB::bind_method(D_METHOD("cover", "dimension", "cell"), &GDCharcoalPitManager::cover);
     ClassDB::bind_method(D_METHOD("light", "dimension", "cell"), &GDCharcoalPitManager::light);

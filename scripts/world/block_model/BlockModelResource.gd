@@ -7,7 +7,6 @@
 #   - custom_meshes: arbitrary Mesh resources (e.g. imported .glb/.obj) placed
 #     at a transform with a tint color. Used for complex shapes (pipes, cables,
 #     magic structure geometry).
-#   - collision_boxes: axis-aligned boxes used to build the physics shape.
 #   - baked_mesh: cached ArrayMesh combining all boxes with per-vertex color.
 #     Built once by BuiltinBlockModels and consumed by WorldObjectRenderer
 #     via MultiMesh batching (one MultiMesh per model_key).
@@ -15,6 +14,10 @@
 # Models are registered by `model_key` (a StringName) in a registry and
 # instantiated by WorldObjectRenderer when an object is placed at a voxel cell.
 # The model's local origin maps to the cell's world position (block centre).
+#
+# Collision: models do NOT carry their own collision. Machine cells are marked
+# in WorldData's MachineCollisionOverlay and merged into chunk-level collision
+# by GDChunkHelper::build_collision_faces (see MachineCollisionBridge).
 class_name BlockModelResource
 extends Resource
 
@@ -32,12 +35,6 @@ extends Resource
 # mesh). scale defaults to Vector3.ONE.
 @export var custom_meshes: Array[Dictionary] = []
 
-# Collision boxes (axis-aligned). Each Dictionary:
-#   { "position": Vector3, "size": Vector3 }
-# When non-empty, WorldObjectRenderer builds a StaticBody3D with
-# BoxShape3D children matching these boxes.
-@export var collision_boxes: Array[Dictionary] = []
-
 # Cached ArrayMesh combining all boxes into one mesh with per-vertex color.
 # Built by BuiltinBlockModels.bake_boxes_to_mesh(). Consumed by
 # WorldObjectRenderer via MultiMesh (one instance per placed object).
@@ -48,13 +45,11 @@ var baked_mesh: ArrayMesh = null
 # Convenience constructor for building a model in code.
 static func create(key: StringName,
 		p_boxes: Array[Dictionary] = [],
-		p_custom_meshes: Array[Dictionary] = [],
-		p_collision_boxes: Array[Dictionary] = []) -> BlockModelResource:
+		p_custom_meshes: Array[Dictionary] = []) -> BlockModelResource:
 	var model := BlockModelResource.new()
 	model.model_key = key
 	model.boxes = p_boxes
 	model.custom_meshes = p_custom_meshes
-	model.collision_boxes = p_collision_boxes
 	return model
 
 

@@ -119,6 +119,17 @@ bool GDBloomeryManager::has_bloomery(const StringName& dim, const Vector3i& cell
     return blooms_.find(mk(dim, cell)) != blooms_.end();
 }
 
+Array GDBloomeryManager::get_all_bloomeries() const {
+    Array result;
+    for (const auto& pair : blooms_) {
+        Dictionary d;
+        d["dimension"] = String(pair.first.d.c_str());
+        d["cell"] = Vector3i(pair.first.x, pair.first.y, pair.first.z);
+        result.append(d);
+    }
+    return result;
+}
+
 bool GDBloomeryManager::add_ore(const StringName& dim, const Vector3i& cell) {
     auto it = blooms_.find(mk(dim, cell));
     if (it == blooms_.end() || it->second.is_null()) return false;
@@ -296,6 +307,7 @@ void GDBloomeryManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("remove_bloomery", "dimension", "cell"), &GDBloomeryManager::remove_bloomery);
     ClassDB::bind_method(D_METHOD("get_bloomery", "dimension", "cell"), &GDBloomeryManager::get_bloomery);
     ClassDB::bind_method(D_METHOD("has_bloomery", "dimension", "cell"), &GDBloomeryManager::has_bloomery);
+    ClassDB::bind_method(D_METHOD("get_all_bloomeries"), &GDBloomeryManager::get_all_bloomeries);
     ClassDB::bind_method(D_METHOD("add_ore", "dimension", "cell"), &GDBloomeryManager::add_ore);
     ClassDB::bind_method(D_METHOD("add_charcoal", "dimension", "cell"), &GDBloomeryManager::add_charcoal);
     ClassDB::bind_method(D_METHOD("light_bloomery", "dimension", "cell"), &GDBloomeryManager::light_bloomery);

@@ -26,6 +26,26 @@ public:
         int32_t chunk_size,
         int32_t radius_chunks) const;
 
+    // Tangent-plane distance from a chunk's center to the player's surface
+    // point on the planet. Used to prioritize which chunks to mesh first.
+    // Sinks of PlanetShellChunkRendererBridge._chunk_tangent_distance.
+    static float chunk_tangent_distance(
+        const godot::Vector3i& chunk,
+        const godot::Vector3& player_pos,
+        const godot::Vector3& planet_center,
+        float planet_radius,
+        int32_t chunk_size);
+
+    // Test whether a chunk's center falls inside the active radial shell
+    // around the planet surface. `altitude_at_center` is the chunk center's
+    // altitude relative to the planet surface (positive = above surface).
+    // Sinks of PlanetShellChunkRendererBridge._chunk_intersects_active_shell.
+    static bool chunk_intersects_active_shell(
+        float altitude_at_center,
+        double active_shell_above,
+        double active_shell_below,
+        int32_t chunk_size);
+
 protected:
     static void _bind_methods();
 };

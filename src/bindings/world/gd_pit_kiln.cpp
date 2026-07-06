@@ -119,6 +119,17 @@ bool GDPitKilnManager::has_kiln(const StringName& dim, const Vector3i& cell) con
     return kilns_.find(make_key(dim, cell)) != kilns_.end();
 }
 
+Array GDPitKilnManager::get_all_kilns() const {
+    Array result;
+    for (const auto& pair : kilns_) {
+        Dictionary d;
+        d["dimension"] = String(pair.first.dimension.c_str());
+        d["cell"] = Vector3i(pair.first.x, pair.first.y, pair.first.z);
+        result.append(d);
+    }
+    return result;
+}
+
 bool GDPitKilnManager::insert_input(const StringName& dim, const Vector3i& cell, int64_t item_id) {
     auto it = kilns_.find(make_key(dim, cell));
     if (it == kilns_.end() || it->second.is_null()) return false;
@@ -215,6 +226,7 @@ void GDPitKilnManager::_bind_methods() {
     ClassDB::bind_method(D_METHOD("remove_kiln", "dimension", "cell"), &GDPitKilnManager::remove_kiln);
     ClassDB::bind_method(D_METHOD("get_kiln", "dimension", "cell"), &GDPitKilnManager::get_kiln);
     ClassDB::bind_method(D_METHOD("has_kiln", "dimension", "cell"), &GDPitKilnManager::has_kiln);
+    ClassDB::bind_method(D_METHOD("get_all_kilns"), &GDPitKilnManager::get_all_kilns);
     ClassDB::bind_method(D_METHOD("insert_input", "dimension", "cell", "item_id"), &GDPitKilnManager::insert_input);
     ClassDB::bind_method(D_METHOD("cover", "dimension", "cell"), &GDPitKilnManager::cover);
     ClassDB::bind_method(D_METHOD("light", "dimension", "cell"), &GDPitKilnManager::light);

@@ -1,5 +1,6 @@
 #include "gd_world_gen_config.h"
 
+#include <algorithm>
 #include <sstream>
 #include <utility>
 
@@ -280,6 +281,51 @@ Dictionary GDWorldGenConfig::get_runtime_material_ids() const {
     return d;
 }
 
+// --- Derived data for chunk rendering (sinks of GDScript logic) ---
+
+PackedByteArray GDWorldGenConfig::build_collidable_material_mask() const {
+    constexpr int32_t kMaterialIdCapacity = 256;
+    PackedByteArray mask;
+    mask.resize(kMaterialIdCapacity);
+    const auto ptr = mask.ptrw();
+    for (int32_t i = 0; i < kMaterialIdCapacity; ++i) {
+        ptr[i] = 0;
+    }
+    const auto snapshot = get_snapshot();
+    if (snapshot == nullptr) return mask;
+    // TF_WALKABLE = 1 << 0, TF_SOLID = 1 << 1 (from terrain_data.hpp).
+    constexpr uint32_t kCollidableFlags = 0x3;  // TF_WALKABLE | TF_SOLID
+    for (const auto& material : snapshot->materials) {
+        const int32_t id = static_cast<int32_t>(material.id);
+        if (id < 0 || id >= kMaterialIdCapacity) continue;
+        if ((material.flags & kCollidableFlags) != 0) {
+            ptr[id] = 1;
+        }
+    }
+    return mask;
+}
+
+int32_t GDWorldGenConfig::get_ladder_material_id() const {
+    const auto snapshot = get_snapshot();
+    return snapshot != nullptr ? static_cast<int32_t>(snapshot->runtime_ids.ladder) : 0;
+}
+
+int32_t GDWorldGenConfig::get_workbench_material_id() const {
+    const auto snapshot = get_snapshot();
+    return snapshot != nullptr ? static_cast<int32_t>(snapshot->runtime_ids.workbench) : 0;
+}
+
+int32_t GDWorldGenConfig::get_mesh_section_size(int32_t size_x, int32_t size_y, int32_t size_z,
+                                                int32_t requested) const {
+    if (requested <= 0) return 0;
+    const int32_t min_dim = std::min({size_x, size_y, size_z});
+    if (requested >= min_dim) return 0;
+    if (size_x % requested != 0 || size_y % requested != 0 || size_z % requested != 0) {
+        return 0;
+    }
+    return requested;
+}
+
 Array GDWorldGenConfig::get_base_terrain_rules() const {
     Array result;
     for (const auto& rule : get_snapshot()->base_terrain_rules) {
@@ -353,6 +399,14 @@ void GDWorldGenConfig::_bind_methods() {
                          &GDWorldGenConfig::get_material_roles);
     ClassDB::bind_method(D_METHOD("get_runtime_material_ids"),
                          &GDWorldGenConfig::get_runtime_material_ids);
+    ClassDB::bind_method(D_METHOD("build_collidable_material_mask"),
+                         &GDWorldGenConfig::build_collidable_material_mask);
+    ClassDB::bind_method(D_METHOD("get_ladder_material_id"),
+                         &GDWorldGenConfig::get_ladder_material_id);
+    ClassDB::bind_method(D_METHOD("get_workbench_material_id"),
+                         &GDWorldGenConfig::get_workbench_material_id);
+    ClassDB::bind_method(D_METHOD("get_mesh_section_size", "size_x", "size_y", "size_z", "requested"),
+                         &GDWorldGenConfig::get_mesh_section_size);
     ClassDB::bind_method(D_METHOD("get_base_terrain_rules"),
                          &GDWorldGenConfig::get_base_terrain_rules);
     ClassDB::bind_method(D_METHOD("get_biome_rules"),
