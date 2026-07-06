@@ -6,6 +6,8 @@ add_executable(snt_engine_app
 target_link_libraries(snt_engine_app PRIVATE
     snt_engine_settings
     snt_platform
+    snt_core
+    snt_ui
     snt_render_backend
 )
 # Output name for convenience.
