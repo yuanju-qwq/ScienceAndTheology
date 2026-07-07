@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "core/events.h"     // SdlEventFired (event bus subscription)
 #include "input/input_state.h"
 
 namespace snt::input {
@@ -41,6 +42,13 @@ public:
     // SDL_Event; the pointer is cast back inside the .cpp where SDL
     // headers are available.
     void process_event(const void* sdl_event);
+
+    // EventBus subscriber: called by entt::dispatcher when an SdlEventFired
+    // event is published. Forwards to process_event() so InputSystem no
+    // longer needs Engine to call it directly — any module can publish.
+    void on_sdl_event(const snt::core::SdlEventFired& evt) {
+        process_event(evt.sdl_event);
+    }
 
     // Finalize state for this frame. Called after all events are processed.
     // Refreshes held-key state from SDL_GetKeyboardState.

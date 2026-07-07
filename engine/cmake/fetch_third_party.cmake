@@ -151,3 +151,21 @@ target_link_libraries(snt_third_party INTERFACE
 if(TARGET SDL3-shared)
     target_link_libraries(snt_third_party INTERFACE SDL3-shared)
 endif()
+
+# ============================================================
+# GoogleTest (unit testing framework)
+# ============================================================
+# Fetched unconditionally so the test target can wire it up when
+# SNT_BUILD_TESTS=ON. The library itself is only built when tests are
+# enabled (see EXCLUDE_FROM_ALL below + snt_tests target wiring).
+option(SNT_BUILD_TESTS "Build unit tests" ON)
+if(SNT_BUILD_TESTS)
+    FetchContent_Declare(
+        googletest
+        URL ${_SNT_DOWNLOADS_DIR}/googletest-v1.14.0.zip
+    )
+    # Prevent GoogleTest from overriding our parent project's compiler
+    # options (it tries to enable some warnings we don't want).
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+endif()

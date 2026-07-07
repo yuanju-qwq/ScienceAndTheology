@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "core/events.h"     // MouseLockChanged (event bus subscription)
 #include "ecs/system.h"
 #include "input/input_state.h"
 
@@ -43,10 +44,21 @@ public:
     // Set the entity to use as the active camera.
     void set_active_camera(entt::entity e) { active_camera_ = e; }
 
+    // Tunable parameters (mirror EngineConfig::CameraConfig fields).
+    void set_move_speed(float s) { move_speed_ = s; }
+    void set_look_speed(float s) { look_speed_ = s; }
+
     // Tell CameraSystem whether the mouse is currently locked (relative
     // mode). When false, mouse-look is skipped. Engine calls this each
     // frame after toggling relative mouse mode.
     void set_mouse_locked(bool locked) { mouse_locked_ = locked; }
+
+    // EventBus subscriber: called by entt::dispatcher when a MouseLockChanged
+    // event is published. Forwards to set_mouse_locked() so CameraSystem no
+    // longer needs Engine to call it directly — any module can publish.
+    void on_mouse_lock_changed(const snt::core::MouseLockChanged& evt) {
+        set_mouse_locked(evt.locked);
+    }
 
     void update(World& world, float dt) override;
 

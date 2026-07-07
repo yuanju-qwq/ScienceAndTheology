@@ -18,7 +18,8 @@
 
 #include <memory>
 
-#include "core/expected.h"  // Expected<void> for init
+#include "core/engine_config.h"  // EngineConfig for init
+#include "core/expected.h"       // Expected<void> for init
 
 namespace snt::platform { class Window; }
 namespace snt::input   { class InputSystem; }
@@ -44,8 +45,15 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    // One-time initialization. Returns an Error on any failure.
-    snt::core::Expected<void> init();
+    // One-time initialization. `config` supplies all tunable parameters
+    // (window size, shader paths, camera defaults, asset paths). Pass a
+    // default-constructed EngineConfig to use built-in defaults.
+    snt::core::Expected<void> init(const snt::core::EngineConfig& config);
+
+    // Convenience overload: uses default-constructed EngineConfig.
+    snt::core::Expected<void> init() {
+        return init(snt::core::EngineConfig{});
+    }
 
     // Main loop. Returns when the window requests close.
     void run();

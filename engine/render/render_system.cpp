@@ -24,6 +24,7 @@
 
 #include "render/render_system.h"
 
+#include "core/profiling.h"
 #include "ecs/components.h"
 #include "ecs/world.h"
 #include "render_backend/command_context.h"
@@ -112,6 +113,7 @@ void RenderSystem::destroy_render_graph() {
 }
 
 void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
+    SNT_PROFILE_FUNCTION();  // Profiling zone (no-op until a backend is wired in)
     if (!device_ || !swapchain_ || !depth_ || !pipeline_ ||
         !descriptor_ || !frame_ || !graph_initialized_) {
         return;
@@ -151,8 +153,9 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
 
     uint32_t entity_index = 0;
     auto view_group = registry.view<snt::ecs::Transform, snt::ecs::MeshRef>();
+    const uint32_t max_entities = descriptor_ ? descriptor_->max_entities() : 0;
     for (auto e : view_group) {
-        if (entity_index >= snt::render_backend::VulkanDescriptor::kMaxEntities) {
+        if (entity_index >= max_entities) {
             SNT_LOG_ERROR("too many mesh entities, truncating");
             break;
         }

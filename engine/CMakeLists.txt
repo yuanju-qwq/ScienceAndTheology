@@ -38,3 +38,10 @@ add_subdirectory(render)
 add_subdirectory(ui)
 add_subdirectory(engine)
 add_subdirectory(engine_app)
+
+# Tests are optional: gated by SNT_BUILD_TESTS (default ON). CI can
+# disable with -DSNT_BUILD_TESTS=OFF to speed up Release builds.
+if(SNT_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

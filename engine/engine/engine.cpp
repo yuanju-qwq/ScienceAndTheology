@@ -10,9 +10,15 @@
 
 #include "engine.h"  // Engine class definition (PImpl)
 
+#include "core/clock.h"           // RealClock (replaces raw std::chrono)
+#include "core/events.h"          // SdlEventFired, MouseLockChanged
 #include "core/job_system.h"
+#include "core/memory_tracker.h"
+#include "core/path_utils.h"      // path_utils::resolve for shader/asset paths
+#include "core/profiling.h"
 #include "ecs/camera_system.h"
 #include "ecs/components.h"
+#include "ecs/event_bus.h"        // EventBus = entt::dispatcher
 #include "ecs/world.h"
 #include "input/input_system.h"
 #include "platform/window.h"
@@ -30,8 +36,6 @@
 
 #include <volk.h>
 
-#include <chrono>
-
 namespace snt::engine {
 
 // ---------------------------------------------------------------------------
@@ -41,8 +45,10 @@ namespace snt::engine {
 // ---------------------------------------------------------------------------
 namespace {
 
-using Clock = std::chrono::high_resolution_clock;
-using DurationMs = std::chrono::duration<float, std::milli>;
+// Time types now come from core/clock.h (RealClock / DurationMs / TimePoint).
+// The old `using Clock = std::chrono::high_resolution_clock` was replaced
+// by the RealClock instance in Engine::Impl, which lets tests inject a
+// ManualClock for deterministic frame timing.
 
 struct FpsTracker {
     static constexpr int kSamples = 120;
@@ -79,6 +85,21 @@ struct Engine::Impl {
     snt::platform::Window window;
     snt::input::InputSystem input_system;
 
+    // Event bus: decouples producers (Window/Engine) from consumers
+    // (InputSystem/CameraSystem/future UI+script). Subscribers connect
+    // during init; producers publish via enqueue + update.
+    snt::ecs::EventBus event_bus;
+
+    // Stashed config snapshot (window size, shader paths, camera defaults,
+    // asset paths). Read at init; future hot-reload will overwrite + publish
+    // a ConfigReloaded event.
+    snt::core::EngineConfig config;
+
+    // Engine clock. RealClock in production; tests can swap a ManualClock
+    // via set_clock() before calling init() to get deterministic timing.
+    snt::core::RealClock real_clock_;
+    snt::core::IClock*   clock_ = &real_clock_;
+
     // Vulkan backend (raw stack objects — initialized in init()).
     snt::render_backend::VulkanInstance       vk_instance;
     VkSurfaceKHR                              vk_surface = VK_NULL_HANDLE;
@@ -99,18 +120,13 @@ struct Engine::Impl {
     // above; set in init() after the vk_* objects are created.
     snt::render::RenderSystem render_system;
 
-    // P2.A2: cached pointer to the CameraSystem added via world.add_system.
-    // Engine uses it to forward mouse-lock state each frame without needing
-    // a dynamic_cast on every system.
-    snt::ecs::CameraSystem* camera_system = nullptr;
-
     // Per-frame state.
     FpsTracker fps_tracker;
 
     // P2.A2: mouse lock state (mirror of Window's relative-mouse-mode).
     // Engine toggles this based on esc_pressed / wants_mouse_lock from
-    // InputState. CameraSystem reads it via set_mouse_locked() to skip
-    // mouse-look when unlocked.
+    // InputState. Each frame the state is published as a MouseLockChanged
+    // event; CameraSystem subscribes and skips mouse-look when unlocked.
     bool mouse_locked = false;
 };
 
@@ -120,20 +136,27 @@ struct Engine::Impl {
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
 Engine::~Engine() { shutdown(); }
 
-snt::core::Expected<void> Engine::init() {
+snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
     using namespace snt::platform;
     using namespace snt::render_backend;
     using namespace snt::ecs;
 
     SNT_LOG_INFO("Starting ScienceAndTheology engine (P2.B1)");
 
+    // Stash config for runtime reference (future hot-reload will re-read it).
+    impl_->config = config;
+
+    // Locate engine root so all relative paths (shaders/, assets/, config/)
+    // resolve independent of the process's current working directory.
+    snt::core::path_utils::init();
+
     // --- Window ---
     if (auto r = impl_->window.create(WindowDesc{
-            .title = "ScienceAndTheology Engine (P2.B1)",
-            .width = 1280,
-            .height = 720,
-            .resizable = true,
-            .vulkan_enabled = true,
+            .title = config.window.title,
+            .width = config.window.width,
+            .height = config.window.height,
+            .resizable = config.window.resizable,
+            .vulkan_enabled = config.window.vulkan_enabled,
         }); !r) {
         snt::core::Error e = r.error();
         e.with_context("Engine::init (window)");
@@ -142,10 +165,21 @@ snt::core::Expected<void> Engine::init() {
     const auto sz = impl_->window.size();
     SNT_LOG_INFO("Window created: %dx%d", sz.width, sz.height);
 
-    // --- Input system: Window forwards SDL events via callback ---
+    // --- Input system: subscribe to SdlEventFired on the event bus ---
+    // Window publishes each polled SDL event as SdlEventFired; InputSystem
+    // subscribed via its on_sdl_event method. This decouples Window from
+    // InputSystem — future subscribers (UI, script) can hook the same
+    // events without Engine touching their wiring.
+    impl_->event_bus.sink<snt::core::SdlEventFired>()
+        .connect<&snt::input::InputSystem::on_sdl_event>(&impl_->input_system);
+
+    // Window callback: enqueue + immediately flush. Immediate flush is
+    // safe because InputSystem's handler is non-recursive and runs on
+    // the same thread.
     impl_->window.set_event_callback(
         [this](const void* sdl_event) {
-            impl_->input_system.process_event(sdl_event);
+            impl_->event_bus.enqueue<snt::core::SdlEventFired>({sdl_event});
+            impl_->event_bus.update();
         });
 
     // --- Vulkan instance ---
@@ -186,7 +220,7 @@ snt::core::Expected<void> Engine::init() {
     }
 
     // --- Descriptor + pipeline (dynamic rendering, no VkRenderPass) ---
-    if (auto r = impl_->vk_descriptor.init(impl_->vk_device); !r) {
+    if (auto r = impl_->vk_descriptor.init(impl_->vk_device, config.render.max_entities); !r) {
         snt::core::Error e = r.error();
         e.with_context("Engine::init (vk_descriptor)");
         return e;
@@ -194,7 +228,8 @@ snt::core::Expected<void> Engine::init() {
     if (auto r = impl_->vk_pipeline.init(impl_->vk_device, impl_->vk_descriptor,
                                  impl_->vk_swapchain.image_format(),
                                  impl_->vk_depth.format(),
-                                 "shaders/mesh.vert.spv", "shaders/mesh.frag.spv"); !r) {
+                                 snt::core::path_utils::resolve(config.render.vert_shader_path),
+                                 snt::core::path_utils::resolve(config.render.frag_shader_path)); !r) {
         snt::core::Error e = r.error();
         e.with_context("Engine::init (vk_pipeline)");
         return e;
@@ -215,10 +250,15 @@ snt::core::Expected<void> Engine::init() {
     impl_->camera_entity = impl_->world.create_entity();
     {
         auto& cam_transform = impl_->world.add_component<Transform>(impl_->camera_entity);
-        cam_transform.position[2] = 3.0f;  // camera on +Z, looks toward -Z
+        cam_transform.position[0] = config.camera.initial_position[0];
+        cam_transform.position[1] = config.camera.initial_position[1];
+        cam_transform.position[2] = config.camera.initial_position[2];
     }
     {
         auto& cam_comp = impl_->world.add_component<Camera>(impl_->camera_entity);
+        cam_comp.fov        = config.camera.fov;
+        cam_comp.near_plane = config.camera.near_plane;
+        cam_comp.far_plane  = config.camera.far_plane;
         cam_comp.aspect = static_cast<float>(sz.width) / static_cast<float>(sz.height);
     }
 
@@ -234,7 +274,15 @@ snt::core::Expected<void> Engine::init() {
     auto& camera_system = impl_->world.add_system<CameraSystem>();
     camera_system.set_input(&impl_->input_system);
     camera_system.set_active_camera(impl_->camera_entity);
-    impl_->camera_system = &camera_system;  // cache for mouse-lock forwarding
+    camera_system.set_move_speed(config.camera.move_speed);
+    camera_system.set_look_speed(config.camera.look_speed);
+
+    // CameraSystem subscribes to MouseLockChanged on the event bus. Engine
+    // publishes the lock state each frame instead of calling
+    // set_mouse_locked() directly — future modules (e.g. UI cursor
+    // visibility) can subscribe to the same event.
+    impl_->event_bus.sink<snt::core::MouseLockChanged>()
+        .connect<&snt::ecs::CameraSystem::on_mouse_lock_changed>(&camera_system);
 
     // --- Render system (P2.D) ---
     // ECS-driven rendering via RenderGraph. RenderSystem owns its own
@@ -254,7 +302,8 @@ snt::core::Expected<void> Engine::init() {
 
     // --- P2.4: load mesh via MeshCache + attach MeshRef to cube entities ---
     // init_render_graph() must run first so MeshCache is bound to the device.
-    auto cube_load = impl_->render_system.mesh_cache().load("assets/cube.obj");
+    auto cube_load = impl_->render_system.mesh_cache().load(
+        snt::core::path_utils::resolve(config.assets.default_mesh_path));
     if (!cube_load) {
         snt::core::Error e = cube_load.error();
         e.with_context("Engine::init (mesh_cache.load)");
@@ -309,16 +358,23 @@ snt::core::Expected<void> Engine::init() {
                      r.error().format().c_str());
         impl_->mouse_locked = false;
     }
+
+    // Memory snapshot after init: establishes a baseline so the shutdown
+    // dump can highlight leaks (anything still allocated above this point
+    // that the engine doesn't explicitly own).
+    SNT_LOG_INFO("Memory stats after init:");
+    snt::core::MemoryTracker::instance().log_stats();
     return {};
 }
 
 void Engine::run() {
     using namespace snt::render_backend;
 
-    auto last_time = Clock::now();
+    auto last_time = impl_->clock_->now();
     while (impl_->window.poll_events()) {
-        auto now = Clock::now();
-        float frame_ms = DurationMs(now - last_time).count();
+        SNT_PROFILE_SCOPE("frame");  // Per-frame zone (no-op until a backend is wired in)
+        auto now = impl_->clock_->now();
+        float frame_ms = impl_->clock_->delta_since(last_time).count();
         float dt = frame_ms / 1000.0f;
         last_time = now;
         impl_->fps_tracker.tick(frame_ms);
@@ -343,10 +399,12 @@ void Engine::run() {
             impl_->mouse_locked = true;
         }
 
-        // Forward lock state to CameraSystem before its update runs.
-        if (impl_->camera_system) {
-            impl_->camera_system->set_mouse_locked(impl_->mouse_locked);
-        }
+        // Forward lock state via the event bus (replaces direct call to
+        // camera_system->set_mouse_locked). Published every frame so
+        // CameraSystem + future subscribers (UI cursor, etc.) stay in
+        // sync. The event is enqueued + flushed immediately.
+        impl_->event_bus.enqueue<snt::core::MouseLockChanged>({impl_->mouse_locked});
+        impl_->event_bus.update();
 
         // Let ECS read input + run systems.
         impl_->world.update(dt);
@@ -390,6 +448,11 @@ void Engine::shutdown() {
     // in case shutdown() is invoked without run() returning normally.
     impl_->vk_device.wait_idle();
 
+    // Disconnect all event bus subscribers before subsystems are destroyed.
+    // Without this, a late event publish could invoke a dangling method on
+    // a destroyed InputSystem / CameraSystem.
+    impl_->event_bus.clear();
+
     // Render system (releases its RenderGraph).
     impl_->render_system.destroy_render_graph();
 
@@ -420,6 +483,12 @@ void Engine::shutdown() {
     // after main() already called shutdown()) is a no-op via the
     // `if (!impl_) return` guard above.
     impl_.reset();
+
+    // Final memory snapshot. After Impl is destroyed, anything still
+    // counted is either a global/static allocation (expected) or a leak
+    // (investigate). Compare against the init() baseline logged above.
+    SNT_LOG_INFO("Memory stats after shutdown:");
+    snt::core::MemoryTracker::instance().log_stats();
 }
 
 }  // namespace snt::engine

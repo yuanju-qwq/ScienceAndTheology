@@ -36,9 +36,6 @@ struct UniformBufferObject {
 class VulkanDescriptor {
 public:
     static constexpr uint32_t kMaxFramesInFlight = 2;
-    // P2.4: max mesh entities supported per frame. Each entity gets one
-    // MVP slot in the dynamic UBO. P3 can raise this or make it dynamic.
-    static constexpr uint32_t kMaxEntities = 256;
 
     VulkanDescriptor() = default;
     ~VulkanDescriptor();
@@ -47,10 +44,15 @@ public:
     VulkanDescriptor& operator=(const VulkanDescriptor&) = delete;
 
     // Create descriptor set layout + pool + sets + dynamic UBO buffers.
+    // `max_entities` controls the dynamic UBO slot count (one MVP per
+    // entity); sourced from EngineConfig::RenderConfig::max_entities.
     // Returns void on success, or an Error describing the failure.
-    snt::core::Expected<void> init(VulkanDevice& device);
+    snt::core::Expected<void> init(VulkanDevice& device, uint32_t max_entities);
 
     void destroy();
+
+    // Runtime limit for entities supported per frame (set at init).
+    uint32_t max_entities() const { return max_entities_; }
 
     // Update the MVP for entity `entity_index` in frame `frame_index`.
     // The dynamic UBO holds kMaxEntities MVP slots; this writes one.
@@ -73,8 +75,11 @@ private:
     std::vector<VkDescriptorSet> descriptor_sets_;  // size = kMaxFramesInFlight
 
     // Dynamic UBO buffers (one per frame in flight), VMA-backed.
-    // Each buffer holds kMaxEntities * ubo_stride_ bytes.
+    // Each buffer holds max_entities_ * ubo_stride_ bytes.
     std::vector<VulkanBuffer*> ubo_buffers_;
+
+    // Max mesh entities supported per frame (set at init from config).
+    uint32_t max_entities_ = 256;
 
     // Stride between MVP slots. >= sizeof(UniformBufferObject), aligned
     // to device's minUniformBufferOffsetAlignment.

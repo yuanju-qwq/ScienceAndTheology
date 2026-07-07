@@ -57,6 +57,11 @@ $downloads = @(
         Name = "tinyobjloader"
         Url  = "https://codeload.github.com/tinyobjloader/tinyobjloader/zip/refs/heads/release"
         File = "tinyobjloader-release.zip"
+    },
+    @{
+        Name = "googletest"
+        Url  = "https://codeload.github.com/google/googletest/zip/refs/tags/v1.14.0"
+        File = "googletest-v1.14.0.zip"
     }
 )
 

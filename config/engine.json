@@ -1,0 +1,27 @@
+{
+  "window": {
+    "title": "ScienceAndTheology Engine (P2.B1)",
+    "width": 1280,
+    "height": 720,
+    "fullscreen": false,
+    "resizable": true,
+    "vulkan_enabled": true
+  },
+  "render": {
+    "vert_shader_path": "shaders/mesh.vert.spv",
+    "frag_shader_path": "shaders/mesh.frag.spv",
+    "max_entities": 256,
+    "max_frames_in_flight": 2
+  },
+  "camera": {
+    "fov": 60.0,
+    "near_plane": 0.1,
+    "far_plane": 100.0,
+    "move_speed": 3.0,
+    "look_speed": 0.1,
+    "initial_position": [0.0, 0.0, 3.0]
+  },
+  "assets": {
+    "default_mesh_path": "assets/cube.obj"
+  }
+}

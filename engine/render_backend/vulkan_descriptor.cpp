@@ -23,8 +23,9 @@ VulkanDescriptor::~VulkanDescriptor() {
     destroy();
 }
 
-snt::core::Expected<void> VulkanDescriptor::init(VulkanDevice& device) {
+snt::core::Expected<void> VulkanDescriptor::init(VulkanDevice& device, uint32_t max_entities) {
     device_ = &device;
+    max_entities_ = max_entities;
 
     // --- Step 0: compute aligned UBO stride ---
     // minUniformBufferOffsetAlignment requires each dynamic offset to be
@@ -96,8 +97,8 @@ snt::core::Expected<void> VulkanDescriptor::init(VulkanDevice& device) {
     }
 
     // --- Step 4: create large dynamic UBO buffers + write descriptor sets ---
-    // Each buffer holds kMaxEntities MVP slots, stride = ubo_stride_.
-    VkDeviceSize ubo_total_size = VkDeviceSize(ubo_stride_) * kMaxEntities;
+    // Each buffer holds max_entities_ MVP slots, stride = ubo_stride_.
+    VkDeviceSize ubo_total_size = VkDeviceSize(ubo_stride_) * max_entities_;
     ubo_buffers_.resize(kMaxFramesInFlight);
     for (uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
         ubo_buffers_[i] = new VulkanBuffer();
@@ -130,7 +131,7 @@ snt::core::Expected<void> VulkanDescriptor::init(VulkanDevice& device) {
     }
 
     SNT_LOG_INFO("Dynamic UBO descriptor created (stride=%u, max_entities=%u)",
-                 ubo_stride_, kMaxEntities);
+                 ubo_stride_, max_entities_);
     return {};
 }
 
@@ -161,7 +162,7 @@ void VulkanDescriptor::destroy() {
 void VulkanDescriptor::update_ubo(uint32_t frame_index, uint32_t entity_index,
                                   const UniformBufferObject& ubo) {
     if (frame_index >= ubo_buffers_.size()) return;
-    if (entity_index >= kMaxEntities) return;
+    if (entity_index >= max_entities_) return;
 
     // Write the MVP into the entity's slot within the large UBO.
     VkDeviceSize offset = VkDeviceSize(ubo_stride_) * entity_index;

@@ -1,6 +1,8 @@
 # Engine application layer: thin executable wrapper around Engine class.
 # P2.B1: main.cpp is reduced to Engine::init/run/shutdown; all subsystem
 # setup lives in the snt_engine static lib.
+# P2.E: copies config/engine.json next to the executable so the runtime
+# relative path "config/engine.json" resolves from the bin/$<CONFIG>/ cwd.
 
 add_executable(snt_engine_app
     main.cpp
@@ -11,5 +13,17 @@ target_link_libraries(snt_engine_app PRIVATE
 )
 # Ensure shaders are compiled + copied before the engine runs.
 add_dependencies(snt_engine_app snt_copy_shaders)
+
+# Copy the engine config file next to the executable. Missing file is
+# non-fatal at runtime (EngineConfig falls back to defaults), but having
+# the JSON present lets users tweak settings without rebuilding.
+add_custom_target(snt_copy_config ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/config
+    ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/config
+    COMMENT "Copying engine config to output directory"
+)
+add_dependencies(snt_engine_app snt_copy_config)
+
 # Output name for convenience.
 set_target_properties(snt_engine_app PROPERTIES OUTPUT_NAME snt_engine)

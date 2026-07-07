@@ -1,0 +1,40 @@
+# Unit tests for the SNT engine.
+#
+# Gated by SNT_BUILD_TESTS (default ON). Tests link against the engine
+# static libs they exercise + GoogleTest. Each test executable is
+# registered with CTest via gtest_discover_tests so `ctest` picks them up.
+
+# Guard: only configure when GoogleTest was fetched (SNT_BUILD_TESTS=ON
+# triggered FetchContent in fetch_third_party.cmake).
+if(NOT TARGET GTest::gtest)
+    return()
+endif()
+
+# Single test executable that links all test TUs together. Splitting per-
+# module executables adds CMake boilerplate without value at this scale.
+add_executable(snt_tests
+    test_main.cpp              # GoogleTest main entry (no TEST()s here)
+    test_memory_tracker.cpp
+    test_engine_config.cpp
+    test_event_bus.cpp
+    test_clock.cpp
+    test_path_utils.cpp
+)
+target_link_libraries(snt_tests PRIVATE
+    snt_core
+    snt_ecs
+    snt_engine_settings
+    snt_third_party
+    GTest::gtest
+)
+
+# Register tests with CTest. DISCOVERY_MODE PRE_TEST runs the discovery
+# step at test time (not build time) so cross-compiling / multi-config
+# generators like Visual Studio handle the right config's binary.
+include(GoogleTest)
+gtest_discover_tests(snt_tests DISCOVERY_MODE PRE_TEST)
+
+# Copy config + assets + shaders next to the test executable so tests
+# that read engine.json / cube.obj / mesh.vert.spv can find them via
+# path_utils::resolve(). Mirrors the snt_engine_app copy step.
+add_dependencies(snt_tests snt_copy_shaders snt_copy_config)
