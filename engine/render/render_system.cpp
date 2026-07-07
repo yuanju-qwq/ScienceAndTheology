@@ -24,6 +24,7 @@
 
 #include "render/render_system.h"
 
+#include "assets/asset_manager.h"
 #include "core/profiling.h"
 #include "ecs/components.h"
 #include "ecs/world.h"
@@ -84,12 +85,6 @@ snt::core::Expected<void> RenderSystem::init_render_graph() {
                                 "RenderSystem::init_render_graph: device/frame not set"};
     }
     if (graph_initialized_) return {};
-    // P2.4: init the mesh cache with the same Vulkan device.
-    if (auto r = mesh_cache_.init(*device_); !r) {
-        snt::core::Error e = r.error();
-        e.with_context("RenderSystem::init_render_graph");
-        return e;
-    }
     // Match VulkanFrame's frames-in-flight so each frame slot has its own
     // command buffer, avoiding pending-state conflicts across frames.
     if (auto r = graph_.init(*device_, snt::render_backend::VulkanFrame::frames_in_flight());
@@ -107,9 +102,8 @@ void RenderSystem::destroy_render_graph() {
         graph_.destroy();
         graph_initialized_ = false;
     }
-    // P2.4: MeshCache owns VulkanMesh objects; release them here so
-    // they are freed before the VulkanDevice they depend on.
-    mesh_cache_.destroy();
+    // P2.F: MeshCache is now owned by AssetManager; released via
+    // AssetManager::shutdown() called from Engine::shutdown().
 }
 
 void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
@@ -139,7 +133,7 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
 
     // --- Collect mesh entities (single ECS pass) ---
     // P2.4: iterate ALL entities with Transform + MeshRef. For each:
-    //   - resolve mesh handle via MeshCache
+    //   - resolve mesh handle via AssetManager
     //   - precompute model matrix (view/proj are per-frame, same for all)
     //   - stash a MeshDraw entry; UBO write happens AFTER begin_frame
     //     (which fence-waits + selects the frame-in-flight slot).
@@ -163,8 +157,8 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         auto& transform = registry.get<snt::ecs::Transform>(e);
         auto& mesh_ref  = registry.get<snt::ecs::MeshRef>(e);
 
-        // Resolve the mesh handle to a VulkanMesh via the cache.
-        auto* mesh = mesh_cache_.get(mesh_ref.handle.id);
+        // Resolve the mesh handle to a VulkanMesh via the AssetManager.
+        auto* mesh = snt::assets::AssetManager::instance().mesh_cache().get(mesh_ref.handle.id);
         if (!mesh) {
             SNT_LOG_ERROR("entity %u: invalid mesh handle",
                           static_cast<unsigned>(e));

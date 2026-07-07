@@ -72,7 +72,8 @@ enum class ErrorCode : int {
     kValidationLayerMissing,
     // Render layer.
     kRenderSystemInitFailed,
-    kMeshCacheInitFailed,
+    // Asset layer.
+    kAssetCacheInitFailed,
     kMeshLoadFailed,
     kRenderGraphInitFailed,
     kRenderGraphExecuteFailed,
@@ -162,7 +163,7 @@ private:
             case ErrorCode::kExtensionNotSupported:       return "ExtensionNotSupported";
             case ErrorCode::kValidationLayerMissing:     return "ValidationLayerMissing";
             case ErrorCode::kRenderSystemInitFailed:     return "RenderSystemInitFailed";
-            case ErrorCode::kMeshCacheInitFailed:        return "MeshCacheInitFailed";
+            case ErrorCode::kAssetCacheInitFailed:       return "AssetCacheInitFailed";
             case ErrorCode::kMeshLoadFailed:             return "MeshLoadFailed";
             case ErrorCode::kRenderGraphInitFailed:       return "RenderGraphInitFailed";
             case ErrorCode::kRenderGraphExecuteFailed:    return "RenderGraphExecuteFailed";

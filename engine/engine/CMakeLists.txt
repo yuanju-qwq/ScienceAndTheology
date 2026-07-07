@@ -15,6 +15,7 @@ target_link_libraries(snt_engine PUBLIC
     snt_core
     snt_input
     snt_ecs
+    snt_assets
     snt_render
     snt_render_backend
     snt_renderer

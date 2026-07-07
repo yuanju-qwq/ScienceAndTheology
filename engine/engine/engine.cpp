@@ -10,6 +10,7 @@
 
 #include "engine.h"  // Engine class definition (PImpl)
 
+#include "assets/asset_manager.h"  // AssetManager::init/shutdown + mesh_cache
 #include "core/clock.h"           // RealClock (replaces raw std::chrono)
 #include "core/events.h"          // SdlEventFired, MouseLockChanged
 #include "core/job_system.h"
@@ -206,6 +207,14 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
         e.with_context("Engine::init (vk_device)");
         return e;
     }
+    // P2.F: initialize the AssetManager now that the VulkanDevice is ready.
+    // Must happen before any mesh load call; must be shut down before
+    // vk_device.destroy() in shutdown().
+    if (auto r = snt::assets::AssetManager::instance().init(&impl_->vk_device); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (AssetManager)");
+        return e;
+    }
     if (auto r = impl_->vk_swapchain.init(impl_->vk_device,
                                   static_cast<uint32_t>(sz.width),
                                   static_cast<uint32_t>(sz.height)); !r) {
@@ -234,7 +243,7 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
         e.with_context("Engine::init (vk_pipeline)");
         return e;
     }
-    // (Mesh loading moved below — needs RenderSystem's MeshCache initialized first.)
+    // (Mesh loading moved below — needs AssetManager initialized first.)
 
     // --- Frame resources ---
     if (auto r = impl_->vk_frame.init(impl_->vk_device,
@@ -268,7 +277,7 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
         cube_transform.rotation[0] = -25.0f;  // pitch down
         cube_transform.rotation[1] = 35.0f;   // yaw right
     }
-    // (MeshRef added below — needs MeshCache handle from RenderSystem.)
+    // (MeshRef added below — needs AssetManager's mesh handle.)
 
     // --- Camera system ---
     auto& camera_system = impl_->world.add_system<CameraSystem>();
@@ -300,18 +309,20 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
         return e;
     }
 
-    // --- P2.4: load mesh via MeshCache + attach MeshRef to cube entities ---
-    // init_render_graph() must run first so MeshCache is bound to the device.
-    auto cube_load = impl_->render_system.mesh_cache().load(
+    // --- P2.F: load mesh via AssetManager + attach MeshRef to cube entities ---
+    // AssetManager was initialized right after vk_device.init(); its mesh
+    // cache is bound to the device and ready to load.
+    auto cube_load = snt::assets::AssetManager::instance().mesh_cache().load(
         snt::core::path_utils::resolve(config.assets.default_mesh_path));
     if (!cube_load) {
         snt::core::Error e = cube_load.error();
-        e.with_context("Engine::init (mesh_cache.load)");
+        e.with_context("Engine::init (AssetManager::mesh_cache.load)");
         return e;
     }
     auto cube_handle = *cube_load;
-    // Bridge: render-layer MeshHandle -> ecs-layer MeshHandle (same layout).
-    snt::ecs::MeshHandle ecs_cube_handle{cube_handle.id};
+    // ecs::MeshHandle is now an alias for snt::assets::MeshHandle, so no
+    // bridge is needed — the handle is passed straight to MeshRef.
+    snt::ecs::MeshHandle ecs_cube_handle = cube_handle;
 
     // First cube: left of origin, tilted.
     impl_->world.add_component<MeshRef>(impl_->cube_entity,
@@ -457,7 +468,7 @@ void Engine::shutdown() {
     impl_->render_system.destroy_render_graph();
 
     // Frame + pipeline + descriptor.
-    // (MeshCache-owned meshes are destroyed by RenderSystem::destroy_render_graph.)
+    // (AssetManager-owned meshes are destroyed by AssetManager::shutdown() below.)
     impl_->vk_frame.destroy();
     impl_->vk_pipeline.destroy();
     impl_->vk_descriptor.destroy();
