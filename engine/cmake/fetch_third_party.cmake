@@ -19,6 +19,25 @@ FetchContent_MakeAvailable(VulkanHeaders)
 # Vulkan-Headers' own CMake defines Vulkan::Headers target.
 
 # ============================================================
+# Volk — Vulkan loader (dynamic, no SDK required at runtime).
+# Loads vulkan-1.dll via LoadLibrary; no need to link vulkan-1.lib.
+# ============================================================
+FetchContent_Declare(
+    Volk
+    URL ${_SNT_DOWNLOADS_DIR}/volk-master.zip
+)
+FetchContent_MakeAvailable(Volk)
+
+# Volk's CMake defines `volk` target (static lib) when VULKAN_HPP_CMAKE is
+# OFF (default). It needs Vulkan headers; Vulkan-Headers is fetched above
+# so `Vulkan::Headers` target exists.
+if(TARGET volk)
+    target_link_libraries(volk PUBLIC Vulkan::Headers)
+    # Define VK_NO_PROTOTYPES so Volk provides the function pointers.
+    target_compile_definitions(volk PUBLIC VK_NO_PROTOTYPES)
+endif()
+
+# ============================================================
 # Vulkan Memory Allocator (VMA) — header-only
 # ============================================================
 FetchContent_Declare(
@@ -90,6 +109,7 @@ endif()
 add_library(snt_third_party INTERFACE)
 target_link_libraries(snt_third_party INTERFACE
     Vulkan::Headers
+    volk
     vma_config
     EnTT::EnTT
     stb::stb

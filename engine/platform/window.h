@@ -1,7 +1,12 @@
 #pragma once
 
 // Platform window abstraction built on top of SDL3.
-// P1.2 will add event loop; P1.1 only declares the interface.
+// P1.3 adds Vulkan surface creation (platform layer owns the surface
+// because it's tightly coupled to the native window handle).
+//
+// Vulkan handles (VkInstance/VkSurfaceKHR) are passed as void* to avoid
+// pulling <vulkan/vulkan.h> into the platform layer. Callers in
+// render_backend cast between void* and the real Vulkan types.
 
 #include <cstdint>
 #include <string_view>
@@ -48,6 +53,20 @@ public:
 
     WindowSize size() const;
     bool should_close() const { return _should_close; }
+
+    // Create a Vulkan surface backed by this window.
+    // `vk_instance` is a VkInstance cast to void*; `out_surface` receives
+    // the resulting VkSurfaceKHR cast to uint64_t.
+    // The instance must be created with the extensions returned by
+    // sdl_vulkan_instance_extensions().
+    // Returns true on success.
+    bool create_vulkan_surface(void* vk_instance, uint64_t* out_surface);
+
+    // SDL-required Vulkan instance extensions for window surface creation.
+    // Call before vkCreateInstance and add these to VkInstanceCreateInfo.
+    // Returns a pointer to a static array of extension name strings
+    // (valid until SDL_Quit). `count` receives the array length.
+    const char* const* sdl_vulkan_instance_extensions(uint32_t* count);
 
 private:
     void* _window = nullptr;        // SDL_Window*

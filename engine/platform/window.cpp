@@ -5,6 +5,11 @@
 #include "window.h"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>  // SDL_Vulkan_* functions
+
+// VK_NO_PROTOTYPES (set via CMake) makes vulkan.h expose types only,
+// no function prototypes. VK_NULL_HANDLE + VkSurfaceKHR become available.
+#include <vulkan/vulkan.h>
 
 #include <cstdio>
 
@@ -102,6 +107,40 @@ WindowSize Window::size() const {
         SDL_GetWindowSize(static_cast<SDL_Window*>(_window), &w, &h);
     }
     return WindowSize{w, h};
+}
+
+// ---------------------------------------------------------------------------
+// Vulkan surface creation (P1.3).
+// SDL3 provides SDL_Vulkan_CreateSurface() which handles the platform-
+// specific surface creation (Win32/X11/Wayland) behind one call.
+// ---------------------------------------------------------------------------
+
+bool Window::create_vulkan_surface(void* vk_instance, uint64_t* out_surface) {
+    if (!_window || !vk_instance || !out_surface) {
+        std::fprintf(stderr, "[snt::platform] create_vulkan_surface: invalid args\n");
+        return false;
+    }
+
+    // SDL3's SDL_VulkanSurface is an opaque handle; cast to VkSurfaceKHR.
+    // SDL3 uses `VkSurfaceKHR` (a uint64_t typedef on most platforms).
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(_window),
+                                  static_cast<VkInstance>(vk_instance),
+                                  nullptr,  // allocation callbacks (use default)
+                                  &surface)) {
+        std::fprintf(stderr, "[snt::platform] SDL_Vulkan_CreateSurface failed: %s\n",
+                     SDL_GetError());
+        return false;
+    }
+
+    *out_surface = reinterpret_cast<uint64_t>(surface);
+    return true;
+}
+
+const char* const* Window::sdl_vulkan_instance_extensions(uint32_t* count) {
+    // SDL3 returns a const char* const* array of extension names that must
+    // be enabled when creating the VkInstance for surface support.
+    return SDL_Vulkan_GetInstanceExtensions(count);
 }
 
 } // namespace snt::platform

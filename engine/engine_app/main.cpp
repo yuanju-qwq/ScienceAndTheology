@@ -1,10 +1,14 @@
 // SNT engine main entry.
 // P1.1: minimal skeleton — create window + poll events until close.
 // P1.2: add MUI debug panel (stub) + Job System (serial stub).
-// P1.3 will add Vulkan device; P1.4 will render the triangle.
+// P1.3: add Vulkan instance + device + swapchain.
+// P1.4 will render the triangle.
 
 #include "core/job_system.h"
 #include "platform/window.h"
+#include "render_backend/vulkan_device.h"
+#include "render_backend/vulkan_instance.h"
+#include "render_backend/vulkan_swapchain.h"
 #include "ui/debug_panel.h"
 #include "ui/mui.h"
 
@@ -48,15 +52,16 @@ struct FpsTracker {
 int main(int argc, char* argv[]) {
     using namespace snt::platform;
     using namespace snt::core;
+    using namespace snt::render_backend;
     using namespace snt::ui;
 
-    std::printf("[snt_engine] Starting ScienceAndTheology engine (P1.2)\n");
-    std::printf("[snt_engine] SDL3 window + MUI debug panel + Job System\n");
+    std::printf("[snt_engine] Starting ScienceAndTheology engine (P1.3)\n");
+    std::printf("[snt_engine] SDL3 window + Vulkan device + Job System + MUI\n");
 
     // --- Init window ---
     Window window;
     if (!window.create(WindowDesc{
-            .title = "ScienceAndTheology Engine (P1.2)",
+            .title = "ScienceAndTheology Engine (P1.3)",
             .width = 1280,
             .height = 720,
             .resizable = true,
@@ -67,6 +72,39 @@ int main(int argc, char* argv[]) {
     }
     const auto sz = window.size();
     std::printf("[snt_engine] Window created: %dx%d\n", sz.width, sz.height);
+
+    // --- Init Vulkan instance ---
+    VulkanInstance vk_instance;
+    if (!vk_instance.init(window)) {
+        std::fprintf(stderr, "[snt_engine] VulkanInstance init failed\n");
+        return 1;
+    }
+
+    // --- Create Vulkan surface via platform window ---
+    uint64_t surface_u64 = 0;
+    if (!window.create_vulkan_surface(
+            reinterpret_cast<void*>(vk_instance.handle()), &surface_u64)) {
+        std::fprintf(stderr, "[snt_engine] create_vulkan_surface failed\n");
+        return 1;
+    }
+    VkSurfaceKHR surface = reinterpret_cast<VkSurfaceKHR>(surface_u64);
+    std::printf("[snt_engine] Vulkan surface created\n");
+
+    // --- Init Vulkan device ---
+    VulkanDevice vk_device;
+    if (!vk_device.init(vk_instance.handle(), surface)) {
+        std::fprintf(stderr, "[snt_engine] VulkanDevice init failed\n");
+        return 1;
+    }
+
+    // --- Init swapchain ---
+    VulkanSwapchain vk_swapchain;
+    if (!vk_swapchain.init(vk_device,
+                           static_cast<uint32_t>(sz.width),
+                           static_cast<uint32_t>(sz.height))) {
+        std::fprintf(stderr, "[snt_engine] VulkanSwapchain init failed\n");
+        return 1;
+    }
 
     // --- Init Job System (P1 stub: serial) ---
     JobSystem& js = default_job_system();
@@ -82,7 +120,7 @@ int main(int argc, char* argv[]) {
     panel.register_metric("Job Workers",
                           [&]() { return static_cast<float>(js.worker_count()); });
 
-    std::printf("[snt_engine] Press F1 to toggle debug panel, ESC to exit\n");
+    std::printf("[snt_engine] Press ESC to exit\n");
 
     // --- Main loop ---
     auto last_time = Clock::now();
@@ -92,10 +130,6 @@ int main(int argc, char* argv[]) {
         last_time = now;
         fps_tracker.tick(frame_ms);
 
-        // F1 toggles debug panel visibility.
-        // (P1: input not wired yet; toggle via MuiContext in P1.4.)
-        // For now, panel is always visible (stub draws nothing).
-
         // Sample metrics and draw debug panel (P1 stub: no visible output).
         panel.sample();
         MuiContext& mui = default_mui_context();
@@ -104,25 +138,16 @@ int main(int argc, char* argv[]) {
         mui.end_frame();
 
         // Demonstrate Job System API (P1 stub: runs synchronously).
-        // P2: this will actually run on worker threads.
         constexpr int kTileCount = 4;
         js.parallel_for(kTileCount, [](int32_t /*thread*/, int32_t tile) {
-            // P1: no-op tile. P2 will tick ECS chunks here.
             (void)tile;
         });
 
-        // Demonstrate Future<T> (P1 stub: runs synchronously).
-        // P2: real async loading. Use case: load_mesh, load_texture, etc.
-        if (frame_ms < 0.001f) {  // run once on first frame
-            auto fut = js.submit_future<int>([]{
-                return 42;  // pretend this is an expensive load
-            });
-            int value = fut.get();
-            std::printf("[snt_engine] Future<int> demo: got %d\n", value);
-        }
-
-        // P1.3: vkAcquireNextImage -> record -> vkQueueSubmit -> vkQueuePresent
+        // P1.4: vkAcquireNextImage -> record -> vkQueueSubmit -> vkQueuePresent
     }
+
+    // --- Cleanup: wait for GPU before destroying swapchain ---
+    vk_device.wait_idle();
 
     std::printf("[snt_engine] Shutdown\n");
     return 0;
