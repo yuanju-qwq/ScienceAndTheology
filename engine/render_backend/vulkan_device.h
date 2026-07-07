@@ -14,6 +14,7 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 #include <cstdint>
 #include <vector>
@@ -38,6 +39,9 @@ public:
 
     // Wait for all device work to complete (idle).
     void wait_idle() const;
+
+    // VMA allocator (created during init, used by VulkanBuffer etc.).
+    VmaAllocator vma_allocator() const { return vma_allocator_; }
 
     VkPhysicalDevice physical() const { return physical_; }
     VkDevice logical() const { return device_; }
@@ -67,6 +71,7 @@ private:
     VkQueue graphics_queue_ = VK_NULL_HANDLE;
     VkQueue present_queue_ = VK_NULL_HANDLE;
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;  // stored for query_swapchain_support()
+    VmaAllocator vma_allocator_ = VK_NULL_HANDLE;  // VMA allocator for buffers/images
     uint32_t graphics_family_ = UINT32_MAX;
     uint32_t present_family_ = UINT32_MAX;
 };

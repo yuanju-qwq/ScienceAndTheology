@@ -9,6 +9,12 @@
 #include <set>
 #include <vector>
 
+// VK_KHR_swapchain_maintenance1 extension name macro may be missing from
+// older Vulkan headers, even when the struct is defined. Define it manually.
+#ifndef VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME
+#define VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME "VK_KHR_swapchain_maintenance1"
+#endif
+
 namespace snt::render_backend {
 
 namespace {
@@ -201,9 +207,36 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
 
     VkPhysicalDeviceFeatures features{};
 
-    const std::vector<const char*> device_extensions = {
+    // Device extensions: swapchain + swapchain_maintenance1 (for present fence).
+    // swapchain_maintenance1 allows present() to signal a VkFence, which
+    // survives swapchain recreation (unlike semaphores).
+    std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
     };
+
+    // Check if VK_KHR_swapchain_maintenance1 is supported.
+    uint32_t dev_ext_count = 0;
+    vkEnumerateDeviceExtensionProperties(physical_, nullptr, &dev_ext_count, nullptr);
+    std::vector<VkExtensionProperties> dev_exts(dev_ext_count);
+    vkEnumerateDeviceExtensionProperties(physical_, nullptr, &dev_ext_count, dev_exts.data());
+
+    bool has_swapchain_maintenance1 = false;
+    for (const auto& e : dev_exts) {
+        if (std::strcmp(e.extensionName,
+                        VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0) {
+            has_swapchain_maintenance1 = true;
+            break;
+        }
+    }
+    if (has_swapchain_maintenance1) {
+        device_extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+        std::printf("[snt::render_backend] Extension enabled: "
+                    "VK_KHR_swapchain_maintenance1 (present fence)\n");
+    } else {
+        std::fprintf(stderr, "[snt::render_backend] Warning: "
+                    "VK_KHR_swapchain_maintenance1 not supported, "
+                    "falling back to semaphore-only sync\n");
+    }
 
     VkDeviceCreateInfo create_info{
         .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -228,6 +261,25 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     vkGetDeviceQueue(device_, graphics_family_, 0, &graphics_queue_);
     vkGetDeviceQueue(device_, present_family_, 0, &present_queue_);
 
+    // --- Step 7: create VMA allocator ---
+    // VMA dynamic loading: VMA will use vkGetInstanceProcAddr (from volk)
+    // to load all required Vulkan functions itself.
+    VmaVulkanFunctions vk_funcs{};
+    vk_funcs.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    vk_funcs.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo vma_info{};
+    vma_info.physicalDevice = physical_;
+    vma_info.device = device_;
+    vma_info.instance = instance;
+    vma_info.pVulkanFunctions = &vk_funcs;
+    vma_info.vulkanApiVersion = VK_API_VERSION_1_3;
+
+    if (vmaCreateAllocator(&vma_info, &vma_allocator_) != VK_SUCCESS) {
+        std::fprintf(stderr, "[snt::render_backend] vmaCreateAllocator failed\n");
+        return false;
+    }
+
     std::printf("[snt::render_backend] Logical device created "
                 "(gfx family=%u, present family=%u)\n",
                 graphics_family_, present_family_);
@@ -235,6 +287,10 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
 }
 
 void VulkanDevice::destroy() {
+    if (vma_allocator_ != VK_NULL_HANDLE) {
+        vmaDestroyAllocator(vma_allocator_);
+        vma_allocator_ = VK_NULL_HANDLE;
+    }
     if (device_ != VK_NULL_HANDLE) {
         vkDestroyDevice(device_, nullptr);
         device_ = VK_NULL_HANDLE;
