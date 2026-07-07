@@ -220,15 +220,18 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     std::vector<VkExtensionProperties> dev_exts(dev_ext_count);
     vkEnumerateDeviceExtensionProperties(physical_, nullptr, &dev_ext_count, dev_exts.data());
 
-    bool has_swapchain_maintenance1 = false;
+    // Check if VK_KHR_swapchain_maintenance1 is supported and store the
+    // result as a member so VulkanFrame can query it later (Issue1 fix:
+    // previously this was a local variable lost after init() returned).
+    has_swapchain_maintenance1_ = false;
     for (const auto& e : dev_exts) {
         if (std::strcmp(e.extensionName,
                         VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME) == 0) {
-            has_swapchain_maintenance1 = true;
+            has_swapchain_maintenance1_ = true;
             break;
         }
     }
-    if (has_swapchain_maintenance1) {
+    if (has_swapchain_maintenance1_) {
         device_extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
         std::printf("[snt::render_backend] Extension enabled: "
                     "VK_KHR_swapchain_maintenance1 (present fence)\n");

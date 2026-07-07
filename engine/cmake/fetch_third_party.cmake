@@ -90,6 +90,37 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 
 # ============================================================
+# GLM (math library, header-only)
+# ============================================================
+# Used for MVP matrices (mat4, vec3, perspective, lookAt).
+# Pulled via FetchContent; headers live in _deps/glm-src/glm/.
+# To modify GLM later: copy _deps/glm-src/glm/ to engine/core/math/glm/
+# and switch the include path below.
+FetchContent_Declare(
+    GLM
+    URL ${_SNT_DOWNLOADS_DIR}/glm-1.0.1.zip
+)
+FetchContent_MakeAvailable(GLM)
+# GLM's CMake defines glm::glm target.
+
+# ============================================================
+# tinyobjloader (.obj mesh loading, header-only)
+# ============================================================
+FetchContent_Declare(
+    tinyobjloader
+    URL ${_SNT_DOWNLOADS_DIR}/tinyobjloader-release.zip
+)
+FetchContent_MakeAvailable(tinyobjloader)
+# tinyobjloader's CMake defines a `tinyobjloader` target (no namespace).
+# The `tinyobjloader::` namespace is only applied on install/export, which
+# does not happen in a FetchContent build. Create an ALIAS so downstream
+# code can use the `tinyobjloader::tinyobjloader` name consistently
+# (matches the pattern used for stb::stb above).
+if(NOT TARGET tinyobjloader::tinyobjloader)
+    add_library(tinyobjloader::tinyobjloader ALIAS tinyobjloader)
+endif()
+
+# ============================================================
 # SDL3 (extracted source under third_party/)
 # ============================================================
 # SDL3 is built from source for full control and debug symbols.
@@ -114,6 +145,8 @@ target_link_libraries(snt_third_party INTERFACE
     EnTT::EnTT
     stb::stb
     nlohmann_json::nlohmann_json
+    glm::glm
+    tinyobjloader::tinyobjloader
 )
 if(TARGET SDL3-shared)
     target_link_libraries(snt_third_party INTERFACE SDL3-shared)

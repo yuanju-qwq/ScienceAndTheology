@@ -47,6 +47,16 @@ $downloads = @(
         Name = "SDL3"
         Url  = "https://codeload.github.com/libsdl-org/SDL/zip/refs/tags/release-3.4.10"
         File = "SDL3-release-3.4.10.zip"
+    },
+    @{
+        Name = "GLM"
+        Url  = "https://codeload.github.com/g-truc/glm/zip/refs/tags/1.0.1"
+        File = "glm-1.0.1.zip"
+    },
+    @{
+        Name = "tinyobjloader"
+        Url  = "https://codeload.github.com/tinyobjloader/tinyobjloader/zip/refs/heads/release"
+        File = "tinyobjloader-release.zip"
     }
 )
 

@@ -1,9 +1,7 @@
 // Vulkan Render Pass — describes the layout and format of render targets.
 //
-// P1.4: single color attachment (swapchain image), one subpass, no depth.
-// P1.5+ will add: depth attachment, MSAA, multiple subpasses (deferred).
-//
-// Also owns framebuffers (one per swapchain image).
+// P1.5: color attachment (swapchain image) + depth attachment, one subpass.
+// P1.4 was color-only; P1.5 adds depth testing for 3D mesh rendering.
 
 #pragma once
 
@@ -15,24 +13,23 @@ namespace snt::render_backend {
 
 class VulkanDevice;
 class VulkanSwapchain;
+class VulkanDepth;
 
 class VulkanRenderPass {
 public:
     VulkanRenderPass() = default;
     ~VulkanRenderPass();
 
-    // Non-copyable; RAII.
     VulkanRenderPass(const VulkanRenderPass&) = delete;
     VulkanRenderPass& operator=(const VulkanRenderPass&) = delete;
 
-    // Create render pass + framebuffers for the given swapchain.
-    bool init(VulkanDevice& device, VulkanSwapchain& swapchain);
+    // Create render pass + framebuffers for the given swapchain + depth buffer.
+    bool init(VulkanDevice& device, VulkanSwapchain& swapchain, VulkanDepth& depth);
 
-    // Destroy render pass + framebuffers. Called automatically by destructor.
     void destroy();
 
-    // Recreate framebuffers when swapchain is recreated.
-    bool recreate_framebuffers(VulkanSwapchain& swapchain);
+    // Recreate framebuffers when swapchain/depth is recreated.
+    bool recreate_framebuffers(VulkanSwapchain& swapchain, VulkanDepth& depth);
 
     VkRenderPass handle() const { return render_pass_; }
     const std::vector<VkFramebuffer>& framebuffers() const { return framebuffers_; }

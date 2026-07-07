@@ -1,7 +1,9 @@
 // Vulkan Graphics Pipeline implementation.
 
 #include "vulkan_pipeline.h"
+#include "vulkan_descriptor.h"
 #include "vulkan_device.h"
+#include "vulkan_mesh.h"
 #include "vulkan_render_pass.h"
 
 #include <volk.h>
@@ -63,6 +65,7 @@ VulkanPipeline::~VulkanPipeline() {
 }
 
 bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
+                          VulkanDescriptor& descriptor,
                           const std::string& vert_spv_path,
                           const std::string& frag_spv_path) {
     device_ = &device;
@@ -91,26 +94,25 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         },
     };
 
-    // --- Step 2: vertex input ---
-    // Binding 0: array of Vertex { vec2 position; vec3 color; }
+    // --- Step 2: vertex input (MeshVertex: vec3 pos + vec3 color) ---
     VkVertexInputBindingDescription binding_desc{
         .binding = 0,
-        .stride = sizeof(Vertex),
+        .stride = sizeof(MeshVertex),
         .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
     };
 
     VkVertexInputAttributeDescription attr_descs[2] = {
-        {  // location 0: position (vec2)
+        {  // location 0: position (vec3)
             .location = 0,
             .binding = 0,
-            .format = VK_FORMAT_R32G32_SFLOAT,
-            .offset = offsetof(Vertex, position),
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(MeshVertex, position),
         },
         {  // location 1: color (vec3)
             .location = 1,
             .binding = 0,
             .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = offsetof(Vertex, color),
+            .offset = offsetof(MeshVertex, color),
         },
     };
 
@@ -143,7 +145,7 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         .rasterizerDiscardEnable = VK_FALSE,
         .polygonMode = VK_POLYGON_MODE_FILL,
         .cullMode = VK_CULL_MODE_BACK_BIT,
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
         .lineWidth = 1.0f,
     };
@@ -155,7 +157,17 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         .sampleShadingEnable = VK_FALSE,
     };
 
-    // --- Step 7: color blend ---
+    // --- Step 7: depth + stencil (NEW in P1.5) ---
+    VkPipelineDepthStencilStateCreateInfo depth_stencil{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS,
+        .depthBoundsTestEnable = VK_FALSE,
+        .stencilTestEnable = VK_FALSE,
+    };
+
+    // --- Step 8: color blend ---
     VkPipelineColorBlendAttachmentState blend_attachment{
         .blendEnable = VK_FALSE,
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -169,7 +181,7 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         .pAttachments = &blend_attachment,
     };
 
-    // --- Step 8: dynamic state (viewport + scissor) ---
+    // --- Step 9: dynamic state ---
     VkDynamicState dynamic_states[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR,
@@ -180,10 +192,12 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         .pDynamicStates = dynamic_states,
     };
 
-    // --- Step 9: pipeline layout (no descriptors for now) ---
+    // --- Step 10: pipeline layout (with descriptor set layout) ---
+    VkDescriptorSetLayout set_layouts[] = {descriptor.layout()};
     VkPipelineLayoutCreateInfo layout_info{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = 0,
+        .setLayoutCount = 1,
+        .pSetLayouts = set_layouts,
         .pushConstantRangeCount = 0,
     };
 
@@ -193,7 +207,7 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         return false;
     }
 
-    // --- Step 10: create graphics pipeline ---
+    // --- Step 11: create graphics pipeline ---
     VkGraphicsPipelineCreateInfo pipeline_info{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = 2,
@@ -203,6 +217,7 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         .pViewportState = &viewport_state,
         .pRasterizationState = &rasterizer,
         .pMultisampleState = &multisampling,
+        .pDepthStencilState = &depth_stencil,
         .pColorBlendState = &color_blend,
         .pDynamicState = &dynamic_state,
         .layout = pipeline_layout_,
@@ -217,11 +232,10 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         return false;
     }
 
-    // Shader modules can be destroyed after pipeline creation.
     vkDestroyShaderModule(device_->logical(), vert_module, nullptr);
     vkDestroyShaderModule(device_->logical(), frag_module, nullptr);
 
-    std::printf("[snt::render_backend] Graphics pipeline created\n");
+    std::printf("[snt::render_backend] Graphics pipeline created (mesh + depth)\n");
     return true;
 }
 

@@ -2,7 +2,9 @@
 
 #include "vulkan_frame.h"
 #include "vulkan_buffer.h"
+#include "vulkan_descriptor.h"
 #include "vulkan_device.h"
+#include "vulkan_mesh.h"
 #include "vulkan_pipeline.h"
 #include "vulkan_render_pass.h"
 #include "vulkan_swapchain.h"
@@ -58,20 +60,35 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
         return false;
     }
 
-    // --- Create per-frame-in-flight semaphores ---
-    // acquire uses image_available_[current_frame_]; submit waits on it.
-    // submit signals render_finished_[current_frame_]; present waits on it.
-    // Safe because in_flight_fences_ ensures the slot's previous submit is
-    // done (and thus its semaphores are unsignaled) before reuse.
+    // --- Create per-frame-in-flight acquire semaphores ---
+    // image_available_[current_frame_] is signaled by vkAcquireNextImageKHR
+    // and consumed by vkQueueSubmit's wait. Safe to reuse per frame slot
+    // because in_flight_fences_ guarantees the previous submit is complete.
     for (uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
         VkSemaphoreCreateInfo sem_info{
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         };
         if (vkCreateSemaphore(device_->logical(), &sem_info, nullptr,
-                              &image_available_[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(device_->logical(), &sem_info, nullptr,
+                              &image_available_[i]) != VK_SUCCESS) {
+            std::fprintf(stderr, "[snt::render_backend] Failed to create acquire semaphores\n");
+            return false;
+        }
+    }
+
+    // --- Create per-swapchain-image render-done semaphores ---
+    // render_finished_[image_index] is signaled by vkQueueSubmit and waited
+    // on by vkQueuePresentKHR. Indexed by image_index (not current_frame_)
+    // because without VK_KHR_swapchain_maintenance1 the present operation
+    // holds the semaphore until that image is re-acquired. A per-frame
+    // semaphore would be reused while still in use by a previous present.
+    render_finished_.resize(swapchain_image_count);
+    for (uint32_t i = 0; i < swapchain_image_count; ++i) {
+        VkSemaphoreCreateInfo sem_info{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+        if (vkCreateSemaphore(device_->logical(), &sem_info, nullptr,
                               &render_finished_[i]) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] Failed to create semaphores\n");
+            std::fprintf(stderr, "[snt::render_backend] Failed to create render semaphores\n");
             return false;
         }
     }
@@ -80,16 +97,21 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
     // Signaled by vkQueuePresentKHR via VK_KHR_swapchain_maintenance1.
     // These survive swapchain recreation and let us wait for present
     // completion before destroying an old swapchain.
-    present_fences_.resize(swapchain_image_count);
-    for (uint32_t i = 0; i < swapchain_image_count; ++i) {
-        VkFenceCreateInfo fence_info{
-            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-            .flags = VK_FENCE_CREATE_SIGNALED_BIT,  // start signaled
-        };
-        if (vkCreateFence(device_->logical(), &fence_info, nullptr,
-                          &present_fences_[i]) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] Failed to create present fences\n");
-            return false;
+    // Issue1 fix: only allocate when the extension is actually enabled on
+    // the device. Without the extension, VkSwapchainPresentFenceInfoEXT
+    // must not be used (undefined behavior); draw_frame() leaves pNext=null.
+    if (device_->has_swapchain_maintenance1()) {
+        present_fences_.resize(swapchain_image_count);
+        for (uint32_t i = 0; i < swapchain_image_count; ++i) {
+            VkFenceCreateInfo fence_info{
+                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                .flags = VK_FENCE_CREATE_SIGNALED_BIT,  // start signaled
+            };
+            if (vkCreateFence(device_->logical(), &fence_info, nullptr,
+                              &present_fences_[i]) != VK_SUCCESS) {
+                std::fprintf(stderr, "[snt::render_backend] Failed to create present fences\n");
+                return false;
+            }
         }
     }
 
@@ -125,16 +147,22 @@ void VulkanFrame::destroy() {
 
     for (uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
         if (image_available_[i]) vkDestroySemaphore(device_->logical(), image_available_[i], nullptr);
-        if (render_finished_[i]) vkDestroySemaphore(device_->logical(), render_finished_[i], nullptr);
         image_available_[i] = VK_NULL_HANDLE;
-        render_finished_[i] = VK_NULL_HANDLE;
     }
+
+    for (auto sem : render_finished_) {
+        if (sem) vkDestroySemaphore(device_->logical(), sem, nullptr);
+    }
+    render_finished_.clear();
 
     for (auto fence : present_fences_) {
         if (fence) vkDestroyFence(device_->logical(), fence, nullptr);
     }
     present_fences_.clear();
 
+    // pool automatically frees all command buffers allocated from it. The
+    // vkDestroyCommandPool() call below handles cleanup; an explicit
+    // vkFreeCommandBuffers() is therefore unnecessary here.
     command_buffers_.clear();
 
     if (command_pool_ != VK_NULL_HANDLE) {
@@ -151,17 +179,18 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
                              VulkanSwapchain& swapchain,
                              VulkanRenderPass& render_pass,
                              VulkanPipeline& pipeline,
-                             VulkanBuffer& vertex_buffer,
-                             uint32_t vertex_count) {
+                             VulkanDescriptor& descriptor,
+                             VulkanMesh& mesh,
+                             const UniformBufferObject& ubo) {
     // --- Step 1: wait for previous frame using this slot ---
     vkWaitForFences(device.logical(), 1, &in_flight_fences_[current_frame_],
                     VK_TRUE, UINT64_MAX);
     vkResetFences(device.logical(), 1, &in_flight_fences_[current_frame_]);
 
-    // --- Step 2: acquire next swapchain image ---
-    // Use per-frame-in-flight semaphore: safe because we just waited on
-    // in_flight_fences_[current_frame_], ensuring the previous submit on
-    // this slot is done and its acquire semaphore was consumed.
+    // --- Step 2: update UBO before recording ---
+    descriptor.update_ubo(current_frame_, ubo);
+
+    // --- Step 3: acquire next swapchain image ---
     uint32_t image_index = 0;
     VkResult result = vkAcquireNextImageKHR(
         device.logical(), swapchain.handle(), UINT64_MAX,
@@ -175,7 +204,7 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         return false;
     }
 
-    // --- Step 3: record command buffer ---
+    // --- Step 4: record command buffer ---
     VkCommandBuffer cmd = command_buffers_[current_frame_];
     vkResetCommandBuffer(cmd, 0);
 
@@ -188,8 +217,10 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         return false;
     }
 
-    // Clear color: dark blue background.
-    VkClearValue clear_color = {{{0.0f, 0.0f, 0.2f, 1.0f}}};
+    // Clear values: color (dark blue) + depth (1.0 = far).
+    VkClearValue clear_values[2] = {};
+    clear_values[0].color = {{0.0f, 0.0f, 0.2f, 1.0f}};
+    clear_values[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rp_begin{
         .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -199,8 +230,8 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
             .offset = {0, 0},
             .extent = swapchain.extent(),
         },
-        .clearValueCount = 1,
-        .pClearValues = &clear_color,
+        .clearValueCount = 2,
+        .pClearValues = clear_values,
     };
 
     vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
@@ -226,13 +257,13 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
     };
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // Bind vertex buffer.
-    VkBuffer vertex_buffers[] = {vertex_buffer.handle()};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, vertex_buffers, offsets);
+    // Bind descriptor set (UBO for this frame-in-flight).
+    VkDescriptorSet desc_set = descriptor.descriptor_set(current_frame_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipeline.layout(), 0, 1, &desc_set, 0, nullptr);
 
-    // Draw the triangle (3 vertices).
-    vkCmdDraw(cmd, vertex_count, 1, 0, 0);
+    // Draw the mesh.
+    mesh.draw(cmd);
 
     vkCmdEndRenderPass(cmd);
 
@@ -241,8 +272,7 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         return false;
     }
 
-    // --- Step 4: submit command buffer ---
-    // Wait on this frame's acquire semaphore; signal this frame's render semaphore.
+    // --- Step 5: submit command buffer ---
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
     VkSubmitInfo submit_info{
@@ -253,7 +283,7 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         .commandBufferCount = 1,
         .pCommandBuffers = &cmd,
         .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &render_finished_[current_frame_],
+        .pSignalSemaphores = &render_finished_[image_index],
     };
 
     if (vkQueueSubmit(device.graphics_queue(), 1, &submit_info,
@@ -262,20 +292,28 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         return false;
     }
 
-    // --- Step 5: present ---
-    // Wait on this frame's render semaphore; signal per-image present fence
-    // via VK_KHR_swapchain_maintenance1.
+    // --- Step 6: present ---
+    // VK_KHR_swapchain_maintenance1. If the extension is not enabled on the
+    // device, pNext MUST be nullptr — attaching VkSwapchainPresentFenceInfoEXT
+    // without the extension is undefined behavior. Also guard against an
+    // empty present_fences_ vector (init() skips allocation when the
+    // extension is absent, so present_fences_[image_index] would be OOB).
     VkSwapchainPresentFenceInfoEXT present_fence_info{
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT,
         .swapchainCount = 1,
-        .pFences = &present_fences_[image_index],
+        .pFences = nullptr,
     };
+    const bool use_present_fence = device_->has_swapchain_maintenance1()
+                                   && image_index < present_fences_.size();
+    if (use_present_fence) {
+        present_fence_info.pFences = &present_fences_[image_index];
+    }
 
     VkPresentInfoKHR present_info{
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pNext = &present_fence_info,  // chain: signal present fence
+        .pNext = use_present_fence ? &present_fence_info : nullptr,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &render_finished_[current_frame_],
+        .pWaitSemaphores = &render_finished_[image_index],
         .swapchainCount = 1,
         .pSwapchains = &(const VkSwapchainKHR&)swapchain.handle(),
         .pImageIndices = &image_index,
@@ -283,7 +321,7 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
 
     result = vkQueuePresentKHR(device.present_queue(), &present_info);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        return false;  // swapchain needs recreation
+        return false;
     }
 
     // Advance to next frame slot.

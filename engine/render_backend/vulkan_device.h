@@ -51,6 +51,12 @@ public:
     uint32_t graphics_family() const { return graphics_family_; }
     uint32_t present_family() const { return present_family_; }
 
+    // Whether VK_KHR_swapchain_maintenance1 was enabled on the logical device.
+    // When true, vkQueuePresentKHR can signal a VkFence (via
+    // VkSwapchainPresentFenceInfoEXT) which survives swapchain recreation.
+    // VulkanFrame queries this to conditionally attach the present fence.
+    bool has_swapchain_maintenance1() const { return has_swapchain_maintenance1_; }
+
     // Swapchain support details queried during device selection.
     struct SwapchainSupport {
         VkSurfaceCapabilitiesKHR capabilities;
@@ -74,6 +80,7 @@ private:
     VmaAllocator vma_allocator_ = VK_NULL_HANDLE;  // VMA allocator for buffers/images
     uint32_t graphics_family_ = UINT32_MAX;
     uint32_t present_family_ = UINT32_MAX;
+    bool has_swapchain_maintenance1_ = false;  // set during init()
 };
 
 }  // namespace snt::render_backend

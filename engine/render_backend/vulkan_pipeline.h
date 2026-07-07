@@ -1,8 +1,7 @@
-// Vulkan Graphics Pipeline — vertex + fragment shader stages + fixed-function
-// state for rendering the triangle.
+// Vulkan Graphics Pipeline — mesh vertex + fragment shader + depth state.
 //
-// P1.4: hardcoded triangle vertex layout (pos2D + color3D), no uniforms.
-// P1.5+ will add: descriptor sets (uniforms, textures), push constants.
+// P1.5: 3D mesh rendering with MVP UBO + depth testing.
+// P1.4 was depth-less; P1.5 adds depth + descriptor set layout.
 
 #pragma once
 
@@ -15,26 +14,23 @@ namespace snt::render_backend {
 
 class VulkanDevice;
 class VulkanRenderPass;
+class VulkanDescriptor;
 class VulkanBuffer;
 
-// Vertex layout: 2D position + 3-component color (interleaved).
-struct Vertex {
-    float position[2];
-    float color[3];
-};
+// Mesh vertex layout: 3D position + 3-component color (interleaved).
+struct MeshVertex;
 
 class VulkanPipeline {
 public:
     VulkanPipeline() = default;
     ~VulkanPipeline();
 
-    // Non-copyable; RAII.
     VulkanPipeline(const VulkanPipeline&) = delete;
     VulkanPipeline& operator=(const VulkanPipeline&) = delete;
 
-    // Create the pipeline + pipeline layout.
-    // `vert_spv_path` / `frag_spv_path`: compiled SPIR-V files.
+    // Create the pipeline + pipeline layout with descriptor set layout.
     bool init(VulkanDevice& device, VulkanRenderPass& render_pass,
+              VulkanDescriptor& descriptor,
               const std::string& vert_spv_path,
               const std::string& frag_spv_path);
 
@@ -44,7 +40,6 @@ public:
     VkPipelineLayout layout() const { return pipeline_layout_; }
 
 private:
-    // Load a SPIR-V file into a VkShaderModule.
     VkShaderModule create_shader_module(const std::string& path);
 
     VulkanDevice* device_ = nullptr;

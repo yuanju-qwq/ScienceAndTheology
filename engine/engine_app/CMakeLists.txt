@@ -7,6 +7,7 @@ target_link_libraries(snt_engine_app PRIVATE
     snt_engine_settings
     snt_platform
     snt_core
+    snt_ecs
     snt_ui
     snt_render_backend
 )
