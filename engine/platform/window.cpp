@@ -88,14 +88,10 @@ bool Window::poll_events() {
                     return false;
                 }
                 break;
-            case SDL_EVENT_KEY_DOWN:
-                // SDL3 removed the keysym nested struct; key is now directly
-                // on SDL_KeyboardEvent.
-                if (event.key.key == SDLK_ESCAPE) {
-                    _should_close = true;
-                    return false;
-                }
-                break;
+            // ESC no longer closes the window. Upper layers (Engine) read
+            // esc_pressed from InputState + decide whether to unlock the
+            // mouse or quit. This matches MC-style behavior where ESC
+            // opens a menu / releases pointer lock rather than exiting.
             default:
                 break;
         }
@@ -147,6 +143,28 @@ const char* const* Window::sdl_vulkan_instance_extensions(uint32_t* count) {
     // SDL3 returns a const char* const* array of extension names that must
     // be enabled when creating the VkInstance for surface support.
     return SDL_Vulkan_GetInstanceExtensions(count);
+}
+
+// ---------------------------------------------------------------------------
+// Relative mouse mode (pointer lock) — P2.A2 MC-style free-look.
+// SDL3's SDL_SetWindowRelativeMouseMode confines the mouse to the window
+// + hides the cursor + reports relative motion via event.motion.xrel/yrel.
+// ---------------------------------------------------------------------------
+
+bool Window::set_relative_mouse_mode(bool enabled) {
+    if (!_window) return false;
+    if (!SDL_SetWindowRelativeMouseMode(static_cast<SDL_Window*>(_window), enabled)) {
+        std::fprintf(stderr,
+                     "[snt::platform] SDL_SetWindowRelativeMouseMode failed: %s\n",
+                     SDL_GetError());
+        return false;
+    }
+    return true;
+}
+
+bool Window::relative_mouse_mode() const {
+    if (!_window) return false;
+    return SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(_window));
 }
 
 } // namespace snt::platform

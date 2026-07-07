@@ -47,6 +47,13 @@ struct ResourceEntry {
 
     // Current layout (tracked for barrier insertion, P2.3.5).
     VkImageLayout current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // Desired terminal layout (P2.3.6). Imported resources like swapchain
+    // images must end the frame in PRESENT_SRC_KHR; transient resources
+    // have no terminal requirement (kUndefined). The graph inserts a final
+    // barrier after all passes if current_layout != terminal_layout.
+    VkImageLayout terminal_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    bool has_terminal_layout = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -187,7 +194,11 @@ RenderResource RenderGraph::create_buffer(const BufferDesc& desc) {
 
 RenderResource RenderGraph::import_texture(VkImage image, VkImageView view,
                                            VkFormat format,
-                                           VkImageLayout current_layout) {
+                                           VkImageLayout current_layout,
+                                           uint32_t width, uint32_t height,
+                                           uint32_t mip_levels,
+                                           uint32_t array_layers,
+                                           VkImageLayout terminal_layout) {
     RenderResource r;
     r.id = impl_->next_resource_id++;
     r.type = ResourceType::kTexture;
@@ -198,9 +209,16 @@ RenderResource RenderGraph::import_texture(VkImage image, VkImageView view,
     e.view = view;
     e.is_external = true;
     e.current_layout = current_layout;
-    // Fill tex_desc.format so passes can query it; width/height unknown for
-    // external resources (pass must query separately if needed).
+    e.terminal_layout = terminal_layout;
+    e.has_terminal_layout = (terminal_layout != VK_IMAGE_LAYOUT_UNDEFINED);
+    // Fill tex_desc so the graph can derive render area + correct barrier
+    // subresource ranges. width/height/mip_levels/array_layers come from
+    // the caller (swapchain extent or depth image extent).
     e.tex_desc.format = static_cast<uint32_t>(format);
+    e.tex_desc.width = width;
+    e.tex_desc.height = height;
+    e.tex_desc.mip_levels = mip_levels;
+    e.tex_desc.array_layers = array_layers;
     impl_->resources.push_back(e);
     return r;
 }
@@ -266,6 +284,101 @@ bool RenderGraph::execute() {
 }
 
 // ---------------------------------------------------------------------------
+// ResourceUsage → Vulkan layout / access mask / stage mask mapping (P2.3.3)
+// ---------------------------------------------------------------------------
+// Used by barrier insertion to compute the target layout for each resource
+// when it enters a pass. Covers both attachment usages (color/depth output)
+// and non-attachment usages (shader read, transfer src/dst).
+// ---------------------------------------------------------------------------
+static VkImageLayout usage_to_image_layout(ResourceUsage u) {
+    switch (u) {
+        case ResourceUsage::kShaderRead:    return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case ResourceUsage::kColorOutput:   return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        case ResourceUsage::kDepthOutput:   return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        case ResourceUsage::kTransferSrc:   return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        case ResourceUsage::kTransferDst:   return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        case ResourceUsage::kNone:
+        default:                            return VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+}
+
+static VkAccessFlags usage_to_access_mask(ResourceUsage u) {
+    switch (u) {
+        case ResourceUsage::kShaderRead:    return VK_ACCESS_SHADER_READ_BIT;
+        case ResourceUsage::kColorOutput:   return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        case ResourceUsage::kDepthOutput:   return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        case ResourceUsage::kTransferSrc:   return VK_ACCESS_TRANSFER_READ_BIT;
+        case ResourceUsage::kTransferDst:   return VK_ACCESS_TRANSFER_WRITE_BIT;
+        case ResourceUsage::kNone:
+        default:                            return 0;
+    }
+}
+
+static VkPipelineStageFlags usage_to_stage_mask(ResourceUsage u) {
+    switch (u) {
+        case ResourceUsage::kShaderRead:    return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        case ResourceUsage::kColorOutput:   return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        case ResourceUsage::kDepthOutput:   return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                                     VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        case ResourceUsage::kTransferSrc:
+        case ResourceUsage::kTransferDst:   return VK_PIPELINE_STAGE_TRANSFER_BIT;
+        case ResourceUsage::kNone:
+        default:                            return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Insert a single image memory barrier on `cmd` for `entry`.
+// Transitions `entry.current_layout` -> `target_layout`, then updates
+// `entry.current_layout` to the new layout. No-op if layouts match.
+// `src_access` / `dst_access` / `src_stage` / `dst_stage` control the
+// synchronization scope; callers compute them from ResourceUsage.
+// ---------------------------------------------------------------------------
+static void transition_image_layout(VkCommandBuffer cmd,
+                                    ResourceEntry& entry,
+                                    VkImageLayout target_layout,
+                                    VkAccessFlags src_access,
+                                    VkAccessFlags dst_access,
+                                    VkPipelineStageFlags src_stage,
+                                    VkPipelineStageFlags dst_stage) {
+    if (entry.image == VK_NULL_HANDLE) return;  // lazy alloc not wired yet
+    if (entry.current_layout == target_layout) return;
+
+    VkImageMemoryBarrier barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .srcAccessMask = src_access,
+        .dstAccessMask = dst_access,
+        .oldLayout = entry.current_layout,
+        .newLayout = target_layout,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = entry.image,
+        .subresourceRange = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = entry.tex_desc.mip_levels,
+            .baseArrayLayer = 0,
+            .layerCount = entry.tex_desc.array_layers,
+        },
+    };
+
+    // Depth/stencil formats need the depth aspect mask.
+    VkFormat fmt = static_cast<VkFormat>(entry.tex_desc.format);
+    if (fmt >= VK_FORMAT_D16_UNORM && fmt <= VK_FORMAT_D32_SFLOAT_S8_UINT) {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+
+    vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0,
+                         0, nullptr,
+                         0, nullptr,
+                         1, &barrier);
+
+    entry.current_layout = target_layout;
+}
+
+// ---------------------------------------------------------------------------
 // Implicit dependency derivation (P2.3.4)
 // ---------------------------------------------------------------------------
 // Derives pass-to-pass dependencies from attachment read/write overlap.
@@ -284,6 +397,16 @@ static void derive_implicit_dependencies(std::vector<RenderGraphPass>* passes) {
         }
         for (const auto& a : p.outputs) {
             readers_writers[a.resource.id].emplace_back(i, /*is_write=*/true);
+        }
+        // Color/depth attachment writes count as writes for dependency
+        // derivation. Reads of color/depth from a previous pass
+        // (e.g. shadow map sampled in forward) must go through `inputs`
+        // with kShaderRead.
+        for (const auto& c : p.color_attachments) {
+            readers_writers[c.resource.id].emplace_back(i, /*is_write=*/true);
+        }
+        if (p.depth_attachment.resource.valid()) {
+            readers_writers[p.depth_attachment.resource.id].emplace_back(i, /*is_write=*/true);
         }
     }
 
@@ -431,6 +554,12 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
         slot.resize(impl_->passes.size());
     }
 
+    // Helper: look up a ResourceEntry by id. Returns nullptr if out of range.
+    auto lookup_entry = [&](uint32_t id) -> ResourceEntry* {
+        if (id >= impl_->resources.size()) return nullptr;
+        return &impl_->resources[id];
+    };
+
     // Record passes in topological order. The recorded command buffer at
     // slot[pass_index] corresponds to the pass at passes[order[pass_index]].
     for (size_t pass_index = 0; pass_index < order.size(); ++pass_index) {
@@ -451,9 +580,167 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
             return false;
         }
 
+        VkCommandBuffer cmd = ctx.handle();
+
+        // --- P2.3.5: insert pre-pass barriers for non-attachment resources ---
+        // inputs/outputs use ResourceUsage to compute target layout. The
+        // src access/stage are derived from current_layout (best-effort:
+        // we use the same mask as the new usage; this is conservative but
+        // correct for the simple read-before-write cases we support).
+        for (const auto& in : pass.inputs) {
+            ResourceEntry* e = lookup_entry(in.resource.id);
+            if (!e) continue;
+            VkImageLayout target = usage_to_image_layout(in.usage);
+            transition_image_layout(cmd, *e, target,
+                                    /*src_access=*/0,
+                                    usage_to_access_mask(in.usage),
+                                    /*src_stage=*/VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    usage_to_stage_mask(in.usage));
+        }
+        for (const auto& out : pass.outputs) {
+            ResourceEntry* e = lookup_entry(out.resource.id);
+            if (!e) continue;
+            VkImageLayout target = usage_to_image_layout(out.usage);
+            transition_image_layout(cmd, *e, target,
+                                    /*src_access=*/0,
+                                    usage_to_access_mask(out.usage),
+                                    /*src_stage=*/VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    usage_to_stage_mask(out.usage));
+        }
+
+        // --- P2.3.5: insert pre-pass barriers for color/depth attachments ---
+        // Attachments transition to COLOR_ATTACHMENT_OPTIMAL /
+        // DEPTH_STENCIL_ATTACHMENT_OPTIMAL before dynamic rendering begins.
+        for (const auto& c : pass.color_attachments) {
+            ResourceEntry* e = lookup_entry(c.resource.id);
+            if (!e) continue;
+            transition_image_layout(cmd, *e,
+                                    VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                    /*src_access=*/0,
+                                    VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                    /*src_stage=*/VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+        }
+        if (pass.depth_attachment.resource.valid()) {
+            ResourceEntry* e = lookup_entry(pass.depth_attachment.resource.id);
+            if (e) {
+                transition_image_layout(cmd, *e,
+                                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                                        /*src_access=*/0,
+                                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                        /*src_stage=*/VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT);
+            }
+        }
+
+        // --- P2.3 (option B): begin dynamic rendering ---
+        // If the pass declared any attachments, wrap the execute callback
+        // in vkCmdBeginRendering / vkCmdEndRendering so the callback only
+        // records draw/dispatch calls. Passes with no attachments (compute,
+        // transfer) skip this and execute raw.
+        const bool has_attachments = !pass.color_attachments.empty() ||
+                                     pass.depth_attachment.resource.valid();
+        // VkRenderingAttachmentInfo must remain in scope until
+        // vkCmdBeginRendering returns; declare outside the if-block.
+        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
+        VkRenderingAttachmentInfo depth_attachment_info{};
+        VkRenderingInfo rendering_info{};
+        if (has_attachments) {
+            // Build color attachment infos.
+            color_attachment_infos.reserve(pass.color_attachments.size());
+            for (const auto& c : pass.color_attachments) {
+                ResourceEntry* e = lookup_entry(c.resource.id);
+                VkRenderingAttachmentInfo info{
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = e ? e->view : VK_NULL_HANDLE,
+                    .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    .loadOp = c.load_op,
+                    .storeOp = c.store_op,
+                    .clearValue = c.clear_value,
+                };
+                color_attachment_infos.push_back(info);
+            }
+
+            // Build depth attachment info if declared.
+            if (pass.depth_attachment.resource.valid()) {
+                ResourceEntry* e = lookup_entry(pass.depth_attachment.resource.id);
+                depth_attachment_info = {
+                    .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                    .imageView = e ? e->view : VK_NULL_HANDLE,
+                    .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    .loadOp = pass.depth_attachment.load_op,
+                    .storeOp = pass.depth_attachment.store_op,
+                    .clearValue = pass.depth_attachment.clear_value,
+                };
+            }
+
+            // Render area: derive from the first color attachment's extent,
+            // or depth if no color. Falls back to 0x0 if unknown (caller
+            // must ensure at least one attachment has a known extent).
+            uint32_t w = 0, h = 0;
+            if (!pass.color_attachments.empty()) {
+                ResourceEntry* e = lookup_entry(pass.color_attachments[0].resource.id);
+                if (e) { w = e->tex_desc.width; h = e->tex_desc.height; }
+            } else if (pass.depth_attachment.resource.valid()) {
+                ResourceEntry* e = lookup_entry(pass.depth_attachment.resource.id);
+                if (e) { w = e->tex_desc.width; h = e->tex_desc.height; }
+            }
+
+            rendering_info = {
+                .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+                .renderArea = {.offset = {0, 0}, .extent = {w, h}},
+                .layerCount = 1,
+                .colorAttachmentCount =
+                    static_cast<uint32_t>(color_attachment_infos.size()),
+                .pColorAttachments = color_attachment_infos.data(),
+                .pDepthAttachment =
+                    pass.depth_attachment.resource.valid() ? &depth_attachment_info
+                                                            : nullptr,
+            };
+
+            ctx.begin_rendering(rendering_info);
+        }
+
         pass.execute(ctx);
+
+        if (has_attachments) {
+            ctx.end_rendering();
+        }
+
+        // --- P2.3.6: terminal barriers ---
+        // On the LAST pass (by topological order), append terminal layout
+        // transitions for imported resources (e.g. swapchain → PRESENT_SRC)
+        // BEFORE end_recording(). This keeps everything on one command
+        // buffer per pass, avoiding dangling trailing buffers across frames.
+        if (pass_index == order.size() - 1) {
+            for (auto& e : impl_->resources) {
+                if (!e.has_terminal_layout) continue;
+                if (e.current_layout == e.terminal_layout) continue;
+                if (e.image == VK_NULL_HANDLE) continue;
+
+                // Source access/stage derived from the producer usage.
+                // PRESENT_SRC_KHR is fed by color attachment output.
+                VkAccessFlags src_access = 0;
+                VkPipelineStageFlags src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                if (e.terminal_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR) {
+                    src_access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                    src_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                }
+
+                transition_image_layout(cmd, e, e.terminal_layout,
+                                        src_access,
+                                        /*dst_access=*/0,
+                                        src_stage,
+                                        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+            }
+        }
+
         ctx.end_recording();
     }
+
     return true;
 }
 

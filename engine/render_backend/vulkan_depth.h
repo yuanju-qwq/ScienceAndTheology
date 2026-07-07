@@ -29,6 +29,7 @@ public:
     // Recreate depth image when swapchain is resized.
     bool recreate(VulkanSwapchain& swapchain);
 
+    VkImage image() const { return depth_image_; }
     VkImageView view() const { return depth_view_; }
     VkFormat format() const { return depth_format_; }
 

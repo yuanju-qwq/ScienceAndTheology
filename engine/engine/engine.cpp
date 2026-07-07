@@ -21,7 +21,6 @@
 #include "render_backend/vulkan_instance.h"
 #include "render_backend/vulkan_mesh.h"
 #include "render_backend/vulkan_pipeline.h"
-#include "render_backend/vulkan_render_pass.h"
 #include "render_backend/vulkan_swapchain.h"
 #include "ui/debug_panel.h"
 #include "ui/mui.h"
@@ -84,7 +83,6 @@ struct Engine::Impl {
     snt::render_backend::VulkanDevice         vk_device;
     snt::render_backend::VulkanSwapchain      vk_swapchain;
     snt::render_backend::VulkanDepth          vk_depth;
-    snt::render_backend::VulkanRenderPass     vk_render_pass;
     snt::render_backend::VulkanDescriptor     vk_descriptor;
     snt::render_backend::VulkanPipeline       vk_pipeline;
     snt::render_backend::VulkanFrame          vk_frame;
@@ -99,8 +97,19 @@ struct Engine::Impl {
     // above; set in init() after the vk_* objects are created.
     snt::render::RenderSystem render_system;
 
+    // P2.A2: cached pointer to the CameraSystem added via world.add_system.
+    // Engine uses it to forward mouse-lock state each frame without needing
+    // a dynamic_cast on every system.
+    snt::ecs::CameraSystem* camera_system = nullptr;
+
     // Per-frame state.
     FpsTracker fps_tracker;
+
+    // P2.A2: mouse lock state (mirror of Window's relative-mouse-mode).
+    // Engine toggles this based on esc_pressed / wants_mouse_lock from
+    // InputState. CameraSystem reads it via set_mouse_locked() to skip
+    // mouse-look when unlocked.
+    bool mouse_locked = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -166,17 +175,15 @@ bool Engine::init() {
         std::fprintf(stderr, "[snt_engine] VulkanDepth init failed\n");
         return false;
     }
-    if (!impl_->vk_render_pass.init(impl_->vk_device, impl_->vk_swapchain, impl_->vk_depth)) {
-        std::fprintf(stderr, "[snt_engine] VulkanRenderPass init failed\n");
-        return false;
-    }
 
-    // --- Descriptor + pipeline + mesh ---
+    // --- Descriptor + pipeline (dynamic rendering, no VkRenderPass) ---
     if (!impl_->vk_descriptor.init(impl_->vk_device)) {
         std::fprintf(stderr, "[snt_engine] VulkanDescriptor init failed\n");
         return false;
     }
-    if (!impl_->vk_pipeline.init(impl_->vk_device, impl_->vk_render_pass, impl_->vk_descriptor,
+    if (!impl_->vk_pipeline.init(impl_->vk_device, impl_->vk_descriptor,
+                                 impl_->vk_swapchain.image_format(),
+                                 impl_->vk_depth.format(),
                                  "shaders/mesh.vert.spv", "shaders/mesh.frag.spv")) {
         std::fprintf(stderr, "[snt_engine] VulkanPipeline init failed\n");
         return false;
@@ -215,13 +222,14 @@ bool Engine::init() {
     auto& camera_system = impl_->world.add_system<CameraSystem>();
     camera_system.set_input(&impl_->input_system);
     camera_system.set_active_camera(impl_->camera_entity);
+    impl_->camera_system = &camera_system;  // cache for mouse-lock forwarding
 
     // --- Render system (P2.D) ---
     // ECS-driven rendering via RenderGraph. RenderSystem owns its own
     // RenderGraph instance; Engine wires up the backend dependencies.
     impl_->render_system.set_device(&impl_->vk_device);
     impl_->render_system.set_swapchain(&impl_->vk_swapchain);
-    impl_->render_system.set_render_pass(&impl_->vk_render_pass);
+    impl_->render_system.set_depth(&impl_->vk_depth);
     impl_->render_system.set_pipeline(&impl_->vk_pipeline);
     impl_->render_system.set_descriptor(&impl_->vk_descriptor);
     impl_->render_system.set_frame(&impl_->vk_frame);
@@ -267,8 +275,24 @@ bool Engine::init() {
         return static_cast<float>(snt::core::default_job_system().worker_count());
     });
 
-    std::printf("[snt_engine] Controls: WASD=move, QE=up/down, "
-                "Right-drag=look, Shift=boost\n");
+    std::printf("[snt_engine] Controls (MC-style):\n"
+                "  WASD       = move (A/D strafe)\n"
+                "  Space      = ascend\n"
+                "  LShift     = descend\n"
+                "  Double-W   = sprint (2x while W held)\n"
+                "  Mouse      = free-look (auto-locked)\n"
+                "  ESC        = release mouse\n"
+                "  Click      = re-lock mouse\n");
+
+    // P2.A2: enter relative mouse mode so the user starts in free-look.
+    // ESC releases the mouse; clicking the window re-locks it.
+    if (impl_->window.set_relative_mouse_mode(true)) {
+        impl_->mouse_locked = true;
+    } else {
+        std::fprintf(stderr,
+                     "[snt_engine] Failed to enter relative mouse mode\n");
+        impl_->mouse_locked = false;
+    }
     return true;
 }
 
@@ -283,8 +307,28 @@ void Engine::run() {
         last_time = now;
         impl_->fps_tracker.tick(frame_ms);
 
-        // Finalize input for this frame, then let ECS read it.
+        // Finalize input for this frame.
         impl_->input_system.end_frame();
+        const auto& input_state = impl_->input_system.state();
+
+        // --- P2.A2: mouse lock management (MC-style) ---
+        // ESC releases the pointer; a left click (when unlocked) re-locks.
+        // The lock state is forwarded to CameraSystem so it knows whether
+        // to apply mouse-look this frame.
+        if (input_state.esc_pressed && impl_->mouse_locked) {
+            impl_->window.set_relative_mouse_mode(false);
+            impl_->mouse_locked = false;
+        } else if (input_state.wants_mouse_lock && !impl_->mouse_locked) {
+            impl_->window.set_relative_mouse_mode(true);
+            impl_->mouse_locked = true;
+        }
+
+        // Forward lock state to CameraSystem before its update runs.
+        if (impl_->camera_system) {
+            impl_->camera_system->set_mouse_locked(impl_->mouse_locked);
+        }
+
+        // Let ECS read input + run systems.
         impl_->world.update(dt);
         impl_->input_system.new_frame();
 
@@ -307,7 +351,6 @@ void Engine::run() {
             if (impl_->vk_swapchain.recreate(static_cast<uint32_t>(new_sz.width),
                                              static_cast<uint32_t>(new_sz.height))) {
                 impl_->vk_depth.recreate(impl_->vk_swapchain);
-                impl_->vk_render_pass.recreate_framebuffers(impl_->vk_swapchain, impl_->vk_depth);
                 auto& cam_comp_resize = impl_->world.get_component<snt::ecs::Camera>(impl_->camera_entity);
                 cam_comp_resize.aspect = static_cast<float>(new_sz.width) /
                                          static_cast<float>(new_sz.height);
@@ -336,8 +379,7 @@ void Engine::shutdown() {
     impl_->vk_pipeline.destroy();
     impl_->vk_descriptor.destroy();
 
-    // Render pass + depth + swapchain.
-    impl_->vk_render_pass.destroy();
+    // Depth + swapchain.
     impl_->vk_depth.destroy();
     impl_->vk_swapchain.destroy();
 

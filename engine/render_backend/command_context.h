@@ -7,6 +7,11 @@
 // P2.2: minimal API — begin/end recording + raw handle accessor for
 //        passes that need to call vkCmdBind* directly (temporary; will be
 //        replaced by higher-level helpers in later phases).
+// P2.3 (option B): begin_rendering / end_rendering helpers wrap Vulkan 1.3
+//        dynamic rendering (vkCmdBeginRendering / vkCmdEndRendering).
+//        Passes declare color + depth attachments via the graph; the
+//        context sets up VkRenderingInfo + calls begin. The pass callback
+//        then records draw commands freely; end_rendering closes the scope.
 //
 // Layering: owned by render_backend because VkCommandBuffer is a Vulkan
 // primitive. The renderer layer holds CommandContext by reference.
@@ -68,6 +73,18 @@ public:
 
     // End recording. After this, handle() can be submitted.
     void end_recording();
+
+    // P2.3 (option B): begin dynamic rendering.
+    // `rendering_info` is a fully-built VkRenderingInfo (color + depth
+    // attachment info, render area, layer count). The caller (RenderGraph)
+    // is responsible for resolving image views + formats from its resource
+    // table before calling this. Must be called after begin_recording +
+    // after pre-pass barriers. The pass callback then records draw commands.
+    void begin_rendering(const VkRenderingInfo& rendering_info);
+
+    // End dynamic rendering. Must be called after begin_rendering before
+    // end_recording.
+    void end_rendering();
 
     // Reset to pre-recording state (frees the command buffer if owned).
     // Called by RenderGraph after a submit to recycle the context.

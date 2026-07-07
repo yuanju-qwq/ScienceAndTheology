@@ -84,6 +84,15 @@ public:
     // (valid until SDL_Quit). `count` receives the array length.
     const char* const* sdl_vulkan_instance_extensions(uint32_t* count);
 
+    // Toggle SDL's relative mouse mode (pointer lock). When enabled, the
+    // mouse is confined to the window + hidden; SDL reports relative
+    // motion via event.motion.xrel/yrel. Used for MC-style free-look.
+    // Returns true on success.
+    bool set_relative_mouse_mode(bool enabled);
+
+    // Query whether relative mouse mode is currently active.
+    bool relative_mouse_mode() const;
+
 private:
     void* _window = nullptr;        // SDL_Window*
     bool _should_close = false;

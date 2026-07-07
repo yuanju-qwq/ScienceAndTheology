@@ -2,6 +2,13 @@
 //
 // P1.5: 3D mesh rendering with MVP UBO + depth testing.
 // P1.4 was depth-less; P1.5 adds depth + descriptor set layout.
+//
+// P2.3 (option B): switched from VkRenderPass-based pipeline creation to
+// dynamic rendering (Vulkan 1.3 core). The pipeline is created with a
+// VkPipelineRenderingCreateInfo chained via pNext, specifying color +
+// depth formats. `renderPass` field is VK_NULL_HANDLE. This removes the
+// dependency on VulkanRenderPass and allows the pipeline to be used with
+// any render pass scope established via vkCmdBeginRendering.
 
 #pragma once
 
@@ -13,7 +20,6 @@
 namespace snt::render_backend {
 
 class VulkanDevice;
-class VulkanRenderPass;
 class VulkanDescriptor;
 class VulkanBuffer;
 
@@ -29,8 +35,12 @@ public:
     VulkanPipeline& operator=(const VulkanPipeline&) = delete;
 
     // Create the pipeline + pipeline layout with descriptor set layout.
-    bool init(VulkanDevice& device, VulkanRenderPass& render_pass,
+    // `color_format` / `depth_format` feed VkPipelineRenderingCreateInfo;
+    // pass VK_FORMAT_UNDEFINED for depth_format to disable depth testing.
+    bool init(VulkanDevice& device,
               VulkanDescriptor& descriptor,
+              VkFormat color_format,
+              VkFormat depth_format,
               const std::string& vert_spv_path,
               const std::string& frag_spv_path);
 

@@ -1,16 +1,23 @@
-// Camera System — handles WASD + mouse flight-style camera movement.
+// Camera System — MC-style first-person camera.
 //
-// P2.A1: decoupled from SDL/Window. Reads from InputSystem::state() each
-// frame instead of polling SDL directly. This makes CameraSystem a pure
-// consumer of input state — it can be unit-tested without a window and
-// can be driven by any input source (recorded playback, network, etc.).
+// P2.A2: rewritten to match Minecraft creative-mode controls.
+//   W/A/S/D: move (horizontal plane; A/D strafe, no yaw change)
+//   Space:   ascend
+//   LShift:  descend
+//   Double-tap W: toggle sprint (2x move speed while W held)
+//   Mouse:   free-look (relative mouse mode managed by Engine; CameraSystem
+//            just reads mouse_dx/dy)
 //
-// Controls:
-//   W/S: move forward/backward
-//   A/D: move left/right
-//   Q/E: move down/up
-//   Right-drag: look around (yaw + pitch)
-//   Shift: speed boost (2x)
+// Sprint state machine:
+//   - On W press (edge), record timestamp. If previous press was < 400ms
+//     ago, set sprint_active_ = true.
+//   - While sprint_active_ + W held, multiply speed by 2.
+//   - When W is released, sprint_active_ = false (must double-tap again).
+//
+// Pointer lock is managed by the Engine, not CameraSystem. The Engine
+// toggles relative mouse mode based on esc_pressed / wants_mouse_lock.
+// When the mouse is unlocked, CameraSystem skips mouse-look so the user
+// can interact with the OS cursor.
 
 #pragma once
 
@@ -36,6 +43,11 @@ public:
     // Set the entity to use as the active camera.
     void set_active_camera(entt::entity e) { active_camera_ = e; }
 
+    // Tell CameraSystem whether the mouse is currently locked (relative
+    // mode). When false, mouse-look is skipped. Engine calls this each
+    // frame after toggling relative mouse mode.
+    void set_mouse_locked(bool locked) { mouse_locked_ = locked; }
+
     void update(World& world, float dt) override;
 
 private:
@@ -47,6 +59,15 @@ private:
     float pitch_ = 0.0f;    // degrees
     float move_speed_ = 3.0f;   // units per second
     float look_speed_ = 0.1f;   // degrees per pixel
+
+    // Sprint state (double-tap W within 400ms).
+    bool  sprint_active_ = false;
+    float last_w_press_time_ = -1.0f;  // seconds since engine start; -1 = none
+    float time_accumulator_ = 0.0f;    // running time, advanced by dt
+
+    // Mirror of Engine's relative-mouse-mode flag. When false, mouse-look
+    // is skipped so the user can move the OS cursor.
+    bool mouse_locked_ = false;
 };
 
 }  // namespace snt::ecs

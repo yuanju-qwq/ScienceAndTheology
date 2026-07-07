@@ -4,7 +4,6 @@
 #include "vulkan_descriptor.h"
 #include "vulkan_device.h"
 #include "vulkan_mesh.h"
-#include "vulkan_render_pass.h"
 
 #include <volk.h>
 
@@ -64,8 +63,10 @@ VulkanPipeline::~VulkanPipeline() {
     destroy();
 }
 
-bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
+bool VulkanPipeline::init(VulkanDevice& device,
                           VulkanDescriptor& descriptor,
+                          VkFormat color_format,
+                          VkFormat depth_format,
                           const std::string& vert_spv_path,
                           const std::string& frag_spv_path) {
     device_ = &device;
@@ -207,9 +208,21 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         return false;
     }
 
-    // --- Step 11: create graphics pipeline ---
+    // --- Step 11: create graphics pipeline (dynamic rendering, P2.3) ---
+    // VkPipelineRenderingCreateInfo specifies attachment formats without
+    // a VkRenderPass object. `renderPass` is VK_NULL_HANDLE.
+    VkPipelineRenderingCreateInfo rendering_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .pNext = nullptr,
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &color_format,
+        .depthAttachmentFormat = depth_format,
+        .stencilAttachmentFormat = VK_FORMAT_UNDEFINED,
+    };
+
     VkGraphicsPipelineCreateInfo pipeline_info{
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .pNext = &rendering_info,
         .stageCount = 2,
         .pStages = shader_stages,
         .pVertexInputState = &vertex_input,
@@ -221,7 +234,7 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
         .pColorBlendState = &color_blend,
         .pDynamicState = &dynamic_state,
         .layout = pipeline_layout_,
-        .renderPass = render_pass.handle(),
+        .renderPass = VK_NULL_HANDLE,
         .subpass = 0,
     };
 
@@ -235,7 +248,7 @@ bool VulkanPipeline::init(VulkanDevice& device, VulkanRenderPass& render_pass,
     vkDestroyShaderModule(device_->logical(), vert_module, nullptr);
     vkDestroyShaderModule(device_->logical(), frag_module, nullptr);
 
-    std::printf("[snt::render_backend] Graphics pipeline created (mesh + depth)\n");
+    std::printf("[snt::render_backend] Graphics pipeline created (dynamic rendering)\n");
     return true;
 }
 

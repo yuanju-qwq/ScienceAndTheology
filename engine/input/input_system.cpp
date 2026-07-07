@@ -17,6 +17,8 @@ void InputSystem::new_frame() {
     std::memset(state_.mouse_pressed, 0, sizeof(state_.mouse_pressed));
     state_.mouse_dx = 0.0f;
     state_.mouse_dy = 0.0f;
+    state_.esc_pressed = false;
+    state_.wants_mouse_lock = false;
 }
 
 void InputSystem::process_event(const void* sdl_event) {
@@ -40,6 +42,11 @@ void InputSystem::process_event(const void* sdl_event) {
                 }
                 state_.key_held[scancode] = true;
             }
+            // P2.A2: ESC sets the edge flag for upper layers to consume.
+            // We do NOT close the window here (Window no longer does either).
+            if (event.key.key == SDLK_ESCAPE && event.key.repeat == 0) {
+                state_.esc_pressed = true;
+            }
             break;
         }
 
@@ -61,6 +68,12 @@ void InputSystem::process_event(const void* sdl_event) {
             else break;  // other buttons (X1/X2) ignored for now
             state_.mouse_pressed[idx] = true;
             state_.mouse_held[idx] = true;
+            // P2.A2: a left click signals "wants_mouse_lock" so the Engine
+            // can re-enter relative mouse mode (MC-style: click to play).
+            // The Engine only honors this when not already locked.
+            if (idx == 0) {
+                state_.wants_mouse_lock = true;
+            }
             break;
         }
 

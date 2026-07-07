@@ -6,7 +6,6 @@ add_library(snt_render_backend STATIC
     vulkan_instance.cpp
     vulkan_device.cpp
     vulkan_swapchain.cpp
-    vulkan_render_pass.cpp
     vulkan_pipeline.cpp
     vulkan_buffer.cpp
     vulkan_descriptor.cpp

@@ -1,35 +1,35 @@
 // RenderSystem implementation.
 //
-// P2.D: ECS-driven rendering via RenderGraph.
+// P2.D + P2.3 (option B): ECS-driven rendering via RenderGraph with
+// dynamic rendering.
 // Per-frame flow:
 //   1. Query ECS for active Camera (Transform + Camera) + first mesh entity
 //      (Transform + MeshRef). Build MVP matrix.
 //   2. Update the per-frame UBO via VulkanDescriptor.
 //   3. VulkanFrame::begin_frame() — wait fence + acquire swapchain image.
-//   4. Register a "forward" pass with RenderGraph. The pass callback:
-//        vkCmdBeginRenderPass / vkCmdBindPipeline / vkCmdSetViewport /
-//        vkCmdSetScissor / vkCmdBindDescriptorSets / mesh.draw() /
-//        vkCmdEndRenderPass
-//   5. RenderGraph::execute_record_only() — records the pass callback into
+//   4. Import swapchain image + depth image into RenderGraph as external
+//      textures (swapchain terminal layout = PRESENT_SRC_KHR).
+//   5. Register a "forward" pass with RenderGraph. The pass declares the
+//      swapchain image as color attachment + depth image as depth
+//      attachment. The graph inserts layout barriers + wraps the callback
+//      in vkCmdBeginRendering / vkCmdEndRendering. The callback:
+//        vkCmdBindPipeline / vkCmdSetViewport / vkCmdSetScissor /
+//        vkCmdBindDescriptorSets / mesh.draw()
+//   6. RenderGraph::execute_record_only() — records the pass callback into
 //      its CommandContext.
-//   6. VulkanFrame::end_frame(image_index, recorded_cb) — submit + present.
-//
-// The pass callback captures raw Vulkan calls. This is intentional for
-// P2.D: we keep the same recording logic as the old draw_frame to avoid
-// behavior changes, but it now runs through the RenderGraph's
-// CommandContext rather than VulkanFrame's internal command buffer.
+//   7. VulkanFrame::end_frame(image_index, recorded_cb) — submit + present.
 
 #include "render/render_system.h"
 
 #include "ecs/components.h"
 #include "ecs/world.h"
 #include "render_backend/command_context.h"
+#include "render_backend/vulkan_depth.h"
 #include "render_backend/vulkan_descriptor.h"
 #include "render_backend/vulkan_device.h"
 #include "render_backend/vulkan_frame.h"
 #include "render_backend/vulkan_mesh.h"
 #include "render_backend/vulkan_pipeline.h"
-#include "render_backend/vulkan_render_pass.h"
 #include "render_backend/vulkan_swapchain.h"
 
 #include <volk.h>
@@ -100,7 +100,7 @@ void RenderSystem::destroy_render_graph() {
 }
 
 void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
-    if (!device_ || !swapchain_ || !render_pass_ || !pipeline_ ||
+    if (!device_ || !swapchain_ || !depth_ || !pipeline_ ||
         !descriptor_ || !frame_ || !graph_initialized_) {
         return;
     }
@@ -189,41 +189,71 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         descriptor_->update_ubo(frame_idx, i, draws[i].ubo);
     }
 
+    // --- P2.3 (option B): import swapchain + depth into RenderGraph ---
+    // The swapchain image must end the frame in PRESENT_SRC_KHR; declare
+    // it as terminal_layout so the graph inserts a final barrier.
+    graph_.reset();
+
+    const VkExtent2D extent = swapchain_->extent();
+    const VkFormat color_format = swapchain_->image_format();
+    const VkFormat depth_format = depth_->format();
+
+    // Swapchain image for THIS frame's image_index. Initial layout is
+    // UNDEFINED (acquired fresh); terminal layout is PRESENT_SRC_KHR.
+    VkImage swapchain_image = swapchain_->images()[image_index];
+    VkImageView swapchain_view = swapchain_->image_views()[image_index];
+    auto color_res = graph_.import_texture(
+        swapchain_image, swapchain_view, color_format,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        extent.width, extent.height,
+        /*mip_levels=*/1, /*array_layers=*/1,
+        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    // Depth image. Initial layout UNDEFINED (cleared each frame); no
+    // terminal requirement (stays at DEPTH_ATTACHMENT_OPTIMAL).
+    VkImage depth_image = depth_->image();
+    VkImageView depth_view = depth_->view();
+    auto depth_res = graph_.import_texture(
+        depth_image, depth_view, depth_format,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        extent.width, extent.height);
+
     // --- Register the forward pass (P2.4: per-entity bind+draw inside) ---
-    auto* rp        = render_pass_;
     auto* pipeline  = pipeline_;
     auto* descriptor = descriptor_;
-    VkExtent2D extent  = swapchain_->extent();
 
-    graph_.reset();
     auto* pass = graph_.add_pass("forward");
     if (!pass) {
         std::fprintf(stderr, "[snt::render] add_pass failed\n");
         return;
     }
+
+    // Declare color + depth attachments. The graph will transition them to
+    // COLOR_ATTACHMENT_OPTIMAL / DEPTH_STENCIL_ATTACHMENT_OPTIMAL before
+    // the callback + wrap the callback in vkCmdBeginRendering / EndRendering.
+    snt::renderer::ColorAttachmentDecl color_decl{
+        .resource = color_res,
+        .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+        .clear_value = {.color = {{0.0f, 0.0f, 0.2f, 1.0f}}},
+    };
+    pass->color_attachments.push_back(color_decl);
+
+    snt::renderer::DepthAttachmentDecl depth_decl{
+        .resource = depth_res,
+        .load_op = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .store_op = VK_ATTACHMENT_STORE_OP_STORE,
+        .clear_value = {.depthStencil = {1.0f, 0}},
+    };
+    pass->depth_attachment = depth_decl;
+
     // Capture draws by value (vector copy) — the callback runs synchronously
-    // inside execute_record_only, so this is safe.
-    pass->execute = [rp, pipeline, descriptor, frame_idx, extent, image_index, draws]
+    // inside execute_record_only, so this is safe. The callback does NOT
+    // call vkCmdBeginRenderPass / EndRenderPass; the graph handles dynamic
+    // rendering scope based on the declared attachments.
+    pass->execute = [pipeline, descriptor, frame_idx, extent, draws]
                     (snt::render_backend::CommandContext& ctx) {
         VkCommandBuffer cmd = ctx.handle();
-
-        // Clear values: color (dark blue) + depth (1.0 = far).
-        VkClearValue clear_values[2] = {};
-        clear_values[0].color = {{0.0f, 0.0f, 0.2f, 1.0f}};
-        clear_values[1].depthStencil = {1.0f, 0};
-
-        VkRenderPassBeginInfo rp_begin{
-            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-            .renderPass = rp->handle(),
-            .framebuffer = rp->framebuffers()[image_index],
-            .renderArea = {
-                .offset = {0, 0},
-                .extent = extent,
-            },
-            .clearValueCount = 2,
-            .pClearValues = clear_values,
-        };
-        vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->handle());
 
@@ -252,8 +282,6 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
                                     1, &dyn_offset);
             d.mesh->draw(cmd);
         }
-
-        vkCmdEndRenderPass(cmd);
     };
 
     // --- Record (no submit) ---

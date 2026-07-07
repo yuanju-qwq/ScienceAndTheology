@@ -4,15 +4,24 @@
 //   - Iterates View<Transform, MeshRef> to find the mesh entity.
 //   - Reads active Camera entity to build view/proj.
 //   - Registers a "forward" pass with RenderGraph; the pass callback
-//     issues the actual vkCmd* calls (begin render pass, bind pipeline,
-//     bind descriptor set, draw mesh, end render pass).
+//     issues the actual vkCmd* calls (bind pipeline, bind descriptor set,
+//     draw mesh). Dynamic rendering scope (vkCmdBeginRendering /
+//     vkCmdEndRendering) is managed by RenderGraph based on the pass's
+//     declared color/depth attachments.
 //   - Calls RenderGraph::execute_record_only() to record into a
 //     CommandContext, then hands the recorded command buffer to
 //     VulkanFrame::end_frame() for submit + present.
 //
+// P2.3 (option B): swapchain + depth images are imported into the
+// RenderGraph as external textures each frame. The forward pass declares
+// them as color + depth attachments; the graph inserts layout barriers
+// (UNDEFINED → COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR) + wraps the
+// callback in vkCmdBeginRendering / vkCmdEndRendering.
+//
 // Layering: RenderSystem owns no Vulkan sync primitives. VulkanFrame owns
 // fences/semaphores/acquire/present; RenderGraph owns command buffers +
-// recording; RenderSystem owns the "what to draw" decision (ECS query).
+// recording + barriers; RenderSystem owns the "what to draw" decision
+// (ECS query) + attachment wiring.
 
 #pragma once
 
@@ -26,7 +35,7 @@
 namespace snt::render_backend {
 class VulkanDevice;
 class VulkanSwapchain;
-class VulkanRenderPass;
+class VulkanDepth;
 class VulkanPipeline;
 class VulkanDescriptor;
 class VulkanFrame;
@@ -42,7 +51,7 @@ public:
     // Wire up rendering dependencies. All pointers must outlive RenderSystem.
     void set_device(snt::render_backend::VulkanDevice* p)         { device_ = p; }
     void set_swapchain(snt::render_backend::VulkanSwapchain* p)   { swapchain_ = p; }
-    void set_render_pass(snt::render_backend::VulkanRenderPass* p){ render_pass_ = p; }
+    void set_depth(snt::render_backend::VulkanDepth* p)           { depth_ = p; }
     void set_pipeline(snt::render_backend::VulkanPipeline* p)     { pipeline_ = p; }
     void set_descriptor(snt::render_backend::VulkanDescriptor* p) { descriptor_ = p; }
     void set_frame(snt::render_backend::VulkanFrame* p)           { frame_ = p; }
@@ -69,7 +78,7 @@ public:
 private:
     snt::render_backend::VulkanDevice*     device_      = nullptr;
     snt::render_backend::VulkanSwapchain*  swapchain_   = nullptr;
-    snt::render_backend::VulkanRenderPass* render_pass_ = nullptr;
+    snt::render_backend::VulkanDepth*      depth_       = nullptr;
     snt::render_backend::VulkanPipeline*   pipeline_    = nullptr;
     snt::render_backend::VulkanDescriptor* descriptor_  = nullptr;
     snt::render_backend::VulkanFrame*      frame_       = nullptr;

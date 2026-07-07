@@ -43,10 +43,20 @@ struct InputState {
     int32_t mouse_x = 0;
     int32_t mouse_y = 0;
 
-    // True if the window requested close (SDL_EVENT_QUIT / ESC).
+    // True if the window requested close (SDL_EVENT_QUIT).
     // Window still owns should_close semantics; this is a mirror for
     // systems that want to react to quit without holding a Window*.
     bool quit_requested = false;
+
+    // P2.A2 MC-style pointer lock signals.
+    // `esc_pressed` is true on the frame ESC was pressed (edge event).
+    // Upper layers use it to toggle relative mouse mode off.
+    bool esc_pressed = false;
+
+    // `wants_mouse_lock` is true on the frame a left-click occurred while
+    // the mouse is NOT in relative mode. Upper layers use it to re-lock
+    // the mouse (analogous to clicking the MC window to re-enter game).
+    bool wants_mouse_lock = false;
 };
 
 }  // namespace snt::input

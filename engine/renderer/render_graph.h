@@ -63,9 +63,22 @@ public:
     // buffers, and other resources created outside the graph.
     // `current_layout` is the layout the image is in at the start of the
     // frame; the graph uses it to insert correct barriers.
+    // `terminal_layout` (optional) is the layout the image must be in
+    // after all passes finish. The graph inserts a final barrier after
+    // the last pass if the current layout differs. Pass
+    // VK_IMAGE_LAYOUT_UNDEFINED to skip the terminal transition (default
+    // for transient resources).
+    // `width` / `height` / `mip_levels` / `array_layers` fill the texture
+    // descriptor so the graph can derive render area + correct barrier
+    // subresource ranges. Swapchain images: pass extent + 1 mip + 1 layer.
     RenderResource import_texture(VkImage image, VkImageView view,
                                   VkFormat format,
-                                  VkImageLayout current_layout);
+                                  VkImageLayout current_layout,
+                                  uint32_t width, uint32_t height,
+                                  uint32_t mip_levels = 1,
+                                  uint32_t array_layers = 1,
+                                  VkImageLayout terminal_layout =
+                                      VK_IMAGE_LAYOUT_UNDEFINED);
 
     // Register a pass with the graph. Returns a non-owning pointer the
     // caller uses to fill in attachments + execute callback.

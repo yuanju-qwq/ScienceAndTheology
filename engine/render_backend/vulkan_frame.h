@@ -18,7 +18,6 @@ namespace snt::render_backend {
 
 class VulkanDevice;
 class VulkanSwapchain;
-class VulkanRenderPass;
 class VulkanPipeline;
 class VulkanDescriptor;
 class VulkanMesh;

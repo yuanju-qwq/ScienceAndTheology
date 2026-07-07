@@ -68,6 +68,19 @@ void CommandContext::end_recording() {
     recording_ = false;
 }
 
+// P2.3 (option B): dynamic rendering helpers.
+// vkCmdBeginRendering / vkCmdEndRendering are Vulkan 1.3 core entry points
+// (no extension needed). The caller builds VkRenderingInfo; we just forward.
+void CommandContext::begin_rendering(const VkRenderingInfo& rendering_info) {
+    if (!recording_ || command_buffer_ == VK_NULL_HANDLE) return;
+    vkCmdBeginRendering(command_buffer_, &rendering_info);
+}
+
+void CommandContext::end_rendering() {
+    if (!recording_ || command_buffer_ == VK_NULL_HANDLE) return;
+    vkCmdEndRendering(command_buffer_);
+}
+
 void CommandContext::reset() {
     // Free the allocated command buffer back to the pool. Safe to call
     // even if begin_recording was never called.
