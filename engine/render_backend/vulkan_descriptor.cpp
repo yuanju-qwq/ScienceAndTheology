@@ -1,4 +1,6 @@
 // Vulkan Descriptor implementation.
+//
+// P2.4: dynamic UBO for multi-entity rendering.
 
 #include "vulkan_descriptor.h"
 #include "vulkan_buffer.h"
@@ -22,10 +24,23 @@ VulkanDescriptor::~VulkanDescriptor() {
 bool VulkanDescriptor::init(VulkanDevice& device) {
     device_ = &device;
 
-    // --- Step 1: descriptor set layout ---
+    // --- Step 0: compute aligned UBO stride ---
+    // minUniformBufferOffsetAlignment requires each dynamic offset to be
+    // a multiple of this value. We round sizeof(UBO) up to that alignment.
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(device.physical(), &props);
+    VkDeviceSize align = props.limits.minUniformBufferOffsetAlignment;
+    if (align > 0) {
+        ubo_stride_ = static_cast<uint32_t>(
+            (sizeof(UniformBufferObject) + align - 1) & ~(align - 1));
+    } else {
+        ubo_stride_ = sizeof(UniformBufferObject);
+    }
+
+    // --- Step 1: descriptor set layout (DYNAMIC UBO) ---
     VkDescriptorSetLayoutBinding ubo_binding{
         .binding = 0,
-        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
         .descriptorCount = 1,
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         .pImmutableSamplers = nullptr,
@@ -45,7 +60,7 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
 
     // --- Step 2: descriptor pool ---
     VkDescriptorPoolSize pool_size{
-        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
         .descriptorCount = kMaxFramesInFlight,
     };
 
@@ -78,11 +93,13 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
         return false;
     }
 
-    // --- Step 4: create UBO buffers + write descriptor sets ---
+    // --- Step 4: create large dynamic UBO buffers + write descriptor sets ---
+    // Each buffer holds kMaxEntities MVP slots, stride = ubo_stride_.
+    VkDeviceSize ubo_total_size = VkDeviceSize(ubo_stride_) * kMaxEntities;
     ubo_buffers_.resize(kMaxFramesInFlight);
     for (uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
         ubo_buffers_[i] = new VulkanBuffer();
-        if (!ubo_buffers_[i]->init(*device_, sizeof(UniformBufferObject),
+        if (!ubo_buffers_[i]->init(*device_, ubo_total_size,
                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                                    true /* cpu_visible */)) {
             std::fprintf(stderr, "[snt::render_backend] UBO buffer init failed\n");
@@ -90,6 +107,7 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
         }
 
         // Write descriptor: point binding 0 to this UBO buffer.
+        // `range` = sizeof(UBO) — each dynamic offset selects one MVP slot.
         VkDescriptorBufferInfo buf_info{
             .buffer = ubo_buffers_[i]->handle(),
             .offset = 0,
@@ -102,15 +120,16 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
             .dstBinding = 0,
             .dstArrayElement = 0,
             .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
             .pBufferInfo = &buf_info,
         };
 
         vkUpdateDescriptorSets(device_->logical(), 1, &write, 0, nullptr);
     }
 
-    std::printf("[snt::render_backend] Descriptor sets created (%u UBOs)\n",
-                kMaxFramesInFlight);
+    std::printf("[snt::render_backend] Dynamic UBO descriptor created "
+                "(stride=%u, max_entities=%u)\n",
+                ubo_stride_, kMaxEntities);
     return true;
 }
 
@@ -135,13 +154,17 @@ void VulkanDescriptor::destroy() {
 }
 
 // ---------------------------------------------------------------------------
-// Update UBO
+// Update UBO for a specific entity slot
 // ---------------------------------------------------------------------------
 
-void VulkanDescriptor::update_ubo(uint32_t frame_index,
+void VulkanDescriptor::update_ubo(uint32_t frame_index, uint32_t entity_index,
                                   const UniformBufferObject& ubo) {
     if (frame_index >= ubo_buffers_.size()) return;
-    ubo_buffers_[frame_index]->write(&ubo, sizeof(ubo));
+    if (entity_index >= kMaxEntities) return;
+
+    // Write the MVP into the entity's slot within the large UBO.
+    VkDeviceSize offset = VkDeviceSize(ubo_stride_) * entity_index;
+    ubo_buffers_[frame_index]->write_at(&ubo, sizeof(ubo), offset);
 }
 
 }  // namespace snt::render_backend

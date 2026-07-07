@@ -139,6 +139,10 @@ void RenderGraph::destroy() {
     impl_->contexts.clear();
     impl_->passes.clear();
 
+    // Release transient resources + TransientPool.
+    impl_->resources.clear();
+    impl_->transient_pool.destroy();
+
     if (impl_->command_pool != VK_NULL_HANDLE) {
         vkDestroyCommandPool(impl_->device->logical(), impl_->command_pool,
                              nullptr);
@@ -149,20 +153,56 @@ void RenderGraph::destroy() {
 }
 
 // ---------------------------------------------------------------------------
-// Resource creation (still stub — P2.3)
+// Resource creation / import (P2.3)
 // ---------------------------------------------------------------------------
-RenderResource RenderGraph::create_texture(uint32_t width, uint32_t height,
-                                           uint32_t format) {
-    (void)width;
-    (void)height;
-    (void)format;
-    return RenderResource{};  // P2.3
+// Transient resources are registered with a descriptor but NOT allocated
+// yet. Allocation happens lazily on first use inside execute_record_only()
+// (P2.3.6 will wire the lazy alloc). For P2.3.4 (dependency derivation) we
+// only need the descriptor + a valid handle.
+// ---------------------------------------------------------------------------
+RenderResource RenderGraph::create_texture(const TextureDesc& desc) {
+    RenderResource r;
+    r.id = impl_->next_resource_id++;
+    r.type = ResourceType::kTexture;
+
+    ResourceEntry e{};
+    e.type = ResourceType::kTexture;
+    e.tex_desc = desc;
+    e.current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    impl_->resources.push_back(e);
+    return r;
 }
 
-RenderResource RenderGraph::create_buffer(uint64_t size, uint32_t usage) {
-    (void)size;
-    (void)usage;
-    return RenderResource{};  // P2.3
+RenderResource RenderGraph::create_buffer(const BufferDesc& desc) {
+    RenderResource r;
+    r.id = impl_->next_resource_id++;
+    r.type = ResourceType::kBuffer;
+
+    ResourceEntry e{};
+    e.type = ResourceType::kBuffer;
+    e.buf_desc = desc;
+    impl_->resources.push_back(e);
+    return r;
+}
+
+RenderResource RenderGraph::import_texture(VkImage image, VkImageView view,
+                                           VkFormat format,
+                                           VkImageLayout current_layout) {
+    RenderResource r;
+    r.id = impl_->next_resource_id++;
+    r.type = ResourceType::kTexture;
+
+    ResourceEntry e{};
+    e.type = ResourceType::kTexture;
+    e.image = image;
+    e.view = view;
+    e.is_external = true;
+    e.current_layout = current_layout;
+    // Fill tex_desc.format so passes can query it; width/height unknown for
+    // external resources (pass must query separately if needed).
+    e.tex_desc.format = static_cast<uint32_t>(format);
+    impl_->resources.push_back(e);
+    return r;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +263,54 @@ bool RenderGraph::execute() {
         vkDestroyFence(impl_->device->logical(), fence, nullptr);
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Implicit dependency derivation (P2.3.4)
+// ---------------------------------------------------------------------------
+// Derives pass-to-pass dependencies from attachment read/write overlap.
+// Rule: if pass B reads a resource that pass A writes, B depends on A.
+// Writes are merged into `depends_on` before topological sort.
+// ---------------------------------------------------------------------------
+static void derive_implicit_dependencies(std::vector<RenderGraphPass>* passes) {
+    const size_t n = passes->size();
+
+    // Map: resource id -> list of (pass_index, is_write).
+    std::unordered_map<uint32_t, std::vector<std::pair<size_t, bool>>> readers_writers;
+    for (size_t i = 0; i < n; ++i) {
+        RenderGraphPass& p = (*passes)[i];
+        for (const auto& a : p.inputs) {
+            readers_writers[a.resource.id].emplace_back(i, /*is_write=*/false);
+        }
+        for (const auto& a : p.outputs) {
+            readers_writers[a.resource.id].emplace_back(i, /*is_write=*/true);
+        }
+    }
+
+    // For each resource: every reader depends on every writer that came
+    // before it (by registration order). This is the RAW / WAW / WAR
+    // dependency; for simplicity we add writer→reader edges only (RAW).
+    for (auto& kv : readers_writers) {
+        const auto& accesses = kv.second;
+        for (const auto& [reader_idx, is_read_write] : accesses) {
+            if (is_read_write) continue;  // skip writers
+            for (const auto& [writer_idx, w_is_write] : accesses) {
+                if (!w_is_write) continue;
+                if (writer_idx == reader_idx) continue;
+                // reader depends on writer
+                RenderGraphPass& reader = (*passes)[reader_idx];
+                const std::string& writer_name = (*passes)[writer_idx].name;
+                // Avoid duplicate entries.
+                bool exists = false;
+                for (const auto& d : reader.depends_on) {
+                    if (d == writer_name) { exists = true; break; }
+                }
+                if (!exists) {
+                    reader.depends_on.push_back(writer_name);
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +412,9 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
         return true;  // nothing to do — not an error
     }
 
+    // --- Derive implicit dependencies from attachment overlap (P2.3.4) ---
+    derive_implicit_dependencies(&impl_->passes);
+
     // --- Topological sort (P2.3) ---
     std::vector<size_t> order;
     std::string cycle_name;
@@ -371,6 +462,12 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
 // ---------------------------------------------------------------------------
 void RenderGraph::reset() {
     impl_->passes.clear();
+    // Clear per-frame transient resources (external resources are also
+    // cleared — callers must re-import them each frame if they want to
+    // reference external images as attachments).
+    impl_->resources.clear();
+    impl_->next_resource_id = 0;
+    impl_->transient_pool.reset();
     // CommandContexts are kept (their command buffers are reusable).
 }
 
@@ -383,6 +480,21 @@ VkCommandBuffer RenderGraph::recorded_command_buffer(uint32_t frame_index,
     const auto& slot = impl_->contexts[frame_index];
     if (pass_index >= slot.size()) return VK_NULL_HANDLE;
     return slot[pass_index].handle();
+}
+
+uint32_t RenderGraph::recorded_command_buffers(uint32_t frame_index,
+                                               std::vector<VkCommandBuffer>* out_buffers) const {
+    out_buffers->clear();
+    if (frame_index >= impl_->contexts.size()) return 0;
+    const auto& slot = impl_->contexts[frame_index];
+    out_buffers->reserve(slot.size());
+    for (const auto& ctx : slot) {
+        VkCommandBuffer cb = ctx.handle();
+        if (cb != VK_NULL_HANDLE) {
+            out_buffers->push_back(cb);
+        }
+    }
+    return static_cast<uint32_t>(out_buffers->size());
 }
 
 }  // namespace snt::renderer

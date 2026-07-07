@@ -7,6 +7,7 @@
 
 add_library(snt_render STATIC
     render_system.cpp
+    mesh_cache.cpp
 )
 target_include_directories(snt_render PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(snt_render PUBLIC

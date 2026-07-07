@@ -18,6 +18,7 @@
 
 #include "ecs/system.h"
 #include "renderer/render_graph.h"
+#include "render/mesh_cache.h"
 #include "render_backend/vulkan_descriptor.h"
 
 #include <entt/entt.hpp>
@@ -28,7 +29,6 @@ class VulkanSwapchain;
 class VulkanRenderPass;
 class VulkanPipeline;
 class VulkanDescriptor;
-class VulkanMesh;
 class VulkanFrame;
 }
 
@@ -45,8 +45,10 @@ public:
     void set_render_pass(snt::render_backend::VulkanRenderPass* p){ render_pass_ = p; }
     void set_pipeline(snt::render_backend::VulkanPipeline* p)     { pipeline_ = p; }
     void set_descriptor(snt::render_backend::VulkanDescriptor* p) { descriptor_ = p; }
-    void set_mesh(snt::render_backend::VulkanMesh* p)             { mesh_ = p; }
     void set_frame(snt::render_backend::VulkanFrame* p)           { frame_ = p; }
+
+    // Access the mesh cache (Engine loads meshes via this).
+    MeshCache& mesh_cache() { return mesh_cache_; }
 
     // Set the entity to use as the active camera.
     void set_active_camera(entt::entity e) { active_camera_ = e; }
@@ -70,9 +72,11 @@ private:
     snt::render_backend::VulkanRenderPass* render_pass_ = nullptr;
     snt::render_backend::VulkanPipeline*   pipeline_    = nullptr;
     snt::render_backend::VulkanDescriptor* descriptor_  = nullptr;
-    snt::render_backend::VulkanMesh*       mesh_        = nullptr;
     snt::render_backend::VulkanFrame*      frame_       = nullptr;
     entt::entity active_camera_ = entt::null;
+
+    // Mesh cache: deduplicates mesh loads, owns VulkanMesh objects.
+    MeshCache mesh_cache_;
 
     snt::renderer::RenderGraph graph_;
     bool graph_initialized_ = false;

@@ -46,6 +46,10 @@ public:
     // Convenience wrapper for map() + memcpy + unmap().
     void write(const void* data, VkDeviceSize data_size);
 
+    // Copy `data_size` bytes from `data` into the buffer at `offset`.
+    // P2.4: used by dynamic UBO to write individual entity MVP slots.
+    void write_at(const void* data, VkDeviceSize data_size, VkDeviceSize offset);
+
     VkBuffer handle() const { return buffer_; }
     VkDeviceSize size() const { return size_; }
     bool is_valid() const { return buffer_ != VK_NULL_HANDLE; }

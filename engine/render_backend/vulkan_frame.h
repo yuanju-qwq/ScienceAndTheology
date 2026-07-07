@@ -55,15 +55,27 @@ public:
                             VulkanSwapchain& swapchain,
                             uint32_t* out_image_index);
 
-    // end_frame: submit `cmd_buffer` to the graphics queue (waiting on the
-    //   acquire semaphore, signaling the render-done semaphore) then present.
+    // end_frame: submit recorded command buffers to the graphics queue
+    //   (waiting on the acquire semaphore, signaling the render-done
+    //   semaphore) then present.
     //   `image_index` must be the value returned by begin_frame().
+    //   `cmd_buffers` / `cmd_buffer_count` is the array of recorded command
+    //   buffers to submit (typically all passes from RenderGraph).
     // Returns kOk on success, kResized if present reported out-of-date,
     //   kError on submit/present failure.
     FrameResult end_frame(VulkanDevice& device,
                           VulkanSwapchain& swapchain,
                           uint32_t image_index,
-                          VkCommandBuffer cmd_buffer);
+                          const VkCommandBuffer* cmd_buffers,
+                          uint32_t cmd_buffer_count);
+
+    // Convenience overload for a single command buffer.
+    FrameResult end_frame(VulkanDevice& device,
+                          VulkanSwapchain& swapchain,
+                          uint32_t image_index,
+                          VkCommandBuffer cmd_buffer) {
+        return end_frame(device, swapchain, image_index, &cmd_buffer, 1);
+    }
 
     uint32_t current_frame() const { return current_frame_; }
     static constexpr uint32_t frames_in_flight() { return kMaxFramesInFlight; }

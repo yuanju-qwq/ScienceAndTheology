@@ -4,6 +4,9 @@
 // Resources are allocated on demand and freed en masse in reset().
 
 #include "renderer/transient_pool.h"
+#include "renderer/render_graph_resource.h"
+
+#include <volk.h>
 
 #include <cstdio>
 
@@ -47,9 +50,12 @@ bool TransientPool::create_texture(const TextureDesc& desc,
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VmaAllocationCreateInfo alloc_info{};
-    // TRANSIENT bit hints VMA to use a fast, short-lived strategy.
+    // VMA_AUTO + DEDICATED_MEMORY is the recommended usage for short-lived
+    // transient resources (VMA 3.x; the old TRANSIENT_BIT was removed).
+    // Dedicated allocation avoids suballocation overhead for resources
+    // that are created + destroyed every frame.
     alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-    alloc_info.flags = VMA_ALLOCATION_CREATE_TRANSIENT_BIT;
+    alloc_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 
     TextureAlloc a{};
     VkResult result = vmaCreateImage(allocator_, &image_info, &alloc_info,
@@ -115,7 +121,7 @@ bool TransientPool::create_buffer(const BufferDesc& desc,
 
     VmaAllocationCreateInfo alloc_info{};
     alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-    alloc_info.flags = VMA_ALLOCATION_CREATE_TRANSIENT_BIT;
+    alloc_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 
     BufferAlloc a{};
     VkResult result = vmaCreateBuffer(allocator_, &buf_info, &alloc_info,

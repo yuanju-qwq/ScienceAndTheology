@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace snt::render_backend {
 class VulkanDevice;
@@ -98,6 +99,12 @@ public:
     // Returns VK_NULL_HANDLE if indices are out of range.
     VkCommandBuffer recorded_command_buffer(uint32_t frame_index,
                                             size_t pass_index) const;
+
+    // Collect all recorded command buffers from the `frame_index` slot into
+    // `out_buffers`. Returns the count. Used when the caller wants to submit
+    // all passes in one vkQueueSubmit (e.g. VulkanFrame::end_frame).
+    uint32_t recorded_command_buffers(uint32_t frame_index,
+                                      std::vector<VkCommandBuffer>* out_buffers) const;
 
     // Clear all passes + transient resources. Called between frames.
     // Does NOT destroy the command pool (kept across frames).

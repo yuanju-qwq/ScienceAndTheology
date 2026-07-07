@@ -87,13 +87,13 @@ struct Engine::Impl {
     snt::render_backend::VulkanRenderPass     vk_render_pass;
     snt::render_backend::VulkanDescriptor     vk_descriptor;
     snt::render_backend::VulkanPipeline       vk_pipeline;
-    snt::render_backend::VulkanMesh           vk_mesh;
     snt::render_backend::VulkanFrame          vk_frame;
 
     // ECS.
     snt::ecs::World world;
     entt::entity camera_entity = entt::null;
     entt::entity cube_entity   = entt::null;
+    entt::entity cube_entity2  = entt::null;  // P2.4: second cube for multi-mesh test
 
     // Render system (ECS-driven). Holds raw pointers to the vk_* objects
     // above; set in init() after the vk_* objects are created.
@@ -181,11 +181,7 @@ bool Engine::init() {
         std::fprintf(stderr, "[snt_engine] VulkanPipeline init failed\n");
         return false;
     }
-    float cube_color[3] = {0.8f, 0.6f, 0.2f};  // orange
-    if (!impl_->vk_mesh.load_obj(impl_->vk_device, "assets/cube.obj", cube_color)) {
-        std::fprintf(stderr, "[snt_engine] Mesh load failed\n");
-        return false;
-    }
+    // (Mesh loading moved below — needs RenderSystem's MeshCache initialized first.)
 
     // --- Frame resources ---
     if (!impl_->vk_frame.init(impl_->vk_device,
@@ -213,7 +209,7 @@ bool Engine::init() {
         cube_transform.rotation[0] = -25.0f;  // pitch down
         cube_transform.rotation[1] = 35.0f;   // yaw right
     }
-    impl_->world.add_component<MeshRef>(impl_->cube_entity, MeshRef{"assets/cube.obj"});
+    // (MeshRef added below — needs MeshCache handle from RenderSystem.)
 
     // --- Camera system ---
     auto& camera_system = impl_->world.add_system<CameraSystem>();
@@ -228,13 +224,38 @@ bool Engine::init() {
     impl_->render_system.set_render_pass(&impl_->vk_render_pass);
     impl_->render_system.set_pipeline(&impl_->vk_pipeline);
     impl_->render_system.set_descriptor(&impl_->vk_descriptor);
-    impl_->render_system.set_mesh(&impl_->vk_mesh);
     impl_->render_system.set_frame(&impl_->vk_frame);
     impl_->render_system.set_active_camera(impl_->camera_entity);
     if (!impl_->render_system.init_render_graph()) {
         std::fprintf(stderr, "[snt_engine] RenderSystem::init_render_graph failed\n");
         return false;
     }
+
+    // --- P2.4: load mesh via MeshCache + attach MeshRef to cube entities ---
+    // init_render_graph() must run first so MeshCache is bound to the device.
+    auto cube_handle = impl_->render_system.mesh_cache().load("assets/cube.obj");
+    if (!cube_handle.valid()) {
+        std::fprintf(stderr, "[snt_engine] MeshCache: failed to load assets/cube.obj\n");
+        return false;
+    }
+    // Bridge: render-layer MeshHandle -> ecs-layer MeshHandle (same layout).
+    snt::ecs::MeshHandle ecs_cube_handle{cube_handle.id};
+
+    // First cube: left of origin, tilted.
+    impl_->world.add_component<MeshRef>(impl_->cube_entity,
+                                        MeshRef{ecs_cube_handle});
+    impl_->world.get_component<Transform>(impl_->cube_entity).position[0] = -1.5f;
+
+    // Second cube: right of origin, same mesh handle (deduplication test).
+    impl_->cube_entity2 = impl_->world.create_entity();
+    {
+        auto& t2 = impl_->world.add_component<Transform>(impl_->cube_entity2);
+        t2.position[0] = 1.5f;
+        t2.rotation[0] = -25.0f;
+        t2.rotation[1] = -35.0f;  // mirror yaw for variety
+    }
+    impl_->world.add_component<MeshRef>(impl_->cube_entity2,
+                                        MeshRef{ecs_cube_handle});
 
     // --- Debug panel metrics ---
     auto& panel = snt::ui::default_debug_panel();
@@ -309,9 +330,9 @@ void Engine::shutdown() {
     // Render system (releases its RenderGraph).
     impl_->render_system.destroy_render_graph();
 
-    // Frame + mesh + pipeline + descriptor.
+    // Frame + pipeline + descriptor.
+    // (MeshCache-owned meshes are destroyed by RenderSystem::destroy_render_graph.)
     impl_->vk_frame.destroy();
-    impl_->vk_mesh.destroy();
     impl_->vk_pipeline.destroy();
     impl_->vk_descriptor.destroy();
 
@@ -332,6 +353,11 @@ void Engine::shutdown() {
     impl_->window.destroy();
 
     std::printf("[snt_engine] Shutdown complete\n");
+
+    // Release Impl so a second shutdown() call (e.g. from the destructor
+    // after main() already called shutdown()) is a no-op via the
+    // `if (!impl_) return` guard above.
+    impl_.reset();
 }
 
 }  // namespace snt::engine

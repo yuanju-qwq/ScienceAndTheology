@@ -1,6 +1,9 @@
 // ECS components — data-only structs attached to entities.
 //
 // P1.5: Transform (position/rotation/scale) + MeshRef (path to .obj file).
+// P2.4: MeshRef now stores a MeshHandle (uint32_t) into MeshCache instead
+//        of a file path. This decouples components from string lookups
+//        every frame + makes mesh references stable across cache rebuilds.
 // P2+ will add: Velocity, Collider, Health, Inventory, etc.
 
 #pragma once
@@ -18,10 +21,18 @@ struct Transform {
     float scale[3] = {1.0f, 1.0f, 1.0f};
 };
 
-// MeshRef: reference to a mesh asset by file path.
-// The render system loads (or finds cached) mesh by this path.
+// MeshHandle forward decl — defined in render/mesh_cache.h.
+// We duplicate the type here to keep components.h free of render deps.
+// (Same layout: a single uint32_t.)
+struct MeshHandle {
+    uint32_t id = 0xFFFFFFFFu;
+    bool valid() const { return id != 0xFFFFFFFFu; }
+};
+
+// MeshRef: reference to a mesh asset via a MeshCache handle.
+// The render system resolves the handle to a VulkanMesh* each frame.
 struct MeshRef {
-    std::string path;  // e.g. "assets/cube.obj"
+    MeshHandle handle;
 };
 
 // Camera: marks an entity as a camera. Only one active camera is used.

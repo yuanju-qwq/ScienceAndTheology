@@ -1,12 +1,16 @@
 // Vulkan Descriptor — descriptor set layout + pool + sets for UBO binding.
 //
-// P1.5: one UBO per frame-in-flight, containing the MVP matrix.
-// The vertex shader reads it via layout(set=0, binding=0) uniform.
+// P2.4: upgraded to dynamic UBO to support multiple mesh entities.
+//   - One large UBO buffer per frame-in-flight, holding N MVP matrices
+//     back-to-back (N = kMaxEntities).
+//   - Descriptor type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC.
+//   - At draw time, RenderSystem passes a dynamic offset (entity_index *
+//     aligned_stride) to vkCmdBindDescriptorSets.
 //
 // Layout:
-//   binding 0: uniform buffer (MVP matrix)
+//   binding 0: uniform buffer (dynamic) — MVP matrix
 //
-// P2+ will add: storage buffers (entity data), combined image samplers (textures).
+// P3+ will add: storage buffers (entity data), combined image samplers.
 
 #pragma once
 
@@ -30,6 +34,9 @@ struct UniformBufferObject {
 class VulkanDescriptor {
 public:
     static constexpr uint32_t kMaxFramesInFlight = 2;
+    // P2.4: max mesh entities supported per frame. Each entity gets one
+    // MVP slot in the dynamic UBO. P3 can raise this or make it dynamic.
+    static constexpr uint32_t kMaxEntities = 256;
 
     VulkanDescriptor() = default;
     ~VulkanDescriptor();
@@ -37,13 +44,19 @@ public:
     VulkanDescriptor(const VulkanDescriptor&) = delete;
     VulkanDescriptor& operator=(const VulkanDescriptor&) = delete;
 
-    // Create descriptor set layout + pool + sets + UBO buffers.
+    // Create descriptor set layout + pool + sets + dynamic UBO buffers.
     bool init(VulkanDevice& device);
 
     void destroy();
 
-    // Update the UBO for the given frame-in-flight index.
-    void update_ubo(uint32_t frame_index, const UniformBufferObject& ubo);
+    // Update the MVP for entity `entity_index` in frame `frame_index`.
+    // The dynamic UBO holds kMaxEntities MVP slots; this writes one.
+    void update_ubo(uint32_t frame_index, uint32_t entity_index,
+                    const UniformBufferObject& ubo);
+
+    // Aligned stride between consecutive MVP slots in the UBO. Required
+    // by VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC (minUboAlignment).
+    uint32_t ubo_stride() const { return ubo_stride_; }
 
     VkDescriptorSetLayout layout() const { return descriptor_set_layout_; }
     VkDescriptorSet descriptor_set(uint32_t frame_index) const {
@@ -56,8 +69,13 @@ private:
     VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
     std::vector<VkDescriptorSet> descriptor_sets_;  // size = kMaxFramesInFlight
 
-    // UBO buffers (one per frame in flight), VMA-backed.
-    std::vector<VulkanBuffer*> ubo_buffers_;  // owned pointers
+    // Dynamic UBO buffers (one per frame in flight), VMA-backed.
+    // Each buffer holds kMaxEntities * ubo_stride_ bytes.
+    std::vector<VulkanBuffer*> ubo_buffers_;
+
+    // Stride between MVP slots. >= sizeof(UniformBufferObject), aligned
+    // to device's minUniformBufferOffsetAlignment.
+    uint32_t ubo_stride_ = sizeof(UniformBufferObject);
 };
 
 }  // namespace snt::render_backend

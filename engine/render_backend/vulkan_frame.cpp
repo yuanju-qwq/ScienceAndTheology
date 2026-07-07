@@ -204,7 +204,8 @@ VulkanFrame::FrameResult VulkanFrame::begin_frame(VulkanDevice& device,
 VulkanFrame::FrameResult VulkanFrame::end_frame(VulkanDevice& device,
                                                  VulkanSwapchain& swapchain,
                                                  uint32_t image_index,
-                                                 VkCommandBuffer cmd_buffer) {
+                                                 const VkCommandBuffer* cmd_buffers,
+                                                 uint32_t cmd_buffer_count) {
     // Submit: wait on the acquire semaphore at color attachment output stage,
     // signal the render-done semaphore for this swapchain image.
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -214,8 +215,8 @@ VulkanFrame::FrameResult VulkanFrame::end_frame(VulkanDevice& device,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &image_available_[current_frame_],
         .pWaitDstStageMask = &wait_stage,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &cmd_buffer,
+        .commandBufferCount = cmd_buffer_count,
+        .pCommandBuffers = cmd_buffers,
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &render_finished_[image_index],
     };

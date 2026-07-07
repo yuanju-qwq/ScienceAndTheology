@@ -92,4 +92,22 @@ void VulkanBuffer::write(const void* data, VkDeviceSize data_size) {
     }
 }
 
+void VulkanBuffer::write_at(const void* data, VkDeviceSize data_size,
+                            VkDeviceSize offset) {
+    if (offset + data_size > size_) {
+        std::fprintf(stderr, "[snt::render_backend] Buffer write_at overflow: "
+                             "offset=%llu size=%llu > buf=%llu\n",
+                     static_cast<unsigned long long>(offset),
+                     static_cast<unsigned long long>(data_size),
+                     static_cast<unsigned long long>(size_));
+        return;
+    }
+    void* mapped = map();
+    if (mapped) {
+        std::memcpy(static_cast<uint8_t*>(mapped) + offset, data,
+                    static_cast<size_t>(data_size));
+        unmap();
+    }
+}
+
 }  // namespace snt::render_backend

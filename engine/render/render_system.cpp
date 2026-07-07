@@ -40,6 +40,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 namespace snt::render {
 
@@ -74,6 +75,11 @@ glm::mat4 build_view_matrix(const snt::ecs::Transform& cam) {
 bool RenderSystem::init_render_graph() {
     if (!device_ || !frame_) return false;
     if (graph_initialized_) return true;
+    // P2.4: init the mesh cache with the same Vulkan device.
+    if (!mesh_cache_.init(*device_)) {
+        std::fprintf(stderr, "[snt::render] MeshCache init failed\n");
+        return false;
+    }
     // Match VulkanFrame's frames-in-flight so each frame slot has its own
     // command buffer, avoiding pending-state conflicts across frames.
     if (!graph_.init(*device_, snt::render_backend::VulkanFrame::frames_in_flight())) {
@@ -88,11 +94,14 @@ void RenderSystem::destroy_render_graph() {
         graph_.destroy();
         graph_initialized_ = false;
     }
+    // P2.4: MeshCache owns VulkanMesh objects; release them here so
+    // they are freed before the VulkanDevice they depend on.
+    mesh_cache_.destroy();
 }
 
 void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
     if (!device_ || !swapchain_ || !render_pass_ || !pipeline_ ||
-        !descriptor_ || !mesh_ || !frame_ || !graph_initialized_) {
+        !descriptor_ || !frame_ || !graph_initialized_) {
         return;
     }
     if (active_camera_ == entt::null) return;
@@ -114,22 +123,52 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
     // GLM defaults to OpenGL clip space (Y up); Vulkan uses Y down.
     proj[1][1] *= -1.0f;
 
-    // Find the first entity with Transform + MeshRef and build its MVP.
-    entt::entity mesh_entity = entt::null;
+    // --- Collect mesh entities (single ECS pass) ---
+    // P2.4: iterate ALL entities with Transform + MeshRef. For each:
+    //   - resolve mesh handle via MeshCache
+    //   - precompute model matrix (view/proj are per-frame, same for all)
+    //   - stash a MeshDraw entry; UBO write happens AFTER begin_frame
+    //     (which fence-waits + selects the frame-in-flight slot).
+    struct MeshDraw {
+        snt::render_backend::VulkanMesh* mesh;
+        uint32_t ubo_offset;            // dynamic offset for this entity's MVP slot
+        snt::render_backend::UniformBufferObject ubo;  // precomputed MVP
+    };
+    std::vector<MeshDraw> draws;
+    draws.reserve(32);
+
+    uint32_t entity_index = 0;
     auto view_group = registry.view<snt::ecs::Transform, snt::ecs::MeshRef>();
     for (auto e : view_group) {
-        mesh_entity = e;
-        break;
+        if (entity_index >= snt::render_backend::VulkanDescriptor::kMaxEntities) {
+            std::fprintf(stderr, "[snt::render] too many mesh entities, truncating\n");
+            break;
+        }
+
+        auto& transform = registry.get<snt::ecs::Transform>(e);
+        auto& mesh_ref  = registry.get<snt::ecs::MeshRef>(e);
+
+        // Resolve the mesh handle to a VulkanMesh via the cache.
+        auto* mesh = mesh_cache_.get(mesh_ref.handle.id);
+        if (!mesh) {
+            std::fprintf(stderr, "[snt::render] entity %u: invalid mesh handle\n",
+                         static_cast<unsigned>(e));
+            continue;
+        }
+
+        // Precompute MVP. view/proj are constant for this frame; only
+        // model varies per entity.
+        glm::mat4 model = build_model_matrix(transform);
+        snt::render_backend::UniformBufferObject ubo{};
+        std::memcpy(ubo.model, glm::value_ptr(model), sizeof(ubo.model));
+        std::memcpy(ubo.view,  glm::value_ptr(view),  sizeof(ubo.view));
+        std::memcpy(ubo.proj,  glm::value_ptr(proj),  sizeof(ubo.proj));
+
+        draws.push_back({mesh, entity_index * descriptor_->ubo_stride(), ubo});
+        ++entity_index;
     }
-    if (mesh_entity == entt::null) return;
 
-    auto& mesh_transform = registry.get<snt::ecs::Transform>(mesh_entity);
-    glm::mat4 model = build_model_matrix(mesh_transform);
-
-    snt::render_backend::UniformBufferObject ubo{};
-    std::memcpy(ubo.model, glm::value_ptr(model), sizeof(ubo.model));
-    std::memcpy(ubo.view,  glm::value_ptr(view),  sizeof(ubo.view));
-    std::memcpy(ubo.proj,  glm::value_ptr(proj),  sizeof(ubo.proj));
+    if (draws.empty()) return;
 
     // --- Acquire swapchain image ---
     uint32_t image_index = 0;
@@ -143,17 +182,17 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         return;
     }
 
-    // Update UBO for the current frame-in-flight BEFORE recording.
-    descriptor_->update_ubo(frame_->current_frame(), ubo);
+    // Now that we know the frame-in-flight slot, write each entity's MVP
+    // into its slot in the dynamic UBO.
+    uint32_t frame_idx = frame_->current_frame();
+    for (uint32_t i = 0; i < draws.size(); ++i) {
+        descriptor_->update_ubo(frame_idx, i, draws[i].ubo);
+    }
 
-    // --- Register the forward pass ---
-    // Captures raw pointers by value to avoid dangling references inside
-    // the std::function callback (which may be stored + deferred).
+    // --- Register the forward pass (P2.4: per-entity bind+draw inside) ---
     auto* rp        = render_pass_;
     auto* pipeline  = pipeline_;
     auto* descriptor = descriptor_;
-    auto* mesh      = mesh_;
-    uint32_t frame_idx = frame_->current_frame();
     VkExtent2D extent  = swapchain_->extent();
 
     graph_.reset();
@@ -162,7 +201,9 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         std::fprintf(stderr, "[snt::render] add_pass failed\n");
         return;
     }
-    pass->execute = [rp, pipeline, descriptor, mesh, frame_idx, extent, image_index]
+    // Capture draws by value (vector copy) — the callback runs synchronously
+    // inside execute_record_only, so this is safe.
+    pass->execute = [rp, pipeline, descriptor, frame_idx, extent, image_index, draws]
                     (snt::render_backend::CommandContext& ctx) {
         VkCommandBuffer cmd = ctx.handle();
 
@@ -202,11 +243,15 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         };
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
+        // Draw each mesh entity with its own dynamic UBO offset.
         VkDescriptorSet desc_set = descriptor->descriptor_set(frame_idx);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline->layout(), 0, 1, &desc_set, 0, nullptr);
-
-        mesh->draw(cmd);
+        for (const auto& d : draws) {
+            uint32_t dyn_offset = d.ubo_offset;
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline->layout(), 0, 1, &desc_set,
+                                    1, &dyn_offset);
+            d.mesh->draw(cmd);
+        }
 
         vkCmdEndRenderPass(cmd);
     };
@@ -222,14 +267,19 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         return;
     }
 
-    VkCommandBuffer recorded_cb = graph_.recorded_command_buffer(frame_index, 0);
-    if (recorded_cb == VK_NULL_HANDLE) {
-        std::fprintf(stderr, "[snt::render] recorded_command_buffer returned null\n");
+    // Collect all recorded command buffers (one per pass) + submit them
+    // together in one vkQueueSubmit. P2.3.4's topological sort guarantees
+    // they are in dependency order.
+    std::vector<VkCommandBuffer> recorded_cbs;
+    uint32_t cb_count = graph_.recorded_command_buffers(frame_index, &recorded_cbs);
+    if (cb_count == 0) {
+        std::fprintf(stderr, "[snt::render] no recorded command buffers\n");
         return;
     }
 
     // --- Submit + present ---
-    auto end_result = frame_->end_frame(*device_, *swapchain_, image_index, recorded_cb);
+    auto end_result = frame_->end_frame(*device_, *swapchain_, image_index,
+                                        recorded_cbs.data(), cb_count);
     if (end_result == snt::render_backend::VulkanFrame::FrameResult::kResized) {
         needs_resize_ = true;
     } else if (end_result == snt::render_backend::VulkanFrame::FrameResult::kError) {
