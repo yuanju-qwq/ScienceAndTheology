@@ -39,16 +39,31 @@ public:
 
     void destroy();
 
-    // Draw one frame: acquire -> record -> submit -> present.
-    // `ubo` is written to the per-frame UBO before recording.
-    // Returns false if the window was resized (swapchain needs recreation).
-    bool draw_frame(VulkanDevice& device,
-                    VulkanSwapchain& swapchain,
-                    VulkanRenderPass& render_pass,
-                    VulkanPipeline& pipeline,
-                    VulkanDescriptor& descriptor,
-                    VulkanMesh& mesh,
-                    const UniformBufferObject& ubo);
+    // --- Frame API (P2.D) ---
+    // VulkanFrame owns swapchain sync (fences + semaphores + acquire/present).
+    // Recording is owned by RenderGraph / CommandContext.
+    //
+    // begin_frame: wait for the previous frame using this slot, reset fence,
+    //   acquire the next swapchain image. On success, `out_image_index`
+    //   receives the acquired image index.
+    // Returns:
+    //   kOk       — image acquired, ready to record + submit
+    //   kResized  — swapchain out of date, caller must recreate
+    //   kError    — unrecoverable failure
+    enum class FrameResult { kOk, kResized, kError };
+    FrameResult begin_frame(VulkanDevice& device,
+                            VulkanSwapchain& swapchain,
+                            uint32_t* out_image_index);
+
+    // end_frame: submit `cmd_buffer` to the graphics queue (waiting on the
+    //   acquire semaphore, signaling the render-done semaphore) then present.
+    //   `image_index` must be the value returned by begin_frame().
+    // Returns kOk on success, kResized if present reported out-of-date,
+    //   kError on submit/present failure.
+    FrameResult end_frame(VulkanDevice& device,
+                          VulkanSwapchain& swapchain,
+                          uint32_t image_index,
+                          VkCommandBuffer cmd_buffer);
 
     uint32_t current_frame() const { return current_frame_; }
     static constexpr uint32_t frames_in_flight() { return kMaxFramesInFlight; }

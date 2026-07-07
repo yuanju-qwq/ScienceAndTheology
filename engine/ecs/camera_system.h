@@ -1,23 +1,26 @@
 // Camera System — handles WASD + mouse flight-style camera movement.
 //
+// P2.A1: decoupled from SDL/Window. Reads from InputSystem::state() each
+// frame instead of polling SDL directly. This makes CameraSystem a pure
+// consumer of input state — it can be unit-tested without a window and
+// can be driven by any input source (recorded playback, network, etc.).
+//
 // Controls:
 //   W/S: move forward/backward
 //   A/D: move left/right
 //   Q/E: move down/up
 //   Right-drag: look around (yaw + pitch)
 //   Shift: speed boost (2x)
-//
-// Updates the Transform of the active Camera entity.
-// The render system reads this Transform to build the view matrix.
 
 #pragma once
 
 #include "ecs/system.h"
+#include "input/input_state.h"
 
 #include <entt/entt.hpp>
 
-namespace snt::platform {
-class Window;
+namespace snt::input {
+class InputSystem;
 }
 
 namespace snt::ecs {
@@ -27,8 +30,8 @@ public:
     CameraSystem() = default;
     ~CameraSystem() override = default;
 
-    // Set the window to read input from.
-    void set_window(snt::platform::Window* window) { window_ = window; }
+    // Set the input source to read from each frame. Required before update().
+    void set_input(snt::input::InputSystem* input) { input_ = input; }
 
     // Set the entity to use as the active camera.
     void set_active_camera(entt::entity e) { active_camera_ = e; }
@@ -36,7 +39,7 @@ public:
     void update(World& world, float dt) override;
 
 private:
-    snt::platform::Window* window_ = nullptr;
+    snt::input::InputSystem* input_ = nullptr;
     entt::entity active_camera_ = entt::null;
 
     // Camera state.

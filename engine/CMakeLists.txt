@@ -24,12 +24,17 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_third_party.cmake)
 # ============================================================
 # Each module is its own static library for clear layering.
 # Layering rule (top -> bottom, never reverse):
-#   engine_app -> {ui, voxel, physics, script, audio, network}
-#             -> ecs -> data -> core
-#             -> render_backend -> platform
+#   engine_app -> engine -> {ui, render, voxel, physics, script, audio, network}
+#                         -> renderer -> render_backend -> platform
+#                         -> ecs -> input -> core
+#                         -> data -> core
 add_subdirectory(platform)
 add_subdirectory(core)
+add_subdirectory(input)
 add_subdirectory(render_backend)
+add_subdirectory(renderer)
 add_subdirectory(ecs)
+add_subdirectory(render)
 add_subdirectory(ui)
+add_subdirectory(engine)
 add_subdirectory(engine_app)

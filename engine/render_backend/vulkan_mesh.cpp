@@ -40,11 +40,30 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
     }
 
     // --- Build vertex + index arrays ---
+    // Per-face colors for visual distinction (6 faces of the cube).
+    // Face order in cube.obj: front(+Z), back(-Z), right(+X), left(-X),
+    // top(+Y), bottom(-Y). Each face = 2 triangles = 6 vertices.
+    static const float kFaceColors[6][3] = {
+        {1.0f, 0.5f, 0.2f},  // front  (+Z) orange
+        {0.2f, 0.8f, 1.0f},  // back   (-Z) cyan
+        {0.9f, 0.2f, 0.3f},  // right  (+X) red
+        {0.3f, 0.9f, 0.4f},  // left   (-X) green
+        {0.95f, 0.9f, 0.3f}, // top    (+Y) yellow
+        {0.6f, 0.3f, 0.9f},  // bottom (-Y) purple
+    };
+
     std::vector<MeshVertex> vertices;
     std::vector<uint32_t> indices;
 
+    uint32_t vertex_index_in_face = 0;  // 0..5, resets each face
+
+    // DIAGNOSTIC: log face index distribution.
+    std::printf("[snt::render_backend] mesh load: %zu shapes, %zu total indices\n",
+                shapes.size(), shapes.empty() ? 0 : shapes[0].mesh.indices.size());
+
     for (const auto& shape : shapes) {
-        for (const auto& index : shape.mesh.indices) {
+        for (size_t i = 0; i < shape.mesh.indices.size(); ++i) {
+            const auto& index = shape.mesh.indices[i];
             MeshVertex vertex{};
 
             // Position (tinyobj stores positions as a flat float array).
@@ -54,10 +73,25 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
                 vertex.position[2] = attrib.vertices[3 * index.vertex_index + 2];
             }
 
-            // Color: use default (P1.5: no material/vertex color support).
-            vertex.color[0] = default_color[0];
-            vertex.color[1] = default_color[1];
-            vertex.color[2] = default_color[2];
+            // Color: pick by face. Each face has 6 vertices (2 triangles).
+            // Fallback to default_color if face index out of range.
+            uint32_t face_idx = static_cast<uint32_t>(i / 6);
+            if (face_idx < 6) {
+                vertex.color[0] = kFaceColors[face_idx][0];
+                vertex.color[1] = kFaceColors[face_idx][1];
+                vertex.color[2] = kFaceColors[face_idx][2];
+            } else {
+                vertex.color[0] = default_color[0];
+                vertex.color[1] = default_color[1];
+                vertex.color[2] = default_color[2];
+            }
+
+            // DIAGNOSTIC: log first 12 vertices' face assignment.
+            if (i < 12) {
+                std::printf("[snt::render_backend]   v[%zu] face=%u color=(%.2f,%.2f,%.2f) pos=(%.2f,%.2f,%.2f)\n",
+                            i, face_idx, vertex.color[0], vertex.color[1], vertex.color[2],
+                            vertex.position[0], vertex.position[1], vertex.position[2]);
+            }
 
             vertices.push_back(vertex);
             indices.push_back(static_cast<uint32_t>(indices.size()));
@@ -69,6 +103,14 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
 
     std::printf("[snt::render_backend] Mesh loaded: %s (%u verts, %u indices)\n",
                 path.c_str(), vertex_count_, index_count_);
+
+    // DIAGNOSTIC: print first 4 vertices to verify position data.
+    for (uint32_t i = 0; i < vertex_count_ && i < 4; ++i) {
+        std::printf("[diag mesh] v[%u] pos=(%.2f,%.2f,%.2f) color=(%.2f,%.2f,%.2f)\n",
+                    i, vertices[i].position[0], vertices[i].position[1],
+                    vertices[i].position[2], vertices[i].color[0],
+                    vertices[i].color[1], vertices[i].color[2]);
+    }
 
     // --- Create vertex buffer (CPU-visible for P1.5; P2: staging buffer) ---
     vertex_buffer_ = new VulkanBuffer();

@@ -13,6 +13,7 @@ add_library(snt_render_backend STATIC
     vulkan_depth.cpp
     vulkan_mesh.cpp
     vulkan_frame.cpp
+    command_context.cpp
 )
 target_include_directories(snt_render_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # VMA include path: FetchContent puts source in _deps/vulkanmemoryallocator-src/.

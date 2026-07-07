@@ -3,12 +3,15 @@
 // Platform window abstraction built on top of SDL3.
 // P1.3 adds Vulkan surface creation (platform layer owns the surface
 // because it's tightly coupled to the native window handle).
+// P2.A1 adds an event callback so the input layer can ingest SDL events
+// without the platform layer depending on the input module.
 //
 // Vulkan handles (VkInstance/VkSurfaceKHR) are passed as void* to avoid
 // pulling <vulkan/vulkan.h> into the platform layer. Callers in
 // render_backend cast between void* and the real Vulkan types.
 
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 namespace snt::platform {
@@ -32,6 +35,12 @@ struct WindowDesc {
 // RAII window. Destructor releases SDL resources.
 class Window {
 public:
+    // Callback type for SDL event forwarding. The Window calls this for
+    // every polled SDL_Event so upper layers (InputSystem) can react
+    // without depending on SDL directly. The event pointer is valid only
+    // for the duration of the call.
+    using EventCallback = std::function<void(const void* sdl_event)>;
+
     Window();
     ~Window();
 
@@ -44,7 +53,14 @@ public:
     bool create(const WindowDesc& desc);
     void destroy();
 
+    // Register a callback to receive each polled SDL_Event. Pass nullptr
+    // to unregister. The callback is invoked during poll_events().
+    void set_event_callback(EventCallback cb) { event_callback_ = std::move(cb); }
+
     // Poll window events. Returns false if window requested close.
+    // For each polled event, the registered event callback (if any) is
+    // invoked BEFORE window-level handling (quit/ESC) — this lets input
+    // see every event including the quit one.
     bool poll_events();
 
     // Swap chain presentation is handled in render_backend; this only
@@ -71,6 +87,7 @@ public:
 private:
     void* _window = nullptr;        // SDL_Window*
     bool _should_close = false;
+    EventCallback event_callback_;  // optional; called per SDL event
 };
 
 } // namespace snt::platform

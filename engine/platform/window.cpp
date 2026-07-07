@@ -72,6 +72,12 @@ void Window::destroy() {
 bool Window::poll_events() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // Forward every event to the registered callback first, so the
+        // input layer sees the full event stream including quit/ESC.
+        if (event_callback_) {
+            event_callback_(static_cast<const void*>(&event));
+        }
+
         switch (event.type) {
             case SDL_EVENT_QUIT:
                 _should_close = true;

@@ -1,12 +1,9 @@
 // Vulkan Frame implementation.
+// P2.D: owns swapchain sync (fences + semaphores + acquire/present).
+// Recording is owned by RenderGraph / CommandContext.
 
 #include "vulkan_frame.h"
-#include "vulkan_buffer.h"
-#include "vulkan_descriptor.h"
 #include "vulkan_device.h"
-#include "vulkan_mesh.h"
-#include "vulkan_pipeline.h"
-#include "vulkan_render_pass.h"
 #include "vulkan_swapchain.h"
 
 #include <volk.h>
@@ -172,107 +169,44 @@ void VulkanFrame::destroy() {
 }
 
 // ---------------------------------------------------------------------------
-// Draw one frame
+// Frame API (P2.D): RenderGraph owns recording, VulkanFrame owns sync.
 // ---------------------------------------------------------------------------
 
-bool VulkanFrame::draw_frame(VulkanDevice& device,
-                             VulkanSwapchain& swapchain,
-                             VulkanRenderPass& render_pass,
-                             VulkanPipeline& pipeline,
-                             VulkanDescriptor& descriptor,
-                             VulkanMesh& mesh,
-                             const UniformBufferObject& ubo) {
-    // --- Step 1: wait for previous frame using this slot ---
+VulkanFrame::FrameResult VulkanFrame::begin_frame(VulkanDevice& device,
+                                                   VulkanSwapchain& swapchain,
+                                                   uint32_t* out_image_index) {
+    // Wait for the previous frame using this slot, then reset the fence.
     vkWaitForFences(device.logical(), 1, &in_flight_fences_[current_frame_],
                     VK_TRUE, UINT64_MAX);
     vkResetFences(device.logical(), 1, &in_flight_fences_[current_frame_]);
 
-    // --- Step 2: update UBO before recording ---
-    descriptor.update_ubo(current_frame_, ubo);
-
-    // --- Step 3: acquire next swapchain image ---
+    // Acquire the next swapchain image. The acquire semaphore is signaled
+    // by vkAcquireNextImageKHR and later consumed by end_frame's submit.
     uint32_t image_index = 0;
     VkResult result = vkAcquireNextImageKHR(
         device.logical(), swapchain.handle(), UINT64_MAX,
         image_available_[current_frame_], VK_NULL_HANDLE, &image_index);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        return false;  // swapchain needs recreation
-    } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        std::fprintf(stderr, "[snt::render_backend] vkAcquireNextImageKHR failed: %d\n",
+        return FrameResult::kResized;
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        std::fprintf(stderr,
+                     "[snt::render_backend] begin_frame: acquire failed: %d\n",
                      result);
-        return false;
+        return FrameResult::kError;
     }
 
-    // --- Step 4: record command buffer ---
-    VkCommandBuffer cmd = command_buffers_[current_frame_];
-    vkResetCommandBuffer(cmd, 0);
+    *out_image_index = image_index;
+    return FrameResult::kOk;
+}
 
-    VkCommandBufferBeginInfo begin_info{
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-    };
-
-    if (vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkBeginCommandBuffer failed\n");
-        return false;
-    }
-
-    // Clear values: color (dark blue) + depth (1.0 = far).
-    VkClearValue clear_values[2] = {};
-    clear_values[0].color = {{0.0f, 0.0f, 0.2f, 1.0f}};
-    clear_values[1].depthStencil = {1.0f, 0};
-
-    VkRenderPassBeginInfo rp_begin{
-        .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = render_pass.handle(),
-        .framebuffer = render_pass.framebuffers()[image_index],
-        .renderArea = {
-            .offset = {0, 0},
-            .extent = swapchain.extent(),
-        },
-        .clearValueCount = 2,
-        .pClearValues = clear_values,
-    };
-
-    vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
-
-    // Bind pipeline.
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle());
-
-    // Set viewport (dynamic state).
-    VkViewport viewport{
-        .x = 0.0f,
-        .y = 0.0f,
-        .width = static_cast<float>(swapchain.extent().width),
-        .height = static_cast<float>(swapchain.extent().height),
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
-    };
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-    // Set scissor (dynamic state).
-    VkRect2D scissor{
-        .offset = {0, 0},
-        .extent = swapchain.extent(),
-    };
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    // Bind descriptor set (UBO for this frame-in-flight).
-    VkDescriptorSet desc_set = descriptor.descriptor_set(current_frame_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline.layout(), 0, 1, &desc_set, 0, nullptr);
-
-    // Draw the mesh.
-    mesh.draw(cmd);
-
-    vkCmdEndRenderPass(cmd);
-
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkEndCommandBuffer failed\n");
-        return false;
-    }
-
-    // --- Step 5: submit command buffer ---
+VulkanFrame::FrameResult VulkanFrame::end_frame(VulkanDevice& device,
+                                                 VulkanSwapchain& swapchain,
+                                                 uint32_t image_index,
+                                                 VkCommandBuffer cmd_buffer) {
+    // Submit: wait on the acquire semaphore at color attachment output stage,
+    // signal the render-done semaphore for this swapchain image.
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
     VkSubmitInfo submit_info{
@@ -281,23 +215,20 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         .pWaitSemaphores = &image_available_[current_frame_],
         .pWaitDstStageMask = &wait_stage,
         .commandBufferCount = 1,
-        .pCommandBuffers = &cmd,
+        .pCommandBuffers = &cmd_buffer,
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &render_finished_[image_index],
     };
 
     if (vkQueueSubmit(device.graphics_queue(), 1, &submit_info,
                       in_flight_fences_[current_frame_]) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkQueueSubmit failed\n");
-        return false;
+        std::fprintf(stderr,
+                     "[snt::render_backend] end_frame: vkQueueSubmit failed\n");
+        return FrameResult::kError;
     }
 
-    // --- Step 6: present ---
-    // VK_KHR_swapchain_maintenance1. If the extension is not enabled on the
-    // device, pNext MUST be nullptr — attaching VkSwapchainPresentFenceInfoEXT
-    // without the extension is undefined behavior. Also guard against an
-    // empty present_fences_ vector (init() skips allocation when the
-    // extension is absent, so present_fences_[image_index] would be OOB).
+    // Present. Conditionally attach the present fence when
+    // VK_KHR_swapchain_maintenance1 is available.
     VkSwapchainPresentFenceInfoEXT present_fence_info{
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT,
         .swapchainCount = 1,
@@ -319,14 +250,23 @@ bool VulkanFrame::draw_frame(VulkanDevice& device,
         .pImageIndices = &image_index,
     };
 
-    result = vkQueuePresentKHR(device.present_queue(), &present_info);
+    VkResult result = vkQueuePresentKHR(device.present_queue(), &present_info);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-        return false;
+        // Still advance the frame slot so the next begin_frame uses the
+        // correct fence.
+        current_frame_ = (current_frame_ + 1) % kMaxFramesInFlight;
+        return FrameResult::kResized;
+    }
+    if (result != VK_SUCCESS) {
+        std::fprintf(stderr,
+                     "[snt::render_backend] end_frame: present failed: %d\n",
+                     result);
+        current_frame_ = (current_frame_ + 1) % kMaxFramesInFlight;
+        return FrameResult::kError;
     }
 
-    // Advance to next frame slot.
     current_frame_ = (current_frame_ + 1) % kMaxFramesInFlight;
-    return true;
+    return FrameResult::kOk;
 }
 
 }  // namespace snt::render_backend
