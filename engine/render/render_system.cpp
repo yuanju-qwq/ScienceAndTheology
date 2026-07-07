@@ -37,17 +37,9 @@
 
 #include <volk.h>
 
-// GLM headers transitively rely on `assert`. On MSVC + mixed C/C++ stdlib
-// headers (volk + vulkan + SDL3 + EnTT), the assert macro can end up
-// undefined by the time GLM parses its templates even after <cassert>
-// was included. Force-define a fallback assert if the standard one is
-// missing right before any GLM header is parsed.
+// GLM templates call the standard `assert` macro; pull it in explicitly
+// so the macro is visible regardless of include order.
 #include <cassert>
-#ifndef assert
-#  include <cstdio>
-#  include <cstdlib>
-#  define assert(expr) ((void)0)
-#endif
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>

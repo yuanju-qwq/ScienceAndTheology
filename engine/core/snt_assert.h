@@ -1,5 +1,13 @@
 // Engine-wide assertion macros.
 //
+// IMPORTANT: this file is named snt_assert.h (NOT assert.h) on purpose.
+// The engine's CMake setup adds -I engine/core to the include path, which
+// sits before the UCRT system include path. If this file were named
+// assert.h, `#include <assert.h>` from third-party headers (GLM, etc.)
+// would resolve to THIS file instead of the standard UCRT assert.h,
+// breaking the standard `assert` macro. Do NOT rename this file back to
+// assert.h.
+//
 // Design goals:
 //   - In Debug: log a FATAL message via SNT_LOG_FATAL, then __debugbreak()
 //     + abort(). The debugger stops exactly at the failure site, with the

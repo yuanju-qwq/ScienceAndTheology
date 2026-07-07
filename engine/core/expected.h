@@ -52,7 +52,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "core/assert.h"  // SNT_ASSERT (debug-break + abort)
+#include "core/snt_assert.h"  // SNT_ASSERT (debug-break + abort)
 #include "core/error.h"    // default Error type for Expected<T>
 
 namespace snt::core {
