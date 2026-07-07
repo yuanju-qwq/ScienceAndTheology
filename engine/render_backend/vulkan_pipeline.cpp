@@ -1,5 +1,8 @@
 // Vulkan Graphics Pipeline implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_pipeline.h"
 #include "vulkan_descriptor.h"
 #include "vulkan_device.h"
@@ -7,7 +10,6 @@
 
 #include <volk.h>
 
-#include <cstdio>
 #include <fstream>
 #include <vector>
 
@@ -20,8 +22,7 @@ namespace snt::render_backend {
 static std::vector<char> read_file(const std::string& path) {
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
-        std::fprintf(stderr, "[snt::render_backend] Failed to open shader: %s\n",
-                     path.c_str());
+        SNT_LOG_ERROR("Failed to open shader: %s", path.c_str());
         return {};
     }
     size_t size = static_cast<size_t>(file.tellg());
@@ -48,8 +49,7 @@ VkShaderModule VulkanPipeline::create_shader_module(const std::string& path) {
     VkShaderModule module = VK_NULL_HANDLE;
     if (vkCreateShaderModule(device_->logical(), &create_info, nullptr, &module)
         != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateShaderModule failed: %s\n",
-                     path.c_str());
+        SNT_LOG_ERROR("vkCreateShaderModule failed: %s", path.c_str());
         return VK_NULL_HANDLE;
     }
     return module;
@@ -63,12 +63,12 @@ VulkanPipeline::~VulkanPipeline() {
     destroy();
 }
 
-bool VulkanPipeline::init(VulkanDevice& device,
-                          VulkanDescriptor& descriptor,
-                          VkFormat color_format,
-                          VkFormat depth_format,
-                          const std::string& vert_spv_path,
-                          const std::string& frag_spv_path) {
+snt::core::Expected<void> VulkanPipeline::init(VulkanDevice& device,
+                                               VulkanDescriptor& descriptor,
+                                               VkFormat color_format,
+                                               VkFormat depth_format,
+                                               const std::string& vert_spv_path,
+                                               const std::string& frag_spv_path) {
     device_ = &device;
 
     // --- Step 1: load shader modules ---
@@ -77,7 +77,8 @@ bool VulkanPipeline::init(VulkanDevice& device,
     if (vert_module == VK_NULL_HANDLE || frag_module == VK_NULL_HANDLE) {
         if (vert_module) vkDestroyShaderModule(device_->logical(), vert_module, nullptr);
         if (frag_module) vkDestroyShaderModule(device_->logical(), frag_module, nullptr);
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanPipelineInitFailed,
+                                "Failed to load shader modules"};
     }
 
     VkPipelineShaderStageCreateInfo shader_stages[2] = {
@@ -204,8 +205,8 @@ bool VulkanPipeline::init(VulkanDevice& device,
 
     if (vkCreatePipelineLayout(device_->logical(), &layout_info, nullptr,
                                &pipeline_layout_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreatePipelineLayout failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanPipelineInitFailed,
+                                "vkCreatePipelineLayout failed"};
     }
 
     // --- Step 11: create graphics pipeline (dynamic rendering, P2.3) ---
@@ -241,15 +242,15 @@ bool VulkanPipeline::init(VulkanDevice& device,
     if (vkCreateGraphicsPipelines(device_->logical(), VK_NULL_HANDLE, 1,
                                   &pipeline_info, nullptr, &pipeline_)
         != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateGraphicsPipelines failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanPipelineInitFailed,
+                                "vkCreateGraphicsPipelines failed"};
     }
 
     vkDestroyShaderModule(device_->logical(), vert_module, nullptr);
     vkDestroyShaderModule(device_->logical(), frag_module, nullptr);
 
-    std::printf("[snt::render_backend] Graphics pipeline created (dynamic rendering)\n");
-    return true;
+    SNT_LOG_INFO("Graphics pipeline created (dynamic rendering)");
+    return {};
 }
 
 void VulkanPipeline::destroy() {

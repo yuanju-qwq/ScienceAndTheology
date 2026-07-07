@@ -2,6 +2,9 @@
 // P1.1: minimal stub — SDL init + window create + poll events.
 // P1.2 will add full input handling.
 
+#define SNT_LOG_CHANNEL "platform"
+#include "core/log.h"
+
 #include "window.h"
 
 #include <SDL3/SDL.h>
@@ -11,7 +14,7 @@
 // no function prototypes. VK_NULL_HANDLE + VkSurfaceKHR become available.
 #include <vulkan/vulkan.h>
 
-#include <cstdio>
+#include <format>
 
 namespace snt::platform {
 
@@ -35,10 +38,10 @@ Window& Window::operator=(Window&& other) noexcept {
     return *this;
 }
 
-bool Window::create(const WindowDesc& desc) {
+snt::core::Expected<void> Window::create(const WindowDesc& desc) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
-        std::fprintf(stderr, "[snt::platform] SDL_Init failed: %s\n", SDL_GetError());
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kPlatformInitFailed,
+                                std::format("SDL_Init failed: {}", SDL_GetError())};
     }
 
     SDL_WindowFlags flags = 0;
@@ -53,12 +56,12 @@ bool Window::create(const WindowDesc& desc) {
         flags
     );
     if (!_window) {
-        std::fprintf(stderr, "[snt::platform] SDL_CreateWindow failed: %s\n", SDL_GetError());
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kWindowCreateFailed,
+                                std::format("SDL_CreateWindow failed: {}", SDL_GetError())};
     }
 
     _should_close = false;
-    return true;
+    return {};
 }
 
 void Window::destroy() {
@@ -117,10 +120,10 @@ WindowSize Window::size() const {
 // specific surface creation (Win32/X11/Wayland) behind one call.
 // ---------------------------------------------------------------------------
 
-bool Window::create_vulkan_surface(void* vk_instance, uint64_t* out_surface) {
+snt::core::Expected<void> Window::create_vulkan_surface(void* vk_instance, uint64_t* out_surface) {
     if (!_window || !vk_instance || !out_surface) {
-        std::fprintf(stderr, "[snt::platform] create_vulkan_surface: invalid args\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "create_vulkan_surface: invalid args"};
     }
 
     // SDL3's SDL_VulkanSurface is an opaque handle; cast to VkSurfaceKHR.
@@ -130,13 +133,12 @@ bool Window::create_vulkan_surface(void* vk_instance, uint64_t* out_surface) {
                                   static_cast<VkInstance>(vk_instance),
                                   nullptr,  // allocation callbacks (use default)
                                   &surface)) {
-        std::fprintf(stderr, "[snt::platform] SDL_Vulkan_CreateSurface failed: %s\n",
-                     SDL_GetError());
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kSurfaceCreateFailed,
+                                std::format("SDL_Vulkan_CreateSurface failed: {}", SDL_GetError())};
     }
 
     *out_surface = reinterpret_cast<uint64_t>(surface);
-    return true;
+    return {};
 }
 
 const char* const* Window::sdl_vulkan_instance_extensions(uint32_t* count) {
@@ -151,15 +153,16 @@ const char* const* Window::sdl_vulkan_instance_extensions(uint32_t* count) {
 // + hides the cursor + reports relative motion via event.motion.xrel/yrel.
 // ---------------------------------------------------------------------------
 
-bool Window::set_relative_mouse_mode(bool enabled) {
-    if (!_window) return false;
-    if (!SDL_SetWindowRelativeMouseMode(static_cast<SDL_Window*>(_window), enabled)) {
-        std::fprintf(stderr,
-                     "[snt::platform] SDL_SetWindowRelativeMouseMode failed: %s\n",
-                     SDL_GetError());
-        return false;
+snt::core::Expected<void> Window::set_relative_mouse_mode(bool enabled) {
+    if (!_window) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "set_relative_mouse_mode: window not created"};
     }
-    return true;
+    if (!SDL_SetWindowRelativeMouseMode(static_cast<SDL_Window*>(_window), enabled)) {
+        return snt::core::Error{snt::core::ErrorCode::kPlatformInitFailed,
+                                std::format("SDL_SetWindowRelativeMouseMode failed: {}", SDL_GetError())};
+    }
+    return {};
 }
 
 bool Window::relative_mouse_mode() const {

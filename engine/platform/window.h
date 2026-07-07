@@ -14,6 +14,8 @@
 #include <functional>
 #include <string_view>
 
+#include "core/expected.h"  // Expected<void> for create / create_vulkan_surface / set_relative_mouse_mode
+
 namespace snt::platform {
 
 struct WindowSize {
@@ -49,8 +51,8 @@ public:
     Window(Window&&) noexcept;
     Window& operator=(Window&&) noexcept;
 
-    // Create the window. Returns false on failure (SDL error logged).
-    bool create(const WindowDesc& desc);
+    // Create the window. Returns an Error on failure (SDL error logged).
+    snt::core::Expected<void> create(const WindowDesc& desc);
     void destroy();
 
     // Register a callback to receive each polled SDL_Event. Pass nullptr
@@ -75,8 +77,8 @@ public:
     // the resulting VkSurfaceKHR cast to uint64_t.
     // The instance must be created with the extensions returned by
     // sdl_vulkan_instance_extensions().
-    // Returns true on success.
-    bool create_vulkan_surface(void* vk_instance, uint64_t* out_surface);
+    // Returns an Error on failure.
+    snt::core::Expected<void> create_vulkan_surface(void* vk_instance, uint64_t* out_surface);
 
     // SDL-required Vulkan instance extensions for window surface creation.
     // Call before vkCreateInstance and add these to VkInstanceCreateInfo.
@@ -87,8 +89,8 @@ public:
     // Toggle SDL's relative mouse mode (pointer lock). When enabled, the
     // mouse is confined to the window + hidden; SDL reports relative
     // motion via event.motion.xrel/yrel. Used for MC-style free-look.
-    // Returns true on success.
-    bool set_relative_mouse_mode(bool enabled);
+    // Returns an Error on failure.
+    snt::core::Expected<void> set_relative_mouse_mode(bool enabled);
 
     // Query whether relative mouse mode is currently active.
     bool relative_mouse_mode() const;

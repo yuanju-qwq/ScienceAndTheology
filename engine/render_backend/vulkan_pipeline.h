@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -37,12 +39,13 @@ public:
     // Create the pipeline + pipeline layout with descriptor set layout.
     // `color_format` / `depth_format` feed VkPipelineRenderingCreateInfo;
     // pass VK_FORMAT_UNDEFINED for depth_format to disable depth testing.
-    bool init(VulkanDevice& device,
-              VulkanDescriptor& descriptor,
-              VkFormat color_format,
-              VkFormat depth_format,
-              const std::string& vert_spv_path,
-              const std::string& frag_spv_path);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VulkanDevice& device,
+                                   VulkanDescriptor& descriptor,
+                                   VkFormat color_format,
+                                   VkFormat depth_format,
+                                   const std::string& vert_spv_path,
+                                   const std::string& frag_spv_path);
 
     void destroy();
 

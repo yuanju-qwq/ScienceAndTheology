@@ -26,11 +26,10 @@
 #pragma once
 
 #include "ecs/system.h"
+#include "ecs/entt_config.h"
 #include "renderer/render_graph.h"
 #include "render/mesh_cache.h"
 #include "render_backend/vulkan_descriptor.h"
-
-#include <entt/entt.hpp>
 
 namespace snt::render_backend {
 class VulkanDevice;
@@ -63,8 +62,8 @@ public:
     void set_active_camera(entt::entity e) { active_camera_ = e; }
 
     // Initialize the RenderGraph (creates its command pool). Must be called
-    // after set_device() and before update().
-    bool init_render_graph();
+    // after set_device() and before update(). Returns an Error on failure.
+    snt::core::Expected<void> init_render_graph();
 
     // Release RenderGraph resources.
     void destroy_render_graph();

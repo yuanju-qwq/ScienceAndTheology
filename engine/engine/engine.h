@@ -18,6 +18,8 @@
 
 #include <memory>
 
+#include "core/expected.h"  // Expected<void> for init
+
 namespace snt::platform { class Window; }
 namespace snt::input   { class InputSystem; }
 namespace snt::ecs     { class World; }
@@ -42,8 +44,8 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    // One-time initialization. Returns false on any failure.
-    bool init();
+    // One-time initialization. Returns an Error on any failure.
+    snt::core::Expected<void> init();
 
     // Main loop. Returns when the window requests close.
     void run();

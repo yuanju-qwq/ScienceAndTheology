@@ -2,13 +2,14 @@
 // P2.D: owns swapchain sync (fences + semaphores + acquire/present).
 // Recording is owned by RenderGraph / CommandContext.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_frame.h"
 #include "vulkan_device.h"
 #include "vulkan_swapchain.h"
 
 #include <volk.h>
-
-#include <cstdio>
 
 // VK_KHR_swapchain_maintenance1 extension name macro may be missing from
 // older Vulkan headers, even when the struct is defined. Define it manually.
@@ -26,7 +27,7 @@ VulkanFrame::~VulkanFrame() {
     destroy();
 }
 
-bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
+snt::core::Expected<void> VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
     device_ = &device;
 
     // --- Create command pool ---
@@ -38,8 +39,8 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
 
     if (vkCreateCommandPool(device_->logical(), &pool_info, nullptr,
                             &command_pool_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateCommandPool failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanCommandPoolFailed,
+                                "vkCreateCommandPool failed"};
     }
 
     // --- Allocate command buffers (one per frame in flight) ---
@@ -53,8 +54,8 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
 
     if (vkAllocateCommandBuffers(device_->logical(), &alloc_info,
                                  command_buffers_.data()) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkAllocateCommandBuffers failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanCommandBufferFailed,
+                                "vkAllocateCommandBuffers failed"};
     }
 
     // --- Create per-frame-in-flight acquire semaphores ---
@@ -67,8 +68,8 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
         };
         if (vkCreateSemaphore(device_->logical(), &sem_info, nullptr,
                               &image_available_[i]) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] Failed to create acquire semaphores\n");
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanFrameInitFailed,
+                                    "Failed to create acquire semaphores"};
         }
     }
 
@@ -85,8 +86,8 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
         };
         if (vkCreateSemaphore(device_->logical(), &sem_info, nullptr,
                               &render_finished_[i]) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] Failed to create render semaphores\n");
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanFrameInitFailed,
+                                    "Failed to create render semaphores"};
         }
     }
 
@@ -106,8 +107,8 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
             };
             if (vkCreateFence(device_->logical(), &fence_info, nullptr,
                               &present_fences_[i]) != VK_SUCCESS) {
-                std::fprintf(stderr, "[snt::render_backend] Failed to create present fences\n");
-                return false;
+                return snt::core::Error{snt::core::ErrorCode::kVulkanFrameInitFailed,
+                                        "Failed to create present fences"};
             }
         }
     }
@@ -121,15 +122,14 @@ bool VulkanFrame::init(VulkanDevice& device, uint32_t swapchain_image_count) {
         };
         if (vkCreateFence(device_->logical(), &fence_info, nullptr,
                           &in_flight_fences_[i]) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] Failed to create fences\n");
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanFrameInitFailed,
+                                    "Failed to create fences"};
         }
     }
 
-    std::printf("[snt::render_backend] Frame resources created "
-                "(%u frames in flight, %u swapchain images)\n",
-                kMaxFramesInFlight, swapchain_image_count);
-    return true;
+    SNT_LOG_INFO("Frame resources created (%u frames in flight, %u swapchain images)",
+                 kMaxFramesInFlight, swapchain_image_count);
+    return {};
 }
 
 void VulkanFrame::destroy() {
@@ -191,9 +191,7 @@ VulkanFrame::FrameResult VulkanFrame::begin_frame(VulkanDevice& device,
         return FrameResult::kResized;
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        std::fprintf(stderr,
-                     "[snt::render_backend] begin_frame: acquire failed: %d\n",
-                     result);
+        SNT_LOG_ERROR("begin_frame: acquire failed: %d", result);
         return FrameResult::kError;
     }
 
@@ -223,8 +221,7 @@ VulkanFrame::FrameResult VulkanFrame::end_frame(VulkanDevice& device,
 
     if (vkQueueSubmit(device.graphics_queue(), 1, &submit_info,
                       in_flight_fences_[current_frame_]) != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::render_backend] end_frame: vkQueueSubmit failed\n");
+        SNT_LOG_ERROR("end_frame: vkQueueSubmit failed");
         return FrameResult::kError;
     }
 
@@ -259,9 +256,7 @@ VulkanFrame::FrameResult VulkanFrame::end_frame(VulkanDevice& device,
         return FrameResult::kResized;
     }
     if (result != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::render_backend] end_frame: present failed: %d\n",
-                     result);
+        SNT_LOG_ERROR("end_frame: present failed: %d", result);
         current_frame_ = (current_frame_ + 1) % kMaxFramesInFlight;
         return FrameResult::kError;
     }

@@ -5,7 +5,10 @@
 // decoupling); the only structural change is ownership moves from local
 // variables in main() into Engine::Impl.
 
-#include "engine/engine.h"
+#define SNT_LOG_CHANNEL "engine"
+#include "core/log.h"
+
+#include "engine.h"  // Engine class definition (PImpl)
 
 #include "core/job_system.h"
 #include "ecs/camera_system.h"
@@ -28,7 +31,6 @@
 #include <volk.h>
 
 #include <chrono>
-#include <cstdio>
 
 namespace snt::engine {
 
@@ -118,26 +120,27 @@ struct Engine::Impl {
 Engine::Engine() : impl_(std::make_unique<Impl>()) {}
 Engine::~Engine() { shutdown(); }
 
-bool Engine::init() {
+snt::core::Expected<void> Engine::init() {
     using namespace snt::platform;
     using namespace snt::render_backend;
     using namespace snt::ecs;
 
-    std::printf("[snt_engine] Starting ScienceAndTheology engine (P2.B1)\n");
+    SNT_LOG_INFO("Starting ScienceAndTheology engine (P2.B1)");
 
     // --- Window ---
-    if (!impl_->window.create(WindowDesc{
+    if (auto r = impl_->window.create(WindowDesc{
             .title = "ScienceAndTheology Engine (P2.B1)",
             .width = 1280,
             .height = 720,
             .resizable = true,
             .vulkan_enabled = true,
-        })) {
-        std::fprintf(stderr, "[snt_engine] Failed to create window\n");
-        return false;
+        }); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (window)");
+        return e;
     }
     const auto sz = impl_->window.size();
-    std::printf("[snt_engine] Window created: %dx%d\n", sz.width, sz.height);
+    SNT_LOG_INFO("Window created: %dx%d", sz.width, sz.height);
 
     // --- Input system: Window forwards SDL events via callback ---
     impl_->window.set_event_callback(
@@ -146,55 +149,64 @@ bool Engine::init() {
         });
 
     // --- Vulkan instance ---
-    if (!impl_->vk_instance.init(impl_->window)) {
-        std::fprintf(stderr, "[snt_engine] VulkanInstance init failed\n");
-        return false;
+    if (auto r = impl_->vk_instance.init(impl_->window); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_instance)");
+        return e;
     }
 
     // --- Vulkan surface (created via platform layer) ---
     uint64_t surface_u64 = 0;
-    if (!impl_->window.create_vulkan_surface(
-            reinterpret_cast<void*>(impl_->vk_instance.handle()), &surface_u64)) {
-        std::fprintf(stderr, "[snt_engine] create_vulkan_surface failed\n");
-        return false;
+    if (auto r = impl_->window.create_vulkan_surface(
+            reinterpret_cast<void*>(impl_->vk_instance.handle()), &surface_u64);
+        !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_surface)");
+        return e;
     }
     impl_->vk_surface = reinterpret_cast<VkSurfaceKHR>(surface_u64);
 
     // --- Device + swapchain + depth + render pass ---
-    if (!impl_->vk_device.init(impl_->vk_instance.handle(), impl_->vk_surface)) {
-        std::fprintf(stderr, "[snt_engine] VulkanDevice init failed\n");
-        return false;
+    if (auto r = impl_->vk_device.init(impl_->vk_instance.handle(), impl_->vk_surface); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_device)");
+        return e;
     }
-    if (!impl_->vk_swapchain.init(impl_->vk_device,
+    if (auto r = impl_->vk_swapchain.init(impl_->vk_device,
                                   static_cast<uint32_t>(sz.width),
-                                  static_cast<uint32_t>(sz.height))) {
-        std::fprintf(stderr, "[snt_engine] VulkanSwapchain init failed\n");
-        return false;
+                                  static_cast<uint32_t>(sz.height)); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_swapchain)");
+        return e;
     }
-    if (!impl_->vk_depth.init(impl_->vk_device, impl_->vk_swapchain)) {
-        std::fprintf(stderr, "[snt_engine] VulkanDepth init failed\n");
-        return false;
+    if (auto r = impl_->vk_depth.init(impl_->vk_device, impl_->vk_swapchain); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_depth)");
+        return e;
     }
 
     // --- Descriptor + pipeline (dynamic rendering, no VkRenderPass) ---
-    if (!impl_->vk_descriptor.init(impl_->vk_device)) {
-        std::fprintf(stderr, "[snt_engine] VulkanDescriptor init failed\n");
-        return false;
+    if (auto r = impl_->vk_descriptor.init(impl_->vk_device); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_descriptor)");
+        return e;
     }
-    if (!impl_->vk_pipeline.init(impl_->vk_device, impl_->vk_descriptor,
+    if (auto r = impl_->vk_pipeline.init(impl_->vk_device, impl_->vk_descriptor,
                                  impl_->vk_swapchain.image_format(),
                                  impl_->vk_depth.format(),
-                                 "shaders/mesh.vert.spv", "shaders/mesh.frag.spv")) {
-        std::fprintf(stderr, "[snt_engine] VulkanPipeline init failed\n");
-        return false;
+                                 "shaders/mesh.vert.spv", "shaders/mesh.frag.spv"); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_pipeline)");
+        return e;
     }
     // (Mesh loading moved below — needs RenderSystem's MeshCache initialized first.)
 
     // --- Frame resources ---
-    if (!impl_->vk_frame.init(impl_->vk_device,
-                              static_cast<uint32_t>(impl_->vk_swapchain.image_views().size()))) {
-        std::fprintf(stderr, "[snt_engine] VulkanFrame init failed\n");
-        return false;
+    if (auto r = impl_->vk_frame.init(impl_->vk_device,
+                              static_cast<uint32_t>(impl_->vk_swapchain.image_views().size())); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (vk_frame)");
+        return e;
     }
 
     // --- ECS: camera entity + cube entity ---
@@ -234,18 +246,21 @@ bool Engine::init() {
     impl_->render_system.set_descriptor(&impl_->vk_descriptor);
     impl_->render_system.set_frame(&impl_->vk_frame);
     impl_->render_system.set_active_camera(impl_->camera_entity);
-    if (!impl_->render_system.init_render_graph()) {
-        std::fprintf(stderr, "[snt_engine] RenderSystem::init_render_graph failed\n");
-        return false;
+    if (auto r = impl_->render_system.init_render_graph(); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("Engine::init (init_render_graph)");
+        return e;
     }
 
     // --- P2.4: load mesh via MeshCache + attach MeshRef to cube entities ---
     // init_render_graph() must run first so MeshCache is bound to the device.
-    auto cube_handle = impl_->render_system.mesh_cache().load("assets/cube.obj");
-    if (!cube_handle.valid()) {
-        std::fprintf(stderr, "[snt_engine] MeshCache: failed to load assets/cube.obj\n");
-        return false;
+    auto cube_load = impl_->render_system.mesh_cache().load("assets/cube.obj");
+    if (!cube_load) {
+        snt::core::Error e = cube_load.error();
+        e.with_context("Engine::init (mesh_cache.load)");
+        return e;
     }
+    auto cube_handle = *cube_load;
     // Bridge: render-layer MeshHandle -> ecs-layer MeshHandle (same layout).
     snt::ecs::MeshHandle ecs_cube_handle{cube_handle.id};
 
@@ -275,25 +290,26 @@ bool Engine::init() {
         return static_cast<float>(snt::core::default_job_system().worker_count());
     });
 
-    std::printf("[snt_engine] Controls (MC-style):\n"
-                "  WASD       = move (A/D strafe)\n"
-                "  Space      = ascend\n"
-                "  LShift     = descend\n"
-                "  Double-W   = sprint (2x while W held)\n"
-                "  Mouse      = free-look (auto-locked)\n"
-                "  ESC        = release mouse\n"
-                "  Click      = re-lock mouse\n");
+    SNT_LOG_INFO("Controls (MC-style):\n"
+                 "  WASD       = move (A/D strafe)\n"
+                 "  Space      = ascend\n"
+                 "  LShift     = descend\n"
+                 "  Double-W   = sprint (2x while W held)\n"
+                 "  Mouse      = free-look (auto-locked)\n"
+                 "  ESC        = release mouse\n"
+                 "  Click      = re-lock mouse");
 
     // P2.A2: enter relative mouse mode so the user starts in free-look.
     // ESC releases the mouse; clicking the window re-locks it.
-    if (impl_->window.set_relative_mouse_mode(true)) {
+    if (auto r = impl_->window.set_relative_mouse_mode(true); r) {
         impl_->mouse_locked = true;
     } else {
-        std::fprintf(stderr,
-                     "[snt_engine] Failed to enter relative mouse mode\n");
+        // Non-fatal: engine still runs with the OS cursor visible.
+        SNT_LOG_WARN("Failed to enter relative mouse mode: %s",
+                     r.error().format().c_str());
         impl_->mouse_locked = false;
     }
-    return true;
+    return {};
 }
 
 void Engine::run() {
@@ -316,10 +332,14 @@ void Engine::run() {
         // The lock state is forwarded to CameraSystem so it knows whether
         // to apply mouse-look this frame.
         if (input_state.esc_pressed && impl_->mouse_locked) {
-            impl_->window.set_relative_mouse_mode(false);
+            // Lock-state toggle failures are non-fatal; ignore but keep
+            // the local `mouse_locked` flag in sync with intent.
+            auto _ = impl_->window.set_relative_mouse_mode(false);
+            (void)_;
             impl_->mouse_locked = false;
         } else if (input_state.wants_mouse_lock && !impl_->mouse_locked) {
-            impl_->window.set_relative_mouse_mode(true);
+            auto _ = impl_->window.set_relative_mouse_mode(true);
+            (void)_;
             impl_->mouse_locked = true;
         }
 
@@ -354,8 +374,8 @@ void Engine::run() {
                 auto& cam_comp_resize = impl_->world.get_component<snt::ecs::Camera>(impl_->camera_entity);
                 cam_comp_resize.aspect = static_cast<float>(new_sz.width) /
                                          static_cast<float>(new_sz.height);
-                std::printf("[snt_engine] Swapchain recreated: %dx%d\n",
-                            new_sz.width, new_sz.height);
+                SNT_LOG_INFO("Swapchain recreated: %dx%d",
+                             new_sz.width, new_sz.height);
             }
         }
     }
@@ -394,7 +414,7 @@ void Engine::shutdown() {
     // Window.
     impl_->window.destroy();
 
-    std::printf("[snt_engine] Shutdown complete\n");
+    SNT_LOG_INFO("Shutdown complete");
 
     // Release Impl so a second shutdown() call (e.g. from the destructor
     // after main() already called shutdown()) is a no-op via the

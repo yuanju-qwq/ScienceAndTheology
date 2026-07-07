@@ -12,6 +12,7 @@ add_library(snt_render STATIC
 target_include_directories(snt_render PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(snt_render PUBLIC
     snt_engine_settings
+    snt_core
     snt_ecs
     snt_renderer
     snt_render_backend

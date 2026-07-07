@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -32,7 +34,8 @@ public:
 
     // Select physical device + create logical device.
     // `surface` is the VkSurfaceKHR from the platform window.
-    bool init(VkInstance instance, VkSurfaceKHR surface);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VkInstance instance, VkSurfaceKHR surface);
 
     // Destroy logical device. Called automatically by destructor.
     void destroy();

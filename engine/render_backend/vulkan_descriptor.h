@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -45,7 +47,8 @@ public:
     VulkanDescriptor& operator=(const VulkanDescriptor&) = delete;
 
     // Create descriptor set layout + pool + sets + dynamic UBO buffers.
-    bool init(VulkanDevice& device);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VulkanDevice& device);
 
     void destroy();
 

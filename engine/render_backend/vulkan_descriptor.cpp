@@ -2,13 +2,15 @@
 //
 // P2.4: dynamic UBO for multi-entity rendering.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_descriptor.h"
 #include "vulkan_buffer.h"
 #include "vulkan_device.h"
 
 #include <volk.h>
 
-#include <cstdio>
 #include <cstring>
 
 namespace snt::render_backend {
@@ -21,7 +23,7 @@ VulkanDescriptor::~VulkanDescriptor() {
     destroy();
 }
 
-bool VulkanDescriptor::init(VulkanDevice& device) {
+snt::core::Expected<void> VulkanDescriptor::init(VulkanDevice& device) {
     device_ = &device;
 
     // --- Step 0: compute aligned UBO stride ---
@@ -54,8 +56,8 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
 
     if (vkCreateDescriptorSetLayout(device_->logical(), &layout_info, nullptr,
                                     &descriptor_set_layout_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateDescriptorSetLayout failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDescriptorInitFailed,
+                                "vkCreateDescriptorSetLayout failed"};
     }
 
     // --- Step 2: descriptor pool ---
@@ -73,8 +75,8 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
 
     if (vkCreateDescriptorPool(device_->logical(), &pool_info, nullptr,
                                &descriptor_pool_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateDescriptorPool failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDescriptorInitFailed,
+                                "vkCreateDescriptorPool failed"};
     }
 
     // --- Step 3: allocate descriptor sets ---
@@ -89,8 +91,8 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
     descriptor_sets_.resize(kMaxFramesInFlight);
     if (vkAllocateDescriptorSets(device_->logical(), &alloc_info,
                                  descriptor_sets_.data()) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkAllocateDescriptorSets failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDescriptorInitFailed,
+                                "vkAllocateDescriptorSets failed"};
     }
 
     // --- Step 4: create large dynamic UBO buffers + write descriptor sets ---
@@ -99,11 +101,11 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
     ubo_buffers_.resize(kMaxFramesInFlight);
     for (uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
         ubo_buffers_[i] = new VulkanBuffer();
-        if (!ubo_buffers_[i]->init(*device_, ubo_total_size,
-                                   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                   true /* cpu_visible */)) {
-            std::fprintf(stderr, "[snt::render_backend] UBO buffer init failed\n");
-            return false;
+        auto ubo_result = ubo_buffers_[i]->init(*device_, ubo_total_size,
+                                                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                                 true /* cpu_visible */);
+        if (!ubo_result) {
+            return ubo_result.error().with_context("VulkanDescriptor UBO init");
         }
 
         // Write descriptor: point binding 0 to this UBO buffer.
@@ -127,10 +129,9 @@ bool VulkanDescriptor::init(VulkanDevice& device) {
         vkUpdateDescriptorSets(device_->logical(), 1, &write, 0, nullptr);
     }
 
-    std::printf("[snt::render_backend] Dynamic UBO descriptor created "
-                "(stride=%u, max_entities=%u)\n",
-                ubo_stride_, kMaxEntities);
-    return true;
+    SNT_LOG_INFO("Dynamic UBO descriptor created (stride=%u, max_entities=%u)",
+                 ubo_stride_, kMaxEntities);
+    return {};
 }
 
 void VulkanDescriptor::destroy() {

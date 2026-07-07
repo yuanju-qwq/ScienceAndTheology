@@ -3,12 +3,15 @@
 // P2.3: uses VMA_ALLOCATION_CREATE_TRANSIENT_BIT for short-lived resources.
 // Resources are allocated on demand and freed en masse in reset().
 
+#define SNT_LOG_CHANNEL "renderer"
+#include "core/log.h"
+
 #include "renderer/transient_pool.h"
 #include "renderer/render_graph_resource.h"
 
 #include <volk.h>
 
-#include <cstdio>
+#include <format>
 
 namespace snt::renderer {
 
@@ -16,13 +19,13 @@ TransientPool::~TransientPool() {
     destroy();
 }
 
-bool TransientPool::init(VmaAllocator allocator) {
+snt::core::Expected<void> TransientPool::init(VmaAllocator allocator) {
     if (allocator == VK_NULL_HANDLE) {
-        std::fprintf(stderr, "[snt::renderer] TransientPool::init: null allocator\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "TransientPool::init: null allocator"};
     }
     allocator_ = allocator;
-    return true;
+    return {};
 }
 
 void TransientPool::destroy() {
@@ -30,11 +33,14 @@ void TransientPool::destroy() {
     allocator_ = VK_NULL_HANDLE;
 }
 
-bool TransientPool::create_texture(const TextureDesc& desc,
+snt::core::Expected<void> TransientPool::create_texture(const TextureDesc& desc,
                                    VkImage* out_image,
                                    VkImageView* out_view,
                                    VmaAllocation* out_allocation) {
-    if (allocator_ == VK_NULL_HANDLE) return false;
+    if (allocator_ == VK_NULL_HANDLE) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "TransientPool::create_texture: not initialized"};
+    }
 
     // --- Create VkImage via VMA ---
     VkImageCreateInfo image_info{};
@@ -61,10 +67,8 @@ bool TransientPool::create_texture(const TextureDesc& desc,
     VkResult result = vmaCreateImage(allocator_, &image_info, &alloc_info,
                                      &a.image, &a.allocation, nullptr);
     if (result != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::renderer] TransientPool: vmaCreateImage failed: %d\n",
-                     result);
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanBufferInitFailed,
+                                std::format("TransientPool: vmaCreateImage failed: {}", static_cast<int>(result))};
     }
 
     // --- Create VkImageView ---
@@ -93,11 +97,9 @@ bool TransientPool::create_texture(const TextureDesc& desc,
     result = vkCreateImageView(alloc_info_out.device, &view_info, nullptr,
                                &a.view);
     if (result != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::renderer] TransientPool: vkCreateImageView failed: %d\n",
-                     result);
         vmaDestroyImage(allocator_, a.image, a.allocation);
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanBufferInitFailed,
+                                std::format("TransientPool: vkCreateImageView failed: {}", static_cast<int>(result))};
     }
 
     *out_image = a.image;
@@ -105,13 +107,16 @@ bool TransientPool::create_texture(const TextureDesc& desc,
     *out_allocation = a.allocation;
 
     textures_.push_back(a);
-    return true;
+    return {};
 }
 
-bool TransientPool::create_buffer(const BufferDesc& desc,
+snt::core::Expected<void> TransientPool::create_buffer(const BufferDesc& desc,
                                   VkBuffer* out_buffer,
                                   VmaAllocation* out_allocation) {
-    if (allocator_ == VK_NULL_HANDLE) return false;
+    if (allocator_ == VK_NULL_HANDLE) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "TransientPool::create_buffer: not initialized"};
+    }
 
     VkBufferCreateInfo buf_info{};
     buf_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -127,17 +132,15 @@ bool TransientPool::create_buffer(const BufferDesc& desc,
     VkResult result = vmaCreateBuffer(allocator_, &buf_info, &alloc_info,
                                       &a.buffer, &a.allocation, nullptr);
     if (result != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::renderer] TransientPool: vmaCreateBuffer failed: %d\n",
-                     result);
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanBufferInitFailed,
+                                std::format("TransientPool: vmaCreateBuffer failed: {}", static_cast<int>(result))};
     }
 
     *out_buffer = a.buffer;
     *out_allocation = a.allocation;
 
     buffers_.push_back(a);
-    return true;
+    return {};
 }
 
 void TransientPool::reset() {

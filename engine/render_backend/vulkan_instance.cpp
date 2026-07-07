@@ -1,12 +1,14 @@
 // Vulkan Instance implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_instance.h"
 
 #include "platform/window.h"
 
 #include <volk.h>  // must come after <vulkan/vulkan.h> types are available
 
-#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -21,21 +23,14 @@ VulkanInstance::debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                VkDebugUtilsMessageTypeFlagsEXT type,
                                const VkDebugUtilsMessengerCallbackDataEXT* data,
                                void* /*user_data*/) {
-    // Map severity to a log prefix.
-    const char* prefix = "[Vulkan]";
-    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-        prefix = "[Vulkan ERROR]";
-    } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-        prefix = "[Vulkan WARN]";
-    } else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-        prefix = "[Vulkan info]";
-    } else {
-        prefix = "[Vulkan verbose]";
-    }
-
-    // Skip verbose/info by default to reduce noise; show warnings+errors.
+    // Forward validation messages to the engine logger. Verbose/info
+    // severities are skipped to reduce noise; warnings+errors are emitted
+    // via SNT_LOG_WARN. ERROR-severity messages could be promoted to
+    // SNT_LOG_ERROR if desired, but Vulkan validation tends to emit
+    // both as "best-effort" diagnostics, so WARN keeps them grouped.
+    (void)type;  // message category unused here
     if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-        std::fprintf(stderr, "%s: %s\n", prefix, data->pMessage);
+        SNT_LOG_WARN("Vulkan validation: %s", data->pMessage);
     }
     return VK_FALSE;  // don't abort the call
 }
@@ -48,12 +43,11 @@ VulkanInstance::~VulkanInstance() {
     destroy();
 }
 
-bool VulkanInstance::init(snt::platform::Window& window) {
+snt::core::Expected<void> VulkanInstance::init(snt::platform::Window& window) {
     // --- Step 1: Volk initialize (loads vulkan-1.dll via LoadLibrary) ---
     if (volkInitialize() != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] volkInitialize failed: "
-                             "vulkan-1.dll not found\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanInitFailed,
+                                "volkInitialize failed: vulkan-1.dll not found"};
     }
 
     // --- Step 2: gather instance extensions ---
@@ -91,10 +85,9 @@ bool VulkanInstance::init(snt::platform::Window& window) {
     }
     if (has_validation) {
         layers.push_back("VK_LAYER_KHRONOS_validation");
-        std::printf("[snt::render_backend] Validation layer: enabled\n");
+        SNT_LOG_INFO("Validation layer: enabled");
     } else {
-        std::fprintf(stderr, "[snt::render_backend] Warning: "
-                             "VK_LAYER_KHRONOS_validation not available\n");
+        SNT_LOG_WARN("VK_LAYER_KHRONOS_validation not available");
     }
 #endif
 
@@ -118,8 +111,8 @@ bool VulkanInstance::init(snt::platform::Window& window) {
     };
 
     if (vkCreateInstance(&create_info, nullptr, &instance_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateInstance failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanInitFailed,
+                                "vkCreateInstance failed"};
     }
 
     // --- Step 5: load instance-level function pointers via Volk ---
@@ -143,14 +136,13 @@ bool VulkanInstance::init(snt::platform::Window& window) {
         };
         if (vkCreateDebugUtilsMessengerEXT(instance_, &messenger_info, nullptr,
                                            &debug_messenger_) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] Warning: "
-                                 "failed to create debug messenger\n");
+            SNT_LOG_WARN("failed to create debug messenger");
             // Non-fatal: continue without messenger.
         }
     }
 
-    std::printf("[snt::render_backend] VkInstance created (Vulkan 1.3)\n");
-    return true;
+    SNT_LOG_INFO("VkInstance created (Vulkan 1.3)");
+    return {};
 }
 
 void VulkanInstance::destroy() {

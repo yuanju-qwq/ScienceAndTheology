@@ -2,11 +2,12 @@
 // init() / destroy() / lookup() / insert() are stubs. P2.4 wires real
 // VkPipeline creation via VulkanPipeline + caches results here.
 
+#define SNT_LOG_CHANNEL "renderer"
+#include "core/log.h"
+
 #include "renderer/pipeline_cache.h"
 
 #include "render_backend/vulkan_device.h"
-
-#include <cstdio>
 
 namespace snt::renderer {
 
@@ -16,7 +17,7 @@ PipelineCache::~PipelineCache() {
 
 void PipelineCache::init(snt::render_backend::VulkanDevice& device) {
     device_ = &device;
-    std::printf("[snt::renderer] PipelineCache initialized (P2.1 skeleton)\n");
+    SNT_LOG_INFO("PipelineCache initialized (P2.1 skeleton)");
 }
 
 void PipelineCache::destroy() {

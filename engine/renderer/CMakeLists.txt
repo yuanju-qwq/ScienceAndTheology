@@ -16,4 +16,4 @@ add_library(snt_renderer STATIC
     transient_pool.cpp
 )
 target_include_directories(snt_renderer PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(snt_renderer PUBLIC snt_engine_settings snt_render_backend)
+target_link_libraries(snt_renderer PUBLIC snt_engine_settings snt_core snt_render_backend)

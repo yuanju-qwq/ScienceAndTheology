@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -34,7 +36,8 @@ public:
     VulkanFrame& operator=(const VulkanFrame&) = delete;
 
     // Create command pool + command buffers + semaphores + fences.
-    bool init(VulkanDevice& device, uint32_t swapchain_image_count);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VulkanDevice& device, uint32_t swapchain_image_count);
 
     void destroy();
 

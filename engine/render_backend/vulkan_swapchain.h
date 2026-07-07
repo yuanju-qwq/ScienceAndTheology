@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -33,13 +35,15 @@ public:
 
     // Create swapchain. `device` provides physical/logical device + queues.
     // `width`/`height` are the drawable extent (window client area).
-    bool init(VulkanDevice& device, uint32_t width, uint32_t height);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VulkanDevice& device, uint32_t width, uint32_t height);
 
     // Destroy swapchain + image views. Called automatically by destructor.
     void destroy();
 
     // Recreate swapchain for a new window size. Destroys old swapchain first.
-    bool recreate(uint32_t width, uint32_t height);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> recreate(uint32_t width, uint32_t height);
 
     VkSwapchainKHR handle() const { return swapchain_; }
     VkFormat image_format() const { return image_format_; }

@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -35,8 +37,9 @@ public:
 
     // Load a .obj file and create vertex + index buffers.
     // `default_color` is applied to all vertices (P1.5: no material support).
-    bool load_obj(VulkanDevice& device, const std::string& path,
-                  const float default_color[3]);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> load_obj(VulkanDevice& device, const std::string& path,
+                                       const float default_color[3]);
 
     void destroy();
 

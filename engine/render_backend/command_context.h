@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -69,7 +71,8 @@ public:
 
     // Allocate a primary command buffer from `pool` and begin recording.
     // `pool` must be a valid VkCommandPool created on the graphics family.
-    bool begin_recording(VulkanDevice& device, VkCommandPool pool);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> begin_recording(VulkanDevice& device, VkCommandPool pool);
 
     // End recording. After this, handle() can be submitted.
     void end_recording();

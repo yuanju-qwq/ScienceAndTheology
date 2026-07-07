@@ -1,12 +1,13 @@
 // Vulkan Depth Buffer implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_depth.h"
 #include "vulkan_device.h"
 #include "vulkan_swapchain.h"
 
 #include <volk.h>
-
-#include <cstdio>
 
 namespace snt::render_backend {
 
@@ -42,12 +43,12 @@ VulkanDepth::~VulkanDepth() {
     destroy();
 }
 
-bool VulkanDepth::init(VulkanDevice& device, VulkanSwapchain& swapchain) {
+snt::core::Expected<void> VulkanDepth::init(VulkanDevice& device, VulkanSwapchain& swapchain) {
     device_ = &device;
     depth_format_ = find_depth_format();
     if (depth_format_ == VK_FORMAT_UNDEFINED) {
-        std::fprintf(stderr, "[snt::render_backend] No supported depth format found\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDepthInitFailed,
+                                "No supported depth format found"};
     }
     return recreate(swapchain);
 }
@@ -70,7 +71,7 @@ void VulkanDepth::destroy() {
 // Recreate (on swapchain resize)
 // ---------------------------------------------------------------------------
 
-bool VulkanDepth::recreate(VulkanSwapchain& swapchain) {
+snt::core::Expected<void> VulkanDepth::recreate(VulkanSwapchain& swapchain) {
     // Destroy old resources first.
     destroy();
 
@@ -98,8 +99,8 @@ bool VulkanDepth::recreate(VulkanSwapchain& swapchain) {
 
     if (vmaCreateImage(device_->vma_allocator(), &image_info, &alloc_info,
                        &depth_image_, &allocation_, nullptr) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vmaCreateImage (depth) failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDepthInitFailed,
+                                "vmaCreateImage (depth) failed"};
     }
 
     // --- Create depth image view ---
@@ -119,13 +120,13 @@ bool VulkanDepth::recreate(VulkanSwapchain& swapchain) {
 
     if (vkCreateImageView(device_->logical(), &view_info, nullptr, &depth_view_)
         != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateImageView (depth) failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDepthInitFailed,
+                                "vkCreateImageView (depth) failed"};
     }
 
-    std::printf("[snt::render_backend] Depth buffer created: %ux%u (format=%d)\n",
-                swapchain.extent().width, swapchain.extent().height, depth_format_);
-    return true;
+    SNT_LOG_INFO("Depth buffer created: %ux%u (format=%d)",
+                 swapchain.extent().width, swapchain.extent().height, depth_format_);
+    return {};
 }
 
 }  // namespace snt::render_backend

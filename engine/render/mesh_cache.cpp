@@ -1,11 +1,14 @@
 // MeshCache implementation.
 
+#define SNT_LOG_CHANNEL "render"
+#include "core/log.h"
+
 #include "render/mesh_cache.h"
 
 #include "render_backend/vulkan_device.h"
 #include "render_backend/vulkan_mesh.h"
 
-#include <cstdio>
+#include <format>
 
 namespace snt::render {
 
@@ -13,9 +16,9 @@ MeshCache::~MeshCache() {
     destroy();
 }
 
-bool MeshCache::init(snt::render_backend::VulkanDevice& device) {
+snt::core::Expected<void> MeshCache::init(snt::render_backend::VulkanDevice& device) {
     device_ = &device;
-    return true;
+    return {};
 }
 
 void MeshCache::destroy() {
@@ -34,8 +37,11 @@ void MeshCache::destroy() {
     device_ = nullptr;
 }
 
-MeshHandle MeshCache::load(const std::string& path) {
-    if (!device_) return MeshHandle{};
+snt::core::Expected<MeshHandle> MeshCache::load(const std::string& path) {
+    if (!device_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "MeshCache::load: not initialized"};
+    }
 
     // Deduplication: return existing handle if path already loaded.
     auto it = path_to_handle_.find(path);
@@ -47,12 +53,11 @@ MeshHandle MeshCache::load(const std::string& path) {
     auto* mesh = new snt::render_backend::VulkanMesh();
     // Default color — P3 will replace with material system.
     float default_color[3] = {1.0f, 0.5f, 0.2f};
-    if (!mesh->load_obj(*device_, path, default_color)) {
-        std::fprintf(stderr,
-                     "[snt::render] MeshCache: failed to load '%s'\n",
-                     path.c_str());
+    if (auto r = mesh->load_obj(*device_, path, default_color); !r) {
         delete mesh;
-        return MeshHandle{};
+        snt::core::Error e = r.error();
+        e.with_context(std::format("MeshCache::load('{}')", path));
+        return e;
     }
 
     // Register in slot map.

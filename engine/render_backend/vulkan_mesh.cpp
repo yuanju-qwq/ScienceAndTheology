@@ -1,5 +1,8 @@
 // Vulkan Mesh implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_mesh.h"
 #include "vulkan_buffer.h"
 #include "vulkan_device.h"
@@ -7,7 +10,6 @@
 #include <volk.h>
 #include <tiny_obj_loader.h>
 
-#include <cstdio>
 #include <cstring>
 
 namespace snt::render_backend {
@@ -20,8 +22,8 @@ VulkanMesh::~VulkanMesh() {
     destroy();
 }
 
-bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
-                          const float default_color[3]) {
+snt::core::Expected<void> VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
+                                              const float default_color[3]) {
     device_ = &device;
 
     // --- Load .obj via tinyobjloader ---
@@ -31,12 +33,11 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
     std::string warn, err;
 
     if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str())) {
-        std::fprintf(stderr, "[snt::render_backend] Failed to load .obj: %s\n%s\n",
-                     path.c_str(), err.c_str());
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanMeshLoadFailed,
+                                "Failed to load .obj"};
     }
     if (!warn.empty()) {
-        std::printf("[snt::render_backend] .obj warning: %s\n", warn.c_str());
+        SNT_LOG_WARN(".obj warning: %s", warn.c_str());
     }
 
     // --- Build vertex + index arrays ---
@@ -58,8 +59,8 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
     uint32_t vertex_index_in_face = 0;  // 0..5, resets each face
 
     // DIAGNOSTIC: log face index distribution.
-    std::printf("[snt::render_backend] mesh load: %zu shapes, %zu total indices\n",
-                shapes.size(), shapes.empty() ? 0 : shapes[0].mesh.indices.size());
+    SNT_LOG_DEBUG("mesh load: %zu shapes, %zu total indices",
+                  shapes.size(), shapes.empty() ? 0 : shapes[0].mesh.indices.size());
 
     for (const auto& shape : shapes) {
         for (size_t i = 0; i < shape.mesh.indices.size(); ++i) {
@@ -88,9 +89,10 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
 
             // DIAGNOSTIC: log first 12 vertices' face assignment.
             if (i < 12) {
-                std::printf("[snt::render_backend]   v[%zu] face=%u color=(%.2f,%.2f,%.2f) pos=(%.2f,%.2f,%.2f)\n",
-                            i, face_idx, vertex.color[0], vertex.color[1], vertex.color[2],
-                            vertex.position[0], vertex.position[1], vertex.position[2]);
+                SNT_LOG_DEBUG("  v[%zu] face=%u color=(%.2f,%.2f,%.2f) pos=(%.2f,%.2f,%.2f)",
+                              i, face_idx,
+                              vertex.color[0], vertex.color[1], vertex.color[2],
+                              vertex.position[0], vertex.position[1], vertex.position[2]);
             }
 
             vertices.push_back(vertex);
@@ -101,39 +103,41 @@ bool VulkanMesh::load_obj(VulkanDevice& device, const std::string& path,
     vertex_count_ = static_cast<uint32_t>(vertices.size());
     index_count_ = static_cast<uint32_t>(indices.size());
 
-    std::printf("[snt::render_backend] Mesh loaded: %s (%u verts, %u indices)\n",
-                path.c_str(), vertex_count_, index_count_);
+    SNT_LOG_INFO("Mesh loaded: %s (%u verts, %u indices)",
+                 path.c_str(), vertex_count_, index_count_);
 
     // DIAGNOSTIC: print first 4 vertices to verify position data.
     for (uint32_t i = 0; i < vertex_count_ && i < 4; ++i) {
-        std::printf("[diag mesh] v[%u] pos=(%.2f,%.2f,%.2f) color=(%.2f,%.2f,%.2f)\n",
-                    i, vertices[i].position[0], vertices[i].position[1],
-                    vertices[i].position[2], vertices[i].color[0],
-                    vertices[i].color[1], vertices[i].color[2]);
+        SNT_LOG_DEBUG("[diag mesh] v[%u] pos=(%.2f,%.2f,%.2f) color=(%.2f,%.2f,%.2f)",
+                      i,
+                      vertices[i].position[0], vertices[i].position[1],
+                      vertices[i].position[2],
+                      vertices[i].color[0], vertices[i].color[1],
+                      vertices[i].color[2]);
     }
 
     // --- Create vertex buffer (CPU-visible for P1.5; P2: staging buffer) ---
     vertex_buffer_ = new VulkanBuffer();
-    if (!vertex_buffer_->init(*device_, sizeof(MeshVertex) * vertices.size(),
-                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                              true /* cpu_visible */)) {
-        std::fprintf(stderr, "[snt::render_backend] Vertex buffer init failed\n");
-        return false;
+    auto vb_result = vertex_buffer_->init(*device_, sizeof(MeshVertex) * vertices.size(),
+                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                         true /* cpu_visible */);
+    if (!vb_result) {
+        return vb_result.error().with_context("VulkanMesh vertex buffer init");
     }
     vertex_buffer_->write(vertices.data(),
                           sizeof(MeshVertex) * vertices.size());
 
     // --- Create index buffer ---
     index_buffer_ = new VulkanBuffer();
-    if (!index_buffer_->init(*device_, sizeof(uint32_t) * indices.size(),
-                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                             true /* cpu_visible */)) {
-        std::fprintf(stderr, "[snt::render_backend] Index buffer init failed\n");
-        return false;
+    auto ib_result = index_buffer_->init(*device_, sizeof(uint32_t) * indices.size(),
+                                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                         true /* cpu_visible */);
+    if (!ib_result) {
+        return ib_result.error().with_context("VulkanMesh index buffer init");
     }
     index_buffer_->write(indices.data(), sizeof(uint32_t) * indices.size());
 
-    return true;
+    return {};
 }
 
 void VulkanMesh::destroy() {

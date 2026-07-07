@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "core/expected.h"  // Expected<void> for init / execute / execute_record_only
+
 namespace snt::render_backend {
 class VulkanDevice;
 }
@@ -43,7 +45,7 @@ public:
     // pass. This avoids pending-state conflicts when the caller pipelines
     // frames on the GPU (VulkanFrame-style frames-in-flight).
     // Must be called once before execute().
-    bool init(snt::render_backend::VulkanDevice& device,
+    snt::core::Expected<void> init(snt::render_backend::VulkanDevice& device,
               uint32_t frames_in_flight = 2);
 
     // Tear down command pool + all per-pass state.
@@ -101,9 +103,9 @@ public:
     // (0..frames_in_flight-1). This must match the caller's frame-in-flight
     // slot so the recorded cb is not reset while still pending on the GPU.
     //
-    // Returns false on any Vulkan error.
-    bool execute();          // Mode A: record + submit (serial)
-    bool execute_record_only(uint32_t frame_index);  // Mode B: record only
+    // Returns an Error on any Vulkan failure.
+    snt::core::Expected<void> execute();          // Mode A: record + submit (serial)
+    snt::core::Expected<void> execute_record_only(uint32_t frame_index);  // Mode B: record only
 
     // Access the recorded command buffer for pass `pass_index` from the
     // `frame_index` slot. Only valid after a successful

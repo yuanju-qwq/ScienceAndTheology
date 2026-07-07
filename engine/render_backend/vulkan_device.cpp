@@ -1,10 +1,12 @@
 // Vulkan Device implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_device.h"
 
 #include <volk.h>
 
-#include <cstdio>
 #include <cstring>
 #include <set>
 #include <vector>
@@ -149,15 +151,15 @@ VulkanDevice::~VulkanDevice() {
     destroy();
 }
 
-bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
+snt::core::Expected<void> VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     surface_ = surface;  // store for query_swapchain_support()
 
     // --- Step 1: enumerate physical devices ---
     uint32_t dev_count = 0;
     vkEnumeratePhysicalDevices(instance, &dev_count, nullptr);
     if (dev_count == 0) {
-        std::fprintf(stderr, "[snt::render_backend] No GPU with Vulkan support\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kNoSuitableGpu,
+                                "No GPU with Vulkan support"};
     }
     std::vector<VkPhysicalDevice> devices(dev_count);
     vkEnumeratePhysicalDevices(instance, &dev_count, devices.data());
@@ -175,20 +177,19 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     physical_ = best;
 
     if (physical_ == VK_NULL_HANDLE) {
-        std::fprintf(stderr, "[snt::render_backend] No suitable GPU found\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kNoSuitableGpu,
+                                "No suitable GPU found"};
     }
 
     // Log the chosen device name.
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_, &props);
-    std::printf("[snt::render_backend] GPU: %s (score %d)\n",
-                props.deviceName, best_score);
+    SNT_LOG_INFO("GPU: %s (score %d)", props.deviceName, best_score);
 
     // --- Step 3: find queue families ---
     if (!find_queue_families(physical_, surface)) {
-        std::fprintf(stderr, "[snt::render_backend] No graphics+present queue family\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kNoGraphicsQueue,
+                                "No graphics+present queue family"};
     }
 
     // --- Step 4: create logical device ---
@@ -233,12 +234,10 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     }
     if (has_swapchain_maintenance1_) {
         device_extensions.push_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
-        std::printf("[snt::render_backend] Extension enabled: "
-                    "VK_KHR_swapchain_maintenance1 (present fence)\n");
+        SNT_LOG_INFO("Extension enabled: VK_KHR_swapchain_maintenance1 (present fence)");
     } else {
-        std::fprintf(stderr, "[snt::render_backend] Warning: "
-                    "VK_KHR_swapchain_maintenance1 not supported, "
-                    "falling back to semaphore-only sync\n");
+        SNT_LOG_WARN("VK_KHR_swapchain_maintenance1 not supported, "
+                     "falling back to semaphore-only sync");
     }
 
     VkDeviceCreateInfo create_info{
@@ -253,8 +252,8 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     };
 
     if (vkCreateDevice(physical_, &create_info, nullptr, &device_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateDevice failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDeviceInitFailed,
+                                "vkCreateDevice failed"};
     }
 
     // --- Step 5: load device-level function pointers ---
@@ -279,14 +278,13 @@ bool VulkanDevice::init(VkInstance instance, VkSurfaceKHR surface) {
     vma_info.vulkanApiVersion = VK_API_VERSION_1_3;
 
     if (vmaCreateAllocator(&vma_info, &vma_allocator_) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vmaCreateAllocator failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanDeviceInitFailed,
+                                "vmaCreateAllocator failed"};
     }
 
-    std::printf("[snt::render_backend] Logical device created "
-                "(gfx family=%u, present family=%u)\n",
-                graphics_family_, present_family_);
-    return true;
+    SNT_LOG_INFO("Logical device created (gfx family=%u, present family=%u)",
+                 graphics_family_, present_family_);
+    return {};
 }
 
 void VulkanDevice::destroy() {

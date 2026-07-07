@@ -19,6 +19,9 @@
 //      its CommandContext.
 //   7. VulkanFrame::end_frame(image_index, recorded_cb) — submit + present.
 
+#define SNT_LOG_CHANNEL "render"
+#include "core/log.h"
+
 #include "render/render_system.h"
 
 #include "ecs/components.h"
@@ -34,11 +37,21 @@
 
 #include <volk.h>
 
+// GLM headers transitively rely on `assert`. On MSVC + mixed C/C++ stdlib
+// headers (volk + vulkan + SDL3 + EnTT), the assert macro can end up
+// undefined by the time GLM parses its templates even after <cassert>
+// was included. Force-define a fallback assert if the standard one is
+// missing right before any GLM header is parsed.
+#include <cassert>
+#ifndef assert
+#  include <cstdio>
+#  include <cstdlib>
+#  define assert(expr) ((void)0)
+#endif
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -72,21 +85,28 @@ glm::mat4 build_view_matrix(const snt::ecs::Transform& cam) {
 
 }  // namespace
 
-bool RenderSystem::init_render_graph() {
-    if (!device_ || !frame_) return false;
-    if (graph_initialized_) return true;
+snt::core::Expected<void> RenderSystem::init_render_graph() {
+    if (!device_ || !frame_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "RenderSystem::init_render_graph: device/frame not set"};
+    }
+    if (graph_initialized_) return {};
     // P2.4: init the mesh cache with the same Vulkan device.
-    if (!mesh_cache_.init(*device_)) {
-        std::fprintf(stderr, "[snt::render] MeshCache init failed\n");
-        return false;
+    if (auto r = mesh_cache_.init(*device_); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("RenderSystem::init_render_graph");
+        return e;
     }
     // Match VulkanFrame's frames-in-flight so each frame slot has its own
     // command buffer, avoiding pending-state conflicts across frames.
-    if (!graph_.init(*device_, snt::render_backend::VulkanFrame::frames_in_flight())) {
-        return false;
+    if (auto r = graph_.init(*device_, snt::render_backend::VulkanFrame::frames_in_flight());
+        !r) {
+        snt::core::Error e = r.error();
+        e.with_context("RenderSystem::init_render_graph");
+        return e;
     }
     graph_initialized_ = true;
-    return true;
+    return {};
 }
 
 void RenderSystem::destroy_render_graph() {
@@ -141,7 +161,7 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
     auto view_group = registry.view<snt::ecs::Transform, snt::ecs::MeshRef>();
     for (auto e : view_group) {
         if (entity_index >= snt::render_backend::VulkanDescriptor::kMaxEntities) {
-            std::fprintf(stderr, "[snt::render] too many mesh entities, truncating\n");
+            SNT_LOG_ERROR("too many mesh entities, truncating");
             break;
         }
 
@@ -151,8 +171,8 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         // Resolve the mesh handle to a VulkanMesh via the cache.
         auto* mesh = mesh_cache_.get(mesh_ref.handle.id);
         if (!mesh) {
-            std::fprintf(stderr, "[snt::render] entity %u: invalid mesh handle\n",
-                         static_cast<unsigned>(e));
+            SNT_LOG_ERROR("entity %u: invalid mesh handle",
+                          static_cast<unsigned>(e));
             continue;
         }
 
@@ -178,7 +198,7 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
         return;
     }
     if (acquire_result == snt::render_backend::VulkanFrame::FrameResult::kError) {
-        std::fprintf(stderr, "[snt::render] begin_frame failed\n");
+        SNT_LOG_ERROR("begin_frame failed");
         return;
     }
 
@@ -224,7 +244,7 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
 
     auto* pass = graph_.add_pass("forward");
     if (!pass) {
-        std::fprintf(stderr, "[snt::render] add_pass failed\n");
+        SNT_LOG_ERROR("add_pass failed");
         return;
     }
 
@@ -290,8 +310,9 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
     // we will wait on next time around. This prevents resetting a command
     // buffer that is still pending on the GPU.
     uint32_t frame_index = frame_->current_frame();
-    if (!graph_.execute_record_only(frame_index)) {
-        std::fprintf(stderr, "[snt::render] execute_record_only failed\n");
+    if (auto r = graph_.execute_record_only(frame_index); !r) {
+        SNT_LOG_ERROR("execute_record_only failed: %s",
+                      r.error().with_context("RenderSystem::update").format().c_str());
         return;
     }
 
@@ -301,7 +322,7 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
     std::vector<VkCommandBuffer> recorded_cbs;
     uint32_t cb_count = graph_.recorded_command_buffers(frame_index, &recorded_cbs);
     if (cb_count == 0) {
-        std::fprintf(stderr, "[snt::render] no recorded command buffers\n");
+        SNT_LOG_ERROR("no recorded command buffers");
         return;
     }
 
@@ -311,7 +332,7 @@ void RenderSystem::update(snt::ecs::World& world, float /*dt*/) {
     if (end_result == snt::render_backend::VulkanFrame::FrameResult::kResized) {
         needs_resize_ = true;
     } else if (end_result == snt::render_backend::VulkanFrame::FrameResult::kError) {
-        std::fprintf(stderr, "[snt::render] end_frame failed\n");
+        SNT_LOG_ERROR("end_frame failed");
     } else {
         needs_resize_ = false;
     }

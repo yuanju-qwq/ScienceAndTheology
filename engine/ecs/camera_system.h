@@ -24,7 +24,7 @@
 #include "ecs/system.h"
 #include "input/input_state.h"
 
-#include <entt/entt.hpp>
+#include "ecs/entt_config.h"
 
 namespace snt::input {
 class InputSystem;

@@ -1,12 +1,13 @@
 // CommandContext implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "render_backend/command_context.h"
 
 #include "render_backend/vulkan_device.h"
 
 #include <volk.h>
-
-#include <cstdio>
 
 namespace snt::render_backend {
 
@@ -14,7 +15,7 @@ CommandContext::~CommandContext() {
     reset();
 }
 
-bool CommandContext::begin_recording(VulkanDevice& device, VkCommandPool pool) {
+snt::core::Expected<void> CommandContext::begin_recording(VulkanDevice& device, VkCommandPool pool) {
     // If we already hold a buffer, recycle it (vkResetCommandBuffer rather
     // than free+allocate). This keeps the per-pass allocation cost at zero
     // after the first frame.
@@ -27,10 +28,8 @@ bool CommandContext::begin_recording(VulkanDevice& device, VkCommandPool pool) {
         };
         if (vkAllocateCommandBuffers(device.logical(), &alloc_info,
                                      &command_buffer_) != VK_SUCCESS) {
-            std::fprintf(stderr,
-                         "[snt::render_backend] CommandContext: "
-                         "vkAllocateCommandBuffers failed\n");
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanCommandBufferFailed,
+                                    "CommandContext: vkAllocateCommandBuffers failed"};
         }
         owns_buffer_ = true;
     }
@@ -48,22 +47,18 @@ bool CommandContext::begin_recording(VulkanDevice& device, VkCommandPool pool) {
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
     if (vkBeginCommandBuffer(command_buffer_, &begin_info) != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::render_backend] CommandContext: "
-                     "vkBeginCommandBuffer failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanCommandBufferFailed,
+                                "CommandContext: vkBeginCommandBuffer failed"};
     }
 
     recording_ = true;
-    return true;
+    return {};
 }
 
 void CommandContext::end_recording() {
     if (!recording_) return;
     if (vkEndCommandBuffer(command_buffer_) != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::render_backend] CommandContext: "
-                     "vkEndCommandBuffer failed\n");
+        SNT_LOG_ERROR("CommandContext: vkEndCommandBuffer failed");
     }
     recording_ = false;
 }

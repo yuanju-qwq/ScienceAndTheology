@@ -10,7 +10,9 @@
 
 #pragma once
 
-#include <entt/entt.hpp>
+// EnTT assertions must be routed through our SNT_LOG_FATAL + SNT_DEBUGBREAK
+// path (see ecs/entt_config.h for the full rationale).
+#include "ecs/entt_config.h"
 
 #include <memory>
 #include <vector>

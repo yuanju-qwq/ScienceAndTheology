@@ -1,11 +1,13 @@
 // Vulkan Buffer implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_buffer.h"
 #include "vulkan_device.h"
 
 #include <volk.h>
 
-#include <cstdio>
 #include <cstring>
 
 namespace snt::render_backend {
@@ -18,8 +20,8 @@ VulkanBuffer::~VulkanBuffer() {
     destroy();
 }
 
-bool VulkanBuffer::init(VulkanDevice& device, VkDeviceSize size,
-                        VkBufferUsageFlags usage, bool cpu_visible) {
+snt::core::Expected<void> VulkanBuffer::init(VulkanDevice& device, VkDeviceSize size,
+                                              VkBufferUsageFlags usage, bool cpu_visible) {
     device_ = &device;
     size_ = size;
 
@@ -41,11 +43,11 @@ bool VulkanBuffer::init(VulkanDevice& device, VkDeviceSize size,
     // VMA allocator is stored on the device; access via a getter (added below).
     if (vmaCreateBuffer(device_->vma_allocator(), &buffer_info, &alloc_info,
                         &buffer_, &allocation_, nullptr) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vmaCreateBuffer failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanBufferInitFailed,
+                                "vmaCreateBuffer failed"};
     }
 
-    return true;
+    return {};
 }
 
 void VulkanBuffer::destroy() {
@@ -65,7 +67,7 @@ void* VulkanBuffer::map() {
     if (buffer_ == VK_NULL_HANDLE) return nullptr;
     void* mapped = nullptr;
     if (vmaMapMemory(device_->vma_allocator(), allocation_, &mapped) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vmaMapMemory failed\n");
+        SNT_LOG_ERROR("vmaMapMemory failed");
         return nullptr;
     }
     return mapped;
@@ -79,10 +81,9 @@ void VulkanBuffer::unmap() {
 
 void VulkanBuffer::write(const void* data, VkDeviceSize data_size) {
     if (data_size > size_) {
-        std::fprintf(stderr, "[snt::render_backend] Buffer write overflow: "
-                             "%llu > %llu\n",
-                     static_cast<unsigned long long>(data_size),
-                     static_cast<unsigned long long>(size_));
+        SNT_LOG_ERROR("Buffer write overflow: %llu > %llu",
+                      static_cast<unsigned long long>(data_size),
+                      static_cast<unsigned long long>(size_));
         return;
     }
     void* mapped = map();
@@ -95,11 +96,10 @@ void VulkanBuffer::write(const void* data, VkDeviceSize data_size) {
 void VulkanBuffer::write_at(const void* data, VkDeviceSize data_size,
                             VkDeviceSize offset) {
     if (offset + data_size > size_) {
-        std::fprintf(stderr, "[snt::render_backend] Buffer write_at overflow: "
-                             "offset=%llu size=%llu > buf=%llu\n",
-                     static_cast<unsigned long long>(offset),
-                     static_cast<unsigned long long>(data_size),
-                     static_cast<unsigned long long>(size_));
+        SNT_LOG_ERROR("Buffer write_at overflow: offset=%llu size=%llu > buf=%llu",
+                      static_cast<unsigned long long>(offset),
+                      static_cast<unsigned long long>(data_size),
+                      static_cast<unsigned long long>(size_));
         return;
     }
     void* mapped = map();

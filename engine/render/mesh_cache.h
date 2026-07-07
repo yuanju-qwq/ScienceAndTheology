@@ -22,6 +22,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/expected.h"  // Expected<MeshHandle> for load / Expected<void> for init
+
 namespace snt::render_backend {
 class VulkanDevice;
 class VulkanMesh;
@@ -45,15 +47,15 @@ public:
     MeshCache& operator=(const MeshCache&) = delete;
 
     // Bind the cache to a Vulkan device. Must be called before load().
-    bool init(snt::render_backend::VulkanDevice& device);
+    snt::core::Expected<void> init(snt::render_backend::VulkanDevice& device);
 
     // Release all cached meshes. Idempotent.
     void destroy();
 
     // Load a mesh by path. If the path was already loaded, returns the
     // existing handle (deduplication). Otherwise loads + caches it.
-    // Returns kInvalid on failure.
-    MeshHandle load(const std::string& path);
+    // Returns an Error on failure.
+    snt::core::Expected<MeshHandle> load(const std::string& path);
 
     // Look up the VulkanMesh for a handle. Returns nullptr if invalid.
     // Accepts raw uint32_t so callers can pass any handle type with the
@@ -66,7 +68,7 @@ public:
     }
 
     // (P3) Reload a mesh from disk. Stub for now.
-    bool reload(MeshHandle handle) { (void)handle; return false; }
+    snt::core::Expected<void> reload(MeshHandle handle) { (void)handle; return snt::core::Error{snt::core::ErrorCode::kNotImplemented, "MeshCache::reload not implemented"}; }
 
 private:
     snt::render_backend::VulkanDevice* device_ = nullptr;

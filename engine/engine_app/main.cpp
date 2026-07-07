@@ -2,17 +2,18 @@
 // P2.B1: reduced to Engine class init/run/shutdown. All subsystem setup
 // + the per-frame loop live in engine/engine.cpp.
 
-#include "engine/engine.h"
+#define SNT_LOG_CHANNEL "app"
+#include "core/log.h"
 
-#include <cstdio>
+#include "engine/engine.h"
 
 int main(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
 
     snt::engine::Engine engine;
-    if (!engine.init()) {
-        std::fprintf(stderr, "[snt_engine] Engine init failed\n");
+    if (auto r = engine.init(); !r) {
+        SNT_LOG_ERROR("Engine init failed: %s", r.error().format().c_str());
         return 1;
     }
     engine.run();

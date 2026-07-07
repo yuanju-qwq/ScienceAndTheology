@@ -12,6 +12,9 @@
 // P2.3 will add: dependency-driven ordering, automatic barriers,
 // transient resource allocation.
 
+#define SNT_LOG_CHANNEL "renderer"
+#include "core/log.h"
+
 #include "renderer/render_graph.h"
 #include "renderer/transient_pool.h"
 
@@ -21,8 +24,8 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
-#include <cstdio>
 #include <deque>
+#include <format>
 #include <unordered_map>
 #include <vector>
 
@@ -83,24 +86,22 @@ struct RenderGraph::Impl {
 // Lifecycle
 // ---------------------------------------------------------------------------
 RenderGraph::RenderGraph() : impl_(std::make_unique<Impl>()) {
-    std::printf("[snt::renderer] RenderGraph created (P2.2)\n");
+    SNT_LOG_INFO("RenderGraph created (P2.2)");
 }
 
 RenderGraph::~RenderGraph() {
     destroy();
 }
 
-bool RenderGraph::init(snt::render_backend::VulkanDevice& device,
+snt::core::Expected<void> RenderGraph::init(snt::render_backend::VulkanDevice& device,
                        uint32_t frames_in_flight) {
     if (impl_->device != nullptr) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph::init already called\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "RenderGraph::init already called"};
     }
     if (frames_in_flight == 0) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph::init: frames_in_flight=0\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "RenderGraph::init: frames_in_flight=0"};
     }
     impl_->device = &device;
     impl_->frames_in_flight = frames_in_flight;
@@ -114,9 +115,8 @@ bool RenderGraph::init(snt::render_backend::VulkanDevice& device,
     };
     if (vkCreateCommandPool(device.logical(), &pool_info, nullptr,
                             &impl_->command_pool) != VK_SUCCESS) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph: vkCreateCommandPool failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanCommandPoolFailed,
+                                "RenderGraph: vkCreateCommandPool failed"};
     }
 
     // Pre-size the per-frame CommandContext slots. Each slot will hold
@@ -124,15 +124,14 @@ bool RenderGraph::init(snt::render_backend::VulkanDevice& device,
     impl_->contexts.resize(frames_in_flight);
 
     // Initialize the transient resource pool with VMA.
-    if (!impl_->transient_pool.init(device.vma_allocator())) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph: TransientPool init failed\n");
-        return false;
+    if (auto r = impl_->transient_pool.init(device.vma_allocator()); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("RenderGraph::init");
+        return e;
     }
 
-    std::printf("[snt::renderer] RenderGraph initialized (frames_in_flight=%u)\n",
-                frames_in_flight);
-    return true;
+    SNT_LOG_INFO("RenderGraph initialized (frames_in_flight=%u)", frames_in_flight);
+    return {};
 }
 
 void RenderGraph::destroy() {
@@ -228,8 +227,7 @@ RenderResource RenderGraph::import_texture(VkImage image, VkImageView view,
 // ---------------------------------------------------------------------------
 RenderGraphPass* RenderGraph::add_pass(const std::string& name) {
     if (!impl_->device) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph::add_pass called before init\n");
+        SNT_LOG_ERROR("RenderGraph::add_pass called before init");
         return nullptr;
     }
     impl_->passes.push_back(RenderGraphPass{.name = name});
@@ -239,9 +237,13 @@ RenderGraphPass* RenderGraph::add_pass(const std::string& name) {
 // ---------------------------------------------------------------------------
 // Execute: serial pass-by-pass submission (P2.2 baseline, Mode A)
 // ---------------------------------------------------------------------------
-bool RenderGraph::execute() {
+snt::core::Expected<void> RenderGraph::execute() {
     // Mode A uses frame slot 0 by default (no frames-in-flight pipelining).
-    if (!execute_record_only(0)) return false;
+    if (auto r = execute_record_only(0); !r) {
+        snt::core::Error e = r.error();
+        e.with_context("RenderGraph::execute");
+        return e;
+    }
 
     // Submit each context's command buffer + wait serially.
     // This is the baseline; P2.3 will replace with dependency scheduling.
@@ -262,17 +264,15 @@ bool RenderGraph::execute() {
         VkFence fence = VK_NULL_HANDLE;
         if (vkCreateFence(impl_->device->logical(), &fence_info, nullptr,
                           &fence) != VK_SUCCESS) {
-            std::fprintf(stderr,
-                         "[snt::renderer] Pass %zu: vkCreateFence failed\n", i);
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanCommandBufferFailed,
+                                    std::format("Pass {}: vkCreateFence failed", i)};
         }
 
         if (vkQueueSubmit(impl_->device->graphics_queue(), 1, &submit_info,
                           fence) != VK_SUCCESS) {
-            std::fprintf(stderr,
-                         "[snt::renderer] Pass %zu: vkQueueSubmit failed\n", i);
             vkDestroyFence(impl_->device->logical(), fence, nullptr);
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanCommandBufferFailed,
+                                    std::format("Pass {}: vkQueueSubmit failed", i)};
         }
 
         // Wait for this pass to finish before starting the next.
@@ -280,7 +280,7 @@ bool RenderGraph::execute() {
                         UINT64_MAX);
         vkDestroyFence(impl_->device->logical(), fence, nullptr);
     }
-    return true;
+    return {};
 }
 
 // ---------------------------------------------------------------------------
@@ -462,10 +462,8 @@ static bool topological_sort(const std::vector<RenderGraphPass>& passes,
         for (const auto& dep_name : passes[i].depends_on) {
             auto it = name_to_index.find(dep_name);
             if (it == name_to_index.end()) {
-                std::fprintf(stderr,
-                             "[snt::renderer] Pass '%s' depends on unknown pass "
-                             "'%s'\n",
-                             passes[i].name.c_str(), dep_name.c_str());
+                SNT_LOG_ERROR("Pass '%s' depends on unknown pass '%s'",
+                              passes[i].name.c_str(), dep_name.c_str());
                 return false;
             }
             size_t dep_idx = it->second;
@@ -518,21 +516,18 @@ static bool topological_sort(const std::vector<RenderGraphPass>& passes,
 // recording. The recorded command buffer at slot[frame_index][pass_index]
 // corresponds to the pass at `passes[sorted_order[pass_index]]`.
 // ---------------------------------------------------------------------------
-bool RenderGraph::execute_record_only(uint32_t frame_index) {
+snt::core::Expected<void> RenderGraph::execute_record_only(uint32_t frame_index) {
     if (!impl_->device) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph::execute called before init\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "RenderGraph::execute called before init"};
     }
     if (frame_index >= impl_->frames_in_flight) {
-        std::fprintf(stderr,
-                     "[snt::renderer] execute_record_only: frame_index %u >= "
-                     "frames_in_flight %u\n",
-                     frame_index, impl_->frames_in_flight);
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                std::format("execute_record_only: frame_index {} >= frames_in_flight {}",
+                                            frame_index, impl_->frames_in_flight)};
     }
     if (impl_->passes.empty()) {
-        return true;  // nothing to do — not an error
+        return {};  // nothing to do — not an error
     }
 
     // --- Derive implicit dependencies from attachment overlap (P2.3.4) ---
@@ -542,11 +537,9 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
     std::vector<size_t> order;
     std::string cycle_name;
     if (!topological_sort(impl_->passes, &order, &cycle_name)) {
-        std::fprintf(stderr,
-                     "[snt::renderer] RenderGraph: dependency cycle detected "
-                     "(starting at '%s')\n",
-                     cycle_name.c_str());
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                std::format("RenderGraph: dependency cycle detected (starting at '{}')",
+                                            cycle_name)};
     }
 
     auto& slot = impl_->contexts[frame_index];
@@ -567,17 +560,14 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
         snt::render_backend::CommandContext& ctx = slot[pass_index];
 
         if (!pass.execute) {
-            std::fprintf(stderr,
-                         "[snt::renderer] Pass '%s' has no execute callback\n",
-                         pass.name.c_str());
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                    std::format("Pass '{}' has no execute callback", pass.name)};
         }
 
-        if (!ctx.begin_recording(*impl_->device, impl_->command_pool)) {
-            std::fprintf(stderr,
-                         "[snt::renderer] Pass '%s': begin_recording failed\n",
-                         pass.name.c_str());
-            return false;
+        if (auto r = ctx.begin_recording(*impl_->device, impl_->command_pool); !r) {
+            snt::core::Error e = r.error();
+            e.with_context(std::format("Pass '{}': begin_recording", pass.name));
+            return e;
         }
 
         VkCommandBuffer cmd = ctx.handle();
@@ -741,7 +731,7 @@ bool RenderGraph::execute_record_only(uint32_t frame_index) {
         ctx.end_recording();
     }
 
-    return true;
+    return {};
 }
 
 // ---------------------------------------------------------------------------

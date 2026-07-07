@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 
@@ -22,12 +24,14 @@ public:
     VulkanDepth& operator=(const VulkanDepth&) = delete;
 
     // Create depth image + view for the given swapchain extent.
-    bool init(VulkanDevice& device, VulkanSwapchain& swapchain);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VulkanDevice& device, VulkanSwapchain& swapchain);
 
     void destroy();
 
     // Recreate depth image when swapchain is resized.
-    bool recreate(VulkanSwapchain& swapchain);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> recreate(VulkanSwapchain& swapchain);
 
     VkImage image() const { return depth_image_; }
     VkImageView view() const { return depth_view_; }

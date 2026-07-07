@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/expected.h"  // Expected<void> for init / create_texture / create_buffer
+
 namespace snt::renderer {
 
 struct RenderResource;
@@ -40,7 +42,7 @@ public:
     TransientPool& operator=(const TransientPool&) = delete;
 
     // Initialize with the VMA allocator. Does not take ownership.
-    bool init(VmaAllocator allocator);
+    snt::core::Expected<void> init(VmaAllocator allocator);
 
     // Release all allocations. Idempotent.
     void destroy();
@@ -48,12 +50,12 @@ public:
     // Allocate (or return cached) VkImage for a transient texture resource.
     // The image is created with the format/usage from `desc`. On success,
     // `out_image` + `out_view` + `out_allocation` are set.
-    // Returns false on VMA/Vulkan failure.
-    bool create_texture(const TextureDesc& desc, VkImage* out_image,
+    // Returns an Error on VMA/Vulkan failure.
+    snt::core::Expected<void> create_texture(const TextureDesc& desc, VkImage* out_image,
                         VkImageView* out_view, VmaAllocation* out_allocation);
 
     // Allocate (or return cached) VkBuffer for a transient buffer resource.
-    bool create_buffer(const BufferDesc& desc, VkBuffer* out_buffer,
+    snt::core::Expected<void> create_buffer(const BufferDesc& desc, VkBuffer* out_buffer,
                        VmaAllocation* out_allocation);
 
     // Release all transient resources. Called by RenderGraph::reset().

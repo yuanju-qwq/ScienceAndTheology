@@ -1,11 +1,13 @@
 // Vulkan Swapchain implementation.
 
+#define SNT_LOG_CHANNEL "render_backend"
+#include "core/log.h"
+
 #include "vulkan_swapchain.h"
 #include "vulkan_device.h"
 
 #include <volk.h>
 
-#include <cstdio>
 #include <algorithm>
 
 namespace snt::render_backend {
@@ -62,7 +64,7 @@ VulkanSwapchain::~VulkanSwapchain() {
     destroy();
 }
 
-bool VulkanSwapchain::init(VulkanDevice& device, uint32_t width, uint32_t height) {
+snt::core::Expected<void> VulkanSwapchain::init(VulkanDevice& device, uint32_t width, uint32_t height) {
     device_ = &device;
     return recreate(width, height);
 }
@@ -85,14 +87,17 @@ void VulkanSwapchain::destroy() {
     images_.clear();
 }
 
-bool VulkanSwapchain::recreate(uint32_t width, uint32_t height) {
-    if (!device_) return false;
+snt::core::Expected<void> VulkanSwapchain::recreate(uint32_t width, uint32_t height) {
+    if (!device_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "recreate() called before init()"};
+    }
 
     // --- Query swapchain support ---
     VulkanDevice::SwapchainSupport support = device_->query_swapchain_support();
     if (support.formats.empty() || support.present_modes.empty()) {
-        std::fprintf(stderr, "[snt::render_backend] Swapchain: no formats/modes\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kNoSurfaceFormats,
+                                "Swapchain: no formats/modes"};
     }
 
     VkSurfaceFormatKHR format = choose_format(support.formats);
@@ -138,8 +143,8 @@ bool VulkanSwapchain::recreate(uint32_t width, uint32_t height) {
     VkSwapchainKHR new_swapchain = VK_NULL_HANDLE;
     if (vkCreateSwapchainKHR(device_->logical(), &create_info, nullptr,
                              &new_swapchain) != VK_SUCCESS) {
-        std::fprintf(stderr, "[snt::render_backend] vkCreateSwapchainKHR failed\n");
-        return false;
+        return snt::core::Error{snt::core::ErrorCode::kVulkanSwapchainInitFailed,
+                                "vkCreateSwapchainKHR failed"};
     }
 
     // Old swapchain (if any) can now be destroyed.
@@ -187,14 +192,14 @@ bool VulkanSwapchain::recreate(uint32_t width, uint32_t height) {
         };
         if (vkCreateImageView(device_->logical(), &view_info, nullptr,
                               &image_views_[i]) != VK_SUCCESS) {
-            std::fprintf(stderr, "[snt::render_backend] vkCreateImageView %u failed\n", i);
-            return false;
+            return snt::core::Error{snt::core::ErrorCode::kVulkanSwapchainInitFailed,
+                                    "vkCreateImageView failed"};
         }
     }
 
-    std::printf("[snt::render_backend] Swapchain: %ux%u, %u images, fmt=%u\n",
-                extent_.width, extent_.height, img_count, image_format_);
-    return true;
+    SNT_LOG_INFO("Swapchain: %ux%u, %u images, fmt=%u",
+                 extent_.width, extent_.height, img_count, image_format_);
+    return {};
 }
 
 }  // namespace snt::render_backend

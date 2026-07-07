@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include "core/expected.h"  // Expected<T, Error>
+
 #include <vulkan/vulkan.h>  // types + VK_NO_PROTOTYPES (via volk target)
 
 #include <cstdint>
@@ -33,8 +35,8 @@ public:
 
     // Initialize Volk, create VkInstance + debug messenger.
     // `window` provides the SDL-required instance extensions.
-    // Returns false on failure (error logged).
-    bool init(snt::platform::Window& window);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(snt::platform::Window& window);
 
     // Destroy instance + messenger. Called automatically by destructor.
     void destroy();

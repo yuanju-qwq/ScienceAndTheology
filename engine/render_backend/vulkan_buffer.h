@@ -1,7 +1,7 @@
 // Vulkan Buffer — VMA-backed generic buffer for vertex/index/uniform data.
 //
 // Wraps VkBuffer + VMA allocation. Provides:
-//   - create(): allocate buffer with given size + usage + memory flags
+//   - init(): allocate buffer with given size + usage + memory flags
 //   - map() / unmap(): CPU write access (for staging or direct upload)
 //   - destroy(): release buffer + allocation
 //
@@ -9,6 +9,8 @@
 // P1.5+: will be reused for index buffer, uniform buffer, staging buffer.
 
 #pragma once
+
+#include "core/expected.h"  // Expected<T, Error>
 
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
@@ -31,8 +33,9 @@ public:
     // Create a buffer of `size` bytes with `usage` flags.
     // `cpu_visible` = true: host-visible + host-coherent (for direct CPU writes).
     // `cpu_visible` = false: device-local (GPU-only, faster; needs staging).
-    bool init(VulkanDevice& device, VkDeviceSize size, VkBufferUsageFlags usage,
-              bool cpu_visible);
+    // Returns void on success, or an Error describing the failure.
+    snt::core::Expected<void> init(VulkanDevice& device, VkDeviceSize size,
+                                   VkBufferUsageFlags usage, bool cpu_visible);
 
     void destroy();
 
