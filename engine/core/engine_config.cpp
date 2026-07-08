@@ -72,6 +72,13 @@ void from_json(const json& j, AssetConfig& a) {
     AssetConfig def;
     a = def;
     read_optional(j, "default_mesh_path", a.default_mesh_path);
+    read_optional(j, "manifest_path",     a.manifest_path);
+}
+
+void from_json(const json& j, SceneConfig& s) {
+    SceneConfig def;
+    s = def;
+    read_optional(j, "path", s.path);
 }
 
 void from_json(const json& j, EngineConfig& cfg) {
@@ -80,6 +87,7 @@ void from_json(const json& j, EngineConfig& cfg) {
     if (j.contains("render")) cfg.render  = j["render"].get<RenderConfig>();
     if (j.contains("camera")) cfg.camera  = j["camera"].get<CameraConfig>();
     if (j.contains("assets")) cfg.assets  = j["assets"].get<AssetConfig>();
+    if (j.contains("scene"))  cfg.scene   = j["scene"].get<SceneConfig>();
 }
 
 // ---------------------------------------------------------------------------

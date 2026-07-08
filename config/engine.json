@@ -23,5 +23,8 @@
   },
   "assets": {
     "default_mesh_path": "assets/cube.obj"
+  },
+  "scene": {
+    "path": "scenes/default_scene.bin"
   }
 }

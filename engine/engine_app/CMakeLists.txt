@@ -30,5 +30,18 @@ add_custom_target(snt_copy_config ALL
 )
 add_dependencies(snt_engine_app snt_copy_config)
 
+# Copy the scenes/ directory (binary scene files) next to the executable.
+# Engine::init loads config.scene.path (default "scenes/default_scene.bin")
+# via path_utils::resolve, which prepends the engine root. Missing file
+# is fatal to Engine::init (load_scene returns an Error), so the scenes
+# must be present at runtime.
+add_custom_target(snt_copy_scenes ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/../scenes
+    ${CMAKE_BINARY_DIR}/bin/$<CONFIG>/scenes
+    COMMENT "Copying scenes to output directory"
+)
+add_dependencies(snt_engine_app snt_copy_scenes)
+
 # Output name for convenience.
 set_target_properties(snt_engine_app PROPERTIES OUTPUT_NAME snt_engine)

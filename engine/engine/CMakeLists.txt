@@ -19,5 +19,6 @@ target_link_libraries(snt_engine PUBLIC
     snt_render
     snt_render_backend
     snt_renderer
+    snt_scene
     snt_ui
 )

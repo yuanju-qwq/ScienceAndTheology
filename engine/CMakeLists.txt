@@ -68,6 +68,7 @@ add_subdirectory(scene)         # NEW: binary scene serialization (depends on ec
 add_subdirectory(ui)
 add_subdirectory(engine)
 add_subdirectory(engine_app)
+add_subdirectory(tools)         # NEW: standalone dev tools (gen_default_scene, ...)
 
 # Tests are optional: gated by SNT_BUILD_TESTS (default ON). CI can
 # disable with -DSNT_BUILD_TESTS=OFF to speed up Release builds.

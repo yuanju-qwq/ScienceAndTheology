@@ -19,11 +19,13 @@
 #include "core/profiling.h"
 #include "ecs/camera_system.h"
 #include "ecs/components.h"
+#include "ecs/entity_guid.h"
 #include "ecs/event_bus.h"        // EventBus = entt::dispatcher
 #include "ecs/world.h"
 #include "input/input_system.h"
 #include "platform/window.h"
 #include "render/render_system.h"
+#include "scene/scene.h"          // load_scene for binary scene loading
 #include "render_backend/vulkan_depth.h"
 #include "render_backend/vulkan_descriptor.h"
 #include "render_backend/vulkan_device.h"
@@ -113,9 +115,10 @@ struct Engine::Impl {
 
     // ECS.
     snt::ecs::World world;
+    // Camera entity handle — looked up by Guid (Guid=1) after load_scene.
+    // Cube entities are not cached because Engine doesn't need to reference
+    // them directly (RenderSystem iterates MeshRef + Transform via views).
     entt::entity camera_entity = entt::null;
-    entt::entity cube_entity   = entt::null;
-    entt::entity cube_entity2  = entt::null;  // P2.4: second cube for multi-mesh test
 
     // Render system (ECS-driven). Holds raw pointers to the vk_* objects
     // above; set in init() after the vk_* objects are created.
@@ -253,31 +256,40 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
         return e;
     }
 
-    // --- ECS: camera entity + cube entity ---
-    // NOTE: do NOT cache component references — EnTT may reallocate its
-    // internal sparse set storage on subsequent add_component() calls.
-    impl_->camera_entity = impl_->world.create_entity();
-    {
-        auto& cam_transform = impl_->world.add_component<Transform>(impl_->camera_entity);
-        cam_transform.position[0] = config.camera.initial_position[0];
-        cam_transform.position[1] = config.camera.initial_position[1];
-        cam_transform.position[2] = config.camera.initial_position[2];
-    }
-    {
-        auto& cam_comp = impl_->world.add_component<Camera>(impl_->camera_entity);
-        cam_comp.fov        = config.camera.fov;
-        cam_comp.near_plane = config.camera.near_plane;
-        cam_comp.far_plane  = config.camera.far_plane;
-        cam_comp.aspect = static_cast<float>(sz.width) / static_cast<float>(sz.height);
+    // --- Load scene from binary file ---
+    // Scene file contains camera (Guid=1) + cube entities (Guid=2,3) with
+    // their transforms + MeshRef. MeshRef paths are resolved via the
+    // AssetManager's mesh cache (already initialized above).
+    //
+    // Replaces the previous hardcoded entity creation (P2.B1): instead
+    // of building entities in C++ code, the scene is data-driven — edit
+    // scenes/default_scene.bin with gen_default_scene to change content.
+    const std::string scene_path =
+        snt::core::path_utils::resolve(config.scene.path);
+    auto scene_result = snt::scene::load_scene(
+        impl_->world,
+        snt::assets::AssetManager::instance().mesh_cache(),
+        scene_path);
+    if (!scene_result) {
+        snt::core::Error e = scene_result.error();
+        e.with_context("Engine::init (load_scene)");
+        return e;
     }
 
-    impl_->cube_entity = impl_->world.create_entity();
-    {
-        auto& cube_transform = impl_->world.add_component<Transform>(impl_->cube_entity);
-        cube_transform.rotation[0] = -25.0f;  // pitch down
-        cube_transform.rotation[1] = 35.0f;   // yaw right
+    // Look up the camera entity by its stable Guid (Guid=1, defined by
+    // gen_default_scene). This decouples Engine from entity creation order.
+    impl_->camera_entity = impl_->world.find_entity_by_guid(snt::ecs::EntityGuid{1});
+    if (impl_->camera_entity == entt::null) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Engine::init: scene has no camera entity (Guid=1)"};
     }
-    // (MeshRef added below — needs AssetManager's mesh handle.)
+
+    // Update camera aspect to match the actual window size (the scene file
+    // stores a default aspect that may differ from the runtime window).
+    if (impl_->world.registry().all_of<snt::ecs::Camera>(impl_->camera_entity)) {
+        auto& cam = impl_->world.registry().get<snt::ecs::Camera>(impl_->camera_entity);
+        cam.aspect = static_cast<float>(sz.width) / static_cast<float>(sz.height);
+    }
 
     // --- Camera system ---
     auto& camera_system = impl_->world.add_system<CameraSystem>();
@@ -308,37 +320,6 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
         e.with_context("Engine::init (init_render_graph)");
         return e;
     }
-
-    // --- P2.F: load mesh via AssetManager + attach MeshRef to cube entities ---
-    // AssetManager was initialized right after vk_device.init(); its mesh
-    // cache is bound to the device and ready to load.
-    auto cube_load = snt::assets::AssetManager::instance().mesh_cache().load(
-        snt::core::path_utils::resolve(config.assets.default_mesh_path));
-    if (!cube_load) {
-        snt::core::Error e = cube_load.error();
-        e.with_context("Engine::init (AssetManager::mesh_cache.load)");
-        return e;
-    }
-    auto cube_handle = *cube_load;
-    // ecs::MeshHandle is now an alias for snt::assets::MeshHandle, so no
-    // bridge is needed — the handle is passed straight to MeshRef.
-    snt::ecs::MeshHandle ecs_cube_handle = cube_handle;
-
-    // First cube: left of origin, tilted.
-    impl_->world.add_component<MeshRef>(impl_->cube_entity,
-                                        MeshRef{ecs_cube_handle});
-    impl_->world.get_component<Transform>(impl_->cube_entity).position[0] = -1.5f;
-
-    // Second cube: right of origin, same mesh handle (deduplication test).
-    impl_->cube_entity2 = impl_->world.create_entity();
-    {
-        auto& t2 = impl_->world.add_component<Transform>(impl_->cube_entity2);
-        t2.position[0] = 1.5f;
-        t2.rotation[0] = -25.0f;
-        t2.rotation[1] = -35.0f;  // mirror yaw for variety
-    }
-    impl_->world.add_component<MeshRef>(impl_->cube_entity2,
-                                        MeshRef{ecs_cube_handle});
 
     // --- Debug panel metrics ---
     auto& panel = snt::ui::default_debug_panel();
