@@ -98,3 +98,24 @@ struct std::hash<snt::ecs::EntityGuid> {
         return std::hash<uint64_t>{}(g.value);
     }
 };
+
+// ===========================================================================
+// Serializer specialization for EntityGuid.
+// ===========================================================================
+// Trivially copyable, so a single write_u64 / read_u64 pair suffices.
+// Defined here so that adding a field to EntityGuid immediately breaks
+// the build (the serialization must be updated in lockstep).
+namespace snt::core {
+
+class BinaryWriter;
+class BinaryReader;
+
+template <typename T> struct Serializer;
+
+template <>
+struct Serializer<snt::ecs::EntityGuid> {
+    static void write(BinaryWriter& w, const snt::ecs::EntityGuid& g);
+    static bool read(BinaryReader& r, snt::ecs::EntityGuid& g);
+};
+
+}  // namespace snt::core

@@ -19,6 +19,7 @@
 
 #include "assets/asset_cache.h"
 #include "assets/asset_handle.h"
+#include "assets/asset_manifest.h"
 #include "assets/mesh_asset_loader.h"
 #include "core/expected.h"
 
@@ -42,6 +43,18 @@ public:
     // AssetManager (call shutdown() before destroying the device).
     snt::core::Expected<void> init(snt::render_backend::VulkanDevice* device);
 
+    // Initialize with a manifest: pre-allocate handles in manifest order,
+    // then eagerly load all pre-allocated assets to the GPU. This is the
+    // preferred init path for scenes that reference assets by handle —
+    // the manifest makes those handle references stable across runs.
+    //
+    // `manifest_path` is resolved via path_utils. If the file is missing,
+    // the call still succeeds (returns an empty manifest + falls back
+    // to runtime load()). Only JSON parse errors or duplicate ids abort.
+    snt::core::Expected<void> init_from_manifest(
+        snt::render_backend::VulkanDevice* device,
+        const std::string& manifest_path);
+
     // Release all caches. Idempotent. Must be called before the
     // VulkanDevice passed to init() is destroyed.
     void shutdown();
@@ -55,6 +68,10 @@ public:
 private:
     AssetManager() = default;
     ~AssetManager() { shutdown(); }
+
+    // Shared init helper: wires up the mesh loader + cache. Called by
+    // both init() and init_from_manifest() after device_ is set.
+    snt::core::Expected<void> init_mesh_cache();
 
     snt::render_backend::VulkanDevice* device_ = nullptr;
 

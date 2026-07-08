@@ -68,8 +68,23 @@ struct CameraConfig {
 // ---------------------------------------------------------------------------
 // `default_mesh_path` is the mesh loaded at startup for the demo cube
 // entities. P3 will replace this with a proper asset manifest.
+// `manifest_path` points at the asset manifest JSON (declares stable
+// handle<->path mappings; see assets/asset_manifest.h). Empty string
+// disables manifest-based pre-allocation (falls back to runtime load()).
 struct AssetConfig {
     std::string default_mesh_path = "assets/cube.obj";
+    std::string manifest_path     = "config/default_manifest.json";
+};
+
+// ---------------------------------------------------------------------------
+// Scene configuration
+// ---------------------------------------------------------------------------
+// `path` is the binary scene file to load at startup. If the file is
+// missing, Engine::init falls back to the hardcoded demo scene (two
+// cubes + a camera) so the engine always runs out-of-the-box. The
+// scene format is documented in scene/scene.h.
+struct SceneConfig {
+    std::string path = "scenes/default_scene.bin";
 };
 
 // ---------------------------------------------------------------------------
@@ -80,6 +95,7 @@ struct EngineConfig {
     RenderConfig  render;
     CameraConfig  camera;
     AssetConfig   assets;
+    SceneConfig   scene;
 };
 
 // Load EngineConfig from a JSON file.

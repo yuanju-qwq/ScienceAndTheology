@@ -2,6 +2,9 @@
 
 #include "ecs/entity_guid.h"
 
+#include "core/binary_reader.h"
+#include "core/binary_writer.h"
+
 #include <chrono>
 #include <random>
 
@@ -68,3 +71,23 @@ EntityGuid EntityGuidGenerator::pack() const {
 }
 
 }  // namespace snt::ecs
+
+// ---------------------------------------------------------------------------
+// Serializer<EntityGuid> implementation.
+// ---------------------------------------------------------------------------
+// Defined out-of-line to keep entity_guid.h dependency-light (it only
+// forward-declares BinaryWriter / BinaryReader). The .cpp pulls in the
+// full definitions.
+namespace snt::core {
+
+void Serializer<snt::ecs::EntityGuid>::write(
+    BinaryWriter& w, const snt::ecs::EntityGuid& g) {
+    w.write_u64(g.value);
+}
+
+bool Serializer<snt::ecs::EntityGuid>::read(
+    BinaryReader& r, snt::ecs::EntityGuid& g) {
+    return r.read_u64(g.value);
+}
+
+}  // namespace snt::core

@@ -63,6 +63,7 @@ public:
         }
         slots_.clear();
         path_to_handle_.clear();
+        handle_to_path_.clear();
         loader_   = nullptr;
         destroyer_ = nullptr;
     }
@@ -87,7 +88,66 @@ public:
         slots_.push_back(*r);
         AssetHandle<Tag> h{id};
         path_to_handle_[path] = h;
+        handle_to_path_[h] = path;  // reverse map for path_of()
         return h;
+    }
+
+    // Pre-allocate a handle for `path` WITHOUT loading the asset yet.
+    // The handle id is assigned in call order (0, 1, 2, ...) so the same
+    // sequence of register_preallocated() calls produces the same handles
+    // across processes. Used by AssetManifest to give scene-referenced
+    // assets stable ids that survive save/load cycles.
+    //
+    // The actual asset load happens lazily on the first get() call, or
+    // eagerly when load_preallocated() is invoked. Until then, get(h)
+    // returns nullptr (asset not yet on the GPU).
+    //
+    // Returns the pre-allocated handle. If `path` was already registered
+    // (via register_preallocated or load), returns the existing handle.
+    AssetHandle<Tag> register_preallocated(const std::string& path) {
+        auto it = path_to_handle_.find(path);
+        if (it != path_to_handle_.end()) {
+            return it->second;
+        }
+        uint32_t id = static_cast<uint32_t>(slots_.size());
+        slots_.push_back(nullptr);  // placeholder; real load deferred
+        AssetHandle<Tag> h{id};
+        path_to_handle_[path] = h;
+        handle_to_path_[h] = path;
+        return h;
+    }
+
+    // Eagerly load all pre-allocated (but not yet loaded) assets. Called
+    // by AssetManager after manifest registration so the GPU is ready
+    // before the first frame. Assets already loaded are skipped.
+    snt::core::Expected<void> load_preallocated() {
+        if (!loader_) {
+            return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                    "AssetCache::load_preallocated: not initialized"};
+        }
+        for (size_t id = 0; id < slots_.size(); ++id) {
+            if (slots_[id] != nullptr) continue;  // already loaded
+            AssetHandle<Tag> h{static_cast<uint32_t>(id)};
+            auto it = handle_to_path_.find(h);
+            if (it == handle_to_path_.end()) continue;  // no path bound
+            auto r = loader_(it->second);
+            if (!r) {
+                snt::core::Error e = r.error();
+                e.with_context("AssetCache::load_preallocated('" + it->second + "')");
+                return e;
+            }
+            slots_[id] = *r;
+        }
+        return {};
+    }
+
+    // Look up the path that produced a handle. Returns empty string if
+    // the handle was never registered (e.g. invalid or runtime-only).
+    // Used by scene serializers to write mesh paths instead of unstable
+    // runtime handles.
+    std::string path_of(AssetHandle<Tag> h) const {
+        auto it = handle_to_path_.find(h);
+        return it != handle_to_path_.end() ? it->second : std::string{};
     }
 
     // Look up by handle. Returns nullptr for invalid handle.
@@ -117,6 +177,7 @@ private:
     DestroyFn destroyer_;
     std::vector<T*> slots_;
     std::unordered_map<std::string, AssetHandle<Tag>> path_to_handle_;
+    std::unordered_map<AssetHandle<Tag>, std::string> handle_to_path_;
 };
 
 }  // namespace snt::assets
