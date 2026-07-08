@@ -20,6 +20,7 @@ add_executable(snt_tests
     test_asset_cache.cpp
     test_script_engine.cpp
     test_script_loader.cpp
+    test_entity_guid.cpp       # Phase 1: EntityGuid + World mapping
 )
 target_link_libraries(snt_tests PRIVATE
     snt_core

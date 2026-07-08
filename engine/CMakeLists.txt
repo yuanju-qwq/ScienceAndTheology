@@ -2,6 +2,20 @@
 # See docs/自研引擎架构设计.md for architecture baseline.
 
 # ============================================================
+# Project setup
+# ============================================================
+# cmake_minimum_required MUST come before project() so CMake sets up
+# policies correctly. CMP0079=NEW allows target_link_libraries() to
+# modify targets defined in subdirectories (e.g. adding Vulkan::Headers
+# to the volk target fetched via FetchContent). Without this, the
+# `target_link_libraries(volk PUBLIC Vulkan::Headers)` call in
+# fetch_third_party.cmake fails with "Attempt to add link library ...
+# to target ... which is not built in this directory."
+cmake_minimum_required(VERSION 3.20)
+project(snt_engine CXX)
+cmake_policy(SET CMP0079 NEW)
+
+# ============================================================
 # Engine-wide interface target for shared settings
 # ============================================================
 # Defined BEFORE add_subdirectory so all modules can link to it.
