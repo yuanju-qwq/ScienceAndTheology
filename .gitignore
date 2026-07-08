@@ -27,8 +27,9 @@ builds/
 _builds/
 
 # Self-built engine build artifacts
-engine/build/
+snt_engine/build/
 build-engine/
+build-engine2/
 _deps/
 
 # IDE files
@@ -46,12 +47,12 @@ build-debug.log
 build-*.log
 
 # Self-built engine: pre-downloaded third-party archives.
-# Regenerate via engine/cmake/download_third_party.ps1.
-#engine/third_party/_downloads/
+# Regenerate via snt_engine/cmake/download_third_party.ps1.
+#snt_engine/third_party/_downloads/
 
 # Self-built engine: extracted third-party source.
 # Regenerate by extracting archives from _downloads/.
-engine/third_party/SDL-release-*/
+snt_engine/third_party/SDL-release-*/
 
 # Temporary test directories
 test-*/

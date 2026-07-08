@@ -1,6 +1,5 @@
 # Top-level CMake for ScienceAndTheology.
-# Old GDExtension C++ lives under src/ (legacy, will be removed in P7).
-# New self-built engine lives under engine/ (P0 architecture baseline).
+# New self-built engine lives under snt_engine/ (P0 architecture baseline).
 
 cmake_minimum_required(VERSION 3.24)
 
@@ -51,7 +50,4 @@ endif()
 # Sub-projects
 # ============================================================
 # New self-built engine (P0 baseline).
-add_subdirectory(engine)
-
-# Legacy GDExtension C++ — kept for reference until P7 migration completes.
-# To build legacy, configure from src/ as its own CMake project.
+add_subdirectory(snt_engine)

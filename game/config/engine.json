@@ -22,9 +22,9 @@
     "initial_position": [0.0, 0.0, 3.0]
   },
   "assets": {
-    "default_mesh_path": "assets/cube.obj"
+    "default_mesh_path": "test_assets/cube.obj"
   },
   "scene": {
-    "path": "scenes/default_scene.bin"
+    "path": "game/scenes/default_scene.bin"
   }
 }
