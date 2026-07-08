@@ -6,6 +6,10 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ScienceAndTheology_Engine VERSION 0.1.0 LANGUAGES C CXX)
 
+# ASM_MASM is enabled lazily inside fetch_third_party.cmake (only when
+# MSVC x64 is the active toolchain). Declaring it here too would force
+# every generator to probe for an assembler even on non-MSVC builds.
+
 # ============================================================
 # Global settings
 # ============================================================
@@ -31,9 +35,15 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
 endif()
 
-# MSVC: use UTF-8, conformance mode, and modern exception handling.
+# MSVC: use UTF-8 source encoding. Conformance mode, modern exception
+# handling and /Zc:__cplusplus are applied via `snt_engine_settings` so
+# they only affect engine targets — third-party libs fetched via
+# FetchContent (SDL3, AngelScript, etc.) keep their own CMake-configured
+# flags and do not inherit these. This matters because some third-party
+# targets include MASM sources (e.g. AngelScript's x64 native calling
+# convention), and ml64.exe rejects C++ flags like /Zc:__cplusplus.
 if(MSVC)
-    add_compile_options(/utf-8 /permissive- /Zc:__cplusplus /EHsc)
+    add_compile_options(/utf-8)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 

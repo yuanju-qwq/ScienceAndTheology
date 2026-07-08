@@ -84,6 +84,11 @@ enum class ErrorCode : int {
     kFileNotFound,
     kFileOpenFailed,
     kAssetLoadFailed,
+    // Script (AngelScript integration).
+    kScriptEngineInitFailed,
+    kScriptCompileFailed,
+    kScriptExecuteFailed,
+    kScriptModuleNotFound,
 };
 
 // Error: an ErrorCode + message + optional chained context.
@@ -173,6 +178,10 @@ private:
             case ErrorCode::kFileNotFound:                return "FileNotFound";
             case ErrorCode::kFileOpenFailed:              return "FileOpenFailed";
             case ErrorCode::kAssetLoadFailed:             return "AssetLoadFailed";
+            case ErrorCode::kScriptEngineInitFailed:      return "ScriptEngineInitFailed";
+            case ErrorCode::kScriptCompileFailed:        return "ScriptCompileFailed";
+            case ErrorCode::kScriptExecuteFailed:        return "ScriptExecuteFailed";
+            case ErrorCode::kScriptModuleNotFound:        return "ScriptModuleNotFound";
         }
         return "Unknown";
     }

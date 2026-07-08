@@ -18,11 +18,14 @@ add_executable(snt_tests
     test_clock.cpp
     test_path_utils.cpp
     test_asset_cache.cpp
+    test_script_engine.cpp
+    test_script_loader.cpp
 )
 target_link_libraries(snt_tests PRIVATE
     snt_core
     snt_ecs
     snt_assets
+    snt_script
     snt_engine_settings
     snt_third_party
     GTest::gtest

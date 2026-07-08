@@ -135,6 +135,120 @@ if(EXISTS ${_SDL3_SOURCE_DIR}/CMakeLists.txt)
 endif()
 
 # ============================================================
+# AngelScript (gameplay scripting language, C++ syntax, JIT)
+# ============================================================
+# Source is downloaded by download_third_party.ps1 and extracted to
+# third_party/_downloads/angelscript_2.37.0.zip. The SDK ships its own
+# CMake project at angelscript_2.37.0/sdk/angelscript/projects/cmake/,
+# but it has no root CMakeLists.txt, so FetchContent_MakeAvailable only
+# downloads the source — we compile it ourselves below.
+FetchContent_Declare(
+    AngelScript
+    URL ${_SNT_DOWNLOADS_DIR}/angelscript_2.37.0.zip
+)
+FetchContent_MakeAvailable(AngelScript)
+
+FetchContent_GetProperties(AngelScript)
+set(_AS_SRC "${FETCHCONTENT_BASE_DIR}/angelscript-src")
+
+# Core AS sources — exclude the platform-specific callfunc files we do
+# not need on this target (we only use the MSVC x64 path on Windows).
+set(_AS_SOURCES
+    ${_AS_SRC}/angelscript/source/as_atomic.cpp
+    ${_AS_SRC}/angelscript/source/as_builder.cpp
+    ${_AS_SRC}/angelscript/source/as_bytecode.cpp
+    ${_AS_SRC}/angelscript/source/as_callfunc.cpp
+    ${_AS_SRC}/angelscript/source/as_callfunc_x64_msvc.cpp
+    ${_AS_SRC}/angelscript/source/as_compiler.cpp
+    ${_AS_SRC}/angelscript/source/as_configgroup.cpp
+    ${_AS_SRC}/angelscript/source/as_context.cpp
+    ${_AS_SRC}/angelscript/source/as_datatype.cpp
+    ${_AS_SRC}/angelscript/source/as_gc.cpp
+    ${_AS_SRC}/angelscript/source/as_generic.cpp
+    ${_AS_SRC}/angelscript/source/as_globalproperty.cpp
+    ${_AS_SRC}/angelscript/source/as_memory.cpp
+    ${_AS_SRC}/angelscript/source/as_module.cpp
+    ${_AS_SRC}/angelscript/source/as_objecttype.cpp
+    ${_AS_SRC}/angelscript/source/as_outputbuffer.cpp
+    ${_AS_SRC}/angelscript/source/as_parser.cpp
+    ${_AS_SRC}/angelscript/source/as_restore.cpp
+    ${_AS_SRC}/angelscript/source/as_scriptcode.cpp
+    ${_AS_SRC}/angelscript/source/as_scriptengine.cpp
+    ${_AS_SRC}/angelscript/source/as_scriptfunction.cpp
+    ${_AS_SRC}/angelscript/source/as_scriptnode.cpp
+    ${_AS_SRC}/angelscript/source/as_scriptobject.cpp
+    ${_AS_SRC}/angelscript/source/as_string.cpp
+    ${_AS_SRC}/angelscript/source/as_string_util.cpp
+    ${_AS_SRC}/angelscript/source/as_thread.cpp
+    ${_AS_SRC}/angelscript/source/as_tokenizer.cpp
+    ${_AS_SRC}/angelscript/source/as_typeinfo.cpp
+    ${_AS_SRC}/angelscript/source/as_variablescope.cpp
+)
+
+# MSVC x64 requires the MASM asm file for native calling conventions
+# (CallX64 / GetReturnedFloat / GetReturnedDouble are implemented in
+# as_callfunc_x64_msvc_asm.asm; as_callfunc_x64_msvc.cpp references them
+# via extern "C"). We enable ASM_MASM and add the .asm directly to the
+# angelscript target's source list — CMake will invoke ml64.exe with only
+# MASM-recognised flags. Because the engine's /permissive- /Zc:__cplusplus
+# /EHsc flags now live on `snt_engine_settings` (an INTERFACE library the
+# `angelscript` target never links to), no C++ flags leak into the MASM
+# step. Previously these were pushed globally via add_compile_options and
+# ml64.exe rejected them, causing the .obj to never land (LNK1181).
+if(MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+    enable_language(ASM_MASM)
+    list(APPEND _AS_SOURCES
+        ${_AS_SRC}/angelscript/source/as_callfunc_x64_msvc_asm.asm)
+endif()
+
+add_library(angelscript STATIC ${_AS_SOURCES})
+target_include_directories(angelscript PUBLIC
+    ${_AS_SRC}/angelscript/include
+)
+target_compile_definitions(angelscript PRIVATE
+    -D_CRT_SECURE_NO_WARNINGS
+    -DANGELSCRIPT_EXPORT
+    -D_LIB
+)
+find_package(Threads QUIET)
+if(TARGET Threads::Threads)
+    target_link_libraries(angelscript PUBLIC Threads::Threads)
+endif()
+
+# Standard-string add-on — needed for AS `string` type.
+# Expose add_on/ publicly so consumers can #include <scriptstdstring/...>.
+add_library(snt_as_scriptstdstring STATIC
+    ${_AS_SRC}/add_on/scriptstdstring/scriptstdstring.cpp
+)
+target_include_directories(snt_as_scriptstdstring PUBLIC
+    ${_AS_SRC}/angelscript/include
+    ${_AS_SRC}/add_on
+)
+target_link_libraries(snt_as_scriptstdstring PUBLIC angelscript)
+
+# Scriptbuilder add-on — needed for #include resolution.
+# Expose add_on/ publicly so consumers can #include <scriptbuilder/...>.
+add_library(snt_as_scriptbuilder STATIC
+    ${_AS_SRC}/add_on/scriptbuilder/scriptbuilder.cpp
+)
+target_include_directories(snt_as_scriptbuilder PUBLIC
+    ${_AS_SRC}/angelscript/include
+    ${_AS_SRC}/add_on
+)
+target_link_libraries(snt_as_scriptbuilder PUBLIC angelscript)
+
+# Debugger add-on.
+# Expose add_on/ publicly so consumers can #include <debugger/...>.
+add_library(snt_as_debugger STATIC
+    ${_AS_SRC}/add_on/debugger/debugger.cpp
+)
+target_include_directories(snt_as_debugger PUBLIC
+    ${_AS_SRC}/angelscript/include
+    ${_AS_SRC}/add_on
+)
+target_link_libraries(snt_as_debugger PUBLIC angelscript)
+
+# ============================================================
 # Helper: target link to all engine third-party
 # ============================================================
 add_library(snt_third_party INTERFACE)
@@ -147,6 +261,10 @@ target_link_libraries(snt_third_party INTERFACE
     nlohmann_json::nlohmann_json
     glm::glm
     tinyobjloader::tinyobjloader
+    angelscript
+    snt_as_scriptstdstring
+    snt_as_scriptbuilder
+    snt_as_debugger
 )
 if(TARGET SDL3-shared)
     target_link_libraries(snt_third_party INTERFACE SDL3-shared)

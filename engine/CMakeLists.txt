@@ -5,11 +5,24 @@
 # Engine-wide interface target for shared settings
 # ============================================================
 # Defined BEFORE add_subdirectory so all modules can link to it.
+# Engine C++ targets link to snt_engine_settings (directly or transitively
+# via snt_core) and inherit these MSVC conformance flags. Third-party
+# targets fetched via FetchContent do NOT link to this interface, so they
+# keep their own CMake-configured flags — critical because some of them
+# (e.g. AngelScript's MASM source) cannot tolerate C++ flags like
+# /Zc:__cplusplus being pushed into their ASM compile step.
 add_library(snt_engine_settings INTERFACE)
 target_compile_features(snt_engine_settings INTERFACE cxx_std_20)
 target_include_directories(snt_engine_settings INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+if(MSVC)
+    target_compile_options(snt_engine_settings INTERFACE
+        /permissive-
+        /Zc:__cplusplus
+        /EHsc
+    )
+endif()
 
 # ============================================================
 # Third-party dependencies
@@ -36,6 +49,7 @@ add_subdirectory(assets)        # NEW: asset cache + loaders (depends on render_
 add_subdirectory(renderer)
 add_subdirectory(ecs)
 add_subdirectory(render)
+add_subdirectory(script)        # NEW: AngelScript integration (depends on core)
 add_subdirectory(ui)
 add_subdirectory(engine)
 add_subdirectory(engine_app)
