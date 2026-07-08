@@ -56,3 +56,8 @@ engine/third_party/SDL-release-*/
 # Temporary test directories
 test-*/
 
+# Self-built engine: runtime log files
+logs/
+*.log
+engine_run*.log
+

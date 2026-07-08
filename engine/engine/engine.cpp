@@ -39,6 +39,8 @@
 
 #include <volk.h>
 
+#include <filesystem>  // std::filesystem::create_directories for log dir
+
 namespace snt::engine {
 
 // ---------------------------------------------------------------------------
@@ -153,6 +155,31 @@ snt::core::Expected<void> Engine::init(const snt::core::EngineConfig& config) {
     // Locate engine root so all relative paths (shaders/, assets/, config/)
     // resolve independent of the process's current working directory.
     snt::core::path_utils::init();
+
+    // --- File logger sink ---
+    // Mirror all log output to logs/engine.log (relative to engine root).
+    // The file is opened in append mode so restarts preserve history. If
+    // the directory is missing or the file can't be created, logging
+    // continues to stderr only (best-effort).
+    {
+        const std::string log_path =
+            snt::core::path_utils::resolve("logs/engine.log");
+        // Ensure the parent directory exists (std::fopen doesn't create
+        // directories). create_directories is idempotent — no error if the
+        // directory already exists.
+        try {
+            std::filesystem::create_directories(
+                std::filesystem::path(log_path).parent_path());
+        } catch (const std::exception& e) {
+            SNT_LOG_WARN("Failed to create log directory: %s", e.what());
+        }
+        if (!snt::core::Logger::instance().add_file_sink(log_path.c_str())) {
+            SNT_LOG_WARN("Failed to open log file '%s'; logging to stderr only",
+                         log_path.c_str());
+        } else {
+            SNT_LOG_INFO("Logging to file: %s", log_path.c_str());
+        }
+    }
 
     // --- Window ---
     if (auto r = impl_->window.create(WindowDesc{
@@ -457,6 +484,15 @@ void Engine::shutdown() {
     // Depth + swapchain.
     impl_->vk_depth.destroy();
     impl_->vk_swapchain.destroy();
+
+    // AssetManager: release all cached meshes BEFORE the VulkanDevice is
+    // destroyed. Meshes hold VMA allocations backed by the device; if they
+    // outlive vk_device.destroy(), VMA hits an "allocations not freed"
+    // assertion (observed during P4 scene-loading work).
+    //
+    // Must come AFTER vk_frame/pipeline/descriptor/swapchain destroy()
+    // because those may still reference mesh data during teardown.
+    snt::assets::AssetManager::instance().shutdown();
 
     // Device + surface + instance.
     impl_->vk_device.destroy();

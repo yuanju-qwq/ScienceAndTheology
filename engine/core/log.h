@@ -49,6 +49,11 @@ enum class LogLevel : int {
 // are safe to call from worker threads. Performance is adequate for typical
 // engine logging volume (hundreds of lines per frame); for high-volume
 // per-entity tracing, prefer keeping the default level at kInfo.
+//
+// File sink: add_file_sink(path) opens an additional sink that receives
+// the same log lines (without ANSI color codes, so the file is greppable).
+// Engine::init calls this to mirror logs to logs/engine.log. If the file
+// can't be opened, the stderr sink still works — logging is best-effort.
 class Logger {
 public:
     // Access the global Logger instance.
@@ -58,6 +63,26 @@ public:
     // level are dropped before formatting. Default: kInfo.
     void set_level(LogLevel level);
     LogLevel level() const;
+
+    // Open an additional file sink at `path`. Subsequent log lines are
+    // written to BOTH stderr and the file. The file is opened in append
+    // mode so restarts preserve history. Returns false if the file
+    // could not be opened (logging continues to stderr only).
+    //
+    // Rotation: when the file exceeds `max_size` bytes, it's renamed to
+    // `<path>.1` (and `.1` -> `.2`, `.2` -> `.3`, ...). At most
+    // `max_files` rotated copies are kept; the oldest is deleted. This
+    // bounds total disk usage at ~(max_files+1) * max_size bytes.
+    // Rotation is checked every 1024 writes (amortized cost ~0).
+    //
+    // On open: if an existing file at `path` already exceeds max_size,
+    // it's rotated immediately so the new run starts with a fresh file.
+    //
+    // Thread-safe: may be called from any thread. The file sink is
+    // closed automatically when the Logger is destroyed (process exit).
+    bool add_file_sink(const char* path,
+                       size_t max_size = 5 * 1024 * 1024,  // 5 MB
+                       int    max_files = 3);
 
     // Emit one log line. Called by the SNT_LOG_* macros; users should
     // not call this directly.
