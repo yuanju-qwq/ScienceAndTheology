@@ -42,7 +42,7 @@ endif()
 # targets include MASM sources (e.g. AngelScript's x64 native calling
 # convention), and ml64.exe rejects C++ flags like /Zc:__cplusplus.
 if(MSVC)
-    add_compile_options(/utf-8)
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
