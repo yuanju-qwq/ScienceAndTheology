@@ -1,58 +1,88 @@
 # Science & Theology
 
-一个独立游戏项目。
+Science & Theology 是一个 C++20 Vulkan 游戏。此仓库负责游戏可执行程序、游戏内容、运行时打包，并通过 Git 子模块固定引擎版本。可复用运行时位于 [ScienceAndTheologyEngine](https://github.com/yuanju-qwq/ScienceAndTheologyEngine)。
 
-## 编译 core
+## 仓库结构
 
-core (`snt_core`) 是纯 C++20 静态库，无 Godot 依赖，可在引擎外独立编译和测试。
+| 路径 | 职责 |
+| --- | --- |
+| `snt_engine/` | Git 子模块：渲染、平台、ECS、脚本、数据系统与引擎测试。 |
+| `game/` | 游戏宿主可执行程序，以及配置、场景、脚本和内容打包。 |
+| `game/client/main.cpp` | 应用程序入口，配置显式的引擎、游戏和用户运行时路径。 |
 
-### 前置要求
+顶层 CMake 只构建 `snt_engine` 与 `game`。旧的 `src/` 布局不属于当前游戏构建链。
 
-- CMake >= 3.20
-- 支持 C++20 的编译器（MSVC 2019/2022、Clang、GCC 均可）
+## 环境要求
 
-### 编译步骤
+当前支持的开发环境是 Windows 10/11 x64 和 PowerShell 7。
 
-```bash
-# 在项目根目录下
-cd src
+- Git
+- CMake 3.24 或更高版本
+- Visual Studio 2019 或 2022，并安装“使用 C++ 的桌面开发”工作负载
+- Vulkan SDK：`VULKAN_SDK` 必须指向包含 `shaderc_shared` 的 SDK（需要 `Include`、`Lib` 和 `Bin`）
 
-# 配置（使用 build 目录）
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
+## 获取源码
 
-# 编译 core 库
-cmake --build build --target snt_core --config Debug
+首次克隆时一并取得引擎子模块：
 
-# 编译全部（含测试）
-cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-cmake --build build --config Debug
-
-# 运行 core 测试
-ctest --test-dir build -R "^snt\."
+```powershell
+git clone --recurse-submodules https://github.com/yuanju-qwq/ScienceAndTheology.git
+Set-Location ScienceAndTheology
 ```
 
-> `build/` 和 `build2/` 目录为已有构建产物，若需重新配置可先删除。
+已有工作区在配置 CMake 前初始化当前固定的引擎版本：
 
-### 项目结构
+```powershell
+git submodule update --init --recursive
+```
 
-| 路径 | 说明 |
-|------|------|
-| `src/CMakeLists.txt` | 顶层 CMake 配置 |
-| `src/core/` | 核心库源码（`snt_core`） |
-| `src/server/` | 独立服务器模块 |
-| `src/bindings/` | GDExtension 绑定（生成 .dll） |
-| `tests/core/` | core 单元测试 |
-| `build/` | 已有构建目录（VS2019 x64 Debug） |
-| `build2/` | 另一组已有构建目录 |
+## 编译游戏
+
+下面的 Debug 构建会跳过引擎测试，生成可直接运行且已打包资源的游戏：
+
+```powershell
+cmake -S . -B build -DSNT_BUILD_TESTS=OFF
+cmake --build build --target snt_game_client --config Debug
+```
+
+使用 Visual Studio 生成器时，运行：
+
+```powershell
+& .\build\bin\Debug\science_and_theology.exe
+```
+
+构建后会在可执行程序旁组装运行时目录：
+
+| 运行时路径 | 内容 |
+| --- | --- |
+| `engine/` | 编译后的着色器、ICU 数据等引擎资源。 |
+| `game/` | 游戏配置、场景、脚本和游戏资产。 |
+| `user/` | 程序运行时创建，用于日志、存档和缓存。 |
+
+从同一构建目录编译 Release：
+
+```powershell
+cmake --build build --target snt_game_client --config Release
+```
+
+Visual Studio 的 Release 可执行程序位于 `build/bin/Release/science_and_theology.exe`。
+
+## 运行引擎测试
+
+需要测试时使用独立构建目录：
+
+```powershell
+cmake -S . -B build-tests -DSNT_BUILD_TESTS=ON
+cmake --build build-tests --target snt_tests --config Debug
+ctest --test-dir build-tests -C Debug --output-on-failure
+```
+
+`snt_tests` 是唯一的引擎测试可执行程序，已包含 P6 保留式 UI 测试；`snt_p6_tests` 不再存在。
+
+## 引擎开发
+
+`snt_engine/` 是独立 Git 仓库。引擎修改应先在该目录提交，再在本仓库提交更新后的子模块指针。引擎自身的构建与测试说明见 [`snt_engine/README.md`](snt_engine/README.md)。
 
 ## 许可证
 
-本项目的代码和资源采用 **PolyForm Noncommercial License 1.0.0**。
-
-- ✅ 您可以出于非商业目的查看、Fork、修改和分发本项目
-- ❌ **未经授权，禁止将本项目或其衍生产品用于任何商业用途**（包括但不限于销售、商业发行、商业托管等）
-- 💼 如需商业授权（如上架 Steam），请联系 **yuanju (2358586959@qq.com)**
-
-详见 [LICENSE](./LICENSE) 文件。
-
-本项目使用了 [godot-cpp](https://github.com/godotengine/godot-cpp)（MIT 许可证），相关版权声明见 [NOTICE](./NOTICE) 文件。
+代码和资源使用 [PolyForm Noncommercial License 1.0.0](LICENSE)。商业使用需向 yuanju（2358586959@qq.com）单独取得授权。
