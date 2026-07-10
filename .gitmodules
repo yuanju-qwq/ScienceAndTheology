@@ -1,0 +1,4 @@
+[submodule "snt_engine"]
+	path = snt_engine
+	url = https://github.com/yuanju-qwq/ScienceAndTheologyEngine.git
+	branch = main
