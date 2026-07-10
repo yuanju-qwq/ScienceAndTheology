@@ -41,6 +41,11 @@
   "scene": {
     "path": "game/scenes/default_scene.bin"
   },
+  "scripts": {
+    "enabled": true,
+    "watch_for_changes": true,
+    "root": "game/scripts"
+  },
   "demo": {
     "bootstrap_chunks": true,
     "seed": 20240601
