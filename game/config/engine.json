@@ -25,7 +25,7 @@
       "C:\\Windows\\Fonts\\seguiemj.ttf"
     ],
     "locale": "zh-Hans",
-    "icu_data_path": "snt_engine/third_party/icu4c/icudt_godot.dat"
+    "icu_data_path": "third_party/icu4c/icudt_godot.dat"
   },
   "camera": {
     "fov": 60.0,
@@ -36,15 +36,15 @@
     "initial_position": [0.0, 0.0, 3.0]
   },
   "assets": {
-    "default_mesh_path": "test_assets/cube.obj"
+    "default_mesh_path": "assets/dev/cube.obj"
   },
   "scene": {
-    "path": "game/scenes/default_scene.bin"
+    "path": "scenes/default_scene.bin"
   },
   "scripts": {
     "enabled": true,
     "watch_for_changes": true,
-    "root": "game/scripts"
+    "root": "scripts"
   },
   "demo": {
     "bootstrap_chunks": true,

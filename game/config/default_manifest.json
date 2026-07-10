@@ -1,5 +1,5 @@
 {
   "assets": [
-    { "id": "cube", "path": "test_assets/cube.obj" }
+    { "id": "cube", "path": "assets/dev/cube.obj" }
   ]
 }

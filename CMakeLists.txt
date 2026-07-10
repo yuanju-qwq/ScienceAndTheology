@@ -51,3 +51,5 @@ endif()
 # ============================================================
 # New self-built engine (P0 baseline).
 add_subdirectory(snt_engine)
+# The game is the engine host. It owns runtime paths and package assembly.
+add_subdirectory(game)
