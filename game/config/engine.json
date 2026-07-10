@@ -19,8 +19,13 @@
     "uploads_per_frame": 2
   },
   "ui": {
-    "font_path": "C:\\Windows\\Fonts\\arial.ttf",
-    "font_size_px": 16.0
+    "font_paths": [
+      "C:\\Windows\\Fonts\\arial.ttf",
+      "C:\\Windows\\Fonts\\msyh.ttc",
+      "C:\\Windows\\Fonts\\seguiemj.ttf"
+    ],
+    "locale": "zh-Hans",
+    "icu_data_path": "snt_engine/third_party/icu4c/icudt_godot.dat"
   },
   "camera": {
     "fov": 60.0,
