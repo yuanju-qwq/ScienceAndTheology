@@ -1,9 +1,8 @@
-// P7.1 smoke content. P7.2 replaces this with real machine definitions.
+// P7.2 starter content. MachineTickSystem copies these definitions at job
+// start, so reloading this file safely changes only new machine work.
 void snt_register() {
-    snt_register_machine("snt.p7.bootstrap", "P7 Bootstrap", 1, 0);
-    snt_on("p7.bootstrap", "on_p7_bootstrap");
-    snt_log("P7 gameplay script registered");
-}
-
-void on_p7_bootstrap() {
+    snt_register_machine("furnace", "Furnace", 1, 0);
+    snt_register_recipe("snt.furnace.iron", "furnace", "iron_ore",
+                        "iron_ingot", 1, 200, 0, "smelting");
+    snt_log("P7.2 furnace gameplay content registered");
 }
