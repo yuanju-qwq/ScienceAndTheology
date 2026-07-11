@@ -1,6 +1,6 @@
 {
   "window": {
-    "title": "ScienceAndTheology Engine (P2.B1)",
+    "title": "ScienceAndTheology Runtime",
     "width": 1280,
     "height": 720,
     "fullscreen": false,
@@ -33,13 +33,11 @@
     "far_plane": 100.0,
     "move_speed": 3.0,
     "look_speed": 0.1,
-    "initial_position": [0.0, 0.0, 3.0]
-  },
-  "assets": {
-    "default_mesh_path": "assets/dev/cube.obj"
+    "initial_position": [4.0, 6.0, 8.0]
   },
   "scene": {
-    "path": "scenes/default_scene.bin"
+    "path": "scenes/default_scene.bin",
+    "active_camera_guid": 1
   },
   "scripts": {
     "enabled": true,

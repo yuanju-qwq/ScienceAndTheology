@@ -5,10 +5,22 @@
 
 add_executable(snt_game_client
     client/main.cpp
+    client/game_session_config.cpp
+    client/demo_world_bootstrap.cpp
+    client/science_and_theology_session.cpp
 )
 target_link_libraries(snt_game_client PRIVATE
     snt_engine
     snt_engine_settings
+    snt_assets
+    snt_scene
+    snt_script
+    snt_gameplay
+    snt_player
+    snt_voxel
+    snt_data_worldgen
+    snt_ui
+    snt_third_party
 )
 set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theology)
 

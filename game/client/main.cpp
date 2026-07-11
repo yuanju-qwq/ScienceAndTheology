@@ -5,12 +5,15 @@
 // engine; no engine API depends on this repository's source-tree layout.
 
 #define SNT_LOG_CHANNEL "game_host"
-#include "core/engine_config.h"
 #include "core/log.h"
 #include "core/path_utils.h"
-#include "engine/engine.h"
+#include "core/runtime_config.h"
+#include "engine/runtime.h"
+#include "game_session_config.h"
+#include "science_and_theology_session.h"
 
 #include <filesystem>
+#include <memory>
 #include <string>
 
 #if defined(_WIN32)
@@ -52,18 +55,25 @@ int main(int argc, char* argv[]) {
 
     const auto config_path = snt::core::path_utils::join(
         runtime_paths.game_root, "config/engine.json");
-    auto config_result = snt::core::load_engine_config(config_path);
-    if (!config_result) {
-        SNT_LOG_ERROR("Game config load failed: %s", config_result.error().format().c_str());
+    auto runtime_config = snt::core::load_runtime_config(config_path);
+    if (!runtime_config) {
+        SNT_LOG_ERROR("Runtime config load failed: %s", runtime_config.error().format().c_str());
+        return 1;
+    }
+    auto session_config = snt::game::load_game_session_config(config_path);
+    if (!session_config) {
+        SNT_LOG_ERROR("Game session config load failed: %s", session_config.error().format().c_str());
         return 1;
     }
 
-    snt::engine::Engine engine;
-    if (auto result = engine.init(*config_result, runtime_paths); !result) {
-        SNT_LOG_ERROR("Engine startup failed: %s", result.error().format().c_str());
+    snt::engine::Runtime runtime;
+    auto session = std::make_unique<snt::game::ScienceAndTheologySession>(
+        std::move(*session_config));
+    if (auto result = runtime.init(*runtime_config, runtime_paths, std::move(session)); !result) {
+        SNT_LOG_ERROR("Runtime startup failed: %s", result.error().format().c_str());
         return 1;
     }
-    engine.run();
-    engine.shutdown();
+    runtime.run();
+    runtime.shutdown();
     return 0;
 }

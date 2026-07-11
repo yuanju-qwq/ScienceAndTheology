@@ -30,6 +30,7 @@ _builds/
 snt_engine/build/
 build-engine/
 build-engine2/
+build-engine-tests/
 _deps/
 
 # IDE files
@@ -61,4 +62,3 @@ test-*/
 logs/
 *.log
 engine_run*.log
-
