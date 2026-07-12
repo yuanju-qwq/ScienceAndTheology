@@ -13,7 +13,7 @@
 #include "ecs/event_bus.h"
 #include "ecs/world.h"
 #include "engine/runtime_services.h"
-#include "gameplay/machine_tick_system.h"
+#include "machine_tick_system.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
 #include "scene/scene.h"
@@ -62,6 +62,11 @@ snt::core::Expected<void> ScienceAndTheologySession::register_content(
     if (!config_.scripts.enabled) return {};
 
     auto& scripts = services.scripts();
+    if (auto result = scripts.set_content_host(content_registry_); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySession::register_content(content host)");
+        return error;
+    }
     if (auto result = scripts.init(); !result) {
         auto error = result.error();
         error.with_context("ScienceAndTheologySession::register_content(ScriptManager)");
@@ -69,7 +74,7 @@ snt::core::Expected<void> ScienceAndTheologySession::register_content(
     }
     scripts_started_ = true;
 
-    const std::filesystem::path root(services.resolve_game(config_.scripts.root));
+    const std::filesystem::path root(services.paths().resolve_game(config_.scripts.root));
     std::error_code error_code;
     if (!std::filesystem::is_directory(root, error_code) || error_code) {
         SNT_LOG_INFO("Gameplay script root not present; no modules loaded: %s", root.string().c_str());
@@ -96,7 +101,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
 
     auto& world = world_session.world();
     auto scene_result = snt::scene::load_scene(
-        world, services_->assets().mesh_cache(), services_->resolve_game(config_.scene.path));
+        world, services_->assets().mesh_cache(), services_->paths().resolve_game(config_.scene.path));
     if (!scene_result) {
         auto error = scene_result.error();
         error.with_context("ScienceAndTheologySession::create_world(load_scene)");
@@ -130,8 +135,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
     }
 
     if (scripts_started_) {
-        auto machine_system = std::make_shared<snt::gameplay::MachineTickSystem>(
-            services_->scripts().registries());
+        auto machine_system = std::make_shared<MachineTickSystem>(content_registry_);
         if (auto result = world_session.register_worker_system(std::move(machine_system)); !result) {
             auto error = result.error();
             error.with_context("ScienceAndTheologySession::create_world(register MachineTickSystem)");
@@ -186,10 +190,10 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
         .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
     world_session.set_mouse_locked(true);
 
-    gameplay_ui_ = std::make_unique<snt::ui::GameplayUiController>(
-        snt::ui::InventoryViewModel{snt::ui::make_p6_demo_inventory()},
-        snt::ui::make_p6_demo_recipes());
-    performance_ui_ = std::make_unique<snt::ui::PerformanceViewModel>();
+    gameplay_ui_ = std::make_unique<GameplayUiController>(
+        InventoryViewModel{make_starting_inventory()},
+        make_starting_crafting_recipes());
+    performance_ui_ = std::make_unique<PerformanceViewModel>();
     SNT_LOG_INFO("ScienceAndTheology world and gameplay UI initialized");
     return {};
 }
@@ -204,10 +208,10 @@ void ScienceAndTheologySession::frame(snt::engine::FrameContext& context) {
 
     if (scripts_started_) {
         if (context.input().key_pressed[SDL_SCANCODE_F5]) {
-            if (auto result = context.services().scripts().execute_command("/snt reload"); !result) {
-                SNT_LOG_ERROR("/snt reload failed: %s", result.error().format().c_str());
+            if (auto result = context.services().scripts().reload_all(); !result) {
+                SNT_LOG_ERROR("Gameplay script reload failed: %s", result.error().format().c_str());
             } else {
-                SNT_LOG_INFO("/snt reload completed");
+                SNT_LOG_INFO("Gameplay script reload completed");
             }
         }
         context.services().scripts().update(context.delta_seconds());
@@ -227,12 +231,12 @@ void ScienceAndTheologySession::frame(snt::engine::FrameContext& context) {
 
 void ScienceAndTheologySession::build_ui(snt::engine::UiContext& context) {
     if (gameplay_ui_) {
-        auto root = snt::ui::build_gameplay_ui_root(
+        auto root = build_gameplay_ui_root(
             *gameplay_ui_, {context.viewport_width(), context.viewport_height()});
         context.submit(*root);
     }
     if (performance_ui_ && performance_ui_->visible()) {
-        auto panel = snt::ui::build_performance_panel_view(*performance_ui_);
+        auto panel = build_performance_panel_view(*performance_ui_);
         context.submit(*panel);
     }
     if (context.mouse_locked()) draw_crosshair(context);

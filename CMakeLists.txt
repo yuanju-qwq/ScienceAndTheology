@@ -27,6 +27,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 # Generate compile_commands.json for IDE/clangd.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# CTest starts at this top-level build tree. Subprojects may decide whether to
+# add tests, but enabling registration here ensures host-owned test targets
+# are discoverable alongside engine tests.
+enable_testing()
+
 # ============================================================
 # Build configuration
 # ============================================================

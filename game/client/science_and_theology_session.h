@@ -3,8 +3,9 @@
 #pragma once
 
 #include "engine/game_session.h"
+#include "game_content_registry.h"
+#include "gameplay_ui.h"
 #include "game_session_config.h"
-#include "ui/game_ui.h"
 
 #include <memory>
 
@@ -28,8 +29,9 @@ private:
 
     GameSessionConfig config_;
     snt::engine::RuntimeServices* services_ = nullptr;
-    std::unique_ptr<snt::ui::GameplayUiController> gameplay_ui_;
-    std::unique_ptr<snt::ui::PerformanceViewModel> performance_ui_;
+    GameContentRegistry content_registry_;
+    std::unique_ptr<GameplayUiController> gameplay_ui_;
+    std::unique_ptr<PerformanceViewModel> performance_ui_;
     bool scripts_started_ = false;
 };
 
