@@ -1,4 +1,4 @@
-name: Build, Test & Export
+name: Engine Build and Test
 
 on:
   push:
@@ -6,96 +6,45 @@ on:
   pull_request:
     branches: ["**"]
 
-env:
-  GODOT_VERSION: 4.7-stable
-
 jobs:
-  cpp:
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
-
-    runs-on: ${{ matrix.os }}
+  engine:
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-        working-directory: src
-
-      - name: Build
-        run: cmake --build build --config Release
-        working-directory: src
-
-      - name: Test
-        run: ctest --test-dir build -R "^snt\." -C Release --output-on-failure
-        working-directory: src
-
-  export:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: cpp
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            preset: "Windows Desktop"
-            artifact: ScienceAndTheology-Windows.zip
-            godot_exe: Godot_v4.7-stable_win64.exe
-          - os: ubuntu-latest
-            preset: "Linux Desktop"
-            artifact: ScienceAndTheology-Linux.zip
-            godot_exe: Godot_v4.7-stable_linux.x86_64
-
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build GDExtension (C++)
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release
-        working-directory: src
-
-      - name: Download Godot Editor
-        shell: pwsh
-        run: |
-          $v = "$env:GODOT_VERSION"
-          $url = "https://github.com/godotengine/godot/releases/download/$v/Godot_v${v}_win64.exe.zip"
-          if ("${{ runner.os }}" -ne "Windows") { $url = "https://github.com/godotengine/godot/releases/download/$v/Godot_v${v}_linux.x86_64.zip" }
-          Invoke-WebRequest -Uri $url -OutFile godot.zip
-          Expand-Archive -Path godot.zip -DestinationPath godot -Force
-          $exePath = Join-Path (Get-Location) "godot" "${{ matrix.godot_exe }}"
-          echo "GODOT_EXE=$exePath" >> $env:GITHUB_ENV
-
-      - name: Download & Install Export Templates
-        shell: pwsh
-        run: |
-          $v = "$env:GODOT_VERSION"
-          $url = "https://github.com/godotengine/godot/releases/download/$v/Godot_v${v}_export_templates.tpz"
-          Invoke-WebRequest -Uri $url -OutFile templates.tpz
-
-          $versionDir = $v.Replace('-stable', '')
-          if ("${{ runner.os }}" -eq "Windows") {
-            $templatesDir = "$env:APPDATA\Godot\export_templates\$versionDir"
-          } else {
-            $templatesDir = "$HOME/.godot/export_templates/$versionDir"
-          }
-          New-Item -ItemType Directory -Path $templatesDir -Force | Out-Null
-
-          $oldLocation = Get-Location
-          Set-Location -Path $templatesDir
-          Expand-Archive -Path "$oldLocation/templates.tpz" -DestinationPath . -Force
-          Set-Location -Path $oldLocation
-
-      - name: Export Game
-        shell: pwsh
-        run: |
-          & "$env:GODOT_EXE" --path . --headless --export-release "${{ matrix.preset }}"
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: builds/
+          submodules: recursive
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --no-progress --limit-output -y
+          $sdk = Get-ChildItem C:\VulkanSDK -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          if ($null -eq $sdk) { throw "Vulkan SDK installation did not create C:\VulkanSDK" }
+          "VULKAN_SDK=$($sdk.FullName)" >> $env:GITHUB_ENV
+          "$($sdk.FullName)\Bin" >> $env:GITHUB_PATH
+
+      - name: Configure engine tests and dependency audit
+        shell: pwsh
+        run: cmake -S snt_engine -B build-engine-tests -DSNT_BUILD_TESTS=ON
+
+      - name: Build isolated engine targets
+        shell: pwsh
+        run: >-
+          cmake --build build-engine-tests --config Debug --target
+          snt_core snt_ecs snt_render_backend snt_voxel_mesh snt_voxel
+          snt_gameplay snt_engine --parallel 2
+
+      - name: Build and run engine tests
+        shell: pwsh
+        run: |
+          cmake --build build-engine-tests --config Debug --target snt_tests --parallel 2
+          ctest --test-dir build-engine-tests -C Debug --output-on-failure
+
+      - name: Configure game host and dependency audit
+        shell: pwsh
+        run: cmake -S . -B build-game -DSNT_BUILD_TESTS=OFF
+
+      - name: Build game host
+        shell: pwsh
+        run: cmake --build build-game --config Debug --target snt_game_client --parallel 2

@@ -45,6 +45,8 @@ cmake -S . -B build -DSNT_BUILD_TESTS=OFF
 cmake --build build --target snt_game_client --config Debug
 ```
 
+配置阶段会自动检查引擎模块的直接 CMake 依赖；出现漏声明的 `#include "module/..."` 时会在生成构建文件前失败。
+
 使用 Visual Studio 生成器时，运行：
 
 ```powershell

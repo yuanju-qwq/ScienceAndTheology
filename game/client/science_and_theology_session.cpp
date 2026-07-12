@@ -15,6 +15,7 @@
 #include "engine/runtime_services.h"
 #include "gameplay/machine_tick_system.h"
 #include "player/player_controller.h"
+#include "player/player_physics_system.h"
 #include "scene/scene.h"
 #include "script/script_manager.h"
 #include "ui/retained_mui.h"
@@ -23,6 +24,7 @@
 #include <SDL3/SDL_scancode.h>
 
 #include <filesystem>
+#include <memory>
 #include <utility>
 
 namespace snt::game {
@@ -128,7 +130,13 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
     }
 
     if (scripts_started_) {
-        world.add_system<snt::gameplay::MachineTickSystem>(services_->scripts().registries());
+        auto machine_system = std::make_shared<snt::gameplay::MachineTickSystem>(
+            services_->scripts().registries());
+        if (auto result = world_session.register_worker_system(std::move(machine_system)); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologySession::create_world(register MachineTickSystem)");
+            return error;
+        }
     }
 
     if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(),
@@ -138,22 +146,33 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
         return error;
     }
 
-    auto& player = world.add_system<snt::player::PlayerControllerSystem>();
-    player.set_input(&world_session.input());
-    player.set_chunk_registry(&world_session.chunks());
-    player.set_chunk_render_system(&world_session.chunk_render_system());
-    player.set_camera_entity(camera_entity);
-    player.set_dimension_id("overworld");
-    player.set_spawn_feet_position({config_.camera.initial_feet_position[0],
-                                    config_.camera.initial_feet_position[1],
-                                    config_.camera.initial_feet_position[2]});
-    player.set_initial_look(-90.0f, -25.0f);
+    auto player = std::make_shared<snt::player::PlayerControllerSystem>();
+    player->set_input(&world_session.input());
+    player->set_chunk_registry(&world_session.chunks());
+    player->set_chunk_render_system(&world_session.chunk_render_system());
+    player->set_camera_entity(camera_entity);
+    player->set_dimension_id("overworld");
+    player->set_spawn_feet_position({config_.camera.initial_feet_position[0],
+                                     config_.camera.initial_feet_position[1],
+                                     config_.camera.initial_feet_position[2]});
+    player->set_initial_look(-90.0f, -25.0f);
     snt::player::PlayerControllerTuning tuning;
     tuning.move_speed = config_.camera.move_speed;
     tuning.look_speed = config_.camera.look_speed;
-    player.set_tuning(tuning);
+    player->set_tuning(tuning);
+    auto player_physics = player->make_physics_system();
+    if (auto result = world_session.register_main_system(player); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySession::create_world(register PlayerControllerSystem)");
+        return error;
+    }
+    if (auto result = world_session.register_worker_system(std::move(player_physics)); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySession::create_world(register PlayerPhysicsSystem)");
+        return error;
+    }
 
-    // Match PlayerControllerSystem::sync_camera_transform before the first
+    // Match PlayerPhysicsSystem::sync_camera_transform before the first
     // fixed tick so the initial rendered frame uses the configured spawn.
     auto& camera_transform = world.registry().get<snt::ecs::Transform>(camera_entity);
     camera_transform.position[0] = config_.camera.initial_feet_position[0];
@@ -164,7 +183,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
     camera_transform.rotation[2] = 0.0f;
 
     world_session.events().sink<snt::core::MouseLockChanged>()
-        .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(&player);
+        .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
     world_session.set_mouse_locked(true);
 
     gameplay_ui_ = std::make_unique<snt::ui::GameplayUiController>(
@@ -176,8 +195,8 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
 }
 
 void ScienceAndTheologySession::fixed_tick(snt::engine::FixedTickContext&) {
-    // Gameplay systems are registered with World and run immediately after
-    // this hook in the deterministic Runtime fixed-tick boundary.
+    // Scheduler-owned gameplay systems run immediately after this hook at the
+    // deterministic Runtime fixed-tick boundary.
 }
 
 void ScienceAndTheologySession::frame(snt::engine::FrameContext& context) {
