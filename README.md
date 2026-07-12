@@ -85,6 +85,9 @@ ctest --test-dir build-tests -C Debug --output-on-failure
 
 `snt_engine/` 是独立 Git 仓库。引擎修改应先在该目录提交，再在本仓库提交更新后的子模块指针。引擎自身的构建与测试说明见 [`snt_engine/README.md`](snt_engine/README.md)。
 
+子模块推送
+git -C snt_engine push origin HEAD:main
+
 ## 许可证
 
 代码和资源使用 [PolyForm Noncommercial License 1.0.0](LICENSE)。商业使用需向 yuanju（2358586959@qq.com）单独取得授权。
