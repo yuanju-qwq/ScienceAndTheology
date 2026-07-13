@@ -17,6 +17,7 @@ target_link_libraries(snt_game_client PRIVATE
     snt_engine_settings
     snt_core
     snt_ecs
+    snt_render_components
     snt_assets
     snt_scene
     snt_script
@@ -37,6 +38,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
+        tests/test_game_components.cpp
     )
     target_include_directories(snt_game_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/client"

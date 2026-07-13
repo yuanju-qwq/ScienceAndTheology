@@ -8,7 +8,7 @@
 #include "assets/asset_manager.h"
 #include "core/events.h"
 #include "core/log.h"
-#include "ecs/components.h"
+#include "render/render_components.h"
 #include "ecs/entity_guid.h"
 #include "ecs/event_bus.h"
 #include "ecs/world.h"
@@ -111,7 +111,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
     const snt::ecs::EntityGuid camera_guid{config_.scene.active_camera_guid};
     const entt::entity camera_entity = world.find_entity_by_guid(camera_guid);
     if (camera_entity == entt::null ||
-        !world.registry().all_of<snt::ecs::Transform, snt::ecs::Camera>(camera_entity)) {
+        !world.registry().all_of<snt::render::Transform, snt::render::Camera>(camera_entity)) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
                                 "Configured active camera is absent from the game scene"};
     }
@@ -123,7 +123,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
         if (entity != entt::null) world.destroy_entity(entity);
     }
 
-    auto& camera = world.registry().get<snt::ecs::Camera>(camera_entity);
+    auto& camera = world.registry().get<snt::render::Camera>(camera_entity);
     const auto& runtime_config = services_->config();
     camera.aspect = static_cast<float>(runtime_config.window.width) /
                     static_cast<float>(runtime_config.window.height);
@@ -178,7 +178,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
 
     // Match PlayerPhysicsSystem::sync_camera_transform before the first
     // fixed tick so the initial rendered frame uses the configured spawn.
-    auto& camera_transform = world.registry().get<snt::ecs::Transform>(camera_entity);
+    auto& camera_transform = world.registry().get<snt::render::Transform>(camera_entity);
     camera_transform.position[0] = config_.camera.initial_feet_position[0];
     camera_transform.position[1] = config_.camera.initial_feet_position[1] + tuning.eye_height;
     camera_transform.position[2] = config_.camera.initial_feet_position[2];

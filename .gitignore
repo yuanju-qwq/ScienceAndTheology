@@ -29,8 +29,7 @@ _builds/
 # Self-built engine build artifacts
 snt_engine/build/
 build-engine/
-build-engine2/
-build-engine-tests/
+build-*/
 _deps/
 
 # IDE files
