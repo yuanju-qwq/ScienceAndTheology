@@ -9,6 +9,7 @@
 
 #include "engine/simulation_session.h"
 #include "game/client/game_session_config.h"
+#include "game/network/game_server_replication_handler.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
 
 #include <memory>
@@ -38,11 +39,10 @@ public:
     void shutdown() noexcept override;
 
 private:
-    class ReplicationHandler;
-
     GameSessionConfig config_;
     ScienceAndTheologySimulationSession simulation_session_;
-    std::unique_ptr<ReplicationHandler> replication_handler_;
+    std::unique_ptr<replication::IGamePeerAuthenticator> peer_authenticator_;
+    std::unique_ptr<replication::GameServerReplicationHandler> replication_handler_;
     std::unique_ptr<snt::network::TcpUdpReplicationTransport> transport_;
     std::unique_ptr<snt::network::ReplicationService> replication_service_;
 };

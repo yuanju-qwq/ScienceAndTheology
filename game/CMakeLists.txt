@@ -62,6 +62,24 @@ target_link_libraries(snt_game_world_mobile PUBLIC
     snt_game_worldgen
 )
 
+# Game-owned authoritative replication semantics. This target stays headless:
+# snt_network owns transport framing while this module owns game message
+# versions, authenticated command admission, and future AOI/snapshot contracts.
+add_library(snt_game_network STATIC
+    network/game_replication_protocol.cpp
+    network/game_server_replication_handler.cpp
+)
+target_include_directories(snt_game_network PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_network PUBLIC
+    snt_engine_settings
+    snt_core
+    snt_network
+    snt_ecs
+    snt_voxel_data
+)
+
 # Shared deterministic gameplay closure. Both the graphical client and the
 # dedicated server link this target; it has no SDL, Vulkan, renderer, player,
 # scene, or UI dependency.
@@ -129,7 +147,7 @@ target_link_libraries(snt_game_server PRIVATE
     snt_core
     snt_simulation_runtime
     snt_game_simulation
-    snt_network
+    snt_game_network
 )
 set_target_properties(snt_game_server PROPERTIES OUTPUT_NAME science_and_theology_server)
 
@@ -187,6 +205,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
         tests/test_game_components.cpp
+        tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
         tests/test_server_session.cpp
     )
@@ -208,7 +227,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_world_data
         snt_game_worldgen
         snt_game_world_save
-        snt_network
+        snt_game_network
         snt_engine_settings
         snt_third_party
         GTest::gtest_main

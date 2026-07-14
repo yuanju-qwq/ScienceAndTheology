@@ -15,40 +15,6 @@
 
 namespace snt::game {
 
-class ScienceAndTheologyServerSession::ReplicationHandler final
-    : public snt::network::IReplicationHandler {
-public:
-    snt::core::Expected<void> on_peer_connected(
-        snt::network::PeerId peer, const snt::network::ReplicationTickContext&) override {
-        SNT_LOG_INFO("Replication peer %llu joined the dedicated server",
-                     static_cast<unsigned long long>(peer));
-        return {};
-    }
-
-    snt::core::Expected<void> on_frame(
-        snt::network::PeerId, const snt::network::ReplicationFrame&,
-        const snt::network::ReplicationTickContext&) override {
-        // The transport and scheduling boundary is intentional now; gameplay
-        // command/snapshot schemas will be added as game-owned message types.
-        // Rejecting an unknown opaque payload is safer than pretending this
-        // baseline has authoritative gameplay replication already.
-        return snt::core::Error{snt::core::ErrorCode::kProtocolError,
-                                "No ScienceAndTheology gameplay replication message is registered"};
-    }
-
-    void on_peer_disconnected(snt::network::PeerId peer, std::string_view reason) noexcept override {
-        SNT_LOG_INFO("Replication peer %llu left the dedicated server: %.*s",
-                     static_cast<unsigned long long>(peer),
-                     static_cast<int>(reason.size()), reason.data());
-    }
-
-    snt::core::Expected<void> emit_outbound(
-        const snt::network::ReplicationTickContext&,
-        snt::network::IReplicationFrameSink&) override {
-        return {};
-    }
-};
-
 ScienceAndTheologyServerSession::ScienceAndTheologyServerSession(GameSessionConfig config)
     : config_(std::move(config)), simulation_session_(config_) {}
 
@@ -80,12 +46,15 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
 
-    replication_handler_ = std::make_unique<ReplicationHandler>();
+    peer_authenticator_ = std::make_unique<replication::ClosedGamePeerAuthenticator>();
+    replication_handler_ = std::make_unique<replication::GameServerReplicationHandler>(
+        *peer_authenticator_);
     transport_ = std::move(*transport);
     replication_service_ = std::make_unique<snt::network::ReplicationService>(
         *transport_, *replication_handler_);
     SNT_LOG_INFO("Dedicated server replication enabled (tcp=%u udp=%u max_peers=%u)",
                  transport_->tcp_port(), transport_->udp_port(), config_.server_network.max_peers);
+    SNT_LOG_INFO("Gameplay player admission is closed until a game authenticator is configured");
     return {};
 }
 
@@ -127,6 +96,7 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     replication_service_.reset();
     transport_.reset();
     replication_handler_.reset();
+    peer_authenticator_.reset();
     simulation_session_.shutdown();
 }
 

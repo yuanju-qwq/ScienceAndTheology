@@ -80,7 +80,7 @@ cmake --build build --target snt_game_server --config Debug
 & .\build\bin\Debug\science_and_theology_server.exe --ticks 3 --network --bind 127.0.0.1 --tcp-port 8910 --udp-port 8911
 ```
 
-不带 `--ticks` 时服务端进入固定 20 TPS 模拟循环。`--ticks` 默认不监听端口；添加 `--network`（或在 `server_network` 配置中启用）后启动 TCP reliable + UDP unreliable transport。当前 gameplay message/snapshot schema 尚未注册，因此服务端会明确断开发送 application payload 的 peer；这避免把 transport 基线误当成完整联机玩法。
+不带 `--ticks` 时服务端进入固定 20 TPS 模拟循环。`--ticks` 默认不监听端口；添加 `--network`（或在 `server_network` 配置中启用）后启动 TCP reliable + UDP unreliable transport。服务端已解析版本化 `SNTG` 登录/命令 envelope，但默认安装关闭式认证器，因此不会意外开放匿名玩家准入；具体认证、gameplay command、AOI 和 snapshot/delta 尚未接入。详见 [游戏网络协议设计](docs/游戏网络协议设计.md)。
 
 ## 运行引擎测试
 
