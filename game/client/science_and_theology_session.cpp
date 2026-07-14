@@ -143,7 +143,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
         }
     }
 
-    if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(),
+    if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(), chunk_sidecars_,
                                            world_session.chunk_render_system()); !result) {
         auto error = result.error();
         error.with_context("ScienceAndTheologySession::create_world(bootstrap_demo_world)");

@@ -5,13 +5,16 @@
 #include "core/expected.h"
 #include "game_session_config.h"
 
-namespace snt::data { class ChunkRegistry; }
+namespace snt::voxel { class ChunkRegistry; }
 namespace snt::voxel { class ChunkRenderSystem; }
 
 namespace snt::game {
 
+class GameChunkSidecarRegistry;
+
 snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
-                                                snt::data::ChunkRegistry& chunk_registry,
+                                                snt::voxel::ChunkRegistry& chunk_registry,
+                                                GameChunkSidecarRegistry& sidecars,
                                                 snt::voxel::ChunkRenderSystem& chunk_render_system);
 
 }  // namespace snt::game

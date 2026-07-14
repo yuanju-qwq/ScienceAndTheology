@@ -4,11 +4,12 @@
 #include "demo_world_bootstrap.h"
 
 #include "core/log.h"
-#include "data/defs/chunk_data.h"
-#include "data/defs/world_seed.h"
-#include "data/world/chunk_registry.h"
-#include "data/world_gen/terrain_generator.h"
-#include "data/world_gen/world_gen_config.h"
+#include "game/world/game_chunk.h"
+#include "game/worldgen/terrain_generator.h"
+#include "game/worldgen/world_gen_config.h"
+#include "game/worldgen/world_seed.h"
+#include "voxel/data/chunk_registry.h"
+#include "voxel/data/voxel_chunk.h"
 #include "voxel/chunk_render_system.h"
 
 #include <memory>
@@ -16,9 +17,7 @@
 namespace snt::game {
 namespace {
 
-std::shared_ptr<const snt::data::WorldGenConfigSnapshot> make_demo_world_gen_config() {
-    using namespace snt::data;
-
+std::shared_ptr<const WorldGenConfigSnapshot> make_demo_world_gen_config() {
     auto config = std::make_shared<WorldGenConfigSnapshot>();
     const auto add_material = [&config](TerrainMaterialId id, const char* key, uint32_t flags) {
         TerrainMaterialDef material;
@@ -50,16 +49,16 @@ std::shared_ptr<const snt::data::WorldGenConfigSnapshot> make_demo_world_gen_con
     return config;
 }
 
-void paint_demo_surface_variants(snt::data::ChunkData& chunk,
-                                 const snt::data::WorldGenConfigSnapshot& config) {
+void paint_demo_surface_variants(snt::voxel::VoxelChunk& chunk,
+                                 const WorldGenConfigSnapshot& config) {
     for (int z = 0; z < chunk.terrain.size_z; ++z) {
         for (int x = 0; x < chunk.terrain.size_x; ++x) {
             for (int y = chunk.terrain.size_y - 1; y >= 0; --y) {
                 auto& cell = chunk.terrain.cell_at(x, y, z);
-                if (static_cast<snt::data::TerrainMaterialId>(cell.material) == config.roles.air) continue;
+                if (static_cast<TerrainMaterialId>(cell.material) == config.roles.air) continue;
 
-                const int world_x = chunk.chunk_x * snt::data::ChunkData::kChunkSize + x;
-                const int world_z = chunk.chunk_z * snt::data::ChunkData::kChunkSize + z;
+                const int world_x = chunk.chunk_x * snt::voxel::VoxelChunk::kChunkSize + x;
+                const int world_z = chunk.chunk_z * snt::voxel::VoxelChunk::kChunkSize + z;
                 const int band = ((world_x / 8) + (world_z / 8)) & 3;
                 if (band == 1) {
                     cell.material = config.material_ids_by_key.at("dirt");
@@ -74,11 +73,11 @@ void paint_demo_surface_variants(snt::data::ChunkData& chunk,
     }
 }
 
-size_t count_non_air_cells(const snt::data::ChunkData& chunk,
-                           snt::data::TerrainMaterialId air_material) {
+size_t count_non_air_cells(const snt::voxel::VoxelChunk& chunk,
+                           TerrainMaterialId air_material) {
     size_t non_air = 0;
     for (const auto& cell : chunk.terrain.cells) {
-        if (static_cast<snt::data::TerrainMaterialId>(cell.material) != air_material) {
+        if (static_cast<TerrainMaterialId>(cell.material) != air_material) {
             ++non_air;
         }
     }
@@ -88,7 +87,8 @@ size_t count_non_air_cells(const snt::data::ChunkData& chunk,
 }  // namespace
 
 snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
-                                                snt::data::ChunkRegistry& chunk_registry,
+                                                snt::voxel::ChunkRegistry& chunk_registry,
+                                                GameChunkSidecarRegistry& sidecars,
                                                 snt::voxel::ChunkRenderSystem& chunk_render_system) {
     if (!config.bootstrap_chunks) {
         SNT_LOG_INFO("Demo chunk bootstrap disabled");
@@ -96,17 +96,21 @@ snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
     }
 
     auto world_config = make_demo_world_gen_config();
-    snt::data::TerrainGenerator terrain_generator(snt::data::WorldSeed(config.seed), world_config);
+    TerrainGenerator terrain_generator(WorldSeed(config.seed), world_config);
     constexpr int32_t kDemoChunks[][3] = {{0, 0, 0}, {0, -1, 0}};
 
     for (const auto [chunk_x, chunk_y, chunk_z] : kDemoChunks) {
-        snt::data::ChunkData chunk = terrain_generator.generate_chunk(
+        GameChunk chunk = terrain_generator.generate_chunk(
             "overworld", chunk_x, chunk_y, chunk_z);
         paint_demo_surface_variants(chunk, *world_config);
         const size_t non_air = count_non_air_cells(chunk, world_config->roles.air);
         const size_t total = chunk.terrain.cells.size();
-        chunk_registry.set_chunk("overworld", chunk_x, chunk_y, chunk_z, std::move(chunk));
-        chunk_render_system.mark_dirty(snt::data::ChunkKey("overworld", chunk_x, chunk_y, chunk_z));
+        const snt::voxel::ChunkKey key("overworld", chunk_x, chunk_y, chunk_z);
+        snt::voxel::VoxelChunk voxel_chunk = std::move(chunk.voxel_chunk());
+        sidecars.set(key, std::move(chunk.sidecar()));
+        chunk_registry.set_chunk("overworld", chunk_x, chunk_y, chunk_z,
+                                 std::move(voxel_chunk));
+        chunk_render_system.mark_dirty(key);
         SNT_LOG_INFO("Demo chunk generated at (%d,%d,%d), non_air=%zu/%zu",
                      chunk_x, chunk_y, chunk_z, non_air, total);
     }

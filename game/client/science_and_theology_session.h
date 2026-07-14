@@ -6,6 +6,7 @@
 #include "game_content_registry.h"
 #include "gameplay_ui.h"
 #include "game_session_config.h"
+#include "game/world/game_chunk.h"
 
 #include <memory>
 
@@ -30,6 +31,7 @@ private:
     GameSessionConfig config_;
     snt::engine::RuntimeServices* services_ = nullptr;
     GameContentRegistry content_registry_;
+    GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;
     bool scripts_started_ = false;
