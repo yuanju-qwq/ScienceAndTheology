@@ -1,7 +1,7 @@
 // Game-owned deterministic machine runtime.
 //
 // Ownership: ScienceAndTheologySession creates this system and registers it
-// with WorldSession. The machine component, item stacks, recipe snapshots and
+// with SimulationWorldSession. The machine component, item stacks, recipe snapshots and
 // events are ScienceAndTheology gameplay state, not engine ECS primitives.
 //
 // Lifecycle: the supplied GameContentRegistry must outlive this registered

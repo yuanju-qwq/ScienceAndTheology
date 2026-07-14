@@ -10,7 +10,6 @@
 #include "game/worldgen/world_seed.h"
 #include "voxel/data/chunk_registry.h"
 #include "voxel/data/voxel_chunk.h"
-#include "voxel/chunk_render_system.h"
 
 #include <memory>
 
@@ -88,8 +87,7 @@ size_t count_non_air_cells(const snt::voxel::VoxelChunk& chunk,
 
 snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
                                                 snt::voxel::ChunkRegistry& chunk_registry,
-                                                GameChunkSidecarRegistry& sidecars,
-                                                snt::voxel::ChunkRenderSystem& chunk_render_system) {
+                                                GameChunkSidecarRegistry& sidecars) {
     if (!config.bootstrap_chunks) {
         SNT_LOG_INFO("Demo chunk bootstrap disabled");
         return {};
@@ -110,7 +108,6 @@ snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
         sidecars.set(key, std::move(chunk.sidecar()));
         chunk_registry.set_chunk("overworld", chunk_x, chunk_y, chunk_z,
                                  std::move(voxel_chunk));
-        chunk_render_system.mark_dirty(key);
         SNT_LOG_INFO("Demo chunk generated at (%d,%d,%d), non_air=%zu/%zu",
                      chunk_x, chunk_y, chunk_z, non_air, total);
     }

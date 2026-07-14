@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "engine/game_session.h"
+#include "engine/client_session.h"
 #include "game_content_registry.h"
 #include "gameplay_ui.h"
 #include "game_session_config.h"
@@ -12,24 +12,25 @@
 
 namespace snt::game {
 
-class ScienceAndTheologySession final : public snt::engine::IGameSession {
+class ScienceAndTheologySession final : public snt::engine::IClientSession {
 public:
     explicit ScienceAndTheologySession(GameSessionConfig config);
     ~ScienceAndTheologySession() override;
 
-    snt::core::Expected<void> register_content(snt::engine::RuntimeServices& services) override;
-    snt::core::Expected<void> create_world(snt::engine::WorldSession& world) override;
+    snt::core::Expected<void> register_content(snt::engine::SimulationServices& services) override;
+    snt::core::Expected<void> create_world(snt::engine::SimulationWorldSession& world) override;
+    snt::core::Expected<void> create_client_world(snt::engine::ClientWorldSession& world) override;
     void fixed_tick(snt::engine::FixedTickContext& context) override;
-    void frame(snt::engine::FrameContext& context) override;
-    void build_ui(snt::engine::UiContext& context) override;
+    void frame(snt::engine::ClientFrameContext& context) override;
+    void build_ui(snt::engine::ClientUiContext& context) override;
     void shutdown() noexcept override;
 
 private:
-    void handle_gameplay_input(snt::engine::FrameContext& context);
-    void draw_crosshair(snt::engine::UiContext& context) const;
+    void handle_gameplay_input(snt::engine::ClientFrameContext& context);
+    void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
-    snt::engine::RuntimeServices* services_ = nullptr;
+    snt::engine::SimulationServices* services_ = nullptr;
     GameContentRegistry content_registry_;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;

@@ -75,12 +75,12 @@ target_include_directories(snt_game_client PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
 )
 target_link_libraries(snt_game_client PRIVATE
-    snt_engine
+    snt_client_runtime
     snt_engine_settings
     snt_core
     snt_ecs
     snt_render_components
-    snt_assets
+    snt_gpu_assets
     snt_scene
     snt_script
     snt_player

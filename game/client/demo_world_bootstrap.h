@@ -6,7 +6,6 @@
 #include "game_session_config.h"
 
 namespace snt::voxel { class ChunkRegistry; }
-namespace snt::voxel { class ChunkRenderSystem; }
 
 namespace snt::game {
 
@@ -14,7 +13,6 @@ class GameChunkSidecarRegistry;
 
 snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
                                                 snt::voxel::ChunkRegistry& chunk_registry,
-                                                GameChunkSidecarRegistry& sidecars,
-                                                snt::voxel::ChunkRenderSystem& chunk_render_system);
+                                                GameChunkSidecarRegistry& sidecars);
 
 }  // namespace snt::game

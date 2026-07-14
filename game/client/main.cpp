@@ -8,7 +8,7 @@
 #include "core/log.h"
 #include "core/path_utils.h"
 #include "core/runtime_config.h"
-#include "engine/runtime.h"
+#include "engine/client_runtime.h"
 #include "game_session_config.h"
 #include "science_and_theology_session.h"
 
@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    snt::engine::Runtime runtime;
+    snt::engine::ClientRuntime runtime;
     auto session = std::make_unique<snt::game::ScienceAndTheologySession>(
         std::move(*session_config));
     if (auto result = runtime.init(*runtime_config, runtime_paths, std::move(session)); !result) {

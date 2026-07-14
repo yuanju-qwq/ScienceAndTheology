@@ -30,20 +30,20 @@
 
 ## 4. 已确认迁入的能力
 
-以下三组旧 `src/core` 模块已明确完整迁入自研引擎，合计 5,208 行旧核心代码：
+以下三组旧 `src/core` 模块已明确迁入当前自研主链，合计 5,208 行旧核心代码。通用 terrain chunk 与 raw region framing 位于引擎；游戏语义、生成和存档实现位于 `game/`：
 
 | 旧模块 | 旧物理行数 | 当前归属 |
 | --- | ---: | --- |
-| `src/core/world_gen/` | 2,574 | `snt_engine/data/world_gen/` |
-| `src/core/save/` | 1,943 | `snt_engine/data/save/` |
-| `src/core/mobile_structure/` | 691 | `snt_engine/data/mobile_structure/` |
+| `src/core/world_gen/` | 2,574 | `game/worldgen/`（`snt_game_worldgen`） |
+| `src/core/save/` | 1,943 | `game/world/save/`（`snt_game_world_save`） |
+| `src/core/mobile_structure/` | 691 | `game/world/mobile/`（`snt_game_world_mobile`） |
 
 此外，以下能力已处于新路径，但并非简单逐文件复制：
 
-- `WorldData` 的数据职责已拆分为 `ChunkRegistry`、数据定义和 ECS 组件。
+- `WorldData` 的数据职责已拆分为引擎通用 `ChunkRegistry`、game-owned 数据定义/sidecar 和 ECS 组件。
 - greedy meshing 与碰撞面构造已从 `gd_chunk_helper.cpp` 移入 `snt_engine/voxel/`。
 - 玩家体素碰撞、射线检测、运行时调度和渲染已在自研引擎链中实现。
-- `Runtime + IGameSession`、游戏内容注册、AngelScript 热重载、基础背包/合成 UI 与 `MachineTickSystem` 已位于 `game/`。
+- `SimulationRuntime + ISimulationSession`、`ClientRuntime + IClientSession`、游戏内容注册、AngelScript 热重载、基础背包/合成 UI 与 `MachineTickSystem` 已位于当前 CMake 主链。
 - P7.2.1 已迁入炉子机器及 reload-safe 配方快照；这不代表 bloomery、pit kiln、charcoal pit、anvil 等旧机器已迁完。
 
 ## 5. 主要剩余 C++ 功能

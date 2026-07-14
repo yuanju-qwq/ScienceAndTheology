@@ -12,7 +12,8 @@
 #include "ecs/entity_guid.h"
 #include "ecs/event_bus.h"
 #include "ecs/world.h"
-#include "engine/runtime_services.h"
+#include "engine/client_services.h"
+#include "engine/simulation_services.h"
 #include "machine_tick_system.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
@@ -57,7 +58,7 @@ ScienceAndTheologySession::ScienceAndTheologySession(GameSessionConfig config)
 ScienceAndTheologySession::~ScienceAndTheologySession() { shutdown(); }
 
 snt::core::Expected<void> ScienceAndTheologySession::register_content(
-        snt::engine::RuntimeServices& services) {
+        snt::engine::SimulationServices& services) {
     services_ = &services;
     if (!config_.scripts.enabled) return {};
 
@@ -93,7 +94,33 @@ snt::core::Expected<void> ScienceAndTheologySession::register_content(
 }
 
 snt::core::Expected<void> ScienceAndTheologySession::create_world(
-        snt::engine::WorldSession& world_session) {
+        snt::engine::SimulationWorldSession& world_session) {
+    if (!services_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Game session services are unavailable"};
+    }
+
+    if (scripts_started_) {
+        auto machine_system = std::make_shared<MachineTickSystem>(content_registry_);
+        if (auto result = world_session.register_worker_system(std::move(machine_system)); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologySession::create_world(register MachineTickSystem)");
+            return error;
+        }
+    }
+
+    if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(), chunk_sidecars_); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySession::create_world(bootstrap_demo_world)");
+        return error;
+    }
+
+    SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
+    return {};
+}
+
+snt::core::Expected<void> ScienceAndTheologySession::create_client_world(
+        snt::engine::ClientWorldSession& world_session) {
     if (!services_) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Game session services are unavailable"};
@@ -101,10 +128,10 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
 
     auto& world = world_session.world();
     auto scene_result = snt::scene::load_scene(
-        world, services_->assets(), services_->paths().resolve_game(config_.scene.path));
+        world, world_session.assets(), services_->paths().resolve_game(config_.scene.path));
     if (!scene_result) {
         auto error = scene_result.error();
-        error.with_context("ScienceAndTheologySession::create_world(load_scene)");
+        error.with_context("ScienceAndTheologySession::create_client_world(load_scene)");
         return error;
     }
 
@@ -116,7 +143,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
                                 "Configured active camera is absent from the game scene"};
     }
 
-    // These cubes are only scene-generator verification content. The game
+    // These cubes are only scene-generator verification content. The client
     // session owns their removal now that terrain is its primary presentation.
     for (const uint64_t guid : {2ull, 3ull}) {
         const entt::entity entity = world.find_entity_by_guid(snt::ecs::EntityGuid{guid});
@@ -134,20 +161,10 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
         return result.error();
     }
 
-    if (scripts_started_) {
-        auto machine_system = std::make_shared<MachineTickSystem>(content_registry_);
-        if (auto result = world_session.register_worker_system(std::move(machine_system)); !result) {
-            auto error = result.error();
-            error.with_context("ScienceAndTheologySession::create_world(register MachineTickSystem)");
-            return error;
-        }
-    }
-
-    if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(), chunk_sidecars_,
-                                           world_session.chunk_render_system()); !result) {
-        auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_world(bootstrap_demo_world)");
-        return error;
+    // Terrain generation belongs to the simulation session. Presentation only
+    // observes its resulting generic chunk keys and schedules initial meshes.
+    for (const auto& key : world_session.chunks().all_chunk_keys()) {
+        world_session.chunk_render_system().mark_dirty(key);
     }
 
     auto player = std::make_shared<snt::player::PlayerControllerSystem>();
@@ -165,14 +182,15 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
     tuning.look_speed = config_.camera.look_speed;
     player->set_tuning(tuning);
     auto player_physics = player->make_physics_system();
-    if (auto result = world_session.register_main_system(player); !result) {
+    auto& simulation = world_session.simulation();
+    if (auto result = simulation.register_main_system(player); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_world(register PlayerControllerSystem)");
+        error.with_context("ScienceAndTheologySession::create_client_world(register PlayerControllerSystem)");
         return error;
     }
-    if (auto result = world_session.register_worker_system(std::move(player_physics)); !result) {
+    if (auto result = simulation.register_worker_system(std::move(player_physics)); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_world(register PlayerPhysicsSystem)");
+        error.with_context("ScienceAndTheologySession::create_client_world(register PlayerPhysicsSystem)");
         return error;
     }
 
@@ -186,24 +204,28 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
     camera_transform.rotation[1] = -90.0f;
     camera_transform.rotation[2] = 0.0f;
 
-    world_session.events().sink<snt::core::MouseLockChanged>()
+    simulation.events().sink<snt::core::MouseLockChanged>()
         .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
-    world_session.set_mouse_locked(true);
+    if (auto result = world_session.set_mouse_locked(true); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySession::create_client_world(mouse lock)");
+        return error;
+    }
 
     gameplay_ui_ = std::make_unique<GameplayUiController>(
         InventoryViewModel{make_starting_inventory()},
         make_starting_crafting_recipes());
     performance_ui_ = std::make_unique<PerformanceViewModel>();
-    SNT_LOG_INFO("ScienceAndTheology world and gameplay UI initialized");
+    SNT_LOG_INFO("ScienceAndTheology client world and gameplay UI initialized");
     return {};
 }
 
 void ScienceAndTheologySession::fixed_tick(snt::engine::FixedTickContext&) {
     // Scheduler-owned gameplay systems run immediately after this hook at the
-    // deterministic Runtime fixed-tick boundary.
+    // deterministic SimulationRuntime fixed-tick boundary.
 }
 
-void ScienceAndTheologySession::frame(snt::engine::FrameContext& context) {
+void ScienceAndTheologySession::frame(snt::engine::ClientFrameContext& context) {
     handle_gameplay_input(context);
 
     if (scripts_started_) {
@@ -229,7 +251,7 @@ void ScienceAndTheologySession::frame(snt::engine::FrameContext& context) {
     }
 }
 
-void ScienceAndTheologySession::build_ui(snt::engine::UiContext& context) {
+void ScienceAndTheologySession::build_ui(snt::engine::ClientUiContext& context) {
     if (gameplay_ui_) {
         auto root = build_gameplay_ui_root(
             *gameplay_ui_, {context.viewport_width(), context.viewport_height()});
@@ -252,7 +274,7 @@ void ScienceAndTheologySession::shutdown() noexcept {
     services_ = nullptr;
 }
 
-void ScienceAndTheologySession::handle_gameplay_input(snt::engine::FrameContext& context) {
+void ScienceAndTheologySession::handle_gameplay_input(snt::engine::ClientFrameContext& context) {
     if (!gameplay_ui_) return;
     const auto& input = context.input();
 
@@ -294,7 +316,7 @@ void ScienceAndTheologySession::handle_gameplay_input(snt::engine::FrameContext&
     }
 }
 
-void ScienceAndTheologySession::draw_crosshair(snt::engine::UiContext& context) const {
+void ScienceAndTheologySession::draw_crosshair(snt::engine::ClientUiContext& context) const {
     const float center_x = context.viewport_width() * 0.5f;
     const float center_y = context.viewport_height() * 0.5f;
     snt::ui::Arc2DCommandBuffer commands;

@@ -30,6 +30,7 @@ _builds/
 snt_engine/build/
 build-engine/
 build-*/
+build_*/
 _deps/
 
 # IDE files
