@@ -1,9 +1,7 @@
-// ScienceAndTheology game content session.
+// ScienceAndTheology graphical session implementation.
 
-#define SNT_LOG_CHANNEL "game_session"
+#define SNT_LOG_CHANNEL "game.client_session"
 #include "science_and_theology_session.h"
-
-#include "demo_world_bootstrap.h"
 
 #include "assets/asset_manager.h"
 #include "core/events.h"
@@ -14,7 +12,6 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
-#include "machine_tick_system.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
 #include "scene/scene.h"
@@ -24,7 +21,6 @@
 
 #include <SDL3/SDL_scancode.h>
 
-#include <filesystem>
 #include <memory>
 #include <utility>
 
@@ -52,74 +48,33 @@ void append_cross_arm(snt::ui::Arc2DCommandBuffer& commands, float center_x, flo
 
 }  // namespace
 
-ScienceAndTheologySession::ScienceAndTheologySession(GameSessionConfig config)
-    : config_(std::move(config)) {}
+ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(GameSessionConfig config)
+    : config_(std::move(config)), simulation_session_(config_) {}
 
-ScienceAndTheologySession::~ScienceAndTheologySession() { shutdown(); }
+ScienceAndTheologyClientSession::~ScienceAndTheologyClientSession() { shutdown(); }
 
-snt::core::Expected<void> ScienceAndTheologySession::register_content(
-        snt::engine::SimulationServices& services) {
+snt::core::Expected<void> ScienceAndTheologyClientSession::register_content(
+    snt::engine::SimulationServices& services) {
+    if (auto result = simulation_session_.register_content(services); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::register_content");
+        return error;
+    }
     services_ = &services;
-    if (!config_.scripts.enabled) return {};
+    return {};
+}
 
-    auto& scripts = services.scripts();
-    if (auto result = scripts.set_content_host(content_registry_); !result) {
+snt::core::Expected<void> ScienceAndTheologyClientSession::create_world(
+    snt::engine::SimulationWorldSession& world_session) {
+    if (auto result = simulation_session_.create_world(world_session); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySession::register_content(content host)");
-        return error;
-    }
-    if (auto result = scripts.init(); !result) {
-        auto error = result.error();
-        error.with_context("ScienceAndTheologySession::register_content(ScriptManager)");
-        return error;
-    }
-    scripts_started_ = true;
-
-    const std::filesystem::path root(services.paths().resolve_game(config_.scripts.root));
-    std::error_code error_code;
-    if (!std::filesystem::is_directory(root, error_code) || error_code) {
-        SNT_LOG_INFO("Gameplay script root not present; no modules loaded: %s", root.string().c_str());
-        return {};
-    }
-
-    const auto result = config_.scripts.watch_for_changes
-        ? scripts.watch_directory(root)
-        : scripts.load_directory(root.string());
-    if (!result) {
-        auto error = result.error();
-        error.with_context("ScienceAndTheologySession::register_content(gameplay scripts)");
+        error.with_context("ScienceAndTheologyClientSession::create_world");
         return error;
     }
     return {};
 }
 
-snt::core::Expected<void> ScienceAndTheologySession::create_world(
-        snt::engine::SimulationWorldSession& world_session) {
-    if (!services_) {
-        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
-                                "Game session services are unavailable"};
-    }
-
-    if (scripts_started_) {
-        auto machine_system = std::make_shared<MachineTickSystem>(content_registry_);
-        if (auto result = world_session.register_worker_system(std::move(machine_system)); !result) {
-            auto error = result.error();
-            error.with_context("ScienceAndTheologySession::create_world(register MachineTickSystem)");
-            return error;
-        }
-    }
-
-    if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(), chunk_sidecars_); !result) {
-        auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_world(bootstrap_demo_world)");
-        return error;
-    }
-
-    SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
-    return {};
-}
-
-snt::core::Expected<void> ScienceAndTheologySession::create_client_world(
+snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         snt::engine::ClientWorldSession& world_session) {
     if (!services_) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
@@ -131,7 +86,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_client_world(
         world, world_session.assets(), services_->paths().resolve_game(config_.scene.path));
     if (!scene_result) {
         auto error = scene_result.error();
-        error.with_context("ScienceAndTheologySession::create_client_world(load_scene)");
+        error.with_context("ScienceAndTheologyClientSession::create_client_world(load_scene)");
         return error;
     }
 
@@ -185,12 +140,14 @@ snt::core::Expected<void> ScienceAndTheologySession::create_client_world(
     auto& simulation = world_session.simulation();
     if (auto result = simulation.register_main_system(player); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_client_world(register PlayerControllerSystem)");
+        error.with_context(
+            "ScienceAndTheologyClientSession::create_client_world(register PlayerControllerSystem)");
         return error;
     }
     if (auto result = simulation.register_worker_system(std::move(player_physics)); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_client_world(register PlayerPhysicsSystem)");
+        error.with_context(
+            "ScienceAndTheologyClientSession::create_client_world(register PlayerPhysicsSystem)");
         return error;
     }
 
@@ -208,7 +165,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_client_world(
         .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
     if (auto result = world_session.set_mouse_locked(true); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySession::create_client_world(mouse lock)");
+        error.with_context("ScienceAndTheologyClientSession::create_client_world(mouse lock)");
         return error;
     }
 
@@ -220,15 +177,20 @@ snt::core::Expected<void> ScienceAndTheologySession::create_client_world(
     return {};
 }
 
-void ScienceAndTheologySession::fixed_tick(snt::engine::FixedTickContext&) {
-    // Scheduler-owned gameplay systems run immediately after this hook at the
-    // deterministic SimulationRuntime fixed-tick boundary.
+snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
+    snt::engine::FixedTickContext& context) {
+    return simulation_session_.fixed_tick(context);
 }
 
-void ScienceAndTheologySession::frame(snt::engine::ClientFrameContext& context) {
+snt::core::Expected<void> ScienceAndTheologyClientSession::after_fixed_tick(
+    snt::engine::FixedTickContext& context) {
+    return simulation_session_.after_fixed_tick(context);
+}
+
+void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& context) {
     handle_gameplay_input(context);
 
-    if (scripts_started_) {
+    if (config_.scripts.enabled && services_) {
         if (context.input().key_pressed[SDL_SCANCODE_F5]) {
             if (auto result = context.services().scripts().reload_all(); !result) {
                 SNT_LOG_ERROR("Gameplay script reload failed: %s", result.error().format().c_str());
@@ -236,7 +198,6 @@ void ScienceAndTheologySession::frame(snt::engine::ClientFrameContext& context) 
                 SNT_LOG_INFO("Gameplay script reload completed");
             }
         }
-        context.services().scripts().update(context.delta_seconds());
     }
 
     if (performance_ui_) {
@@ -251,7 +212,7 @@ void ScienceAndTheologySession::frame(snt::engine::ClientFrameContext& context) 
     }
 }
 
-void ScienceAndTheologySession::build_ui(snt::engine::ClientUiContext& context) {
+void ScienceAndTheologyClientSession::build_ui(snt::engine::ClientUiContext& context) {
     if (gameplay_ui_) {
         auto root = build_gameplay_ui_root(
             *gameplay_ui_, {context.viewport_width(), context.viewport_height()});
@@ -264,17 +225,14 @@ void ScienceAndTheologySession::build_ui(snt::engine::ClientUiContext& context) 
     if (context.mouse_locked()) draw_crosshair(context);
 }
 
-void ScienceAndTheologySession::shutdown() noexcept {
-    if (scripts_started_ && services_) {
-        services_->scripts().shutdown();
-        scripts_started_ = false;
-    }
+void ScienceAndTheologyClientSession::shutdown() noexcept {
     gameplay_ui_.reset();
     performance_ui_.reset();
+    simulation_session_.shutdown();
     services_ = nullptr;
 }
 
-void ScienceAndTheologySession::handle_gameplay_input(snt::engine::ClientFrameContext& context) {
+void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientFrameContext& context) {
     if (!gameplay_ui_) return;
     const auto& input = context.input();
 
@@ -316,7 +274,7 @@ void ScienceAndTheologySession::handle_gameplay_input(snt::engine::ClientFrameCo
     }
 }
 
-void ScienceAndTheologySession::draw_crosshair(snt::engine::ClientUiContext& context) const {
+void ScienceAndTheologyClientSession::draw_crosshair(snt::engine::ClientUiContext& context) const {
     const float center_x = context.viewport_width() * 0.5f;
     const float center_y = context.viewport_height() * 0.5f;
     snt::ui::Arc2DCommandBuffer commands;

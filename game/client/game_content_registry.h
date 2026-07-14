@@ -1,8 +1,9 @@
 // ScienceAndTheology script-content registry.
 //
-// Ownership: ScienceAndTheologySession owns this registry and injects it into
-// ScriptManager before script initialization. It owns all game definitions,
-// script-persistent transient state, and native `snt_*` registrations.
+// Ownership: ScienceAndTheologySimulationSession owns this registry and
+// injects it into ScriptManager before script initialization. It owns all
+// game definitions, script-persistent transient state, and native `snt_*`
+// registrations.
 //
 // Lifecycle: ScriptManager calls the IScriptContentHost transaction methods
 // during module load, reload, unload, and shutdown. Thread affinity: every

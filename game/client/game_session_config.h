@@ -37,11 +37,23 @@ struct GameDemoConfig {
     uint32_t seed = 20240601u;
 };
 
+// Dedicated-server transport settings are data-only so the shared simulation
+// target remains independent of snt_network. The server composition layer
+// translates these fields into a concrete transport at startup.
+struct GameServerNetworkConfig {
+    bool enabled = false;
+    std::string bind_address = "0.0.0.0";
+    uint16_t tcp_port = 23585;
+    uint16_t udp_port = 23586;
+    uint32_t max_peers = 64;
+};
+
 struct GameSessionConfig {
     GameCameraConfig camera;
     GameSceneConfig scene;
     GameScriptConfig scripts;
     GameDemoConfig demo;
+    GameServerNetworkConfig server_network;
 };
 
 // Reads the game-owned subset from the same package JSON consumed by the

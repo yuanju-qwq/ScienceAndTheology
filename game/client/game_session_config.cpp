@@ -58,12 +58,24 @@ void from_json(const json& object, GameDemoConfig& value) {
     read_optional(object, "seed", value.seed);
 }
 
+void from_json(const json& object, GameServerNetworkConfig& value) {
+    value = GameServerNetworkConfig{};
+    read_optional(object, "enabled", value.enabled);
+    read_optional(object, "bind_address", value.bind_address);
+    read_optional(object, "tcp_port", value.tcp_port);
+    read_optional(object, "udp_port", value.udp_port);
+    read_optional(object, "max_peers", value.max_peers);
+}
+
 void from_json(const json& object, GameSessionConfig& value) {
     value = GameSessionConfig{};
     if (object.contains("camera")) value.camera = object["camera"].get<GameCameraConfig>();
     if (object.contains("scene")) value.scene = object["scene"].get<GameSceneConfig>();
     if (object.contains("scripts")) value.scripts = object["scripts"].get<GameScriptConfig>();
     if (object.contains("demo")) value.demo = object["demo"].get<GameDemoConfig>();
+    if (object.contains("server_network")) {
+        value.server_network = object["server_network"].get<GameServerNetworkConfig>();
+    }
 }
 
 snt::core::Expected<GameSessionConfig> load_game_session_config(const std::string& path) {

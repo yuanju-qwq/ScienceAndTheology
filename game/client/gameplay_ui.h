@@ -1,6 +1,6 @@
 // ScienceAndTheology gameplay UI state and retained-view builders.
 //
-// Ownership: ScienceAndTheologySession owns these models for one game
+// Ownership: ScienceAndTheologyClientSession owns these models for one game
 // session. They depend on snt::ui only for generic retained-MUI primitives;
 // inventory, recipes, labels, layout choices, and demo content remain game
 // content and must not be moved back into the engine.

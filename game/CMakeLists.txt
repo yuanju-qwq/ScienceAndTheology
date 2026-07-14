@@ -62,13 +62,37 @@ target_link_libraries(snt_game_world_mobile PUBLIC
     snt_game_worldgen
 )
 
-add_executable(snt_game_client
-    client/main.cpp
+# Shared deterministic gameplay closure. Both the graphical client and the
+# dedicated server link this target; it has no SDL, Vulkan, renderer, player,
+# scene, or UI dependency.
+add_library(snt_game_simulation STATIC
     client/game_session_config.cpp
     client/demo_world_bootstrap.cpp
     client/game_content_registry.cpp
-    client/gameplay_ui.cpp
     client/machine_tick_system.cpp
+    simulation/science_and_theology_simulation_session.cpp
+)
+target_include_directories(snt_game_simulation PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_simulation PUBLIC
+    snt_engine_settings
+    snt_simulation_runtime
+    snt_core
+    snt_ecs
+    snt_script
+    snt_voxel_data
+    snt_game_world_data
+    snt_game_worldgen
+)
+target_link_libraries(snt_game_simulation PRIVATE
+    nlohmann_json::nlohmann_json
+)
+
+add_executable(snt_game_client
+    client/main.cpp
+    runtime/runtime_package.cpp
+    client/gameplay_ui.cpp
     client/science_and_theology_session.cpp
 )
 target_include_directories(snt_game_client PRIVATE
@@ -76,21 +100,67 @@ target_include_directories(snt_game_client PRIVATE
 )
 target_link_libraries(snt_game_client PRIVATE
     snt_client_runtime
+    snt_game_simulation
     snt_engine_settings
     snt_core
     snt_ecs
     snt_render_components
     snt_gpu_assets
     snt_scene
-    snt_script
     snt_player
     snt_voxel
-    snt_game_world_data
-    snt_game_worldgen
     snt_ui
     snt_third_party
 )
 set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theology)
+
+# Dedicated host baseline. It reuses the exact game simulation session but
+# intentionally excludes client presentation modules and transport choices.
+add_executable(snt_game_server
+    server/main.cpp
+    server/science_and_theology_server_session.cpp
+    runtime/runtime_package.cpp
+)
+target_include_directories(snt_game_server PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_server PRIVATE
+    snt_engine_settings
+    snt_core
+    snt_simulation_runtime
+    snt_game_simulation
+    snt_network
+)
+set_target_properties(snt_game_server PROPERTIES OUTPUT_NAME science_and_theology_server)
+
+# Keep the dedicated-server closure honest. The engine already audits its own
+# module includes; this host-level check rejects the presentation targets that
+# would reintroduce SDL/Vulkan into the shared game simulation or server.
+function(snt_assert_headless_game_target target)
+    get_target_property(target_links ${target} LINK_LIBRARIES)
+    foreach(forbidden_target IN ITEMS
+            snt_third_party
+            snt_client_runtime
+            snt_platform
+            snt_input
+            snt_render_backend
+            snt_gpu_assets
+            snt_renderer
+            snt_render
+            snt_ui
+            snt_voxel
+            snt_player)
+        list(FIND target_links ${forbidden_target} forbidden_index)
+        if(NOT forbidden_index EQUAL -1)
+            message(FATAL_ERROR
+                "Headless target '${target}' links presentation dependency "
+                "'${forbidden_target}'. Move it to snt_game_client instead.")
+        endif()
+    endforeach()
+endfunction()
+
+snt_assert_headless_game_target(snt_game_simulation)
+snt_assert_headless_game_target(snt_game_server)
 
 # Development smoke test for game-owned world generation plus the generic ECS
 # benchmark. It belongs to the host because terrain rules are not engine API.
@@ -109,15 +179,16 @@ target_link_libraries(snt_game_world_test PRIVATE
 
 if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     add_executable(snt_game_tests
-        client/game_content_registry.cpp
         client/gameplay_ui.cpp
-        client/machine_tick_system.cpp
+        server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
         tests/test_gameplay_ui.cpp
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
         tests/test_game_components.cpp
+        tests/test_simulation_session.cpp
+        tests/test_server_session.cpp
     )
     target_include_directories(snt_game_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -127,6 +198,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         SNT_ENGINE_TEST_ROOT="${SNT_ENGINE_SOURCE_DIR}"
     )
     target_link_libraries(snt_game_tests PRIVATE
+        snt_game_simulation
         snt_core
         snt_ecs
         snt_script
@@ -136,6 +208,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_world_data
         snt_game_worldgen
         snt_game_world_save
+        snt_network
         snt_engine_settings
         snt_third_party
         GTest::gtest_main
@@ -158,6 +231,24 @@ endif()
 #   <exe-dir>/engine  engine resources
 #   <exe-dir>/game    game content
 #   <exe-dir>/user    writable logs, saves and caches (created at runtime)
+function(snt_assemble_game_content target)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/config
+            $<TARGET_FILE_DIR:${target}>/game/config
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts
+            $<TARGET_FILE_DIR:${target}>/game/scripts
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/../test_assets
+            $<TARGET_FILE_DIR:${target}>/game/assets/dev
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/../resource/terrain
+            $<TARGET_FILE_DIR:${target}>/game/assets/terrain
+        COMMENT "Assembling ScienceAndTheology game content"
+    )
+endfunction()
+
 add_dependencies(snt_game_client snt_shaders)
 add_custom_command(TARGET snt_game_client POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -169,23 +260,19 @@ add_custom_command(TARGET snt_game_client POST_BUILD
         ${SNT_ENGINE_SOURCE_DIR}/third_party/icu4c/icudt_godot.dat
         $<TARGET_FILE_DIR:snt_game_client>/engine/third_party/icu4c/icudt_godot.dat
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/config
-        $<TARGET_FILE_DIR:snt_game_client>/game/config
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}/scenes
         $<TARGET_FILE_DIR:snt_game_client>/game/scenes
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/scripts
-        $<TARGET_FILE_DIR:snt_game_client>/game/scripts
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/../test_assets
-        $<TARGET_FILE_DIR:snt_game_client>/game/assets/dev
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/../resource/terrain
-        $<TARGET_FILE_DIR:snt_game_client>/game/assets/terrain
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_RUNTIME_DLLS:snt_game_client>
         $<TARGET_FILE_DIR:snt_game_client>
     COMMAND_EXPAND_LISTS
-    COMMENT "Assembling ScienceAndTheology runtime package"
+    COMMENT "Assembling ScienceAndTheology client resources"
 )
+snt_assemble_game_content(snt_game_client)
+
+add_custom_command(TARGET snt_game_server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:snt_game_server>/engine
+    COMMENT "Creating ScienceAndTheology dedicated-server engine root"
+)
+snt_assemble_game_content(snt_game_server)

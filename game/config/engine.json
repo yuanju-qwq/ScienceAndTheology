@@ -50,5 +50,12 @@
   "demo": {
     "bootstrap_chunks": true,
     "seed": 20240601
+  },
+  "server_network": {
+    "enabled": false,
+    "bind_address": "0.0.0.0",
+    "tcp_port": 23585,
+    "udp_port": 23586,
+    "max_peers": 64
   }
 }
