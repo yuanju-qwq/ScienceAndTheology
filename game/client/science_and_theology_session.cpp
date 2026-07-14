@@ -101,7 +101,7 @@ snt::core::Expected<void> ScienceAndTheologySession::create_world(
 
     auto& world = world_session.world();
     auto scene_result = snt::scene::load_scene(
-        world, services_->assets().mesh_cache(), services_->paths().resolve_game(config_.scene.path));
+        world, services_->assets(), services_->paths().resolve_game(config_.scene.path));
     if (!scene_result) {
         auto error = scene_result.error();
         error.with_context("ScienceAndTheologySession::create_world(load_scene)");
