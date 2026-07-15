@@ -45,6 +45,9 @@ struct GamePersistenceConfig {
     bool world_save_enabled = false;
     std::string world_dimension_id = "overworld";
     std::string universe_mode = "default";
+    // Dedicated-server player-progress autosave cadence. Zero leaves only the
+    // explicit disconnect and controlled-shutdown persistence boundaries.
+    uint64_t player_progress_autosave_interval_ticks = 1200;
 };
 
 // Dedicated-server transport settings are data-only so the shared simulation

@@ -24,8 +24,10 @@ namespace {
 }  // namespace
 
 GameServerPlayerLifecycle::GameServerPlayerLifecycle(QuestRegistry& quests,
-                                                     std::string universe_save_dir)
-    : quests_(&quests), persistence_(std::move(universe_save_dir)) {}
+                                                     std::string universe_save_dir,
+                                                     uint64_t autosave_interval_ticks)
+    : quests_(&quests), persistence_(std::move(universe_save_dir)),
+      autosave_interval_ticks_(autosave_interval_ticks) {}
 
 snt::core::Expected<void> GameServerPlayerLifecycle::on_peer_authenticated(
     const GameAuthenticatedPeer& peer,
@@ -48,6 +50,8 @@ snt::core::Expected<void> GameServerPlayerLifecycle::on_peer_authenticated(
             error.with_context("GameServerPlayerLifecycle::on_peer_authenticated(load quest progress)");
             return error;
         }
+        saved_progress_revisions_[peer.identity.account_id] =
+            quests_->progress_revision(peer.identity.account_id);
     }
 
     active_peers_.emplace(peer.peer, peer.identity.account_id);
@@ -135,6 +139,45 @@ snt::core::Expected<void> GameServerPlayerLifecycle::flush_all() {
     return {};
 }
 
+snt::core::Expected<void> GameServerPlayerLifecycle::flush_due(uint64_t tick_index) {
+    if (stopped_) return invalid_state("Game server player lifecycle is stopped");
+    if (quests_ == nullptr) return invalid_state("Game server player lifecycle has no QuestRegistry");
+    if (autosave_interval_ticks_ == 0) return {};
+    if (has_last_autosave_tick_ && tick_index >= last_autosave_tick_ &&
+        tick_index - last_autosave_tick_ < autosave_interval_ticks_) {
+        return {};
+    }
+
+    last_autosave_tick_ = tick_index;
+    has_last_autosave_tick_ = true;
+
+    std::optional<snt::core::Error> first_error;
+    size_t saved = 0;
+    for (const std::string& account_id : resident_accounts_) {
+        const uint64_t revision = quests_->progress_revision(account_id);
+        const auto saved_revision = saved_progress_revisions_.find(account_id);
+        if (saved_revision != saved_progress_revisions_.end() &&
+            saved_revision->second == revision) {
+            continue;
+        }
+        if (auto result = save_account(account_id); !result) {
+            auto error = result.error();
+            error.with_context("GameServerPlayerLifecycle::flush_due");
+            SNT_LOG_ERROR("Unable to autosave quest progress for player '%s': %s",
+                          account_id.c_str(), error.format().c_str());
+            if (!first_error.has_value()) first_error = std::move(error);
+            continue;
+        }
+        ++saved;
+    }
+    if (saved != 0) {
+        SNT_LOG_INFO("Autosaved quest progress for %zu changed resident player account(s) at tick %llu",
+                     saved, static_cast<unsigned long long>(tick_index));
+    }
+    if (first_error.has_value()) return std::move(*first_error);
+    return {};
+}
+
 void GameServerPlayerLifecycle::shutdown() noexcept {
     if (stopped_) return;
     if (auto result = flush_all(); !result) {
@@ -144,6 +187,7 @@ void GameServerPlayerLifecycle::shutdown() noexcept {
     active_peers_.clear();
     active_accounts_.clear();
     resident_accounts_.clear();
+    saved_progress_revisions_.clear();
 }
 
 snt::core::Expected<void> GameServerPlayerLifecycle::validate_peer(
@@ -167,6 +211,7 @@ snt::core::Expected<void> GameServerPlayerLifecycle::save_account(
         error.with_context("GameServerPlayerLifecycle::save_account");
         return error;
     }
+    saved_progress_revisions_[std::string(account_id)] = quests_->progress_revision(account_id);
     return {};
 }
 

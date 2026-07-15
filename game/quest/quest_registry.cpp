@@ -65,8 +65,7 @@ snt::core::Expected<void> QuestRegistry::refresh_definitions() {
     observed_content_revision_ = revision;
     log_definition_warnings();
     for (auto& [player_id, progress] : players_) {
-        (void)player_id;
-        ensure_progress_records(progress);
+        if (ensure_progress_records(progress)) mark_progress_changed(player_id);
     }
     return {};
 }
@@ -74,7 +73,9 @@ snt::core::Expected<void> QuestRegistry::refresh_definitions() {
 snt::core::Expected<void> QuestRegistry::tick(uint64_t tick_index) {
     if (auto result = refresh_definitions(); !result) return result.error();
     for (auto& [player_id, progress] : players_) {
-        reconcile_player(player_id, progress, tick_index);
+        if (reconcile_player(player_id, progress, tick_index)) {
+            mark_progress_changed(player_id);
+        }
     }
     return {};
 }
@@ -92,8 +93,9 @@ snt::core::Expected<void> QuestRegistry::accept(QuestPlayerId player_id,
     if (progress.state != QuestState::kAvailable) {
         return invalid_state("Quest can only be accepted while available");
     }
-    transition(player_id, progress, QuestState::kInProgress, tick_index);
-    reconcile_player(player_id, players_.at(player_id), tick_index);
+    bool changed = transition(player_id, progress, QuestState::kInProgress, tick_index);
+    changed |= reconcile_player(player_id, players_.at(player_id), tick_index);
+    if (changed) mark_progress_changed(player_id);
     return {};
 }
 
@@ -108,6 +110,7 @@ snt::core::Expected<void> QuestRegistry::record_progress(
     if (auto result = synchronize_player(player_id, tick_index); !result) return result.error();
 
     auto& progress = players_.at(player_id);
+    bool changed = false;
     for (const auto& [quest_id, definition] : definitions_) {
         auto progress_it = progress.find(quest_id);
         if (progress_it == progress.end() || progress_it->second.state != QuestState::kInProgress) {
@@ -115,13 +118,19 @@ snt::core::Expected<void> QuestRegistry::record_progress(
         }
         for (const QuestObjectiveDefinition& objective : definition.objectives) {
             if (objective.kind != event.kind || objective.target_id != event.target_id) continue;
-            const int64_t next = static_cast<int64_t>(progress_it->second.objective_counts[objective.id]) +
+            int32_t& count = progress_it->second.objective_counts[objective.id];
+            const int64_t next = static_cast<int64_t>(count) +
                                  static_cast<int64_t>(event.amount);
-            progress_it->second.objective_counts[objective.id] = static_cast<int32_t>(
+            const int32_t clamped = static_cast<int32_t>(
                 std::min<int64_t>(next, objective.required_count));
+            if (count != clamped) {
+                count = clamped;
+                changed = true;
+            }
         }
     }
-    reconcile_player(player_id, progress, tick_index);
+    changed |= reconcile_player(player_id, progress, tick_index);
+    if (changed) mark_progress_changed(player_id);
     return {};
 }
 
@@ -132,6 +141,7 @@ snt::core::Expected<void> QuestRegistry::update_inventory(
     if (auto result = synchronize_player(player_id, tick_index); !result) return result.error();
 
     auto& progress = players_.at(player_id);
+    bool changed = false;
     for (const auto& [quest_id, definition] : definitions_) {
         auto progress_it = progress.find(quest_id);
         if (progress_it == progress.end() || progress_it->second.state != QuestState::kInProgress) {
@@ -140,11 +150,16 @@ snt::core::Expected<void> QuestRegistry::update_inventory(
         for (const QuestObjectiveDefinition& objective : definition.objectives) {
             if (objective.kind != QuestObjectiveKind::kAcquireItem) continue;
             const int32_t count = std::max(0, item_count(objective.target_id));
-            progress_it->second.objective_counts[objective.id] =
-                std::min(count, objective.required_count);
+            int32_t& objective_count = progress_it->second.objective_counts[objective.id];
+            const int32_t clamped = std::min(count, objective.required_count);
+            if (objective_count != clamped) {
+                objective_count = clamped;
+                changed = true;
+            }
         }
     }
-    reconcile_player(player_id, progress, tick_index);
+    changed |= reconcile_player(player_id, progress, tick_index);
+    if (changed) mark_progress_changed(player_id);
     return {};
 }
 
@@ -162,14 +177,25 @@ snt::core::Expected<void> QuestRegistry::reset_repeatable(
     if (progress.state != QuestState::kCompleted) {
         return invalid_state("Only completed quests can be reset");
     }
+    bool changed = false;
     for (auto& [objective_id, count] : progress.objective_counts) {
         (void)objective_id;
-        count = 0;
+        if (count != 0) {
+            count = 0;
+            changed = true;
+        }
     }
-    progress.reward_claimed = false;
-    progress.completed_tick = 0;
-    transition(player_id, progress, QuestState::kAvailable, tick_index);
-    reconcile_player(player_id, players_.at(player_id), tick_index);
+    if (progress.reward_claimed) {
+        progress.reward_claimed = false;
+        changed = true;
+    }
+    if (progress.completed_tick != 0) {
+        progress.completed_tick = 0;
+        changed = true;
+    }
+    changed |= transition(player_id, progress, QuestState::kAvailable, tick_index);
+    changed |= reconcile_player(player_id, players_.at(player_id), tick_index);
+    if (changed) mark_progress_changed(player_id);
     return {};
 }
 
@@ -202,6 +228,11 @@ std::vector<QuestProgressRecord> QuestRegistry::snapshot_progress(
     return snapshot;
 }
 
+uint64_t QuestRegistry::progress_revision(std::string_view player_id) const noexcept {
+    const auto revision = player_progress_revisions_.find(player_id);
+    return revision == player_progress_revisions_.end() ? 0 : revision->second;
+}
+
 snt::core::Expected<void> QuestRegistry::restore_progress(
     QuestPlayerId player_id, std::vector<QuestProgressRecord> progress) {
     if (auto result = validate_player_id(player_id); !result) return result.error();
@@ -220,7 +251,8 @@ snt::core::Expected<void> QuestRegistry::restore_progress(
             return invalid_argument("Restored quest progress contains duplicate quest ids");
         }
     }
-    players_[std::move(player_id)] = std::move(restored);
+    players_[player_id] = std::move(restored);
+    player_progress_revisions_[player_id] = 0;
     return {};
 }
 
@@ -258,6 +290,7 @@ snt::core::Expected<void> QuestRegistry::save_player_progress(
 void QuestRegistry::clear() noexcept {
     definitions_.clear();
     players_.clear();
+    player_progress_revisions_.clear();
     observed_content_revision_ = 0;
 }
 
@@ -270,43 +303,54 @@ snt::core::Expected<void> QuestRegistry::synchronize_player(
     QuestPlayerId player_id, uint64_t tick_index) {
     if (auto result = refresh_definitions(); !result) return result.error();
     auto& progress = players_[player_id];
-    ensure_progress_records(progress);
-    reconcile_player(player_id, progress, tick_index);
+    if (reconcile_player(player_id, progress, tick_index)) {
+        mark_progress_changed(player_id);
+    }
     return {};
 }
 
-void QuestRegistry::ensure_progress_records(PlayerProgressMap& progress) {
+bool QuestRegistry::ensure_progress_records(PlayerProgressMap& progress) {
+    bool changed = false;
     for (const auto& [quest_id, definition] : definitions_) {
         auto [record, inserted] = progress.try_emplace(quest_id);
-        if (inserted) record->second.quest_id = quest_id;
+        if (inserted) {
+            record->second.quest_id = quest_id;
+            changed = true;
+        }
         for (const QuestObjectiveDefinition& objective : definition.objectives) {
-            record->second.objective_counts.try_emplace(objective.id, 0);
+            const auto [objective, objective_inserted] =
+                record->second.objective_counts.try_emplace(objective.id, 0);
+            (void)objective;
+            changed |= objective_inserted;
         }
     }
+    return changed;
 }
 
-void QuestRegistry::reconcile_player(std::string_view player_id, PlayerProgressMap& progress,
+bool QuestRegistry::reconcile_player(std::string_view player_id, PlayerProgressMap& progress,
                                      uint64_t tick_index) {
-    ensure_progress_records(progress);
+    bool changed = ensure_progress_records(progress);
     for (size_t pass = 0; pass <= definitions_.size(); ++pass) {
-        bool changed = false;
+        bool pass_changed = false;
         for (const auto& [quest_id, definition] : definitions_) {
             QuestProgressRecord& record = progress.at(quest_id);
             if (record.state == QuestState::kLocked && prerequisites_met(progress, definition)) {
-                changed |= transition(player_id, record, QuestState::kAvailable, tick_index);
+                pass_changed |= transition(player_id, record, QuestState::kAvailable, tick_index);
             }
             if (record.state == QuestState::kAvailable && definition.auto_start) {
-                changed |= transition(player_id, record, QuestState::kInProgress, tick_index);
+                pass_changed |= transition(player_id, record, QuestState::kInProgress, tick_index);
             }
             if (record.state != QuestState::kInProgress) continue;
 
-            update_tick_objectives(record, definition, tick_index);
+            pass_changed |= update_tick_objectives(record, definition, tick_index);
             if (objectives_satisfied(record, definition)) {
-                changed |= transition(player_id, record, QuestState::kCompleted, tick_index);
+                pass_changed |= transition(player_id, record, QuestState::kCompleted, tick_index);
             }
         }
-        if (!changed) return;
+        changed |= pass_changed;
+        if (!pass_changed) return changed;
     }
+    return changed;
 }
 
 bool QuestRegistry::prerequisites_met(const PlayerProgressMap& progress,
@@ -331,16 +375,22 @@ bool QuestRegistry::objectives_satisfied(const QuestProgressRecord& progress,
                        });
 }
 
-void QuestRegistry::update_tick_objectives(QuestProgressRecord& progress,
+bool QuestRegistry::update_tick_objectives(QuestProgressRecord& progress,
                                            const QuestDefinition& definition,
                                            uint64_t tick_index) const {
+    bool changed = false;
     const int32_t current_tick = static_cast<int32_t>(std::min<uint64_t>(
         tick_index, static_cast<uint64_t>(std::numeric_limits<int32_t>::max())));
     for (const QuestObjectiveDefinition& objective : definition.objectives) {
         if (objective.kind != QuestObjectiveKind::kReachTick) continue;
         int32_t& count = progress.objective_counts[objective.id];
-        count = std::max(count, std::min(current_tick, objective.required_count));
+        const int32_t next = std::max(count, std::min(current_tick, objective.required_count));
+        if (count != next) {
+            count = next;
+            changed = true;
+        }
     }
+    return changed;
 }
 
 bool QuestRegistry::transition(std::string_view player_id, QuestProgressRecord& progress,
@@ -366,6 +416,11 @@ bool QuestRegistry::transition(std::string_view player_id, QuestProgressRecord& 
         });
     }
     return true;
+}
+
+void QuestRegistry::mark_progress_changed(std::string_view player_id) {
+    uint64_t& revision = player_progress_revisions_[std::string(player_id)];
+    if (revision != std::numeric_limits<uint64_t>::max()) ++revision;
 }
 
 void QuestRegistry::log_definition_warnings() const {

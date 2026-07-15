@@ -1,0 +1,443 @@
+// Chunk-anchored machine runtime persistence implementation.
+
+#define SNT_LOG_CHANNEL "game.machine_persistence"
+#include "game/simulation/machine_runtime_persistence.h"
+
+#include "core/error.h"
+#include "core/log.h"
+#include "ecs/world.h"
+#include "game/client/machine_tick_system.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <optional>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace snt::game {
+namespace {
+
+constexpr size_t kMaxMachineOutputSlots = 64;
+constexpr size_t kMaxMachineRecipeOutputs = 64;
+constexpr int32_t kMaxMachineStackSize = 1'000'000;
+constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
+
+[[nodiscard]] snt::core::Error invalid_argument(std::string message) {
+    return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
+}
+
+[[nodiscard]] snt::core::Error invalid_state(std::string message) {
+    return {snt::core::ErrorCode::kInvalidState, std::move(message)};
+}
+
+[[nodiscard]] int floor_div_chunk(int32_t block_coordinate) {
+    constexpr int64_t kChunkSize = snt::voxel::VoxelChunk::kChunkSize;
+    const int64_t value = block_coordinate;
+    return static_cast<int>(value >= 0 ? value / kChunkSize
+                                       : -((-value + kChunkSize - 1) / kChunkSize));
+}
+
+[[nodiscard]] std::string describe_chunk(const ChunkKey& key) {
+    return key.dimension_id + " (" + std::to_string(key.chunk_x) + "," +
+           std::to_string(key.chunk_y) + "," + std::to_string(key.chunk_z) + ")";
+}
+
+[[nodiscard]] const BlockEntityPlacement* find_machine_anchor(
+    const GameChunkSidecar& sidecar,
+    EntityId anchor_entity_id) {
+    const BlockEntityPlacement* found = nullptr;
+    for (const BlockEntityPlacement& placement : sidecar.block_entities) {
+        if (placement.id != anchor_entity_id) continue;
+        if (found != nullptr) return nullptr;
+        found = &placement;
+    }
+    return found;
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_anchor(
+    const ChunkKey& chunk_key,
+    const GameChunkSidecar& sidecar,
+    EntityId anchor_entity_id) {
+    if (!anchor_entity_id.is_valid()) {
+        return invalid_argument("Machine persistence anchor entity id must be non-zero");
+    }
+    const BlockEntityPlacement* anchor = find_machine_anchor(sidecar, anchor_entity_id);
+    if (anchor == nullptr) {
+        return invalid_state("Machine persistence anchor is missing or duplicated in chunk " +
+                             describe_chunk(chunk_key));
+    }
+    if (anchor->entity_type != BlockEntityType::MACHINE) {
+        return invalid_state("Machine persistence anchor is not a MACHINE block entity in chunk " +
+                             describe_chunk(chunk_key));
+    }
+    if (floor_div_chunk(anchor->root_x) != chunk_key.chunk_x ||
+        floor_div_chunk(anchor->root_y) != chunk_key.chunk_y ||
+        floor_div_chunk(anchor->root_z) != chunk_key.chunk_z) {
+        return invalid_state("Machine persistence anchor root is not owned by chunk " +
+                             describe_chunk(chunk_key));
+    }
+    return {};
+}
+
+[[nodiscard]] bool is_valid_stack(const MachineRuntimeItemStack& stack,
+                                  bool allow_empty) {
+    if (stack.count < 0 || stack.count > kMaxMachineStackSize) return false;
+    if (stack.count == 0) return allow_empty && stack.item_id.empty();
+    return !stack.item_id.empty();
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_recipe(
+    const MachineRuntimeRecipeSnapshot& recipe) {
+    if (recipe.id.empty() || recipe.input_item_id.empty() ||
+        recipe.duration_ticks <= 0 || recipe.duration_ticks > kMaxMachineRuntimeTicks ||
+        recipe.energy_per_tick < 0 || recipe.outputs.empty() ||
+        recipe.outputs.size() > kMaxMachineRecipeOutputs) {
+        return invalid_argument("Machine persistence recipe snapshot is invalid");
+    }
+    for (const MachineRuntimeItemStack& output : recipe.outputs) {
+        if (!is_valid_stack(output, false)) {
+            return invalid_argument("Machine persistence recipe output is invalid");
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_record(
+    const ChunkKey& chunk_key,
+    const GameChunkSidecar& sidecar,
+    const MachineRuntimePersistenceRecord& record) {
+    if (auto result = validate_anchor(chunk_key, sidecar, record.anchor_entity_id); !result) {
+        return result.error();
+    }
+    if (record.entity_guid == 0 || record.machine_id.empty() ||
+        !is_valid_stack(record.input, true) ||
+        record.output_slots.size() > kMaxMachineOutputSlots ||
+        record.stored_energy < 0 || record.energy_capacity < 0 ||
+        record.max_output_slots <= 0 ||
+        record.max_output_slots > static_cast<int32_t>(kMaxMachineOutputSlots) ||
+        record.max_stack_size <= 0 || record.max_stack_size > kMaxMachineStackSize ||
+        record.progress_ticks < 0 || record.progress_ticks > kMaxMachineRuntimeTicks ||
+        record.run_state > static_cast<uint8_t>(MachineRunState::WaitingForOutput)) {
+        return invalid_argument("Machine persistence record is invalid in chunk " +
+                                describe_chunk(chunk_key));
+    }
+    if (record.output_slots.size() > static_cast<size_t>(record.max_output_slots)) {
+        return invalid_argument("Machine persistence output slot count exceeds its configured limit");
+    }
+    for (const MachineRuntimeItemStack& output : record.output_slots) {
+        if (!is_valid_stack(output, false) || output.count > record.max_stack_size) {
+            return invalid_argument("Machine persistence output slot is invalid");
+        }
+    }
+    if (record.input.count > record.max_stack_size) {
+        return invalid_argument("Machine persistence input exceeds its configured stack limit");
+    }
+    if (record.active_recipe) {
+        if (auto result = validate_recipe(*record.active_recipe); !result) return result.error();
+    } else if (record.progress_ticks != 0) {
+        return invalid_argument("Machine persistence progress requires an active recipe snapshot");
+    }
+    return {};
+}
+
+[[nodiscard]] MachineRuntimeItemStack to_persisted_stack(const MachineItemStack& stack) {
+    return {stack.item_id, stack.count};
+}
+
+[[nodiscard]] MachineItemStack to_runtime_stack(const MachineRuntimeItemStack& stack) {
+    return {stack.item_id, stack.count};
+}
+
+[[nodiscard]] MachineRuntimeRecipeSnapshot to_persisted_recipe(
+    const MachineRecipeSnapshot& recipe) {
+    MachineRuntimeRecipeSnapshot result;
+    result.id = recipe.id;
+    result.input_item_id = recipe.input_item_id;
+    result.duration_ticks = recipe.duration_ticks;
+    result.energy_per_tick = recipe.energy_per_tick;
+    result.outputs.reserve(recipe.outputs.size());
+    for (const MachineItemStack& output : recipe.outputs) {
+        result.outputs.push_back(to_persisted_stack(output));
+    }
+    return result;
+}
+
+[[nodiscard]] MachineRecipeSnapshot to_runtime_recipe(
+    const MachineRuntimeRecipeSnapshot& recipe) {
+    MachineRecipeSnapshot result;
+    result.id = recipe.id;
+    result.input_item_id = recipe.input_item_id;
+    result.duration_ticks = recipe.duration_ticks;
+    result.energy_per_tick = recipe.energy_per_tick;
+    result.outputs.reserve(recipe.outputs.size());
+    for (const MachineRuntimeItemStack& output : recipe.outputs) {
+        result.outputs.push_back(to_runtime_stack(output));
+    }
+    return result;
+}
+
+[[nodiscard]] MachineRuntimePersistenceRecord make_record(
+    EntityId anchor_entity_id,
+    snt::ecs::EntityGuid entity_guid,
+    const MachineRuntimeComponent& runtime) {
+    MachineRuntimePersistenceRecord result;
+    result.anchor_entity_id = anchor_entity_id;
+    result.entity_guid = entity_guid.value;
+    result.machine_id = runtime.machine_id;
+    result.input = to_persisted_stack(runtime.input);
+    result.output_slots.reserve(runtime.output_slots.size());
+    for (const MachineItemStack& output : runtime.output_slots) {
+        result.output_slots.push_back(to_persisted_stack(output));
+    }
+    result.stored_energy = runtime.stored_energy;
+    result.energy_capacity = runtime.energy_capacity;
+    result.max_output_slots = runtime.max_output_slots;
+    result.max_stack_size = runtime.max_stack_size;
+    result.progress_ticks = runtime.progress_ticks;
+    if (runtime.active_recipe) {
+        result.active_recipe = to_persisted_recipe(*runtime.active_recipe);
+    }
+    result.run_state = static_cast<uint8_t>(runtime.state);
+    return result;
+}
+
+[[nodiscard]] MachineRuntimeComponent make_runtime(
+    const MachineRuntimePersistenceRecord& record) {
+    MachineRuntimeComponent result;
+    result.machine_id = record.machine_id;
+    result.input = to_runtime_stack(record.input);
+    result.output_slots.reserve(record.output_slots.size());
+    for (const MachineRuntimeItemStack& output : record.output_slots) {
+        result.output_slots.push_back(to_runtime_stack(output));
+    }
+    result.stored_energy = record.stored_energy;
+    result.energy_capacity = record.energy_capacity;
+    result.max_output_slots = record.max_output_slots;
+    result.max_stack_size = record.max_stack_size;
+    result.progress_ticks = record.progress_ticks;
+    if (record.active_recipe) {
+        result.active_recipe = to_runtime_recipe(*record.active_recipe);
+    }
+    result.state = static_cast<MachineRunState>(record.run_state);
+    return result;
+}
+
+struct RecordLocation {
+    const ChunkKey* chunk_key = nullptr;
+    GameChunkSidecar* sidecar = nullptr;
+    size_t record_index = 0;
+};
+
+[[nodiscard]] std::vector<RecordLocation> collect_record_locations(
+    GameChunkSidecarRegistry& sidecars) {
+    std::vector<RecordLocation> locations;
+    sidecars.for_each([&locations](const ChunkKey& key, GameChunkSidecar& sidecar) {
+        for (size_t index = 0; index < sidecar.machine_runtime_records.size(); ++index) {
+            locations.push_back({&key, &sidecar, index});
+        }
+    });
+    return locations;
+}
+
+}  // namespace
+
+snt::core::Expected<snt::ecs::EntityGuid>
+GameMachineRuntimePersistence::create_anchored_machine(
+    snt::ecs::World& world,
+    GameChunkSidecarRegistry& sidecars,
+    const ChunkKey& chunk_key,
+    EntityId anchor_entity_id,
+    MachineRuntimeComponent runtime) {
+    GameChunkSidecar* sidecar = sidecars.get(chunk_key);
+    if (sidecar == nullptr) {
+        return invalid_state("Cannot create an anchored machine without its chunk sidecar");
+    }
+    if (auto result = validate_anchor(chunk_key, *sidecar, anchor_entity_id); !result) {
+        return result.error();
+    }
+    for (const MachineRuntimePersistenceRecord& existing : sidecar->machine_runtime_records) {
+        if (existing.anchor_entity_id == anchor_entity_id) {
+            return invalid_state("Machine block entity already has a runtime record");
+        }
+    }
+
+    const entt::entity entity = world.create_entity();
+    const snt::ecs::EntityGuid entity_guid = world.guid_of(entity);
+    MachineRuntimePersistenceRecord record = make_record(anchor_entity_id, entity_guid, runtime);
+    if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
+        world.destroy_entity(entity);
+        return result.error();
+    }
+
+    try {
+        world.add_component<MachineRuntimeComponent>(entity, std::move(runtime));
+        sidecar->machine_runtime_records.push_back(std::move(record));
+    } catch (const std::exception& error) {
+        world.destroy_entity(entity);
+        return invalid_state("Anchored machine creation failed: " + std::string(error.what()));
+    } catch (...) {
+        world.destroy_entity(entity);
+        return invalid_state("Anchored machine creation failed with an unknown error");
+    }
+    return entity_guid;
+}
+
+snt::core::Expected<void> GameMachineRuntimePersistence::remove_anchored_machine(
+    snt::ecs::World& world,
+    GameChunkSidecarRegistry& sidecars,
+    snt::ecs::EntityGuid entity_guid) {
+    if (!entity_guid.valid()) {
+        return invalid_argument("Cannot remove a machine with an invalid EntityGuid");
+    }
+
+    RecordLocation located;
+    size_t match_count = 0;
+    sidecars.for_each([&](const ChunkKey& key, GameChunkSidecar& sidecar) {
+        for (size_t index = 0; index < sidecar.machine_runtime_records.size(); ++index) {
+            if (sidecar.machine_runtime_records[index].entity_guid != entity_guid.value) continue;
+            ++match_count;
+            located = {&key, &sidecar, index};
+        }
+    });
+    if (match_count != 1) {
+        return invalid_state("Machine EntityGuid does not map to exactly one anchored runtime record");
+    }
+
+    const entt::entity entity = world.find_entity_by_guid(entity_guid);
+    if (entity == entt::null ||
+        !world.registry().all_of<MachineRuntimeComponent>(entity)) {
+        return invalid_state("Anchored machine runtime entity is unavailable during removal");
+    }
+
+    world.destroy_entity(entity);
+    auto& records = located.sidecar->machine_runtime_records;
+    records.erase(records.begin() + static_cast<std::ptrdiff_t>(located.record_index));
+    return {};
+}
+
+snt::core::Expected<void> GameMachineRuntimePersistence::restore(
+    snt::ecs::World& world,
+    const GameChunkSidecarRegistry& sidecars) {
+    std::vector<const MachineRuntimePersistenceRecord*> records;
+    std::unordered_set<uint64_t> seen_guids;
+    std::unordered_set<uint64_t> seen_anchors;
+    std::optional<snt::core::Error> error;
+
+    sidecars.for_each([&](const ChunkKey& key, const GameChunkSidecar& sidecar) {
+        if (error.has_value()) return;
+        for (const MachineRuntimePersistenceRecord& record : sidecar.machine_runtime_records) {
+            if (auto result = validate_record(key, sidecar, record); !result) {
+                error = result.error();
+                return;
+            }
+            if (!seen_guids.insert(record.entity_guid).second) {
+                error = invalid_state("Duplicate persisted machine EntityGuid across chunk sidecars");
+                return;
+            }
+            if (!seen_anchors.insert(record.anchor_entity_id.id).second) {
+                error = invalid_state("Duplicate persisted machine block-entity anchor across chunk sidecars");
+                return;
+            }
+            if (world.find_entity_by_guid(snt::ecs::EntityGuid{record.entity_guid}) != entt::null) {
+                error = invalid_state("Persisted machine EntityGuid collides with an existing ECS entity");
+                return;
+            }
+            records.push_back(&record);
+        }
+    });
+    if (error.has_value()) return *error;
+
+    std::vector<size_t> order(records.size());
+    for (size_t index = 0; index < order.size(); ++index) order[index] = index;
+    std::sort(order.begin(), order.end(), [&records](size_t lhs, size_t rhs) {
+        return records[lhs]->entity_guid < records[rhs]->entity_guid;
+    });
+
+    std::vector<entt::entity> created;
+    created.reserve(records.size());
+    for (const size_t index : order) {
+        const MachineRuntimePersistenceRecord& record = *records[index];
+        const entt::entity entity = world.create_entity_with_guid(
+            snt::ecs::EntityGuid{record.entity_guid});
+        if (entity == entt::null) {
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return invalid_state("Failed to recreate persisted machine EntityGuid");
+        }
+        try {
+            world.add_component<MachineRuntimeComponent>(entity, make_runtime(record));
+            created.push_back(entity);
+        } catch (const std::exception& exception) {
+            world.destroy_entity(entity);
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return invalid_state("Failed to restore persisted machine runtime: " +
+                                 std::string(exception.what()));
+        } catch (...) {
+            world.destroy_entity(entity);
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return invalid_state("Failed to restore persisted machine runtime");
+        }
+    }
+
+    if (!records.empty()) {
+        SNT_LOG_INFO("Restored %zu chunk-anchored machine runtime record(s)", records.size());
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameMachineRuntimePersistence::capture(
+    const snt::ecs::World& world,
+    GameChunkSidecarRegistry& sidecars) {
+    std::vector<RecordLocation> locations = collect_record_locations(sidecars);
+    std::unordered_set<uint64_t> seen_guids;
+    std::unordered_set<uint64_t> seen_anchors;
+    std::vector<MachineRuntimePersistenceRecord> updated_records;
+    updated_records.reserve(locations.size());
+
+    for (const RecordLocation& location : locations) {
+        const MachineRuntimePersistenceRecord& existing =
+            location.sidecar->machine_runtime_records[location.record_index];
+        if (auto result = validate_record(*location.chunk_key, *location.sidecar, existing); !result) {
+            return result.error();
+        }
+        if (!seen_guids.insert(existing.entity_guid).second ||
+            !seen_anchors.insert(existing.anchor_entity_id.id).second) {
+            return invalid_state("Duplicate machine persistence record encountered during capture");
+        }
+
+        const snt::ecs::EntityGuid entity_guid{existing.entity_guid};
+        const entt::entity entity = world.find_entity_by_guid(entity_guid);
+        if (entity == entt::null ||
+            !world.registry().all_of<MachineRuntimeComponent>(entity)) {
+            return invalid_state("Anchored machine runtime entity is unavailable during capture");
+        }
+        const MachineRuntimePersistenceRecord updated = make_record(
+            existing.anchor_entity_id,
+            entity_guid,
+            world.get_component<MachineRuntimeComponent>(entity));
+        if (auto result = validate_record(*location.chunk_key, *location.sidecar, updated); !result) {
+            return result.error();
+        }
+        updated_records.push_back(updated);
+    }
+
+    const auto live_machines = world.registry().view<MachineRuntimeComponent>();
+    for (const entt::entity entity : live_machines) {
+        const snt::ecs::EntityGuid entity_guid = world.guid_of(entity);
+        if (!entity_guid.valid() || !seen_guids.contains(entity_guid.value)) {
+            return invalid_state("Live MachineRuntimeComponent is not anchored in a chunk sidecar");
+        }
+    }
+
+    for (size_t index = 0; index < locations.size(); ++index) {
+        const RecordLocation& location = locations[index];
+        location.sidecar->machine_runtime_records[location.record_index] =
+            std::move(updated_records[index]);
+    }
+    return {};
+}
+
+}  // namespace snt::game

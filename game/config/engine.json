@@ -55,7 +55,8 @@
     "universe_save_dir": "saves/default",
     "world_save_enabled": true,
     "world_dimension_id": "overworld",
-    "universe_mode": "default"
+    "universe_mode": "default",
+    "player_progress_autosave_interval_ticks": 1200
   },
   "server_network": {
     "enabled": false,

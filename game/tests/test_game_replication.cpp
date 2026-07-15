@@ -164,6 +164,19 @@ std::filesystem::path make_player_lifecycle_save_dir() {
     return root;
 }
 
+std::filesystem::path find_player_progress_file(const std::filesystem::path& save_dir) {
+    const auto players_dir = save_dir / "players";
+    std::error_code error;
+    if (!std::filesystem::is_directory(players_dir, error) || error) return {};
+    for (const auto& entry : std::filesystem::directory_iterator(players_dir, error)) {
+        if (error) return {};
+        if (entry.is_regular_file() && entry.path().extension() == ".quest") {
+            return entry.path();
+        }
+    }
+    return {};
+}
+
 class RecordingSteamTicketVerifier final : public snt::game::replication::ISteamSessionTicketVerifier {
 public:
     snt::core::Expected<snt::game::replication::VerifiedSteamAccount> verify_ticket(
@@ -510,6 +523,63 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     EXPECT_EQ(restored_progress->objective_counts.at("craft"), 2);
     restarted_lifecycle.shutdown();
 
+    std::error_code error;
+    std::filesystem::remove_all(save_dir, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameServerPlayerLifecycleTest, AutosavesOnlyChangedProgressAtConfiguredInterval) {
+    const auto save_dir = make_player_lifecycle_save_dir();
+    GameContentRegistry content;
+    QuestDefinition quest;
+    quest.id = "network.quest.autosave";
+    quest.title = "Autosave Quest";
+    quest.description = "Progress is persisted only after a value change";
+    quest.objectives.push_back({
+        .id = "craft",
+        .kind = QuestObjectiveKind::kCraftItem,
+        .target_id = "iron_ingot",
+        .required_count = 2,
+    });
+    ASSERT_TRUE(content.register_builtin_quest(std::move(quest)));
+
+    const auto identity = make_local_identity("AutosavePlayer");
+    const snt::network::ReplicationTickContext context{.tick_index = 0, .delta_seconds = 0.05f};
+    GameAuthenticatedPeer peer{.peer = 84, .identity = identity};
+
+    QuestRegistry quests(content);
+    snt::game::replication::GameServerPlayerLifecycle lifecycle(
+        quests, save_dir.string(), 5);
+    ASSERT_TRUE(lifecycle.on_peer_authenticated(peer, context));
+    ASSERT_TRUE(lifecycle.flush_due(0));
+    ASSERT_TRUE(quests.accept(identity.account_id, "network.quest.autosave", 1));
+
+    ASSERT_TRUE(lifecycle.flush_due(4));
+    EXPECT_TRUE(find_player_progress_file(save_dir).empty());
+
+    ASSERT_TRUE(lifecycle.flush_due(5));
+    const auto progress_file = find_player_progress_file(save_dir);
+    ASSERT_FALSE(progress_file.empty());
+    const auto first_write = std::filesystem::last_write_time(progress_file);
+
+    // NTFS timestamps distinguish the following due checkpoint from the
+    // first write. A clean revision must leave the primary file untouched.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    ASSERT_TRUE(lifecycle.flush_due(10));
+    EXPECT_EQ(std::filesystem::last_write_time(progress_file), first_write);
+
+    ASSERT_TRUE(quests.record_progress(
+        identity.account_id,
+        {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1}, 11));
+    ASSERT_TRUE(lifecycle.flush_due(15));
+
+    snt::game::GameSaveQuestProgressPersistence persistence(save_dir.string());
+    auto restored = persistence.load_player_progress(identity.account_id);
+    ASSERT_TRUE(restored) << restored.error().format();
+    ASSERT_EQ(restored->size(), 1u);
+    EXPECT_EQ(restored->front().objective_counts.at("craft"), 1);
+
+    lifecycle.shutdown();
     std::error_code error;
     std::filesystem::remove_all(save_dir, error);
     EXPECT_FALSE(error) << error.message();

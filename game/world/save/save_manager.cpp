@@ -537,10 +537,11 @@ int GameSaveManager::load_dimension(const std::string& planet_dir,
     if (rejected_region_count != 0 || rejected_chunk_count != 0) {
         SNT_LOG_WARN(
             "load_dimension '%s': rejected %d region file(s) and %d chunk blob(s); "
-            "only region v%u and chunk v%u are accepted",
+            "only region v%u and chunk v%u are accepted; refusing partial world load",
             dimension_id.c_str(), rejected_region_count, rejected_chunk_count,
             static_cast<unsigned>(VoxelRegionFile::kCurrentVersion),
             static_cast<unsigned>(GameChunkSerializer::kCurrentVersion));
+        return -1;
     }
 
     return loaded_count;

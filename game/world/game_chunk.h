@@ -14,6 +14,7 @@
 #include "game/world/voxel_primitives.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -59,11 +60,51 @@ struct MechanismPlacement {
     std::vector<MechanismEffectPlacement> effects;
 };
 
+// Machine persistence is anchored to a MACHINE BlockEntityPlacement in the
+// same chunk sidecar. These values deliberately mirror only durable machine
+// state: they do not include ECS handles, script VM objects, or callbacks.
+struct MachineRuntimeItemStack {
+    std::string item_id;
+    int32_t count = 0;
+};
+
+struct MachineRuntimeRecipeSnapshot {
+    std::string id;
+    std::string input_item_id;
+    std::vector<MachineRuntimeItemStack> outputs;
+    int32_t duration_ticks = 0;
+    int32_t energy_per_tick = 0;
+};
+
+struct MachineRuntimePersistenceRecord {
+    // Must name a BlockEntityPlacement with entity_type == MACHINE in this
+    // sidecar. The placement's root cell establishes chunk ownership.
+    EntityId anchor_entity_id;
+
+    // EntityGuid is stored as its raw value so the game-world data target does
+    // not depend on the ECS module. The simulation lifecycle reconstructs the
+    // actual EntityGuid component after validating this record.
+    uint64_t entity_guid = 0;
+
+    std::string machine_id;
+    MachineRuntimeItemStack input;
+    std::vector<MachineRuntimeItemStack> output_slots;
+
+    int32_t stored_energy = 0;
+    int32_t energy_capacity = 0;
+    int32_t max_output_slots = 4;
+    int32_t max_stack_size = 64;
+
+    int32_t progress_ticks = 0;
+    std::optional<MachineRuntimeRecipeSnapshot> active_recipe;
+    uint8_t run_state = 0;
+};
+
 struct GameChunkSidecar {
     std::vector<ConnectorPlacement> connectors;
     std::vector<MechanismPlacement> mechanisms;
     std::vector<EntityId> entities;
-    std::vector<MachineId> machines;
+    std::vector<MachineRuntimePersistenceRecord> machine_runtime_records;
     std::vector<BlockEntityPlacement> block_entities;
     std::vector<ConnectorId> connector_ids;
     bool has_population_cell = false;
@@ -101,6 +142,16 @@ public:
     void remove(const ChunkKey& key) { sidecars_.erase(key); }
     void clear() { sidecars_.clear(); }
     size_t size() const noexcept { return sidecars_.size(); }
+
+    template <typename Visitor>
+    void for_each(Visitor&& visitor) {
+        for (auto& [key, sidecar] : sidecars_) visitor(key, sidecar);
+    }
+
+    template <typename Visitor>
+    void for_each(Visitor&& visitor) const {
+        for (const auto& [key, sidecar] : sidecars_) visitor(key, sidecar);
+    }
 
 private:
     std::unordered_map<ChunkKey, GameChunkSidecar> sidecars_;

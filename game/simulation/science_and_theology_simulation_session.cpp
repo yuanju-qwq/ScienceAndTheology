@@ -5,6 +5,7 @@
 
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
+#include "game/simulation/machine_runtime_persistence.h"
 #include "game/world/save/world_persistence_lifecycle.h"
 
 #include "core/log.h"
@@ -91,6 +92,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         return error;
     }
 
+    world_ = &world_session.world();
     chunks_ = &world_session.chunks();
     world_ready_ = false;
     bool loaded_existing_world = false;
@@ -112,6 +114,11 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         }
     } else {
         SNT_LOG_INFO("Game world loaded from current-format persistence; demo bootstrap skipped");
+    }
+    if (auto result = GameMachineRuntimePersistence::restore(*world_, chunk_sidecars_); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::create_world(restore machines)");
+        return error;
     }
     world_ready_ = true;
 
@@ -140,13 +147,17 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
-    if (world_persistence_ && world_ready_ && chunks_ != nullptr) {
-        if (auto result = world_persistence_->save(*chunks_, chunk_sidecars_); !result) {
+    if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
+        if (auto result = GameMachineRuntimePersistence::capture(*world_, chunk_sidecars_); !result) {
+            SNT_LOG_ERROR("Game machine runtime capture during session shutdown failed: %s",
+                          result.error().format().c_str());
+        } else if (auto result = world_persistence_->save(*chunks_, chunk_sidecars_); !result) {
             SNT_LOG_ERROR("Game world save during session shutdown failed: %s",
                           result.error().format().c_str());
         }
     }
     world_ready_ = false;
+    world_ = nullptr;
     chunks_ = nullptr;
     world_persistence_.reset();
     quest_registry_.clear();

@@ -9,6 +9,7 @@
 #include "game/worldgen/noise_generator.h"
 #include "game/worldgen/terrain_generator.h"
 #include "game/worldgen/world_gen_config.h"
+#include "voxel/storage/region_file.h"
 
 #include <gtest/gtest.h>
 
@@ -155,6 +156,44 @@ TEST(GameSaveManagerTest, PersistsVoxelChunkAndGameplaySidecarSeparately) {
     EXPECT_EQ(restored_sidecar->entities.front().id, 123u);
 
     std::filesystem::remove_all(save_dir);
+}
+
+TEST(GameSaveManagerTest, RejectsDimensionWhenAnyChunkPayloadIsInvalid) {
+    const auto save_dir = std::filesystem::temp_directory_path() /
+        "snt_game_reject_partial_dimension_test";
+    std::filesystem::remove_all(save_dir);
+    std::filesystem::create_directories(save_dir / "regions");
+    ASSERT_TRUE(snt::game::GameSaveManager::write_planet_data(
+        save_dir.string(), 12345, "overworld", nullptr));
+
+    snt::game::GameChunk chunk;
+    chunk.terrain.resize(1, 1, 1);
+    const snt::game::GameChunkSerializer serializer;
+    auto invalid_payload = serializer.serialize("overworld", chunk);
+    ASSERT_FALSE(invalid_payload.empty());
+    invalid_payload.front() = snt::game::GameChunkSerializer::kCurrentVersion - 1;
+
+    const std::string region_path = (save_dir / "regions" /
+        snt::voxel::VoxelRegionFile::region_file_name("overworld", 0, 0, 0)).string();
+    ASSERT_TRUE(snt::voxel::VoxelRegionFile::write(
+        region_path,
+        0,
+        0,
+        0,
+        "overworld",
+        {{.local_x = 0, .local_y = 0, .local_z = 0, .payload = std::move(invalid_payload)}}));
+
+    snt::voxel::ChunkRegistry loaded_voxels;
+    snt::game::GameChunkSidecarRegistry loaded_sidecars;
+    EXPECT_EQ(snt::game::GameSaveManager::load_dimension(
+                  save_dir.string(), "overworld", loaded_voxels, loaded_sidecars),
+              -1);
+    EXPECT_EQ(loaded_voxels.chunk_count(), 0u);
+    EXPECT_EQ(loaded_sidecars.size(), 0u);
+
+    std::error_code error;
+    std::filesystem::remove_all(save_dir, error);
+    EXPECT_FALSE(error) << error.message();
 }
 
 TEST(GameWorldPersistenceLifecycleTest, SavesLoadsAndRejectsMismatchedUniverse) {

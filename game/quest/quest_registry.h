@@ -83,6 +83,10 @@ public:
     [[nodiscard]] bool is_visible(std::string_view player_id, std::string_view quest_id) const;
     [[nodiscard]] std::vector<QuestProgressRecord> snapshot_progress(
         std::string_view player_id) const;
+    // Monotonic per-player revision for lifecycle-owned autosave policy. It
+    // changes only when the persisted value snapshot changes; querying it
+    // never synchronizes definitions or performs I/O.
+    [[nodiscard]] uint64_t progress_revision(std::string_view player_id) const noexcept;
     [[nodiscard]] snt::core::Expected<void> restore_progress(
         QuestPlayerId player_id, std::vector<QuestProgressRecord> progress);
     [[nodiscard]] snt::core::Expected<void> load_player_progress(
@@ -101,24 +105,27 @@ private:
         std::string_view player_id) const;
     [[nodiscard]] snt::core::Expected<void> synchronize_player(
         QuestPlayerId player_id, uint64_t tick_index);
-    void ensure_progress_records(PlayerProgressMap& progress);
-    void reconcile_player(std::string_view player_id, PlayerProgressMap& progress,
-                          uint64_t tick_index);
+    [[nodiscard]] bool ensure_progress_records(PlayerProgressMap& progress);
+    [[nodiscard]] bool reconcile_player(std::string_view player_id,
+                                        PlayerProgressMap& progress,
+                                        uint64_t tick_index);
     [[nodiscard]] bool prerequisites_met(const PlayerProgressMap& progress,
                                          const QuestDefinition& definition) const;
     [[nodiscard]] bool objectives_satisfied(const QuestProgressRecord& progress,
                                             const QuestDefinition& definition) const;
-    void update_tick_objectives(QuestProgressRecord& progress,
-                                const QuestDefinition& definition,
-                                uint64_t tick_index) const;
+    [[nodiscard]] bool update_tick_objectives(QuestProgressRecord& progress,
+                                               const QuestDefinition& definition,
+                                               uint64_t tick_index) const;
     bool transition(std::string_view player_id, QuestProgressRecord& progress,
                     QuestState state, uint64_t tick_index);
+    void mark_progress_changed(std::string_view player_id);
     void log_definition_warnings() const;
 
     const GameContentRegistry* definitions_source_ = nullptr;
     IQuestLifecycleSink* lifecycle_sink_ = nullptr;
     DefinitionMap definitions_;
     std::map<QuestPlayerId, PlayerProgressMap, std::less<>> players_;
+    std::map<QuestPlayerId, uint64_t, std::less<>> player_progress_revisions_;
     uint64_t observed_content_revision_ = 0;
 };
 

@@ -73,6 +73,8 @@ void from_json(const json& object, GamePersistenceConfig& value) {
     read_optional(object, "world_save_enabled", value.world_save_enabled);
     read_optional(object, "world_dimension_id", value.world_dimension_id);
     read_optional(object, "universe_mode", value.universe_mode);
+    read_optional(object, "player_progress_autosave_interval_ticks",
+                  value.player_progress_autosave_interval_ticks);
 }
 
 void from_json(const json& object, GameClientNetworkConfig& value) {

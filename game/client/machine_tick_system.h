@@ -62,7 +62,9 @@ enum class MachineRunState : uint8_t {
 
 // ECS component for one game machine controller. Input is reserved when a
 // recipe starts, so a hot reload or an inventory mutation cannot change a job
-// that is already in progress. Game save code will serialize this component.
+// that is already in progress. Game save code captures it only through a
+// same-chunk BlockEntityPlacement anchor; unanchored instances are rejected
+// at the controlled save boundary instead of being silently omitted.
 struct MachineRuntimeComponent {
     std::string machine_id;
     MachineItemStack input;

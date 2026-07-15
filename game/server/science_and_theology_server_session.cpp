@@ -69,7 +69,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     command_sink_ = std::make_unique<replication::GameServerCommandSink>(simulation_session_.quests());
     player_lifecycle_ = std::make_unique<replication::GameServerPlayerLifecycle>(
         simulation_session_.quests(),
-        services_->paths().resolve_user(config_.persistence.universe_save_dir));
+        services_->paths().resolve_user(config_.persistence.universe_save_dir),
+        config_.persistence.player_progress_autosave_interval_ticks);
     replication_handler_ = std::make_unique<replication::GameServerReplicationHandler>(
         *peer_authenticator_, command_sink_.get(), player_lifecycle_.get());
     transport_ = std::move(*transport);
@@ -110,6 +111,13 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::fixed_tick(
 snt::core::Expected<void> ScienceAndTheologyServerSession::after_fixed_tick(
     snt::engine::FixedTickContext& context) {
     if (auto result = simulation_session_.after_fixed_tick(context); !result) return result.error();
+    if (player_lifecycle_) {
+        if (auto result = player_lifecycle_->flush_due(context.tick_index()); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologyServerSession::after_fixed_tick(player autosave)");
+            return error;
+        }
+    }
     if (!replication_service_) return {};
 
     const snt::network::ReplicationTickContext replication_context{

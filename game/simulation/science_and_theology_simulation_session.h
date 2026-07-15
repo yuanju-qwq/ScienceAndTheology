@@ -28,6 +28,10 @@ namespace snt::voxel {
 class ChunkRegistry;
 }
 
+namespace snt::ecs {
+class World;
+}
+
 namespace snt::game {
 
 class GameWorldPersistenceLifecycle;
@@ -52,6 +56,7 @@ private:
     QuestRegistry quest_registry_;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
+    snt::ecs::World* world_ = nullptr;
     snt::voxel::ChunkRegistry* chunks_ = nullptr;
     bool world_ready_ = false;
     bool scripts_started_ = false;

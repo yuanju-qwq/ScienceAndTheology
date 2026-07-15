@@ -2,8 +2,10 @@
 
 #include "engine/simulation_runtime.h"
 #include "engine/simulation_services.h"
+#include "game/client/machine_tick_system.h"
 #include "game/client/game_session_config.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
+#include "game/world/save/world_persistence_lifecycle.h"
 #include "voxel/data/chunk_registry.h"
 
 #include <gtest/gtest.h>
@@ -155,6 +157,115 @@ TEST(GameSimulationSessionTest, RejectsCorruptWorldWithoutOverwritingItDuringShu
                                    std::istreambuf_iterator<char>());
         EXPECT_EQ(contents, "not-a-current-world");
     }
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
+    const auto root = make_runtime_root();
+    const auto universe_root = root / "user" / "saves" / "machine_restart";
+    constexpr uint64_t kMachineGuid = 0xABCDEF0102030405ULL;
+
+    snt::game::GameSessionConfig session_config;
+    session_config.scripts.enabled = false;
+    session_config.demo.seed = 909;
+    session_config.persistence.world_save_enabled = true;
+    session_config.persistence.universe_save_dir = "saves/machine_restart";
+    session_config.persistence.world_dimension_id = "overworld";
+    session_config.persistence.universe_mode = "test";
+    const snt::game::GameSessionConfig restart_config = session_config;
+
+    snt::game::GameWorldPersistenceLifecycle persistence({
+        .universe_save_dir = universe_root.string(),
+        .dimension_id = "overworld",
+        .seed = 909,
+        .universe_mode = "test",
+    });
+    snt::voxel::ChunkRegistry source_chunks;
+    snt::voxel::VoxelChunk source_chunk;
+    source_chunk.terrain.resize(1, 1, 1);
+    source_chunks.set_chunk("overworld", 0, 0, 0, std::move(source_chunk));
+
+    snt::game::GameChunkSidecar source_sidecar;
+    const snt::game::EntityId anchor_id{73};
+    source_sidecar.block_entities.push_back({
+        .id = anchor_id,
+        .entity_type = snt::game::BlockEntityType::MACHINE,
+        .root_x = 0,
+        .root_y = 0,
+        .root_z = 0,
+        .type_data_json = "furnace|0",
+        .owned_cell_count = 0,
+    });
+    snt::game::MachineRuntimePersistenceRecord record;
+    record.anchor_entity_id = anchor_id;
+    record.entity_guid = kMachineGuid;
+    record.machine_id = "furnace";
+    record.input = {"iron_ore", 2};
+    record.output_slots = {{"slag", 1}};
+    record.stored_energy = 12;
+    record.energy_capacity = 100;
+    record.max_output_slots = 4;
+    record.max_stack_size = 64;
+    record.progress_ticks = 2;
+    record.active_recipe = snt::game::MachineRuntimeRecipeSnapshot{
+        .id = "snt.furnace.iron",
+        .input_item_id = "iron_ore",
+        .outputs = {{"iron_ingot", 1}},
+        .duration_ticks = 5,
+        .energy_per_tick = 3,
+    };
+    record.run_state = static_cast<uint8_t>(snt::game::MachineRunState::Running);
+    source_sidecar.machine_runtime_records.push_back(std::move(record));
+    snt::game::GameChunkSidecarRegistry source_sidecars;
+    source_sidecars.set({"overworld", 0, 0, 0}, std::move(source_sidecar));
+    ASSERT_TRUE(persistence.save(source_chunks, source_sidecars));
+
+    snt::core::RuntimeConfig runtime_config;
+    runtime_config.assets.manifest_path = "missing_manifest.json";
+    snt::engine::SimulationRuntime first_runtime;
+    ASSERT_TRUE(first_runtime.init(
+        runtime_config,
+        {
+            .engine_root = (root / "engine").string(),
+            .game_root = (root / "game").string(),
+            .user_root = (root / "user").string(),
+        },
+        std::make_unique<snt::game::ScienceAndTheologySimulationSession>(session_config)));
+
+    const snt::ecs::EntityGuid machine_guid{kMachineGuid};
+    const entt::entity machine_entity = first_runtime.world_session().world().find_entity_by_guid(
+        machine_guid);
+    ASSERT_TRUE(machine_entity != entt::null);
+    auto& machine = first_runtime.world_session().world().get_component<
+        snt::game::MachineRuntimeComponent>(machine_entity);
+    EXPECT_EQ(machine.stored_energy, 12);
+    ASSERT_TRUE(machine.active_recipe.has_value());
+    EXPECT_EQ(machine.active_recipe->id, "snt.furnace.iron");
+    machine.stored_energy = 47;
+    machine.output_slots.push_back({"iron_ingot", 1});
+    first_runtime.shutdown();
+
+    snt::engine::SimulationRuntime restarted_runtime;
+    ASSERT_TRUE(restarted_runtime.init(
+        runtime_config,
+        {
+            .engine_root = (root / "engine").string(),
+            .game_root = (root / "game").string(),
+            .user_root = (root / "user").string(),
+        },
+        std::make_unique<snt::game::ScienceAndTheologySimulationSession>(restart_config)));
+    const entt::entity restored_entity = restarted_runtime.world_session().world().find_entity_by_guid(
+        machine_guid);
+    ASSERT_TRUE(restored_entity != entt::null);
+    const auto& restored_machine = restarted_runtime.world_session().world().get_component<
+        snt::game::MachineRuntimeComponent>(restored_entity);
+    EXPECT_EQ(restored_machine.stored_energy, 47);
+    ASSERT_EQ(restored_machine.output_slots.size(), 2u);
+    EXPECT_EQ(restored_machine.output_slots.back().item_id, "iron_ingot");
+    restarted_runtime.shutdown();
 
     std::error_code error;
     std::filesystem::remove_all(root, error);

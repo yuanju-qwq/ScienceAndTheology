@@ -17,9 +17,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v9 persists captive-creature species as
-    // stable string keys and remaps them through CreatureSpeciesRegistry.
-    static constexpr uint8_t kCurrentVersion = 9;
+    // Current binary format version. v10 replaces the unused bare machine-id
+    // list with chunk-anchored machine runtime records.
+    static constexpr uint8_t kCurrentVersion = 10;
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;
@@ -90,6 +90,30 @@ private:
     static bool read_block_entity(const std::vector<uint8_t>& data,
                                   size_t& offset,
                                   BlockEntityPlacement& entity);
+
+    // --- Machine runtime sidecar serialization ---
+
+    static void write_machine_runtime_record(
+        std::vector<uint8_t>& buf,
+        const MachineRuntimePersistenceRecord& record);
+    static bool read_machine_runtime_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        MachineRuntimePersistenceRecord& record);
+    static void write_machine_runtime_item_stack(
+        std::vector<uint8_t>& buf,
+        const MachineRuntimeItemStack& stack);
+    static bool read_machine_runtime_item_stack(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        MachineRuntimeItemStack& stack);
+    static void write_machine_runtime_recipe_snapshot(
+        std::vector<uint8_t>& buf,
+        const MachineRuntimeRecipeSnapshot& recipe);
+    static bool read_machine_runtime_recipe_snapshot(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        MachineRuntimeRecipeSnapshot& recipe);
 
     // --- Population cell serialization ---
 

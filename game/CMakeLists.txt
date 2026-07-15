@@ -109,6 +109,7 @@ add_library(snt_game_simulation STATIC
     client/game_content_registry.cpp
     client/machine_tick_system.cpp
     quest/quest_registry.cpp
+    simulation/machine_runtime_persistence.cpp
     simulation/science_and_theology_simulation_session.cpp
 )
 target_include_directories(snt_game_simulation PUBLIC
@@ -234,6 +235,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
+        tests/test_machine_runtime_persistence.cpp
         tests/test_game_components.cpp
         tests/test_player_identity.cpp
         tests/test_quest_registry.cpp
