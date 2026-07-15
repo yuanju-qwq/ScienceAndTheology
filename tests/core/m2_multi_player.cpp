@@ -1,5 +1,5 @@
 // M2: Multi-player local validation test (no network).
-// Design: docs/多人游戏系统设计.md §6.2 M2, §6.3 M1 验收标准
+// Current multiplayer protocol: docs/游戏网络协议设计.md.
 //
 // Validates that the shared refactoring (M1) correctly supports multiple
 // players in-process:

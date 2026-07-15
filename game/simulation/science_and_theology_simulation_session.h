@@ -16,13 +16,21 @@
 #include "game/quest/quest_registry.h"
 #include "game/world/game_chunk.h"
 
+#include <memory>
+
 namespace snt::engine {
 class SimulationServices;
 class SimulationWorldSession;
 class FixedTickContext;
 }
 
+namespace snt::voxel {
+class ChunkRegistry;
+}
+
 namespace snt::game {
+
+class GameWorldPersistenceLifecycle;
 
 class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession {
 public:
@@ -43,6 +51,9 @@ private:
     GameContentRegistry content_registry_;
     QuestRegistry quest_registry_;
     GameChunkSidecarRegistry chunk_sidecars_;
+    std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
+    snt::voxel::ChunkRegistry* chunks_ = nullptr;
+    bool world_ready_ = false;
     bool scripts_started_ = false;
 };
 

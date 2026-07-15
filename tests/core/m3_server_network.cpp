@@ -1,5 +1,5 @@
 // M3: Protocol codec + network round-trip tests.
-// Design: docs/多人游戏系统设计.md §4 方案B
+// Current multiplayer protocol: docs/游戏网络协议设计.md.
 //
 // Tests:
 //   1. Frame encode/decode round-trip (various payload sizes).

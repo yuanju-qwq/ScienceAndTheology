@@ -51,11 +51,23 @@
     "bootstrap_chunks": true,
     "seed": 20240601
   },
+  "persistence": {
+    "universe_save_dir": "saves/default",
+    "world_save_enabled": true,
+    "world_dimension_id": "overworld",
+    "universe_mode": "default"
+  },
   "server_network": {
     "enabled": false,
     "bind_address": "0.0.0.0",
     "tcp_port": 23585,
     "udp_port": 23586,
     "max_peers": 64
+  },
+  "client_network": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "tcp_port": 23585,
+    "udp_port": 23586
   }
 }

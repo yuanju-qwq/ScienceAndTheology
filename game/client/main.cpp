@@ -33,7 +33,10 @@ int main(int argc, char* argv[]) {
 
     snt::engine::ClientRuntime runtime;
     auto session = std::make_unique<snt::game::ScienceAndTheologyClientSession>(
-        std::move(package->session_config), std::move(*player_identity));
+        std::move(package->session_config),
+        snt::game::replication::GameClientAuthentication{
+            .local_identity = std::move(*player_identity),
+        });
     if (auto result = runtime.init(package->runtime_config, package->paths, std::move(session)); !result) {
         SNT_LOG_ERROR("Runtime startup failed: %s", result.error().format().c_str());
         return 1;

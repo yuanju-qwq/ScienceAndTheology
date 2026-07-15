@@ -36,6 +36,7 @@ add_library(snt_game_world_save STATIC
     world/save/chunk_serializer.cpp
     world/save/quest_progress_persistence.cpp
     world/save/save_manager.cpp
+    world/save/world_persistence_lifecycle.cpp
 )
 target_include_directories(snt_game_world_save PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -83,6 +84,7 @@ target_link_libraries(snt_game_identity PUBLIC
 # versions, authenticated command admission, and future AOI/snapshot contracts.
 add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
+    network/game_client_replication_session.cpp
     network/game_replication_protocol.cpp
     network/game_server_replication_handler.cpp
 )
@@ -124,6 +126,7 @@ target_link_libraries(snt_game_simulation PUBLIC
 )
 target_link_libraries(snt_game_simulation PRIVATE
     nlohmann_json::nlohmann_json
+    snt_game_world_save
 )
 
 add_executable(snt_game_client
@@ -139,6 +142,7 @@ target_include_directories(snt_game_client PRIVATE
 target_link_libraries(snt_game_client PRIVATE
     snt_client_runtime
     snt_game_identity
+    snt_game_network
     snt_game_simulation
     snt_engine_settings
     snt_core
@@ -157,6 +161,8 @@ set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theolog
 # intentionally excludes client presentation modules and transport choices.
 add_executable(snt_game_server
     server/main.cpp
+    server/game_server_command_sink.cpp
+    server/game_server_player_lifecycle.cpp
     server/science_and_theology_server_session.cpp
     runtime/runtime_package.cpp
 )
@@ -169,6 +175,7 @@ target_link_libraries(snt_game_server PRIVATE
     snt_simulation_runtime
     snt_game_simulation
     snt_game_network
+    snt_game_world_save
 )
 set_target_properties(snt_game_server PROPERTIES OUTPUT_NAME science_and_theology_server)
 
@@ -219,6 +226,8 @@ target_link_libraries(snt_game_world_test PRIVATE
 if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     add_executable(snt_game_tests
         client/gameplay_ui.cpp
+        server/game_server_command_sink.cpp
+        server/game_server_player_lifecycle.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
         tests/test_gameplay_ui.cpp

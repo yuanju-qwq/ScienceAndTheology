@@ -7,9 +7,9 @@
 #pragma once
 
 #include "engine/client_session.h"
+#include "game/network/game_client_replication_session.h"
 #include "gameplay_ui.h"
 #include "game_session_config.h"
-#include "game/player/player_identity.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
 
 #include <memory>
@@ -19,8 +19,9 @@ namespace snt::game {
 
 class ScienceAndTheologyClientSession final : public snt::engine::IClientSession {
 public:
-    explicit ScienceAndTheologyClientSession(GameSessionConfig config);
-    ScienceAndTheologyClientSession(GameSessionConfig config, PlayerIdentity local_player_identity);
+    explicit ScienceAndTheologyClientSession(
+        GameSessionConfig config,
+        std::optional<replication::GameClientAuthentication> connection_authentication = std::nullopt);
     ~ScienceAndTheologyClientSession() override;
 
     snt::core::Expected<void> register_content(snt::engine::SimulationServices& services) override;
@@ -43,6 +44,8 @@ private:
     GameSessionConfig config_;
     ScienceAndTheologySimulationSession simulation_session_;
     std::optional<PlayerIdentity> local_player_identity_;
+    std::optional<replication::GameClientAuthentication> connection_authentication_;
+    std::unique_ptr<replication::GameClientReplicationSession> replication_session_;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;

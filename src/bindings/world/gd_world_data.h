@@ -251,7 +251,7 @@ public:
     // Mark or unmark a cell as machine-occupied in the overlay. When marked,
     // chunk collision generation will include this cell so the machine gets
     // collision coverage without a per-object Godot StaticBody3D.
-    // See docs/专用引擎性能优化方向.md (physics layer).
+    // Current runtime boundary: docs/项目架构与运行时.md.
     void set_machine_collision(const godot::String& dimension_id,
                                int32_t cell_x, int32_t cell_y, int32_t cell_z,
                                bool occupied);

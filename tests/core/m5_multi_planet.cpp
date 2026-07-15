@@ -1,5 +1,5 @@
 // M5: Multi-planet concurrent tests.
-// Design: docs/多人游戏系统设计.md §3.6 多星球并发, §6.2 M5
+// Current universe design: docs/unified_universe_world_design.md.
 //
 // Tests:
 //   1. ServerCore::logged_in_player_handles() — enumerate actual IDs (with gaps)

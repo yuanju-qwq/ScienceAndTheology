@@ -37,6 +37,16 @@ struct GameDemoConfig {
     uint32_t seed = 20240601u;
 };
 
+// Universe-level gameplay persistence stays under the writable user root by
+// default. The server composition resolves this path once at startup; it is
+// never interpreted by fixed-tick systems or transport code.
+struct GamePersistenceConfig {
+    std::string universe_save_dir = "saves/default";
+    bool world_save_enabled = false;
+    std::string world_dimension_id = "overworld";
+    std::string universe_mode = "default";
+};
+
 // Dedicated-server transport settings are data-only so the shared simulation
 // target remains independent of snt_network. The server composition layer
 // translates these fields into a concrete transport at startup.
@@ -48,12 +58,24 @@ struct GameServerNetworkConfig {
     uint32_t max_peers = 64;
 };
 
+// Graphical-client transport settings. Authentication evidence is not config:
+// local-name credentials are empty, while a future Steamworks package injects
+// its opaque ticket at startup and must never write it to game JSON or logs.
+struct GameClientNetworkConfig {
+    bool enabled = false;
+    std::string host = "127.0.0.1";
+    uint16_t tcp_port = 23585;
+    uint16_t udp_port = 23586;
+};
+
 struct GameSessionConfig {
     GameCameraConfig camera;
     GameSceneConfig scene;
     GameScriptConfig scripts;
     GameDemoConfig demo;
+    GamePersistenceConfig persistence;
     GameServerNetworkConfig server_network;
+    GameClientNetworkConfig client_network;
 };
 
 // Reads the game-owned subset from the same package JSON consumed by the

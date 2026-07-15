@@ -25,6 +25,11 @@ class ReplicationService;
 class TcpUdpReplicationTransport;
 }
 
+namespace snt::game::replication {
+class GameServerCommandSink;
+class GameServerPlayerLifecycle;
+}
+
 namespace snt::game {
 
 class ScienceAndTheologyServerSession final : public snt::engine::ISimulationSession {
@@ -41,6 +46,9 @@ public:
 private:
     GameSessionConfig config_;
     ScienceAndTheologySimulationSession simulation_session_;
+    snt::engine::SimulationServices* services_ = nullptr;
+    std::unique_ptr<replication::GameServerCommandSink> command_sink_;
+    std::unique_ptr<replication::GameServerPlayerLifecycle> player_lifecycle_;
     std::unique_ptr<replication::IGamePeerAuthenticator> peer_authenticator_;
     std::unique_ptr<replication::GameServerReplicationHandler> replication_handler_;
     std::unique_ptr<snt::network::TcpUdpReplicationTransport> transport_;

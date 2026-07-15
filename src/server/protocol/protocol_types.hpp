@@ -9,7 +9,7 @@ namespace server {
 // ============================================================================
 // snt_server binary protocol — packet types and frame layout.
 //
-// Design: docs/多人游戏系统设计.md §4 方案B
+// Current multiplayer protocol: docs/游戏网络协议设计.md.
 //
 // Frame layout (little-endian, 20-byte header):
 //   ┌──────────┬─────────┬──────┬──────────┬───────────┬─────────────┬─────────┬────────┐

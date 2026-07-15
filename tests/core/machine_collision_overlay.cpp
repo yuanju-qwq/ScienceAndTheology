@@ -1,7 +1,7 @@
 // MachineCollisionOverlay unit tests.
 // Verifies the overlay correctly tracks per-(dimension, cell) machine occupied
 // state and produces per-chunk masks aligned with GDChunkHelper::terrain_index
-// ordering. Design: docs/专用引擎性能优化方向.md (physics layer).
+// ordering. Current runtime boundary: docs/项目架构与运行时.md.
 
 #include <cstdint>
 #include <iostream>

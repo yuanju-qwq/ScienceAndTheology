@@ -1,6 +1,6 @@
 # ServerMain — Dedicated server entry point for headless mode.
 #
-# Design: docs/多人游戏系统设计.md §6.2 M4
+# Legacy server entry; current multiplayer protocol: docs/游戏网络协议设计.md.
 #
 # Usage:
 #   godot --headless --main-scene res://ServerScene.tscn -- --port 8910 --password secret --seed 12345

@@ -20,13 +20,14 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 2;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 3;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
 inline constexpr size_t kMaxGamePlayerIdBytes = kMaxPlayerAccountIdBytes;
 inline constexpr size_t kMaxGameCredentialBytes = 1024;
 inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
+inline constexpr size_t kMaxGameQuestIdBytes = 512;
 
 // Client and server message ranges are intentionally distinct. New message
 // kinds must be added here before a handler accepts them, so an unrecognized
@@ -83,12 +84,23 @@ struct GameLoginAccepted {
     PlayerIdentity identity;
 };
 
-// Command ids are game-owned. The network boundary preserves order and
-// sequence information but does not assign semantics to a command id.
+// Command ids are game-owned and latest-version-only. The first authoritative
+// command is task acceptance; player movement and block editing remain absent
+// until their server-owned player/AOI data model is defined.
+enum class GameClientCommandType : uint16_t {
+    kQuestAccept = 1,
+};
+
+// The network boundary preserves order and sequence information. Concrete
+// command codecs below prevent server gameplay code from parsing opaque bytes.
 struct GameClientCommand {
     uint64_t client_sequence = 0;
     uint16_t command_type = 0;
     std::vector<std::byte> payload;
+};
+
+struct GameQuestAcceptCommand {
+    std::string quest_id;
 };
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_login_request(
@@ -105,5 +117,10 @@ struct GameClientCommand {
     const GameClientCommand& command);
 [[nodiscard]] snt::core::Expected<GameClientCommand> parse_game_client_command(
     const GameReplicationMessage& message);
+
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_quest_accept_command(
+    uint64_t client_sequence, const GameQuestAcceptCommand& command);
+[[nodiscard]] snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
+    const GameClientCommand& command);
 
 }  // namespace snt::game::replication

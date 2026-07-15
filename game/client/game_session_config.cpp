@@ -67,14 +67,36 @@ void from_json(const json& object, GameServerNetworkConfig& value) {
     read_optional(object, "max_peers", value.max_peers);
 }
 
+void from_json(const json& object, GamePersistenceConfig& value) {
+    value = GamePersistenceConfig{};
+    read_optional(object, "universe_save_dir", value.universe_save_dir);
+    read_optional(object, "world_save_enabled", value.world_save_enabled);
+    read_optional(object, "world_dimension_id", value.world_dimension_id);
+    read_optional(object, "universe_mode", value.universe_mode);
+}
+
+void from_json(const json& object, GameClientNetworkConfig& value) {
+    value = GameClientNetworkConfig{};
+    read_optional(object, "enabled", value.enabled);
+    read_optional(object, "host", value.host);
+    read_optional(object, "tcp_port", value.tcp_port);
+    read_optional(object, "udp_port", value.udp_port);
+}
+
 void from_json(const json& object, GameSessionConfig& value) {
     value = GameSessionConfig{};
     if (object.contains("camera")) value.camera = object["camera"].get<GameCameraConfig>();
     if (object.contains("scene")) value.scene = object["scene"].get<GameSceneConfig>();
     if (object.contains("scripts")) value.scripts = object["scripts"].get<GameScriptConfig>();
     if (object.contains("demo")) value.demo = object["demo"].get<GameDemoConfig>();
+    if (object.contains("persistence")) {
+        value.persistence = object["persistence"].get<GamePersistenceConfig>();
+    }
     if (object.contains("server_network")) {
         value.server_network = object["server_network"].get<GameServerNetworkConfig>();
+    }
+    if (object.contains("client_network")) {
+        value.client_network = object["client_network"].get<GameClientNetworkConfig>();
     }
 }
 

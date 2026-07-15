@@ -1,6 +1,6 @@
 # Science & Theology
 
-Science & Theology 是一个 C++20 Vulkan 游戏。此仓库负责游戏可执行程序、游戏内容、运行时打包，并通过 Git 子模块固定引擎版本。可复用运行时位于 [ScienceAndTheologyEngine](https://github.com/yuanju-qwq/ScienceAndTheologyEngine)。
+Science & Theology 是一个 C++20 Vulkan 游戏。此仓库负责游戏可执行程序、游戏内容、运行时打包，并通过 Git 子模块固定引擎版本。可复用运行时位于 [ScienceAndTheologyEngine](https://github.com/yuanju-qwq/ScienceAndTheologyEngine)。架构、玩法和迁移文档见 [docs/README.md](docs/README.md)。
 
 ## 仓库结构
 

@@ -31,8 +31,10 @@ void ClosedGamePeerAuthenticator::on_peer_disconnected(const GameAuthenticatedPe
                                                         std::string_view) noexcept {}
 
 GameServerReplicationHandler::GameServerReplicationHandler(
-    IGamePeerAuthenticator& authenticator, IGameReplicationCommandSink* command_sink)
-    : authenticator_(&authenticator), command_sink_(command_sink) {}
+    IGamePeerAuthenticator& authenticator, IGameReplicationCommandSink* command_sink,
+    IGamePlayerSessionLifecycle* player_lifecycle)
+    : authenticator_(&authenticator), command_sink_(command_sink),
+      player_lifecycle_(player_lifecycle) {}
 
 snt::core::Expected<void> GameServerReplicationHandler::on_peer_connected(
     snt::network::PeerId peer, const snt::network::ReplicationTickContext&) {
@@ -101,6 +103,12 @@ void GameServerReplicationHandler::on_peer_disconnected(snt::network::PeerId pee
     if (state == peers_.end()) return;
 
     if (state->second.authenticated_peer.has_value()) {
+        if (command_sink_ != nullptr) {
+            command_sink_->on_peer_disconnected(*state->second.authenticated_peer, reason);
+        }
+        if (player_lifecycle_ != nullptr) {
+            player_lifecycle_->on_peer_disconnected(*state->second.authenticated_peer, reason);
+        }
         authenticator_->on_peer_disconnected(*state->second.authenticated_peer, reason);
         SNT_LOG_INFO("Authenticated replication peer %llu disconnected: %.*s",
                      static_cast<unsigned long long>(peer),
@@ -184,12 +192,10 @@ snt::core::Expected<void> GameServerReplicationHandler::handle_login(
         authenticator_->on_peer_disconnected(identity, "authenticator returned an invalid player id");
         return protocol_error("Game authenticator returned an invalid player id");
     }
-    if (const auto existing_peer = find_authenticated_peer_for_player_id(
-            identity.identity.account_id, peer);
-        existing_peer.has_value()) {
-        take_over_existing_account_session(*existing_peer, identity.identity.account_id);
-    }
-
+    // The authenticator owns only account evidence. The handler owns the
+    // actual transport association and must overwrite any caller-provided
+    // value before a command sink observes this authenticated session.
+    identity.peer = peer;
     auto accepted = make_game_login_accepted({.identity = identity.identity});
     if (!accepted) {
         authenticator_->on_peer_disconnected(identity, "login accepted payload could not be encoded");
@@ -199,6 +205,36 @@ snt::core::Expected<void> GameServerReplicationHandler::handle_login(
     if (!payload) {
         authenticator_->on_peer_disconnected(identity, "login accepted envelope could not be encoded");
         return payload.error();
+    }
+
+    if (const auto existing_peer = find_authenticated_peer_for_player_id(
+            identity.identity.account_id, peer);
+        existing_peer.has_value()) {
+        const auto previous = peers_.find(*existing_peer);
+        if (previous == peers_.end() || !previous->second.authenticated_peer.has_value()) {
+            authenticator_->on_peer_disconnected(identity, "account takeover lost its previous session");
+            return protocol_error("Game replication account takeover has no previous authenticated peer");
+        }
+        if (player_lifecycle_ != nullptr) {
+            if (auto result = player_lifecycle_->on_peer_replaced(
+                    *previous->second.authenticated_peer, identity, context);
+                !result) {
+                auto error = result.error();
+                error.with_context("GameServerReplicationHandler::handle_login(player takeover)");
+                authenticator_->on_peer_disconnected(identity,
+                                                      "player lifecycle rejected account takeover");
+                return error;
+            }
+        }
+        take_over_existing_account_session(*existing_peer, identity.identity.account_id);
+    } else if (player_lifecycle_ != nullptr) {
+        if (auto result = player_lifecycle_->on_peer_authenticated(identity, context); !result) {
+            auto error = result.error();
+            error.with_context("GameServerReplicationHandler::handle_login(player lifecycle)");
+            authenticator_->on_peer_disconnected(identity,
+                                                  "player lifecycle rejected authenticated session");
+            return error;
+        }
     }
 
     state.authenticated_peer = std::move(identity);
@@ -252,6 +288,9 @@ void GameServerReplicationHandler::take_over_existing_account_session(
 
     static constexpr std::string_view kTakeoverReason =
         "player account session was replaced by a newer login";
+    if (command_sink_ != nullptr) {
+        command_sink_->on_peer_disconnected(*state->second.authenticated_peer, kTakeoverReason);
+    }
     authenticator_->on_peer_disconnected(*state->second.authenticated_peer, kTakeoverReason);
     state->second.authenticated_peer.reset();
     state->second.disconnecting = true;

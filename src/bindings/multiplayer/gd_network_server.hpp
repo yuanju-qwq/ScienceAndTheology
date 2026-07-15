@@ -17,7 +17,7 @@ class GDTickSystem;
 
 // GDNetworkServer — Godot Node wrapping snt_server::ServerCore.
 //
-// Design: docs/多人游戏系统设计.md §4 方案B (Godot 集成)
+// Legacy Godot integration; current multiplayer protocol: docs/游戏网络协议设计.md.
 //
 // The host (WorldMap.tscn) adds this node alongside GDGameCommandServer
 // and GDTickSystem. It bridges network frames to/from the existing

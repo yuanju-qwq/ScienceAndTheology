@@ -12,7 +12,7 @@ add_test(NAME snt.u0.world_data_smoke COMMAND snt_u0_world_data_smoke)
 
 # Machine collision overlay: per-(dimension, cell) overlay consumed by chunk
 # collision generation so machines get collision without per-object
-# StaticBody3D nodes. Design: docs/专用引擎性能优化方向.md (physics layer).
+# StaticBody3D nodes. Current runtime boundary: docs/项目架构与运行时.md.
 add_executable(snt_machine_collision_overlay
     machine_collision_overlay.cpp
 )
@@ -27,7 +27,7 @@ add_test(NAME snt.machine_collision_overlay COMMAND snt_machine_collision_overla
 
 # Player vitals: per-frame health/hunger/atmosphere simulation sunk from
 # PlayerController.gd. Tests the pure C++ core (PlayerVitals) directly.
-# Design: docs/专用引擎性能优化方向.md (player sim sinking).
+# Current runtime boundary: docs/项目架构与运行时.md.
 add_executable(snt_player_vitals
     player_vitals.cpp
 )
@@ -41,7 +41,7 @@ endif()
 add_test(NAME snt.player_vitals COMMAND snt_player_vitals)
 
 # Signal network: per-block digital wire conduction, OR-semantics, components
-# Design: docs/network_system_design.md (signal network, digital model)
+# Current world-network boundary: docs/unified_universe_world_design.md §14.
 add_executable(snt_signal_network_system
     signal_network_system.cpp
 )
@@ -55,7 +55,7 @@ endif()
 add_test(NAME snt.signal_network_system COMMAND snt_signal_network_system)
 
 # Power network: per-block cable conduction, shared pool, per-tile loss
-# Design: docs/network_system_design.md (power network, per-block model)
+# Current world-network boundary: docs/unified_universe_world_design.md §14.
 add_executable(snt_power_network_per_block
     power_network_per_block.cpp
 )
@@ -69,7 +69,7 @@ endif()
 add_test(NAME snt.power_network_per_block COMMAND snt_power_network_per_block)
 
 # Network topology builder: BlockEntity <-> network bridge, connection masks
-# Design: docs/network_system_design.md (stage 4 BlockEntity integration)
+# Current world-network boundary: docs/unified_universe_world_design.md §14.
 add_executable(snt_network_topology_builder
     network_topology_builder.cpp
 )
@@ -122,7 +122,7 @@ endif()
 add_test(NAME snt.multiblock_machine_service COMMAND snt_multiblock_machine_service)
 
 # M2: Multi-player local validation (no network)
-# Design: docs/多人游戏系统设计.md §6.2 M2
+# Current multiplayer protocol: docs/游戏网络协议设计.md.
 add_executable(snt_m2_multi_player
     m2_multi_player.cpp
 )
@@ -136,7 +136,7 @@ endif()
 add_test(NAME snt.m2.multi_player COMMAND snt_m2_multi_player)
 
 # M3: Protocol codec + network round-trip tests
-# Design: docs/多人游戏系统设计.md §4 方案B
+# Current multiplayer protocol: docs/游戏网络协议设计.md.
 add_executable(snt_m3_server_network
     m3_server_network.cpp
 )
@@ -150,7 +150,7 @@ endif()
 add_test(NAME snt.m3.server_network COMMAND snt_m3_server_network)
 
 # M5: Multi-planet concurrent tests
-# Design: docs/多人游戏系统设计.md §3.6 多星球并发, §6.2 M5
+# Current universe design: docs/unified_universe_world_design.md.
 add_executable(snt_m5_multi_planet
     m5_multi_planet.cpp
 )
@@ -164,7 +164,7 @@ endif()
 add_test(NAME snt.m5.multi_planet COMMAND snt_m5_multi_planet)
 
 # M6: Client prediction + rollback tests
-# Design: docs/多人游戏系统设计.md §6.2 M6, §3.4 命令协议升级
+# Legacy prediction test; client prediction has no current protocol contract.
 add_executable(snt_m6_prediction
     m6_prediction.cpp
 )

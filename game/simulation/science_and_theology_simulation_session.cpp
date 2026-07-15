@@ -5,6 +5,7 @@
 
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
+#include "game/world/save/world_persistence_lifecycle.h"
 
 #include "core/log.h"
 #include "engine/simulation_services.h"
@@ -24,6 +25,16 @@ ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { sh
 snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
     snt::engine::SimulationServices& services) {
     services_ = &services;
+    if (config_.persistence.world_save_enabled) {
+        world_persistence_ = std::make_unique<GameWorldPersistenceLifecycle>(
+            GameWorldPersistenceDescriptor{
+                .universe_save_dir = services.paths().resolve_user(
+                    config_.persistence.universe_save_dir),
+                .dimension_id = config_.persistence.world_dimension_id,
+                .seed = static_cast<int64_t>(config_.demo.seed),
+                .universe_mode = config_.persistence.universe_mode,
+            });
+    }
     if (!config_.scripts.enabled) return {};
 
     auto& scripts = services.scripts();
@@ -80,12 +91,29 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         return error;
     }
 
-    if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(), chunk_sidecars_);
-        !result) {
-        auto error = result.error();
-        error.with_context("ScienceAndTheologySimulationSession::create_world(bootstrap_demo_world)");
-        return error;
+    chunks_ = &world_session.chunks();
+    world_ready_ = false;
+    bool loaded_existing_world = false;
+    if (world_persistence_) {
+        auto loaded = world_persistence_->load_existing(*chunks_, chunk_sidecars_);
+        if (!loaded) {
+            auto error = loaded.error();
+            error.with_context("ScienceAndTheologySimulationSession::create_world(load world)");
+            return error;
+        }
+        loaded_existing_world = *loaded;
     }
+
+    if (!loaded_existing_world) {
+        if (auto result = bootstrap_demo_world(config_.demo, *chunks_, chunk_sidecars_); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologySimulationSession::create_world(bootstrap_demo_world)");
+            return error;
+        }
+    } else {
+        SNT_LOG_INFO("Game world loaded from current-format persistence; demo bootstrap skipped");
+    }
+    world_ready_ = true;
 
     SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
     return {};
@@ -112,6 +140,15 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
+    if (world_persistence_ && world_ready_ && chunks_ != nullptr) {
+        if (auto result = world_persistence_->save(*chunks_, chunk_sidecars_); !result) {
+            SNT_LOG_ERROR("Game world save during session shutdown failed: %s",
+                          result.error().format().c_str());
+        }
+    }
+    world_ready_ = false;
+    chunks_ = nullptr;
+    world_persistence_.reset();
     quest_registry_.clear();
     if (scripts_started_ && services_) {
         services_->scripts().shutdown();

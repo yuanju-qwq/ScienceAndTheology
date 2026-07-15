@@ -6,7 +6,7 @@ extends Node
 # collision rebuild so each machine cell gets collision coverage from the
 # chunk-level collision mesh instead of a per-object Godot StaticBody3D.
 #
-# Design: docs/专用引擎性能优化方向.md (physics layer):
+# Current runtime boundary: docs/项目架构与运行时.md.
 #   "只给玩家附近 chunk 生成碰撞"
 #   "机器/管线不用 Godot 物理节点表示"
 #

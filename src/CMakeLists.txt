@@ -21,7 +21,7 @@ FetchContent_MakeAvailable(godot-cpp)
 add_subdirectory(core)
 
 # snt_server — authoritative server module (engine-agnostic, sockets + protocol)
-# Design: docs/多人游戏系统设计.md §4 方案B
+# Current multiplayer protocol: docs/游戏网络协议设计.md.
 add_subdirectory(server)
 
 # Engine adapter interfaces (header-only)

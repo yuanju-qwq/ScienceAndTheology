@@ -14,7 +14,7 @@ namespace science_and_theology {
 
 // GDNetworkClient — Godot Node wrapping snt_server::NetworkClient.
 //
-// Design: docs/多人游戏系统设计.md §4 方案B (Godot 集成)
+// Legacy Godot integration; current multiplayer protocol: docs/游戏网络协议设计.md.
 //
 // The client-side node connects to an snt_server, submits commands,
 // and receives sync deltas. The host (WorldMap.tscn in client mode)

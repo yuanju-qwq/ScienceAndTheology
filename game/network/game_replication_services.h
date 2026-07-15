@@ -18,10 +18,14 @@
 
 namespace snt::game::replication {
 
-// A stable game account/profile identity. It is intentionally not an entt
-// handle or a process-local EntityGuid; a concrete game service maps it to
-// persistent player state during authenticated session creation.
+// A stable game account/profile identity plus its current transport session.
+// identity is intentionally not an entt handle or a process-local EntityGuid;
+// a concrete game service maps it to persistent player state. peer is set by
+// GameServerReplicationHandler after authentication and is only valid for the
+// current connection, allowing command sequence state to be discarded on
+// disconnect or account takeover.
 struct GameAuthenticatedPeer {
+    snt::network::PeerId peer = snt::network::kInvalidPeerId;
     PlayerIdentity identity;
 };
 
@@ -36,6 +40,32 @@ public:
                                       std::string_view reason) noexcept = 0;
 };
 
+// Owns game-player lifecycle work that is deliberately outside transport
+// admission and command parsing. Implementations run only on the simulation
+// main thread: a dedicated server can load per-player state on first login,
+// transfer an in-memory account during takeover, and persist it on departure
+// without making fixed-tick systems perform filesystem I/O.
+class IGamePlayerSessionLifecycle {
+public:
+    virtual ~IGamePlayerSessionLifecycle() = default;
+
+    virtual snt::core::Expected<void> on_peer_authenticated(
+        const GameAuthenticatedPeer& peer,
+        const snt::network::ReplicationTickContext& context) = 0;
+
+    // Replaces one authenticated transport session with another for the same
+    // stable account. This is distinct from disconnect + login: a lifecycle
+    // implementation must retain authoritative in-memory state rather than
+    // save and immediately reload it while the takeover tick is still active.
+    virtual snt::core::Expected<void> on_peer_replaced(
+        const GameAuthenticatedPeer& previous_peer,
+        const GameAuthenticatedPeer& replacement_peer,
+        const snt::network::ReplicationTickContext& context) = 0;
+
+    virtual void on_peer_disconnected(const GameAuthenticatedPeer& peer,
+                                      std::string_view reason) noexcept = 0;
+};
+
 // Called on the simulation main thread before gameplay fixed-tick systems.
 // A concrete implementation validates game command ids and queues only
 // deterministic mutations for the matching tick.
@@ -46,6 +76,12 @@ public:
     virtual snt::core::Expected<void> enqueue_client_command(
         const GameAuthenticatedPeer& peer, GameClientCommand command,
         const snt::network::ReplicationTickContext& context) = 0;
+
+    // The handler invokes this before it discards an authenticated session.
+    // Implementations cancel queued commands and discard per-peer sequence
+    // state; persistent game progress remains keyed by peer.identity.account_id.
+    virtual void on_peer_disconnected(const GameAuthenticatedPeer& peer,
+                                      std::string_view reason) noexcept = 0;
 };
 
 // Current AOI identity uses the current game ChunkKey and stable entity Guid.

@@ -11,7 +11,7 @@ namespace science_and_theology {
 
 // GDPredictionBuffer — Godot wrapper for PredictionBuffer.
 //
-// Design: docs/多人游戏系统设计.md §6.2 M6
+// Legacy Godot integration; client prediction has no current protocol contract.
 //
 // Client-side prediction tracking for rollback reconciliation.
 // The GDScript client uses this to track predicted commands and

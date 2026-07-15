@@ -403,4 +403,32 @@ snt::core::Expected<GameClientCommand> parse_game_client_command(
     return command;
 }
 
+snt::core::Expected<GameClientCommand> make_game_quest_accept_command(
+    uint64_t client_sequence, const GameQuestAcceptCommand& command) {
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kQuestAccept);
+    if (auto result = append_short_string(encoded.payload, command.quest_id,
+                                          kMaxGameQuestIdBytes, "quest accept id", true);
+        !result) {
+        return result.error();
+    }
+    return encoded;
+}
+
+snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
+    const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kQuestAccept)) {
+        return protocol_error("Game client command type is not QuestAccept");
+    }
+
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    size_t offset = 0;
+    auto quest_id = read_short_string(bytes, offset, kMaxGameQuestIdBytes,
+                                      "quest accept id", true);
+    if (!quest_id) return quest_id.error();
+    if (offset != bytes.size()) return protocol_error("Quest accept command has trailing bytes");
+    return GameQuestAcceptCommand{.quest_id = std::move(*quest_id)};
+}
+
 }  // namespace snt::game::replication

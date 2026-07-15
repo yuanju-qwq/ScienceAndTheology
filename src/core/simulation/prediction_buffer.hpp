@@ -8,7 +8,7 @@ namespace science_and_theology {
 // PredictionBuffer — client-side prediction tracking for rollback
 // reconciliation.
 //
-// Design: docs/多人游戏系统设计.md §6.2 M6, §3.4 命令协议升级
+// Legacy prediction module; client prediction has no current protocol contract.
 //
 // High-frequency actions (movement, mining) are predicted locally by
 // the client and tagged with a monotonically increasing client_tick.

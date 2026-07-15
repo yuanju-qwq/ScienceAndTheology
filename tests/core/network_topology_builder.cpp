@@ -10,7 +10,7 @@
 //   - Cable entities feed into PowerNetwork
 //   - Machine generators/consumers are resolved via callbacks
 //
-// Design: docs/network_system_design.md (stage 4 BlockEntity integration)
+// Current world-network boundary: docs/unified_universe_world_design.md §14.
 
 #include <cassert>
 #include <iostream>

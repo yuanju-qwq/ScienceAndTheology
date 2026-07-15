@@ -5,7 +5,7 @@
 # Each model's `boxes` are baked into a single ArrayMesh (`baked_mesh`) at
 # registration time so WorldObjectRenderer can batch instances via MultiMesh
 # (one MultiMeshInstance3D per model_key). See design doc:
-# docs/专用引擎性能优化方向.md (render submission layer).
+# docs/项目架构与运行时.md (render submission boundary).
 #
 # To add a new model, append it to the registry returned by build_registry().
 class_name BuiltinBlockModels

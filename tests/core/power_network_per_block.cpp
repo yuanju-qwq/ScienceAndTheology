@@ -10,7 +10,7 @@
 //   - Over-voltage detection (consumer exceeds cable tier)
 //   - Cable break splits the network
 //
-// Design: docs/network_system_design.md (power network, per-block model)
+// Current world-network boundary: docs/unified_universe_world_design.md §14.
 
 #include <cassert>
 #include <iostream>

@@ -33,7 +33,8 @@ public:
 class GameServerReplicationHandler final : public snt::network::IReplicationHandler {
 public:
     explicit GameServerReplicationHandler(IGamePeerAuthenticator& authenticator,
-                                          IGameReplicationCommandSink* command_sink = nullptr);
+                                          IGameReplicationCommandSink* command_sink = nullptr,
+                                          IGamePlayerSessionLifecycle* player_lifecycle = nullptr);
     ~GameServerReplicationHandler() override = default;
 
     GameServerReplicationHandler(const GameServerReplicationHandler&) = delete;
@@ -80,6 +81,7 @@ private:
 
     IGamePeerAuthenticator* authenticator_ = nullptr;
     IGameReplicationCommandSink* command_sink_ = nullptr;
+    IGamePlayerSessionLifecycle* player_lifecycle_ = nullptr;
     std::unordered_map<snt::network::PeerId, PeerState> peers_;
     std::vector<PendingOutboundFrame> pending_outbound_;
     std::vector<PendingPeerDisconnect> pending_disconnects_;

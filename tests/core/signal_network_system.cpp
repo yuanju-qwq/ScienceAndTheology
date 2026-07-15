@@ -9,7 +9,7 @@
 //   - Consumer (non-wire) signal reading
 //   - Source removal / wire break behavior
 //
-// Design: docs/network_system_design.md (signal network, digital model)
+// Current world-network boundary: docs/unified_universe_world_design.md §14.
 
 #include <cassert>
 #include <iostream>

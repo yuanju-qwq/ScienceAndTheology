@@ -1,6 +1,6 @@
 # snt_server — authoritative server module (engine-agnostic C++).
 #
-# Design: docs/多人游戏系统设计.md §4 方案B
+# Current multiplayer protocol: docs/游戏网络协议设计.md.
 #
 # Contains: protocol codec, command queue, network transport (TCP/UDP),
 # ServerCore (session + command orchestration), NetworkClient (client-side).

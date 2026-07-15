@@ -12,6 +12,7 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
+#include "network/tcp_udp_transport.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
 #include "scene/scene.h"
@@ -48,13 +49,15 @@ void append_cross_arm(snt::ui::Arc2DCommandBuffer& commands, float center_x, flo
 
 }  // namespace
 
-ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(GameSessionConfig config)
-    : config_(std::move(config)), simulation_session_(config_) {}
-
 ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(
-    GameSessionConfig config, PlayerIdentity local_player_identity)
+    GameSessionConfig config,
+    std::optional<replication::GameClientAuthentication> connection_authentication)
     : config_(std::move(config)), simulation_session_(config_),
-      local_player_identity_(std::move(local_player_identity)) {}
+      connection_authentication_(std::move(connection_authentication)) {
+    if (connection_authentication_) {
+        local_player_identity_ = connection_authentication_->local_identity;
+    }
+}
 
 ScienceAndTheologyClientSession::~ScienceAndTheologyClientSession() { shutdown(); }
 
@@ -76,6 +79,30 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_world(
         error.with_context("ScienceAndTheologyClientSession::create_world");
         return error;
     }
+    if (!config_.client_network.enabled) return {};
+    if (!connection_authentication_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Client networking is enabled without injected player authentication"};
+    }
+
+    snt::network::TcpUdpConnectConfig connection_config;
+    connection_config.host = config_.client_network.host;
+    connection_config.tcp_port = config_.client_network.tcp_port;
+    connection_config.udp_port = config_.client_network.udp_port;
+    auto connection = replication::GameClientReplicationSession::connect_tcp_udp(
+        std::move(connection_config), std::move(*connection_authentication_));
+    if (!connection) {
+        auto error = connection.error();
+        error.with_context("ScienceAndTheologyClientSession::create_world(client replication)");
+        return error;
+    }
+    connection_authentication_.reset();
+    replication_session_ = std::move(*connection);
+    SNT_LOG_INFO("Client replication connection requested (host=%s tcp=%u udp=%u)",
+                 config_.client_network.host.c_str(), config_.client_network.tcp_port,
+                 config_.client_network.udp_port);
+    SNT_LOG_WARN("Client replication login is enabled without snapshot/delta sync; "
+                 "the local demo world remains the current presentation source");
     return {};
 }
 
@@ -189,12 +216,35 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
     snt::engine::FixedTickContext& context) {
+    if (replication_session_) {
+        const snt::network::ReplicationTickContext replication_context{
+            .tick_index = context.tick_index(),
+            .delta_seconds = context.delta_seconds(),
+        };
+        if (auto result = replication_session_->poll_inbound(replication_context); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologyClientSession::fixed_tick(replication inbound)");
+            return error;
+        }
+    }
     return simulation_session_.fixed_tick(context);
 }
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::after_fixed_tick(
     snt::engine::FixedTickContext& context) {
-    return simulation_session_.after_fixed_tick(context);
+    if (auto result = simulation_session_.after_fixed_tick(context); !result) return result.error();
+    if (!replication_session_) return {};
+
+    const snt::network::ReplicationTickContext replication_context{
+        .tick_index = context.tick_index(),
+        .delta_seconds = context.delta_seconds(),
+    };
+    if (auto result = replication_session_->emit_outbound(replication_context); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::after_fixed_tick(replication outbound)");
+        return error;
+    }
+    return {};
 }
 
 void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& context) {
@@ -236,6 +286,9 @@ void ScienceAndTheologyClientSession::build_ui(snt::engine::ClientUiContext& con
 }
 
 void ScienceAndTheologyClientSession::shutdown() noexcept {
+    if (replication_session_) replication_session_->shutdown();
+    replication_session_.reset();
+    connection_authentication_.reset();
     gameplay_ui_.reset();
     performance_ui_.reset();
     simulation_session_.shutdown();

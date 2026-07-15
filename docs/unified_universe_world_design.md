@@ -922,8 +922,10 @@ struct VehicleGroup {
 
 ## 22. 推荐目录结构
 
+> 这是未来实现的 game-owned 目标结构，不是当前 `src/` 布局。通用运行时能力保留在 `snt_engine/`；宇宙、机器、网络语义和存档策略由 `game/` 拥有。
+
 ```text
-src/
+game/
   universe/
     universe_world.hpp
     universe_world.cpp

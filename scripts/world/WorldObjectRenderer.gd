@@ -5,7 +5,7 @@ extends Node3D
 # BlockModelResource definitions registered in BuiltinBlockModels.
 # Workbenches and ladders are terrain blocks rendered by ChunkRendererBridge.
 #
-# Rendering policy (design doc: docs/专用引擎性能优化方向.md, render
+# Rendering policy (current runtime boundary: docs/项目架构与运行时.md, render
 # submission layer):
 #   - Each model_key with `baked_mesh` (boxes-only) is batched into a single
 #     MultiMeshInstance3D. Placing/removing an object only updates one

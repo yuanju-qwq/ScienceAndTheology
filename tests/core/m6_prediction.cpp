@@ -1,5 +1,5 @@
 // M6: Client prediction + rollback tests.
-// Design: docs/多人游戏系统设计.md §6.2 M6, §3.4 命令协议升级
+// Legacy prediction test; client prediction has no current protocol contract.
 //
 // Tests:
 //   1. predict/confirm basic flow — single tick confirmed

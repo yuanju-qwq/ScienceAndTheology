@@ -141,7 +141,7 @@ public:
     // Sparse overlay of cells occupied by machines (furnaces, campfires, ...).
     // Consumed by chunk collision generation so machines get collision
     // coverage without per-object Godot StaticBody3D nodes. See design doc
-    // docs/专用引擎性能优化方向.md (physics layer).
+    // Current runtime boundary: docs/项目架构与运行时.md.
     MachineCollisionOverlay& machine_collision_overlay() {
         return machine_collision_overlay_;
     }
