@@ -17,9 +17,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v10 replaces the unused bare machine-id
-    // list with chunk-anchored machine runtime records.
-    static constexpr uint8_t kCurrentVersion = 10;
+    // Current binary format version. v11 persists multi-input machine slots,
+    // recipe snapshots, and pending manual activation requests.
+    static constexpr uint8_t kCurrentVersion = 11;
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;

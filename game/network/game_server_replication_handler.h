@@ -34,7 +34,10 @@ class GameServerReplicationHandler final : public snt::network::IReplicationHand
 public:
     explicit GameServerReplicationHandler(IGamePeerAuthenticator& authenticator,
                                           IGameReplicationCommandSink* command_sink = nullptr,
-                                          IGamePlayerSessionLifecycle* player_lifecycle = nullptr);
+                                          IGamePlayerSessionLifecycle* player_lifecycle = nullptr,
+                                          IGameReplicationInterestProvider* interest_provider = nullptr,
+                                          IGameReplicationSnapshotSource* snapshot_source = nullptr,
+                                          GameReplicationBudget replication_budget = {});
     ~GameServerReplicationHandler() override = default;
 
     GameServerReplicationHandler(const GameServerReplicationHandler&) = delete;
@@ -54,11 +57,13 @@ private:
     struct PeerState {
         std::optional<GameAuthenticatedPeer> authenticated_peer;
         bool disconnecting = false;
+        bool initial_snapshot_emitted = false;
     };
 
     struct PendingOutboundFrame {
         snt::network::PeerId peer = snt::network::kInvalidPeerId;
         snt::network::ReplicationFrame frame;
+        bool blocks_replication_generation = false;
     };
 
     struct PendingPeerDisconnect {
@@ -74,6 +79,15 @@ private:
         snt::network::PeerId peer, const PeerState& state,
         const GameReplicationMessage& message,
         const snt::network::ReplicationTickContext& context);
+    snt::core::Expected<void> emit_replication_for_peer(
+        snt::network::PeerId peer, PeerState& state,
+        const snt::network::ReplicationTickContext& context);
+    snt::core::Expected<void> queue_replication_messages(
+        snt::network::PeerId peer,
+        const std::vector<GameReplicationMessage>& messages,
+        GameReplicationMessageKind expected_kind,
+        const snt::network::ReplicationTickContext& context);
+    [[nodiscard]] bool has_pending_replication(snt::network::PeerId peer) const;
     void take_over_existing_account_session(snt::network::PeerId peer,
                                             std::string_view account_id);
     [[nodiscard]] std::optional<snt::network::PeerId> find_authenticated_peer_for_player_id(
@@ -82,6 +96,9 @@ private:
     IGamePeerAuthenticator* authenticator_ = nullptr;
     IGameReplicationCommandSink* command_sink_ = nullptr;
     IGamePlayerSessionLifecycle* player_lifecycle_ = nullptr;
+    IGameReplicationInterestProvider* interest_provider_ = nullptr;
+    IGameReplicationSnapshotSource* snapshot_source_ = nullptr;
+    GameReplicationBudget replication_budget_;
     std::unordered_map<snt::network::PeerId, PeerState> peers_;
     std::vector<PendingOutboundFrame> pending_outbound_;
     std::vector<PendingPeerDisconnect> pending_disconnects_;

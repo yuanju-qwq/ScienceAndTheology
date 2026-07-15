@@ -1,9 +1,9 @@
 // Game-owned replication service contracts.
 //
-// This is a declaration-only boundary for future player authentication,
-// deterministic command intake, AOI calculation, and snapshot production.
-// Implementations belong to game systems; snt_engine only provides transport
-// and the fixed-tick replication phase around these calls.
+// This is the game boundary for player authentication, deterministic command
+// intake, AOI calculation, and snapshot production. Implementations belong to
+// game systems; snt_engine only provides transport and the fixed-tick
+// replication phase around these calls.
 
 #pragma once
 
@@ -94,6 +94,9 @@ struct GameReplicationInterest {
 };
 
 struct GameReplicationBudget {
+    // The handler applies these caps per authenticated peer and outbound tick
+    // after it validates each source value with the public codec. A zero cap
+    // disables that category; sources must then withhold matching records.
     uint32_t max_reliable_bytes_per_tick = 256u * 1024u;
     uint32_t max_chunk_snapshots_per_tick = 2;
     uint32_t max_entity_snapshots_per_tick = 128;
@@ -110,8 +113,10 @@ public:
 };
 
 // Implementations produce only server-originated GameReplicationMessage
-// values. The future handler integration validates their kind/channel and
-// applies GameReplicationBudget before handing frames to snt_network.
+// values. GameServerReplicationHandler validates their kind and typed payload,
+// applies GameReplicationBudget, and inserts a whole batch atomically before
+// handing frames to snt_network. An empty initial result keeps the peer in the
+// initial-snapshot phase; an empty delta result simply emits no update.
 class IGameReplicationSnapshotSource {
 public:
     virtual ~IGameReplicationSnapshotSource() = default;

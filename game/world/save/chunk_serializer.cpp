@@ -8,9 +8,11 @@ namespace snt::game {
 namespace {
 
 constexpr uint32_t kMaxMachineRuntimeRecords = 4096;
+constexpr uint32_t kMaxMachineInputSlots = 64;
 constexpr uint32_t kMaxMachineOutputSlots = 64;
+constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
-constexpr uint8_t kMachineRunStateCount = 5;
+constexpr uint8_t kMachineRunStateCount = 6;
 
 }  // namespace
 
@@ -567,7 +569,10 @@ void GameChunkSerializer::write_machine_runtime_recipe_snapshot(
     std::vector<uint8_t>& buf,
     const MachineRuntimeRecipeSnapshot& recipe) {
     write_string(buf, recipe.id);
-    write_string(buf, recipe.input_item_id);
+    write_uint32(buf, static_cast<uint32_t>(recipe.inputs.size()));
+    for (const MachineRuntimeItemStack& input : recipe.inputs) {
+        write_machine_runtime_item_stack(buf, input);
+    }
     write_uint32(buf, static_cast<uint32_t>(recipe.outputs.size()));
     for (const MachineRuntimeItemStack& output : recipe.outputs) {
         write_machine_runtime_item_stack(buf, output);
@@ -580,9 +585,21 @@ bool GameChunkSerializer::read_machine_runtime_recipe_snapshot(
     const std::vector<uint8_t>& data,
     size_t& offset,
     MachineRuntimeRecipeSnapshot& recipe) {
-    if (!read_string(data, offset, recipe.id) ||
-        !read_string(data, offset, recipe.input_item_id)) {
+    if (!read_string(data, offset, recipe.id)) {
         return false;
+    }
+
+    uint32_t input_count;
+    if (!read_uint32(data, offset, input_count) ||
+        input_count > kMaxMachineRecipeInputs) {
+        return false;
+    }
+    recipe.inputs.clear();
+    recipe.inputs.reserve(input_count);
+    for (uint32_t index = 0; index < input_count; ++index) {
+        MachineRuntimeItemStack input;
+        if (!read_machine_runtime_item_stack(data, offset, input)) return false;
+        recipe.inputs.push_back(std::move(input));
     }
 
     uint32_t output_count;
@@ -608,13 +625,17 @@ void GameChunkSerializer::write_machine_runtime_record(
     write_uint64(buf, record.anchor_entity_id.id);
     write_uint64(buf, record.entity_guid);
     write_string(buf, record.machine_id);
-    write_machine_runtime_item_stack(buf, record.input);
+    write_uint32(buf, static_cast<uint32_t>(record.input_slots.size()));
+    for (const MachineRuntimeItemStack& input : record.input_slots) {
+        write_machine_runtime_item_stack(buf, input);
+    }
     write_uint32(buf, static_cast<uint32_t>(record.output_slots.size()));
     for (const MachineRuntimeItemStack& output : record.output_slots) {
         write_machine_runtime_item_stack(buf, output);
     }
     write_int32(buf, record.stored_energy);
     write_int32(buf, record.energy_capacity);
+    write_int32(buf, record.max_input_slots);
     write_int32(buf, record.max_output_slots);
     write_int32(buf, record.max_stack_size);
     write_int32(buf, record.progress_ticks);
@@ -622,6 +643,7 @@ void GameChunkSerializer::write_machine_runtime_record(
     if (record.active_recipe) {
         write_machine_runtime_recipe_snapshot(buf, *record.active_recipe);
     }
+    write_uint8(buf, record.activation_requested ? 1 : 0);
     write_uint8(buf, record.run_state);
 }
 
@@ -632,11 +654,23 @@ bool GameChunkSerializer::read_machine_runtime_record(
     uint64_t anchor_id;
     if (!read_uint64(data, offset, anchor_id) ||
         !read_uint64(data, offset, record.entity_guid) ||
-        !read_string(data, offset, record.machine_id) ||
-        !read_machine_runtime_item_stack(data, offset, record.input)) {
+        !read_string(data, offset, record.machine_id)) {
         return false;
     }
     record.anchor_entity_id = EntityId{anchor_id};
+
+    uint32_t input_count;
+    if (!read_uint32(data, offset, input_count) ||
+        input_count > kMaxMachineInputSlots) {
+        return false;
+    }
+    record.input_slots.clear();
+    record.input_slots.reserve(input_count);
+    for (uint32_t index = 0; index < input_count; ++index) {
+        MachineRuntimeItemStack input;
+        if (!read_machine_runtime_item_stack(data, offset, input)) return false;
+        record.input_slots.push_back(std::move(input));
+    }
 
     uint32_t output_count;
     if (!read_uint32(data, offset, output_count) ||
@@ -653,6 +687,7 @@ bool GameChunkSerializer::read_machine_runtime_record(
 
     if (!read_int32(data, offset, record.stored_energy) ||
         !read_int32(data, offset, record.energy_capacity) ||
+        !read_int32(data, offset, record.max_input_slots) ||
         !read_int32(data, offset, record.max_output_slots) ||
         !read_int32(data, offset, record.max_stack_size) ||
         !read_int32(data, offset, record.progress_ticks)) {
@@ -669,6 +704,12 @@ bool GameChunkSerializer::read_machine_runtime_record(
         if (!read_machine_runtime_recipe_snapshot(data, offset, recipe)) return false;
         record.active_recipe = std::move(recipe);
     }
+
+    uint8_t activation_requested;
+    if (!read_uint8(data, offset, activation_requested) || activation_requested > 1) {
+        return false;
+    }
+    record.activation_requested = activation_requested != 0;
 
     if (!read_uint8(data, offset, record.run_state) ||
         record.run_state >= kMachineRunStateCount) {

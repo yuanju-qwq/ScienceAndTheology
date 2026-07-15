@@ -19,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <variant>
 
 namespace snt::network {
 struct TcpUdpConnectConfig;
@@ -49,6 +50,11 @@ struct GameClientReplicationStatus {
     GameClientConnectionState state = GameClientConnectionState::kStopped;
     std::optional<PlayerIdentity> authenticated_identity;
 };
+
+// Server synchronization remains a value boundary. The client host owns any
+// presentation or remote-world application after it drains these updates;
+// this networking module never receives an ECS World or chunk registry.
+using GameClientReplicationUpdate = std::variant<GameSnapshot, GameDelta>;
 
 // Direct TCP+UDP assigns kServerPeerId to the remote server. Steam P2P uses
 // its platform peer id instead, so the generic factory accepts that identity
@@ -92,6 +98,11 @@ public:
     [[nodiscard]] snt::core::Expected<void> enqueue_command(GameClientCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_quest_accept(
         uint64_t client_sequence, GameQuestAcceptCommand command);
+
+    // Called by the client simulation main thread after poll_inbound(). The
+    // returned values preserve reliable transport order and are detached from
+    // the session, so a host cannot retain mutable handler state.
+    [[nodiscard]] std::vector<GameClientReplicationUpdate> drain_replication_updates();
 
     [[nodiscard]] GameClientReplicationStatus status() const;
     void shutdown() noexcept;

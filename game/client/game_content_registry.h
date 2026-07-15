@@ -34,10 +34,30 @@ struct RecipeOutputDefinition {
     int32_t count = 1;
 };
 
+struct RecipeInputDefinition {
+    std::string item_id;
+    int32_t count = 1;
+};
+
+// Content-owned prerequisites for a manual machine start. The authoritative
+// player-command layer resolves these against world, inventory, and tool
+// state, then passes a value-only activation context to game simulation.
+struct MachineActivationRequirements {
+    bool requires_cover = false;
+    bool requires_ignition = false;
+    bool requires_valid_structure = false;
+    std::string required_tool_tag;
+
+    [[nodiscard]] bool empty() const noexcept {
+        return !requires_cover && !requires_ignition &&
+               !requires_valid_structure && required_tool_tag.empty();
+    }
+};
+
 struct RecipeDefinition {
     std::string id;
     std::string machine_id;
-    std::string input_item_id;
+    std::vector<RecipeInputDefinition> inputs;
     std::vector<RecipeOutputDefinition> outputs;
     int32_t duration_ticks = 200;
     int32_t energy_per_tick = 0;
@@ -50,6 +70,11 @@ struct MachineDefinition {
     int32_t tier = 1;
     int32_t power_capacity = 0;
     std::vector<std::string> recipe_types;
+    // Manual machines wait for an explicit gameplay command after their
+    // input slots match a recipe. The command boundary owns cover, light,
+    // tools, and structure validation; worker ticks only consume this flag.
+    bool requires_manual_activation = false;
+    MachineActivationRequirements activation_requirements;
 };
 
 // Quest objectives are content data, while their counters and state belong to
@@ -126,6 +151,11 @@ public:
                                                     QuestDefinition definition);
     snt::core::Expected<void> add_script_quest_prerequisite(
         ScriptId script_id, std::string quest_id, std::string prerequisite_id);
+    snt::core::Expected<void> add_script_recipe_input(
+        ScriptId script_id, std::string recipe_id, RecipeInputDefinition input);
+    snt::core::Expected<void> set_script_machine_activation_requirements(
+        ScriptId script_id, std::string machine_id,
+        MachineActivationRequirements requirements);
     snt::core::Expected<void> add_script_quest_objective(
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
 
@@ -178,6 +208,9 @@ private:
                                              bool builtin);
 
     static snt::core::Expected<void> validate(const RecipeDefinition& definition);
+    static snt::core::Expected<void> validate(const RecipeInputDefinition& input);
+    static snt::core::Expected<void> validate(
+        const MachineActivationRequirements& requirements);
     static snt::core::Expected<void> validate(const MachineDefinition& definition);
     static snt::core::Expected<void> validate(const QuestDefinition& definition);
     static snt::core::Expected<void> validate(const QuestObjectiveDefinition& objective);

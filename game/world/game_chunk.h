@@ -70,7 +70,7 @@ struct MachineRuntimeItemStack {
 
 struct MachineRuntimeRecipeSnapshot {
     std::string id;
-    std::string input_item_id;
+    std::vector<MachineRuntimeItemStack> inputs;
     std::vector<MachineRuntimeItemStack> outputs;
     int32_t duration_ticks = 0;
     int32_t energy_per_tick = 0;
@@ -87,16 +87,18 @@ struct MachineRuntimePersistenceRecord {
     uint64_t entity_guid = 0;
 
     std::string machine_id;
-    MachineRuntimeItemStack input;
+    std::vector<MachineRuntimeItemStack> input_slots;
     std::vector<MachineRuntimeItemStack> output_slots;
 
     int32_t stored_energy = 0;
     int32_t energy_capacity = 0;
+    int32_t max_input_slots = 4;
     int32_t max_output_slots = 4;
     int32_t max_stack_size = 64;
 
     int32_t progress_ticks = 0;
     std::optional<MachineRuntimeRecipeSnapshot> active_recipe;
+    bool activation_requested = false;
     uint8_t run_state = 0;
 };
 

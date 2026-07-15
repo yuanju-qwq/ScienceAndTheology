@@ -9,6 +9,7 @@ add_library(snt_game_world_data STATIC
     world/defs/block_entity_registry.cpp
     world/defs/creature_species.cpp
     world/defs/machine_collision_overlay.cpp
+    world/defs/machine_structure_validator.cpp
 )
 target_include_directories(snt_game_world_data PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -81,7 +82,7 @@ target_link_libraries(snt_game_identity PUBLIC
 
 # Game-owned authoritative replication semantics. This target stays headless:
 # snt_network owns transport framing while this module owns game message
-# versions, authenticated command admission, and future AOI/snapshot contracts.
+# versions, authenticated command admission, and AOI/snapshot value contracts.
 add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
     network/game_client_replication_session.cpp
@@ -109,6 +110,7 @@ add_library(snt_game_simulation STATIC
     client/game_content_registry.cpp
     client/machine_tick_system.cpp
     quest/quest_registry.cpp
+    simulation/machine_interaction_service.cpp
     simulation/machine_runtime_persistence.cpp
     simulation/science_and_theology_simulation_session.cpp
 )
@@ -235,6 +237,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
+        tests/test_machine_interaction_service.cpp
+        tests/test_machine_structure_validator.cpp
         tests/test_machine_runtime_persistence.cpp
         tests/test_game_components.cpp
         tests/test_player_identity.cpp

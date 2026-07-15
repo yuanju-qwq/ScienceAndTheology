@@ -46,7 +46,7 @@ struct MachineItemStack {
 // the tick loop and never contains GameContentRegistry or AngelScript references.
 struct MachineRecipeSnapshot {
     std::string id;
-    std::string input_item_id;
+    std::vector<MachineItemStack> inputs;
     std::vector<MachineItemStack> outputs;
     int32_t duration_ticks = 0;
     int32_t energy_per_tick = 0;
@@ -56,6 +56,7 @@ enum class MachineRunState : uint8_t {
     Idle,
     Running,
     NoMatchingRecipe,
+    WaitingForActivation,
     WaitingForEnergy,
     WaitingForOutput,
 };
@@ -67,16 +68,22 @@ enum class MachineRunState : uint8_t {
 // at the controlled save boundary instead of being silently omitted.
 struct MachineRuntimeComponent {
     std::string machine_id;
-    MachineItemStack input;
+    std::vector<MachineItemStack> input_slots;
     std::vector<MachineItemStack> output_slots;
 
     int32_t stored_energy = 0;
     int32_t energy_capacity = 0;
+    int32_t max_input_slots = 4;
     int32_t max_output_slots = 4;
     int32_t max_stack_size = 64;
 
     int32_t progress_ticks = 0;
     std::optional<MachineRecipeSnapshot> active_recipe;
+    // MachineInteractionService sets this only on a manual machine after the
+    // main-thread player-command boundary validates interaction, structure,
+    // tools, cover, and ignition. The worker consumes it once when it
+    // reserves a matching recipe's inputs.
+    bool activation_requested = false;
     MachineRunState state = MachineRunState::Idle;
 };
 

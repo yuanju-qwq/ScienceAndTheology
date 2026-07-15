@@ -22,6 +22,7 @@ struct MachineWorkItem {
     snt::ecs::EntityGuid entity_guid;
     MachineRuntimeComponent machine;
     std::vector<RecipeDefinition> recipes;
+    bool requires_manual_activation = false;
 };
 
 struct MachineTickResult {
@@ -42,6 +43,7 @@ const char* state_name(MachineRunState state) {
         case MachineRunState::Idle: return "idle";
         case MachineRunState::Running: return "running";
         case MachineRunState::NoMatchingRecipe: return "no_matching_recipe";
+        case MachineRunState::WaitingForActivation: return "waiting_for_activation";
         case MachineRunState::WaitingForEnergy: return "waiting_for_energy";
         case MachineRunState::WaitingForOutput: return "waiting_for_output";
     }
@@ -51,7 +53,10 @@ const char* state_name(MachineRunState state) {
 MachineRecipeSnapshot make_snapshot(const RecipeDefinition& recipe) {
     MachineRecipeSnapshot snapshot;
     snapshot.id = recipe.id;
-    snapshot.input_item_id = recipe.input_item_id;
+    snapshot.inputs.reserve(recipe.inputs.size());
+    for (const auto& input : recipe.inputs) {
+        snapshot.inputs.push_back({input.item_id, input.count});
+    }
     snapshot.duration_ticks = recipe.duration_ticks;
     snapshot.energy_per_tick = recipe.energy_per_tick;
     snapshot.outputs.reserve(recipe.outputs.size());
@@ -73,6 +78,42 @@ void normalize_output_slots(MachineRuntimeComponent& machine) {
     std::erase_if(machine.output_slots, [](const MachineItemStack& slot) {
         return slot.empty();
     });
+}
+
+void normalize_input_slots(MachineRuntimeComponent& machine) {
+    for (auto& slot : machine.input_slots) normalize_stack(slot);
+    std::erase_if(machine.input_slots, [](const MachineItemStack& slot) {
+        return slot.empty();
+    });
+}
+
+bool has_required_inputs(const std::vector<MachineItemStack>& slots,
+                         const std::vector<MachineItemStack>& requirements) {
+    for (const MachineItemStack& requirement : requirements) {
+        if (requirement.empty()) return false;
+        int64_t available = 0;
+        for (const MachineItemStack& slot : slots) {
+            if (slot.item_id == requirement.item_id) available += slot.count;
+        }
+        if (available < requirement.count) return false;
+    }
+    return true;
+}
+
+bool reserve_inputs(MachineRuntimeComponent& machine,
+                    const std::vector<MachineItemStack>& requirements) {
+    if (!has_required_inputs(machine.input_slots, requirements)) return false;
+    for (const MachineItemStack& requirement : requirements) {
+        int32_t remaining = requirement.count;
+        for (MachineItemStack& slot : machine.input_slots) {
+            if (slot.item_id != requirement.item_id || remaining == 0) continue;
+            const int32_t consumed = std::min(slot.count, remaining);
+            slot.count -= consumed;
+            remaining -= consumed;
+        }
+    }
+    normalize_input_slots(machine);
+    return true;
 }
 
 bool insert_outputs(std::vector<MachineItemStack>& slots,
@@ -157,36 +198,52 @@ void publish_completion(MachineTickResult& result, const std::string& recipe_id)
 }
 
 void tick_machine(MachineTickResult& result,
-                  const std::vector<RecipeDefinition>& recipes) {
+                  const std::vector<RecipeDefinition>& recipes,
+                  bool requires_manual_activation) {
     MachineRuntimeComponent& machine = result.machine;
-    normalize_stack(machine.input);
+    normalize_input_slots(machine);
     normalize_output_slots(machine);
     machine.stored_energy = std::max(machine.stored_energy, 0);
 
     if (!machine.active_recipe) {
-        if (machine.input.empty()) {
+        if (machine.input_slots.empty()) {
+            machine.activation_requested = false;
             transition(result, MachineRunState::Idle, "");
             return;
         }
 
         const auto recipe = std::find_if(recipes.begin(), recipes.end(), [&machine](const auto& value) {
-            return value.input_item_id == machine.input.item_id;
+            std::vector<MachineItemStack> requirements;
+            requirements.reserve(value.inputs.size());
+            for (const RecipeInputDefinition& input : value.inputs) {
+                requirements.push_back({input.item_id, input.count});
+            }
+            return has_required_inputs(machine.input_slots, requirements);
         });
         if (recipe == recipes.end()) {
+            machine.activation_requested = false;
             transition(result, MachineRunState::NoMatchingRecipe, "");
             return;
         }
 
         MachineRecipeSnapshot snapshot = make_snapshot(*recipe);
+        if (requires_manual_activation && !machine.activation_requested) {
+            transition(result, MachineRunState::WaitingForActivation, snapshot.id);
+            return;
+        }
         if (!can_accept_outputs(machine, snapshot)) {
+            machine.activation_requested = false;
             transition(result, MachineRunState::WaitingForOutput, snapshot.id);
             return;
         }
 
-        // Reserve exactly one input at start. This copy is later applied as
+        // Reserve every recipe input at start. This copy is later applied as
         // one deterministic World command at the fixed-tick barrier.
-        --machine.input.count;
-        normalize_stack(machine.input);
+        if (!reserve_inputs(machine, snapshot.inputs)) {
+            transition(result, MachineRunState::NoMatchingRecipe, snapshot.id);
+            return;
+        }
+        machine.activation_requested = false;
         machine.progress_ticks = 0;
         machine.active_recipe = std::move(snapshot);
     }
@@ -233,7 +290,7 @@ MachineTickResult compute_tick_result(const MachineWorkItem& work_item) {
         work_item.machine,
         {},
     };
-    tick_machine(result, work_item.recipes);
+    tick_machine(result, work_item.recipes, work_item.requires_manual_activation);
     return result;
 }
 
@@ -338,12 +395,17 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
             world.guid_of(entity),
             machine,
             {},
+            false,
         };
 
         // GameContentRegistry is main-thread-only. Copy only the candidate
         // recipes needed by an idle machine; active work already owns its snapshot.
-        if (!work_item.machine.active_recipe && !work_item.machine.input.empty()) {
+        if (!work_item.machine.active_recipe && !work_item.machine.input_slots.empty()) {
             work_item.recipes = content_registry_.recipes_for_machine(work_item.machine.machine_id);
+            if (const MachineDefinition* definition =
+                    content_registry_.find_machine(work_item.machine.machine_id)) {
+                work_item.requires_manual_activation = definition->requires_manual_activation;
+            }
         }
         work_items.push_back(std::move(work_item));
     }

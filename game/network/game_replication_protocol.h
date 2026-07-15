@@ -8,8 +8,10 @@
 #pragma once
 
 #include "core/expected.h"
+#include "ecs/entity_guid.h"
 #include "game/player/player_identity.h"
 #include "network/replication.h"
+#include "voxel/data/voxel_chunk.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -20,7 +22,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 3;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 4;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -28,6 +30,17 @@ inline constexpr size_t kMaxGamePlayerIdBytes = kMaxPlayerAccountIdBytes;
 inline constexpr size_t kMaxGameCredentialBytes = 1024;
 inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameQuestIdBytes = 512;
+inline constexpr size_t kMaxGameDimensionIdBytes = 128;
+inline constexpr size_t kMaxGameChunkSnapshotPayloadBytes = 512u * 1024u;
+inline constexpr size_t kMaxGameEntitySnapshotPayloadBytes = 64u * 1024u;
+inline constexpr size_t kMaxGameSnapshotChunks = 128;
+inline constexpr size_t kMaxGameSnapshotEntities = 4096;
+inline constexpr size_t kMaxGameDeltaChunks = 128;
+inline constexpr size_t kMaxGameBlockDeltasPerChunk =
+    static_cast<size_t>(snt::voxel::VoxelChunk::kChunkSize) *
+    static_cast<size_t>(snt::voxel::VoxelChunk::kChunkSize) *
+    static_cast<size_t>(snt::voxel::VoxelChunk::kChunkSize);
+inline constexpr size_t kMaxGameBlockDeltas = 16384;
 
 // Client and server message ranges are intentionally distinct. New message
 // kinds must be added here before a handler accepts them, so an unrecognized
@@ -103,6 +116,47 @@ struct GameQuestAcceptCommand {
     std::string quest_id;
 };
 
+// Snapshot and delta payloads deliberately keep world/actor semantics opaque.
+// Snapshot is snapshot_id plus chunk/entity blob lists; Delta is a snapshot
+// base id, monotonic sequence, block changes, and entity blobs. The game
+// provider owns each blob schema, while this codec guarantees a bounded,
+// deterministic outer shape that can be budgeted before handing bytes to
+// snt_network. A later Sector migration replaces ChunkKey in this latest-only
+// protocol rather than adding a coordinate compatibility path.
+struct GameChunkSnapshot {
+    snt::voxel::ChunkKey chunk;
+    std::vector<std::byte> payload;
+};
+
+struct GameEntitySnapshot {
+    snt::ecs::EntityGuid entity_guid;
+    std::vector<std::byte> payload;
+};
+
+struct GameSnapshot {
+    uint64_t snapshot_id = 0;
+    std::vector<GameChunkSnapshot> chunks;
+    std::vector<GameEntitySnapshot> entities;
+};
+
+struct GameBlockDelta {
+    uint16_t local_index = 0;
+    snt::voxel::TerrainMaterialId material = 0;
+    uint32_t flags = 0;
+};
+
+struct GameChunkDelta {
+    snt::voxel::ChunkKey chunk;
+    std::vector<GameBlockDelta> blocks;
+};
+
+struct GameDelta {
+    uint64_t base_snapshot_id = 0;
+    uint64_t sequence = 0;
+    std::vector<GameChunkDelta> chunks;
+    std::vector<GameEntitySnapshot> entities;
+};
+
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_login_request(
     const GameLoginRequest& request);
 [[nodiscard]] snt::core::Expected<GameLoginRequest> parse_game_login_request(
@@ -122,5 +176,15 @@ struct GameQuestAcceptCommand {
     uint64_t client_sequence, const GameQuestAcceptCommand& command);
 [[nodiscard]] snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
     const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_snapshot(
+    const GameSnapshot& snapshot);
+[[nodiscard]] snt::core::Expected<GameSnapshot> parse_game_snapshot(
+    const GameReplicationMessage& message);
+
+[[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_delta(
+    const GameDelta& delta);
+[[nodiscard]] snt::core::Expected<GameDelta> parse_game_delta(
+    const GameReplicationMessage& message);
 
 }  // namespace snt::game::replication

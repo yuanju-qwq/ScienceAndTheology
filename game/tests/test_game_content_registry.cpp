@@ -12,13 +12,14 @@ namespace {
 using snt::game::EventListener;
 using snt::game::GameContentRegistry;
 using snt::game::RecipeDefinition;
+using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
 
 RecipeDefinition make_recipe(std::string id, std::string input) {
     RecipeDefinition recipe;
     recipe.id = std::move(id);
     recipe.machine_id = "furnace";
-    recipe.input_item_id = std::move(input);
+    recipe.inputs = {RecipeInputDefinition{std::move(input), 1}};
     recipe.outputs = {RecipeOutputDefinition{"iron_ingot", 1}};
     recipe.duration_ticks = 100;
     return recipe;
@@ -32,11 +33,11 @@ TEST(GameContentRegistryTest, ScriptOverrideIsRemovedAndBuiltinFallbackRestored)
     ASSERT_TRUE(content.register_script_recipe(42, make_recipe("iron", "rich_iron_ore")));
 
     ASSERT_NE(content.find_recipe("iron"), nullptr);
-    EXPECT_EQ(content.find_recipe("iron")->input_item_id, "rich_iron_ore");
+    EXPECT_EQ(content.find_recipe("iron")->inputs.front().item_id, "rich_iron_ore");
 
     ASSERT_TRUE(content.unload_script(42));
     ASSERT_NE(content.find_recipe("iron"), nullptr);
-    EXPECT_EQ(content.find_recipe("iron")->input_item_id, "iron_ore");
+    EXPECT_EQ(content.find_recipe("iron")->inputs.front().item_id, "iron_ore");
 }
 
 TEST(GameContentRegistryTest, RollbackRestoresPreviousScriptContentAndState) {
@@ -48,7 +49,7 @@ TEST(GameContentRegistryTest, RollbackRestoresPreviousScriptContentAndState) {
 
     ASSERT_TRUE(content.begin_reload(7));
     ASSERT_NE(content.find_recipe("copper"), nullptr);
-    EXPECT_EQ(content.find_recipe("copper")->input_item_id, "copper_ore");
+    EXPECT_EQ(content.find_recipe("copper")->inputs.front().item_id, "copper_ore");
     EXPECT_TRUE(content.event_listeners("machine.tick").empty());
 
     ASSERT_TRUE(content.register_script_recipe(7, make_recipe("copper", "broken_copper_ore")));
@@ -56,7 +57,7 @@ TEST(GameContentRegistryTest, RollbackRestoresPreviousScriptContentAndState) {
     ASSERT_TRUE(content.rollback_reload(7));
 
     ASSERT_NE(content.find_recipe("copper"), nullptr);
-    EXPECT_EQ(content.find_recipe("copper")->input_item_id, "dense_copper_ore");
+    EXPECT_EQ(content.find_recipe("copper")->inputs.front().item_id, "dense_copper_ore");
     ASSERT_EQ(content.event_listeners("machine.tick").size(), 1U);
     EXPECT_EQ(content.event_listeners("machine.tick")[0].callback_id, "tick_copper");
     EXPECT_EQ(content.get_state(7, "furnace.temperature"), "840");
@@ -72,7 +73,7 @@ TEST(GameContentRegistryTest, CommitKeepsReplacementAndRejectsDefinitionCollisio
     ASSERT_TRUE(content.commit_reload(10));
 
     ASSERT_NE(content.find_recipe("bronze"), nullptr);
-    EXPECT_EQ(content.find_recipe("bronze")->input_item_id, "copper_dust");
+    EXPECT_EQ(content.find_recipe("bronze")->inputs.front().item_id, "copper_dust");
 }
 
 TEST(GameContentRegistryTest, EventListenersAreStableAndStateIsIsolatedByScript) {

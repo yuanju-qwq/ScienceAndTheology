@@ -13,6 +13,7 @@
 #include "engine/simulation_session.h"
 #include "game/client/game_content_registry.h"
 #include "game/client/game_session_config.h"
+#include "game/simulation/machine_interaction_service.h"
 #include "game/quest/quest_registry.h"
 #include "game/world/game_chunk.h"
 
@@ -48,12 +49,16 @@ public:
     void shutdown() noexcept override;
 
     QuestRegistry& quests() noexcept { return quest_registry_; }
+    MachineInteractionService& machine_interactions() noexcept {
+        return machine_interactions_;
+    }
 
 private:
     GameSessionConfig config_;
     snt::engine::SimulationServices* services_ = nullptr;
     GameContentRegistry content_registry_;
     QuestRegistry quest_registry_;
+    MachineInteractionService machine_interactions_;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
     snt::ecs::World* world_ = nullptr;

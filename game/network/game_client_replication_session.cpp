@@ -22,6 +22,9 @@ namespace snt::game::replication {
 namespace {
 
 constexpr size_t kMaxQueuedClientGameBytes = 512u * 1024u;
+constexpr size_t kMaxQueuedClientReplicationUpdates = 64;
+constexpr size_t kMaxQueuedClientReplicationBytes =
+    kGameReplicationHeaderBytes + kMaxGameReplicationPayloadBytes;
 
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
@@ -119,7 +122,9 @@ public:
             case GameReplicationMessageKind::kServerLoginAccepted:
                 return handle_login_accepted(*message);
             case GameReplicationMessageKind::kServerSnapshot:
+                return handle_snapshot(*message, frame.payload.size());
             case GameReplicationMessageKind::kServerDelta:
+                return handle_delta(*message, frame.payload.size());
             case GameReplicationMessageKind::kServerNotice:
                 return snt::core::Error{
                     snt::core::ErrorCode::kNotImplemented,
@@ -142,6 +147,11 @@ public:
         status_.authenticated_identity.reset();
         pending_outbound_.clear();
         pending_outbound_bytes_ = 0;
+        pending_replication_updates_.clear();
+        pending_replication_bytes_ = 0;
+        has_snapshot_ = false;
+        active_snapshot_id_ = 0;
+        last_delta_sequence_ = 0;
         SNT_LOG_WARN("Game client replication server disconnected%s: %.*s",
                      was_authenticated ? " after login" : " before login",
                      static_cast<int>(reason.size()), reason.data());
@@ -191,6 +201,16 @@ public:
         status_.authenticated_identity.reset();
         pending_outbound_.clear();
         pending_outbound_bytes_ = 0;
+        pending_replication_updates_.clear();
+        pending_replication_bytes_ = 0;
+        has_snapshot_ = false;
+        active_snapshot_id_ = 0;
+        last_delta_sequence_ = 0;
+    }
+
+    [[nodiscard]] std::vector<GameClientReplicationUpdate> drain_replication_updates() {
+        pending_replication_bytes_ = 0;
+        return std::exchange(pending_replication_updates_, {});
     }
 
 private:
@@ -234,11 +254,69 @@ private:
         return {};
     }
 
+    [[nodiscard]] snt::core::Expected<void> handle_snapshot(
+        const GameReplicationMessage& message, size_t wire_bytes) {
+        if (status_.state != GameClientConnectionState::kAuthenticated) {
+            return protocol_error("Game client received Snapshot before LoginAccepted");
+        }
+        auto snapshot = parse_game_snapshot(message);
+        if (!snapshot) return snapshot.error();
+        const uint64_t snapshot_id = snapshot->snapshot_id;
+        if (auto result = queue_replication_update(std::move(*snapshot), wire_bytes); !result) {
+            return result.error();
+        }
+
+        has_snapshot_ = true;
+        active_snapshot_id_ = snapshot_id;
+        last_delta_sequence_ = 0;
+        SNT_LOG_INFO("Game client queued snapshot %llu",
+                     static_cast<unsigned long long>(active_snapshot_id_));
+        return {};
+    }
+
+    [[nodiscard]] snt::core::Expected<void> handle_delta(
+        const GameReplicationMessage& message, size_t wire_bytes) {
+        if (status_.state != GameClientConnectionState::kAuthenticated) {
+            return protocol_error("Game client received Delta before LoginAccepted");
+        }
+        auto delta = parse_game_delta(message);
+        if (!delta) return delta.error();
+        if (!has_snapshot_ || delta->base_snapshot_id != active_snapshot_id_) {
+            return protocol_error("Game client Delta does not match the active snapshot");
+        }
+        if (last_delta_sequence_ != 0 && delta->sequence <= last_delta_sequence_) {
+            return protocol_error("Game client Delta sequence must increase strictly");
+        }
+        const uint64_t delta_sequence = delta->sequence;
+        if (auto result = queue_replication_update(std::move(*delta), wire_bytes); !result) {
+            return result.error();
+        }
+        last_delta_sequence_ = delta_sequence;
+        return {};
+    }
+
+    [[nodiscard]] snt::core::Expected<void> queue_replication_update(
+        GameClientReplicationUpdate update, size_t wire_bytes) {
+        if (wire_bytes > kMaxQueuedClientReplicationBytes ||
+            pending_replication_updates_.size() >= kMaxQueuedClientReplicationUpdates ||
+            pending_replication_bytes_ > kMaxQueuedClientReplicationBytes - wire_bytes) {
+            return protocol_error("Game client replication update queue limit exceeded");
+        }
+        pending_replication_bytes_ += wire_bytes;
+        pending_replication_updates_.push_back(std::move(update));
+        return {};
+    }
+
     GameClientAuthentication authentication_;
     snt::network::PeerId server_peer_ = snt::network::kInvalidPeerId;
     GameClientReplicationStatus status_;
     std::vector<PendingOutboundMessage> pending_outbound_;
     size_t pending_outbound_bytes_ = 0;
+    std::vector<GameClientReplicationUpdate> pending_replication_updates_;
+    size_t pending_replication_bytes_ = 0;
+    bool has_snapshot_ = false;
+    uint64_t active_snapshot_id_ = 0;
+    uint64_t last_delta_sequence_ = 0;
     uint64_t last_command_sequence_ = 0;
     bool has_last_command_sequence_ = false;
 };
@@ -317,6 +395,12 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_quest_accept(
     auto encoded = make_game_quest_accept_command(client_sequence, command);
     if (!encoded) return encoded.error();
     return enqueue_command(std::move(*encoded));
+}
+
+std::vector<GameClientReplicationUpdate>
+GameClientReplicationSession::drain_replication_updates() {
+    if (!impl_ || !impl_->handler) return {};
+    return impl_->handler->drain_replication_updates();
 }
 
 GameClientReplicationStatus GameClientReplicationSession::status() const {

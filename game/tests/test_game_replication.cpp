@@ -21,6 +21,7 @@
 #include <thread>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace {
 
@@ -28,8 +29,10 @@ using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameClientCommand;
 using snt::game::replication::GameClientCommandType;
 using snt::game::replication::GameLoginRequest;
+using snt::game::replication::GameDelta;
 using snt::game::replication::GameReplicationMessage;
 using snt::game::replication::GameReplicationMessageKind;
+using snt::game::replication::GameSnapshot;
 using snt::game::GameContentRegistry;
 using snt::game::PlayerIdentity;
 using snt::game::PlayerIdentityProvider;
@@ -200,6 +203,10 @@ class RecordingFrameSink final : public snt::network::IReplicationFrameSink {
 public:
     snt::core::Expected<void> send(snt::network::PeerId peer,
                                    const snt::network::ReplicationFrame& frame) override {
+        if (reject_sends) {
+            return snt::core::Error{snt::core::ErrorCode::kNetworkIoFailed,
+                                    "test frame sink rejected send"};
+        }
         sent.emplace_back(peer, frame);
         return {};
     }
@@ -218,6 +225,64 @@ public:
     std::vector<std::pair<snt::network::PeerId, snt::network::ReplicationFrame>> sent;
     std::vector<snt::network::ReplicationFrame> broadcasts;
     std::vector<std::pair<snt::network::PeerId, std::string>> disconnected;
+    bool reject_sends = false;
+};
+
+class RecordingInterestProvider final
+    : public snt::game::replication::IGameReplicationInterestProvider {
+public:
+    snt::core::Expected<snt::game::replication::GameReplicationInterest> compute_interest(
+        const GameAuthenticatedPeer& peer,
+        const snt::network::ReplicationTickContext& context) override {
+        ++call_count;
+        last_peer = peer;
+        last_tick = context.tick_index;
+        return interest;
+    }
+
+    snt::game::replication::GameReplicationInterest interest;
+    int call_count = 0;
+    GameAuthenticatedPeer last_peer;
+    uint64_t last_tick = 0;
+};
+
+class RecordingSnapshotSource final
+    : public snt::game::replication::IGameReplicationSnapshotSource {
+public:
+    snt::core::Expected<std::vector<GameReplicationMessage>> build_initial_snapshot(
+        const GameAuthenticatedPeer& peer,
+        const snt::game::replication::GameReplicationInterest& interest,
+        const snt::game::replication::GameReplicationBudget& budget,
+        const snt::network::ReplicationTickContext& context) override {
+        ++initial_call_count;
+        last_peer = peer;
+        last_interest = interest;
+        last_budget = budget;
+        last_tick = context.tick_index;
+        return initial_messages;
+    }
+
+    snt::core::Expected<std::vector<GameReplicationMessage>> build_deltas(
+        const GameAuthenticatedPeer& peer,
+        const snt::game::replication::GameReplicationInterest& interest,
+        const snt::game::replication::GameReplicationBudget& budget,
+        const snt::network::ReplicationTickContext& context) override {
+        ++delta_call_count;
+        last_peer = peer;
+        last_interest = interest;
+        last_budget = budget;
+        last_tick = context.tick_index;
+        return delta_messages;
+    }
+
+    std::vector<GameReplicationMessage> initial_messages;
+    std::vector<GameReplicationMessage> delta_messages;
+    int initial_call_count = 0;
+    int delta_call_count = 0;
+    GameAuthenticatedPeer last_peer;
+    snt::game::replication::GameReplicationInterest last_interest;
+    snt::game::replication::GameReplicationBudget last_budget;
+    uint64_t last_tick = 0;
 };
 
 // Deterministic transport for client-handler state transitions that should
@@ -269,6 +334,35 @@ snt::network::ReplicationFrame make_frame(const GameReplicationMessage& message,
     };
 }
 
+GameSnapshot make_test_snapshot(uint64_t snapshot_id) {
+    GameSnapshot snapshot;
+    snapshot.snapshot_id = snapshot_id;
+    snt::game::replication::GameChunkSnapshot chunk;
+    chunk.chunk = snt::voxel::ChunkKey{"overworld", -2, 3, 7};
+    chunk.payload = bytes_from_text("chunk snapshot");
+    snapshot.chunks.push_back(std::move(chunk));
+    snt::game::replication::GameEntitySnapshot entity;
+    entity.entity_guid = {.value = 101};
+    entity.payload = bytes_from_text("entity snapshot");
+    snapshot.entities.push_back(std::move(entity));
+    return snapshot;
+}
+
+GameDelta make_test_delta(uint64_t snapshot_id, uint64_t sequence) {
+    GameDelta delta;
+    delta.base_snapshot_id = snapshot_id;
+    delta.sequence = sequence;
+    snt::game::replication::GameChunkDelta chunk;
+    chunk.chunk = snt::voxel::ChunkKey{"overworld", -2, 3, 7};
+    chunk.blocks.push_back({.local_index = 37, .material = 9, .flags = 0x5u});
+    delta.chunks.push_back(std::move(chunk));
+    snt::game::replication::GameEntitySnapshot entity;
+    entity.entity_guid = {.value = 102};
+    entity.payload = bytes_from_text("entity delta");
+    delta.entities.push_back(std::move(entity));
+    return delta;
+}
+
 TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
     const GameLoginRequest request{
         .identity_provider = PlayerIdentityProvider::kSteam,
@@ -308,6 +402,52 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
     auto parsed_quest_accept = snt::game::replication::parse_game_quest_accept_command(*quest_accept);
     ASSERT_TRUE(parsed_quest_accept) << parsed_quest_accept.error().format();
     EXPECT_EQ(parsed_quest_accept->quest_id, "network.quest.accept");
+}
+
+TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 4u);
+
+    const GameSnapshot snapshot = make_test_snapshot(73);
+    auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
+    ASSERT_TRUE(snapshot_message) << snapshot_message.error().format();
+    auto snapshot_wire = snt::game::replication::encode_game_replication_message(*snapshot_message);
+    ASSERT_TRUE(snapshot_wire) << snapshot_wire.error().format();
+    auto snapshot_envelope = snt::game::replication::decode_game_replication_message(*snapshot_wire);
+    ASSERT_TRUE(snapshot_envelope) << snapshot_envelope.error().format();
+    auto parsed_snapshot = snt::game::replication::parse_game_snapshot(*snapshot_envelope);
+    ASSERT_TRUE(parsed_snapshot) << parsed_snapshot.error().format();
+    EXPECT_EQ(parsed_snapshot->snapshot_id, snapshot.snapshot_id);
+    ASSERT_EQ(parsed_snapshot->chunks.size(), 1u);
+    EXPECT_EQ(parsed_snapshot->chunks.front().chunk.dimension_id, "overworld");
+    EXPECT_EQ(parsed_snapshot->chunks.front().chunk.chunk_x, -2);
+    EXPECT_EQ(parsed_snapshot->chunks.front().payload, bytes_from_text("chunk snapshot"));
+    ASSERT_EQ(parsed_snapshot->entities.size(), 1u);
+    EXPECT_EQ(parsed_snapshot->entities.front().entity_guid.value, 101u);
+
+    const GameDelta delta = make_test_delta(snapshot.snapshot_id, 1);
+    auto delta_message = snt::game::replication::make_game_delta(delta);
+    ASSERT_TRUE(delta_message) << delta_message.error().format();
+    auto delta_wire = snt::game::replication::encode_game_replication_message(*delta_message);
+    ASSERT_TRUE(delta_wire) << delta_wire.error().format();
+    auto delta_envelope = snt::game::replication::decode_game_replication_message(*delta_wire);
+    ASSERT_TRUE(delta_envelope) << delta_envelope.error().format();
+    auto parsed_delta = snt::game::replication::parse_game_delta(*delta_envelope);
+    ASSERT_TRUE(parsed_delta) << parsed_delta.error().format();
+    EXPECT_EQ(parsed_delta->base_snapshot_id, snapshot.snapshot_id);
+    EXPECT_EQ(parsed_delta->sequence, 1u);
+    ASSERT_EQ(parsed_delta->chunks.size(), 1u);
+    ASSERT_EQ(parsed_delta->chunks.front().blocks.size(), 1u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().local_index, 37u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().material, 9u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().flags, 0x5u);
+
+    GameSnapshot duplicate_chunk = snapshot;
+    duplicate_chunk.chunks.push_back(duplicate_chunk.chunks.front());
+    EXPECT_FALSE(snt::game::replication::make_game_snapshot(duplicate_chunk));
+
+    GameDelta duplicate_block = delta;
+    duplicate_block.chunks.front().blocks.push_back(duplicate_block.chunks.front().blocks.front());
+    EXPECT_FALSE(snt::game::replication::make_game_delta(duplicate_block));
 }
 
 TEST(GameReplicationProtocolTest, RejectsInvalidEnvelopeAndUnreliableMessages) {
@@ -400,6 +540,177 @@ TEST(GameReplicationHandlerTest, AuthenticatesThenQueuesCommandsAndAcknowledgesL
     EXPECT_EQ(player_lifecycle.disconnected_call_count, 1);
     EXPECT_EQ(player_lifecycle.disconnected_peer.peer, kPeer);
     EXPECT_EQ(player_lifecycle.disconnect_reason, "test complete");
+}
+
+TEST(GameReplicationHandlerTest, EmitsBoundedSnapshotThenDeltasFromGameProviders) {
+    RecordingAuthenticator authenticator;
+    RecordingInterestProvider interest_provider;
+    interest_provider.interest.chunks.emplace_back("overworld", -2, 3, 7);
+    RecordingSnapshotSource snapshot_source;
+    auto snapshot = snt::game::replication::make_game_snapshot(make_test_snapshot(91));
+    ASSERT_TRUE(snapshot) << snapshot.error().format();
+    snapshot_source.initial_messages.push_back(std::move(*snapshot));
+    auto delta = snt::game::replication::make_game_delta(make_test_delta(91, 1));
+    ASSERT_TRUE(delta) << delta.error().format();
+    snapshot_source.delta_messages.push_back(std::move(*delta));
+
+    const snt::game::replication::GameReplicationBudget budget{
+        .max_reliable_bytes_per_tick = 4096,
+        .max_chunk_snapshots_per_tick = 1,
+        .max_entity_snapshots_per_tick = 2,
+        .max_block_deltas_per_tick = 1,
+    };
+    snt::game::replication::GameServerReplicationHandler handler(
+        authenticator, nullptr, nullptr, &interest_provider, &snapshot_source, budget);
+    const snt::network::ReplicationTickContext login_context{
+        .tick_index = 41,
+        .delta_seconds = 0.05f,
+    };
+    constexpr snt::network::PeerId kPeer = 118;
+    ASSERT_TRUE(handler.on_peer_connected(kPeer, login_context));
+    auto login = snt::game::replication::make_game_login_request({
+        .identity_provider = PlayerIdentityProvider::kLocalName,
+        .display_name = "Alice",
+    });
+    ASSERT_TRUE(login) << login.error().format();
+    ASSERT_TRUE(handler.on_frame(kPeer, make_frame(*login), login_context));
+
+    RecordingFrameSink initial_sink;
+    ASSERT_TRUE(handler.emit_outbound(login_context, initial_sink));
+    ASSERT_EQ(initial_sink.sent.size(), 2u);
+    EXPECT_EQ(interest_provider.call_count, 1);
+    EXPECT_EQ(snapshot_source.initial_call_count, 1);
+    EXPECT_EQ(snapshot_source.delta_call_count, 0);
+    EXPECT_EQ(snapshot_source.last_peer.peer, kPeer);
+    EXPECT_EQ(snapshot_source.last_budget.max_chunk_snapshots_per_tick, 1u);
+    auto snapshot_envelope = snt::game::replication::decode_game_replication_message(
+        initial_sink.sent[1].second.payload);
+    ASSERT_TRUE(snapshot_envelope) << snapshot_envelope.error().format();
+    auto parsed_snapshot = snt::game::replication::parse_game_snapshot(*snapshot_envelope);
+    ASSERT_TRUE(parsed_snapshot) << parsed_snapshot.error().format();
+    EXPECT_EQ(parsed_snapshot->snapshot_id, 91u);
+
+    const snt::network::ReplicationTickContext delta_context{
+        .tick_index = 42,
+        .delta_seconds = 0.05f,
+    };
+    RecordingFrameSink delta_sink;
+    ASSERT_TRUE(handler.emit_outbound(delta_context, delta_sink));
+    ASSERT_EQ(delta_sink.sent.size(), 1u);
+    EXPECT_EQ(interest_provider.call_count, 2);
+    EXPECT_EQ(snapshot_source.initial_call_count, 1);
+    EXPECT_EQ(snapshot_source.delta_call_count, 1);
+    auto delta_envelope = snt::game::replication::decode_game_replication_message(
+        delta_sink.sent.front().second.payload);
+    ASSERT_TRUE(delta_envelope) << delta_envelope.error().format();
+    auto parsed_delta = snt::game::replication::parse_game_delta(*delta_envelope);
+    ASSERT_TRUE(parsed_delta) << parsed_delta.error().format();
+    EXPECT_EQ(parsed_delta->base_snapshot_id, 91u);
+    EXPECT_EQ(parsed_delta->sequence, 1u);
+}
+
+TEST(GameReplicationHandlerTest, RejectsOverBudgetProviderOutputWithoutPartialFrames) {
+    RecordingAuthenticator authenticator;
+    RecordingInterestProvider interest_provider;
+    RecordingSnapshotSource snapshot_source;
+    auto snapshot = snt::game::replication::make_game_snapshot(make_test_snapshot(101));
+    ASSERT_TRUE(snapshot) << snapshot.error().format();
+    snapshot_source.initial_messages.push_back(std::move(*snapshot));
+    auto first_delta = snt::game::replication::make_game_delta(make_test_delta(101, 1));
+    ASSERT_TRUE(first_delta) << first_delta.error().format();
+    auto second_delta = snt::game::replication::make_game_delta(make_test_delta(101, 2));
+    ASSERT_TRUE(second_delta) << second_delta.error().format();
+    snapshot_source.delta_messages = {std::move(*first_delta), std::move(*second_delta)};
+
+    const snt::game::replication::GameReplicationBudget budget{
+        .max_reliable_bytes_per_tick = 4096,
+        .max_chunk_snapshots_per_tick = 1,
+        .max_entity_snapshots_per_tick = 4,
+        .max_block_deltas_per_tick = 1,
+    };
+    snt::game::replication::GameServerReplicationHandler handler(
+        authenticator, nullptr, nullptr, &interest_provider, &snapshot_source, budget);
+    const snt::network::ReplicationTickContext login_context{
+        .tick_index = 51,
+        .delta_seconds = 0.05f,
+    };
+    constexpr snt::network::PeerId kPeer = 119;
+    ASSERT_TRUE(handler.on_peer_connected(kPeer, login_context));
+    auto login = snt::game::replication::make_game_login_request({
+        .identity_provider = PlayerIdentityProvider::kLocalName,
+        .display_name = "Alice",
+    });
+    ASSERT_TRUE(login) << login.error().format();
+    ASSERT_TRUE(handler.on_frame(kPeer, make_frame(*login), login_context));
+
+    RecordingFrameSink initial_sink;
+    ASSERT_TRUE(handler.emit_outbound(login_context, initial_sink));
+    ASSERT_EQ(initial_sink.sent.size(), 2u);
+
+    const snt::network::ReplicationTickContext delta_context{
+        .tick_index = 52,
+        .delta_seconds = 0.05f,
+    };
+    RecordingFrameSink delta_sink;
+    const auto rejected = handler.emit_outbound(delta_context, delta_sink);
+    ASSERT_FALSE(rejected);
+    EXPECT_EQ(rejected.error().code(), snt::core::ErrorCode::kProtocolError);
+    EXPECT_TRUE(delta_sink.sent.empty());
+    EXPECT_EQ(snapshot_source.delta_call_count, 1);
+}
+
+TEST(GameReplicationHandlerTest, WaitsForQueuedSnapshotBeforeProducingMoreReplication) {
+    RecordingAuthenticator authenticator;
+    RecordingInterestProvider interest_provider;
+    RecordingSnapshotSource snapshot_source;
+    auto snapshot = snt::game::replication::make_game_snapshot(make_test_snapshot(102));
+    ASSERT_TRUE(snapshot) << snapshot.error().format();
+    snapshot_source.initial_messages.push_back(std::move(*snapshot));
+    auto delta = snt::game::replication::make_game_delta(make_test_delta(102, 1));
+    ASSERT_TRUE(delta) << delta.error().format();
+    snapshot_source.delta_messages.push_back(std::move(*delta));
+
+    snt::game::replication::GameServerReplicationHandler handler(
+        authenticator, nullptr, nullptr, &interest_provider, &snapshot_source);
+    const snt::network::ReplicationTickContext login_context{
+        .tick_index = 53,
+        .delta_seconds = 0.05f,
+    };
+    constexpr snt::network::PeerId kPeer = 120;
+    ASSERT_TRUE(handler.on_peer_connected(kPeer, login_context));
+    auto login = snt::game::replication::make_game_login_request({
+        .identity_provider = PlayerIdentityProvider::kLocalName,
+        .display_name = "Alice",
+    });
+    ASSERT_TRUE(login) << login.error().format();
+    ASSERT_TRUE(handler.on_frame(kPeer, make_frame(*login), login_context));
+
+    RecordingFrameSink blocked_sink;
+    blocked_sink.reject_sends = true;
+    const auto blocked = handler.emit_outbound(login_context, blocked_sink);
+    ASSERT_FALSE(blocked);
+    EXPECT_EQ(snapshot_source.initial_call_count, 1);
+    EXPECT_EQ(snapshot_source.delta_call_count, 0);
+    EXPECT_TRUE(blocked_sink.sent.empty());
+
+    const snt::network::ReplicationTickContext retry_context{
+        .tick_index = 54,
+        .delta_seconds = 0.05f,
+    };
+    RecordingFrameSink retry_sink;
+    ASSERT_TRUE(handler.emit_outbound(retry_context, retry_sink));
+    ASSERT_EQ(retry_sink.sent.size(), 2u);
+    EXPECT_EQ(snapshot_source.initial_call_count, 1);
+    EXPECT_EQ(snapshot_source.delta_call_count, 0);
+
+    const snt::network::ReplicationTickContext delta_context{
+        .tick_index = 55,
+        .delta_seconds = 0.05f,
+    };
+    RecordingFrameSink delta_sink;
+    ASSERT_TRUE(handler.emit_outbound(delta_context, delta_sink));
+    ASSERT_EQ(delta_sink.sent.size(), 1u);
+    EXPECT_EQ(snapshot_source.delta_call_count, 1);
 }
 
 TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerCommands) {
@@ -735,6 +1046,104 @@ TEST(GameClientReplicationSessionTest, RejectsLoginAcceptedForADifferentLocalAcc
 
     (*session)->shutdown();
     EXPECT_TRUE(transport_view->shutdown_called);
+}
+
+TEST(GameClientReplicationSessionTest, DrainsAuthenticatedSnapshotAndDeltaValueUpdates) {
+    auto transport = std::make_unique<ControlledReplicationTransport>();
+    ControlledReplicationTransport* const transport_view = transport.get();
+    transport_view->peers = {snt::network::kServerPeerId};
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::PeerConnected,
+        .peer = snt::network::kServerPeerId,
+    });
+
+    auto session = snt::game::replication::GameClientReplicationSession::create(
+        std::move(transport),
+        {.local_identity = make_local_identity("SnapshotClient")});
+    ASSERT_TRUE(session) << session.error().format();
+    const snt::network::ReplicationTickContext context{.tick_index = 61, .delta_seconds = 0.05f};
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    ASSERT_TRUE((*session)->emit_outbound(context));
+
+    auto accepted = snt::game::replication::make_game_login_accepted({
+        .identity = make_local_identity("SnapshotClient"),
+    });
+    ASSERT_TRUE(accepted) << accepted.error().format();
+    auto snapshot = snt::game::replication::make_game_snapshot(make_test_snapshot(111));
+    ASSERT_TRUE(snapshot) << snapshot.error().format();
+    auto delta = snt::game::replication::make_game_delta(make_test_delta(111, 1));
+    ASSERT_TRUE(delta) << delta.error().format();
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::FrameReceived,
+        .peer = snt::network::kServerPeerId,
+        .frame = make_frame(*accepted),
+    });
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::FrameReceived,
+        .peer = snt::network::kServerPeerId,
+        .frame = make_frame(*snapshot),
+    });
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::FrameReceived,
+        .peer = snt::network::kServerPeerId,
+        .frame = make_frame(*delta),
+    });
+
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    EXPECT_EQ((*session)->status().state,
+              snt::game::replication::GameClientConnectionState::kAuthenticated);
+    auto updates = (*session)->drain_replication_updates();
+    ASSERT_EQ(updates.size(), 2u);
+    const auto* drained_snapshot = std::get_if<GameSnapshot>(&updates[0]);
+    ASSERT_NE(drained_snapshot, nullptr);
+    EXPECT_EQ(drained_snapshot->snapshot_id, 111u);
+    const auto* drained_delta = std::get_if<GameDelta>(&updates[1]);
+    ASSERT_NE(drained_delta, nullptr);
+    EXPECT_EQ(drained_delta->base_snapshot_id, 111u);
+    EXPECT_EQ(drained_delta->sequence, 1u);
+    EXPECT_TRUE((*session)->drain_replication_updates().empty());
+}
+
+TEST(GameClientReplicationSessionTest, RejectsDeltaThatDoesNotMatchAnAcceptedSnapshot) {
+    auto transport = std::make_unique<ControlledReplicationTransport>();
+    ControlledReplicationTransport* const transport_view = transport.get();
+    transport_view->peers = {snt::network::kServerPeerId};
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::PeerConnected,
+        .peer = snt::network::kServerPeerId,
+    });
+
+    auto session = snt::game::replication::GameClientReplicationSession::create(
+        std::move(transport),
+        {.local_identity = make_local_identity("DeltaClient")});
+    ASSERT_TRUE(session) << session.error().format();
+    const snt::network::ReplicationTickContext context{.tick_index = 62, .delta_seconds = 0.05f};
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    ASSERT_TRUE((*session)->emit_outbound(context));
+
+    auto accepted = snt::game::replication::make_game_login_accepted({
+        .identity = make_local_identity("DeltaClient"),
+    });
+    ASSERT_TRUE(accepted) << accepted.error().format();
+    auto mismatched_delta = snt::game::replication::make_game_delta(make_test_delta(112, 1));
+    ASSERT_TRUE(mismatched_delta) << mismatched_delta.error().format();
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::FrameReceived,
+        .peer = snt::network::kServerPeerId,
+        .frame = make_frame(*accepted),
+    });
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::FrameReceived,
+        .peer = snt::network::kServerPeerId,
+        .frame = make_frame(*mismatched_delta),
+    });
+
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    EXPECT_EQ((*session)->status().state,
+              snt::game::replication::GameClientConnectionState::kDisconnected);
+    EXPECT_TRUE((*session)->drain_replication_updates().empty());
+    ASSERT_EQ(transport_view->disconnected.size(), 1u);
+    EXPECT_EQ(transport_view->disconnected.front().first, snt::network::kServerPeerId);
 }
 
 TEST(GameClientReplicationSessionTest, CompletesLocalLoginAndAppliesQuestAcceptOverTcpUdp) {

@@ -4,8 +4,10 @@
 
 #include "core/error.h"
 
+#include <bit>
 #include <limits>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace snt::game::replication {
@@ -32,6 +34,10 @@ void append_u64(std::vector<std::byte>& bytes, uint64_t value) {
     }
 }
 
+void append_i32(std::vector<std::byte>& bytes, int32_t value) {
+    append_u32(bytes, std::bit_cast<uint32_t>(value));
+}
+
 [[nodiscard]] uint16_t read_u16(std::span<const std::byte> bytes, size_t offset) {
     return static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset])) << 8u |
            static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset + 1]));
@@ -51,6 +57,10 @@ void append_u64(std::vector<std::byte>& bytes, uint64_t value) {
         value = (value << 8u) | std::to_integer<uint8_t>(bytes[offset + index]);
     }
     return value;
+}
+
+[[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int32_t>(read_u32(bytes, offset));
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_message_shape(
@@ -130,6 +140,135 @@ void append_u64(std::vector<std::byte>& bytes, uint64_t value) {
                  bytes.begin() + static_cast<std::ptrdiff_t>(offset + size));
     offset += size;
     return value;
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_chunk_key(
+    const snt::voxel::ChunkKey& chunk) {
+    if (chunk.dimension_id.empty() ||
+        chunk.dimension_id.size() > kMaxGameDimensionIdBytes ||
+        chunk.dimension_id.find('\0') != std::string::npos) {
+        return protocol_error("Game replication chunk dimension id is invalid");
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> append_chunk_key(
+    std::vector<std::byte>& bytes, const snt::voxel::ChunkKey& chunk) {
+    if (auto result = validate_chunk_key(chunk); !result) return result.error();
+    if (auto result = append_short_string(bytes, chunk.dimension_id,
+                                          kMaxGameDimensionIdBytes,
+                                          "chunk dimension id", true);
+        !result) {
+        return result.error();
+    }
+    append_i32(bytes, chunk.chunk_x);
+    append_i32(bytes, chunk.chunk_y);
+    append_i32(bytes, chunk.chunk_z);
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<snt::voxel::ChunkKey> read_chunk_key(
+    std::span<const std::byte> bytes, size_t& offset) {
+    auto dimension = read_short_string(bytes, offset, kMaxGameDimensionIdBytes,
+                                       "chunk dimension id", true);
+    if (!dimension) return dimension.error();
+    constexpr size_t kChunkCoordinateBytes = sizeof(uint32_t) * 3;
+    if (bytes.size() - offset < kChunkCoordinateBytes) {
+        return protocol_error("Game replication chunk coordinates are truncated");
+    }
+    snt::voxel::ChunkKey chunk{
+        std::move(*dimension),
+        read_i32(bytes, offset),
+        read_i32(bytes, offset + sizeof(uint32_t)),
+        read_i32(bytes, offset + sizeof(uint32_t) * 2),
+    };
+    offset += kChunkCoordinateBytes;
+    if (auto result = validate_chunk_key(chunk); !result) return result.error();
+    return chunk;
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_entity_snapshot(
+    const GameEntitySnapshot& entity) {
+    if (!entity.entity_guid.valid() || entity.payload.empty() ||
+        entity.payload.size() > kMaxGameEntitySnapshotPayloadBytes) {
+        return protocol_error("Game replication entity snapshot is invalid");
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_snapshot(
+    const GameSnapshot& snapshot) {
+    if (snapshot.snapshot_id == 0 ||
+        snapshot.chunks.size() > kMaxGameSnapshotChunks ||
+        snapshot.entities.size() > kMaxGameSnapshotEntities) {
+        return protocol_error("Game replication snapshot is invalid");
+    }
+
+    std::unordered_set<snt::voxel::ChunkKey> chunks;
+    chunks.reserve(snapshot.chunks.size());
+    for (const GameChunkSnapshot& chunk : snapshot.chunks) {
+        if (auto result = validate_chunk_key(chunk.chunk); !result) return result.error();
+        if (chunk.payload.empty() ||
+            chunk.payload.size() > kMaxGameChunkSnapshotPayloadBytes) {
+            return protocol_error("Game replication chunk snapshot payload is invalid");
+        }
+        if (!chunks.insert(chunk.chunk).second) {
+            return protocol_error("Game replication snapshot contains a duplicate chunk");
+        }
+    }
+
+    std::unordered_set<snt::ecs::EntityGuid> entities;
+    entities.reserve(snapshot.entities.size());
+    for (const GameEntitySnapshot& entity : snapshot.entities) {
+        if (auto result = validate_entity_snapshot(entity); !result) return result.error();
+        if (!entities.insert(entity.entity_guid).second) {
+            return protocol_error("Game replication snapshot contains a duplicate entity");
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_delta(const GameDelta& delta) {
+    if (delta.base_snapshot_id == 0 || delta.sequence == 0 ||
+        delta.chunks.size() > kMaxGameDeltaChunks ||
+        delta.entities.size() > kMaxGameSnapshotEntities) {
+        return protocol_error("Game replication delta is invalid");
+    }
+
+    size_t block_count = 0;
+    std::unordered_set<snt::voxel::ChunkKey> chunks;
+    chunks.reserve(delta.chunks.size());
+    for (const GameChunkDelta& chunk : delta.chunks) {
+        if (auto result = validate_chunk_key(chunk.chunk); !result) return result.error();
+        if (chunk.blocks.empty() ||
+            chunk.blocks.size() > kMaxGameBlockDeltasPerChunk ||
+            block_count > kMaxGameBlockDeltas - chunk.blocks.size()) {
+            return protocol_error("Game replication chunk delta is invalid");
+        }
+        block_count += chunk.blocks.size();
+        if (!chunks.insert(chunk.chunk).second) {
+            return protocol_error("Game replication delta contains a duplicate chunk");
+        }
+
+        std::unordered_set<uint16_t> local_indices;
+        local_indices.reserve(chunk.blocks.size());
+        for (const GameBlockDelta& block : chunk.blocks) {
+            if (block.local_index >= kMaxGameBlockDeltasPerChunk ||
+                !local_indices.insert(block.local_index).second) {
+                return protocol_error("Game replication chunk delta has invalid local block indices");
+            }
+        }
+    }
+
+    std::unordered_set<snt::ecs::EntityGuid> entities;
+    entities.reserve(delta.entities.size());
+    for (const GameEntitySnapshot& entity : delta.entities) {
+        if (auto result = validate_entity_snapshot(entity); !result) return result.error();
+        if (!entities.insert(entity.entity_guid).second) {
+            return protocol_error("Game replication delta contains a duplicate entity");
+        }
+    }
+    return {};
 }
 
 }  // namespace
@@ -429,6 +568,201 @@ snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
     if (!quest_id) return quest_id.error();
     if (offset != bytes.size()) return protocol_error("Quest accept command has trailing bytes");
     return GameQuestAcceptCommand{.quest_id = std::move(*quest_id)};
+}
+
+snt::core::Expected<GameReplicationMessage> make_game_snapshot(
+    const GameSnapshot& snapshot) {
+    if (auto result = validate_snapshot(snapshot); !result) return result.error();
+
+    GameReplicationMessage message;
+    message.kind = GameReplicationMessageKind::kServerSnapshot;
+    append_u64(message.payload, snapshot.snapshot_id);
+    append_u16(message.payload, static_cast<uint16_t>(snapshot.chunks.size()));
+    for (const GameChunkSnapshot& chunk : snapshot.chunks) {
+        if (auto result = append_chunk_key(message.payload, chunk.chunk); !result) return result.error();
+        append_u32(message.payload, static_cast<uint32_t>(chunk.payload.size()));
+        message.payload.insert(message.payload.end(), chunk.payload.begin(), chunk.payload.end());
+    }
+    append_u16(message.payload, static_cast<uint16_t>(snapshot.entities.size()));
+    for (const GameEntitySnapshot& entity : snapshot.entities) {
+        append_u64(message.payload, entity.entity_guid.value);
+        append_u32(message.payload, static_cast<uint32_t>(entity.payload.size()));
+        message.payload.insert(message.payload.end(), entity.payload.begin(), entity.payload.end());
+    }
+    if (auto result = validate_message_shape(message); !result) return result.error();
+    return message;
+}
+
+snt::core::Expected<GameSnapshot> parse_game_snapshot(
+    const GameReplicationMessage& message) {
+    if (auto result = validate_message_kind(message, GameReplicationMessageKind::kServerSnapshot);
+        !result) {
+        return result.error();
+    }
+
+    const std::span<const std::byte> bytes(message.payload.data(), message.payload.size());
+    if (bytes.size() < sizeof(uint64_t) + sizeof(uint16_t)) {
+        return protocol_error("Game replication snapshot is truncated");
+    }
+
+    size_t offset = 0;
+    GameSnapshot snapshot;
+    snapshot.snapshot_id = read_u64(bytes, offset);
+    offset += sizeof(uint64_t);
+    const size_t chunk_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (chunk_count > kMaxGameSnapshotChunks) {
+        return protocol_error("Game replication snapshot has too many chunks");
+    }
+    snapshot.chunks.reserve(chunk_count);
+    for (size_t index = 0; index < chunk_count; ++index) {
+        auto chunk = read_chunk_key(bytes, offset);
+        if (!chunk) return chunk.error();
+        auto payload = read_byte_vector(bytes, offset, kMaxGameChunkSnapshotPayloadBytes,
+                                        "chunk snapshot payload");
+        if (!payload) return payload.error();
+        snapshot.chunks.push_back({.chunk = std::move(*chunk), .payload = std::move(*payload)});
+    }
+
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("Game replication snapshot entity count is truncated");
+    }
+    const size_t entity_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (entity_count > kMaxGameSnapshotEntities) {
+        return protocol_error("Game replication snapshot has too many entities");
+    }
+    snapshot.entities.reserve(entity_count);
+    for (size_t index = 0; index < entity_count; ++index) {
+        if (bytes.size() - offset < sizeof(uint64_t)) {
+            return protocol_error("Game replication snapshot entity guid is truncated");
+        }
+        GameEntitySnapshot entity;
+        entity.entity_guid = {read_u64(bytes, offset)};
+        offset += sizeof(uint64_t);
+        auto payload = read_byte_vector(bytes, offset, kMaxGameEntitySnapshotPayloadBytes,
+                                        "entity snapshot payload");
+        if (!payload) return payload.error();
+        entity.payload = std::move(*payload);
+        snapshot.entities.push_back(std::move(entity));
+    }
+
+    if (offset != bytes.size()) return protocol_error("Game replication snapshot has trailing bytes");
+    if (auto result = validate_snapshot(snapshot); !result) return result.error();
+    return snapshot;
+}
+
+snt::core::Expected<GameReplicationMessage> make_game_delta(const GameDelta& delta) {
+    if (auto result = validate_delta(delta); !result) return result.error();
+
+    GameReplicationMessage message;
+    message.kind = GameReplicationMessageKind::kServerDelta;
+    append_u64(message.payload, delta.base_snapshot_id);
+    append_u64(message.payload, delta.sequence);
+    append_u16(message.payload, static_cast<uint16_t>(delta.chunks.size()));
+    for (const GameChunkDelta& chunk : delta.chunks) {
+        if (auto result = append_chunk_key(message.payload, chunk.chunk); !result) return result.error();
+        append_u16(message.payload, static_cast<uint16_t>(chunk.blocks.size()));
+        for (const GameBlockDelta& block : chunk.blocks) {
+            append_u16(message.payload, block.local_index);
+            message.payload.push_back(static_cast<std::byte>(block.material));
+            append_u32(message.payload, block.flags);
+        }
+    }
+    append_u16(message.payload, static_cast<uint16_t>(delta.entities.size()));
+    for (const GameEntitySnapshot& entity : delta.entities) {
+        append_u64(message.payload, entity.entity_guid.value);
+        append_u32(message.payload, static_cast<uint32_t>(entity.payload.size()));
+        message.payload.insert(message.payload.end(), entity.payload.begin(), entity.payload.end());
+    }
+    if (auto result = validate_message_shape(message); !result) return result.error();
+    return message;
+}
+
+snt::core::Expected<GameDelta> parse_game_delta(const GameReplicationMessage& message) {
+    if (auto result = validate_message_kind(message, GameReplicationMessageKind::kServerDelta);
+        !result) {
+        return result.error();
+    }
+
+    const std::span<const std::byte> bytes(message.payload.data(), message.payload.size());
+    constexpr size_t kDeltaPrefixBytes = sizeof(uint64_t) * 2 + sizeof(uint16_t);
+    if (bytes.size() < kDeltaPrefixBytes) {
+        return protocol_error("Game replication delta is truncated");
+    }
+
+    size_t offset = 0;
+    GameDelta delta;
+    delta.base_snapshot_id = read_u64(bytes, offset);
+    offset += sizeof(uint64_t);
+    delta.sequence = read_u64(bytes, offset);
+    offset += sizeof(uint64_t);
+    const size_t chunk_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (chunk_count > kMaxGameDeltaChunks) {
+        return protocol_error("Game replication delta has too many chunks");
+    }
+    delta.chunks.reserve(chunk_count);
+    size_t total_block_count = 0;
+    for (size_t index = 0; index < chunk_count; ++index) {
+        auto chunk = read_chunk_key(bytes, offset);
+        if (!chunk) return chunk.error();
+        if (bytes.size() - offset < sizeof(uint16_t)) {
+            return protocol_error("Game replication delta block count is truncated");
+        }
+        const size_t block_count = read_u16(bytes, offset);
+        offset += sizeof(uint16_t);
+        if (block_count == 0 || block_count > kMaxGameBlockDeltasPerChunk ||
+            total_block_count > kMaxGameBlockDeltas - block_count) {
+            return protocol_error("Game replication delta block count is invalid");
+        }
+        total_block_count += block_count;
+
+        GameChunkDelta chunk_delta;
+        chunk_delta.chunk = std::move(*chunk);
+        chunk_delta.blocks.reserve(block_count);
+        constexpr size_t kBlockDeltaBytes = sizeof(uint16_t) + sizeof(uint8_t) + sizeof(uint32_t);
+        for (size_t block_index = 0; block_index < block_count; ++block_index) {
+            if (bytes.size() - offset < kBlockDeltaBytes) {
+                return protocol_error("Game replication block delta is truncated");
+            }
+            GameBlockDelta block;
+            block.local_index = read_u16(bytes, offset);
+            offset += sizeof(uint16_t);
+            block.material = std::to_integer<snt::voxel::TerrainMaterialId>(bytes[offset++]);
+            block.flags = read_u32(bytes, offset);
+            offset += sizeof(uint32_t);
+            chunk_delta.blocks.push_back(block);
+        }
+        delta.chunks.push_back(std::move(chunk_delta));
+    }
+
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("Game replication delta entity count is truncated");
+    }
+    const size_t entity_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (entity_count > kMaxGameSnapshotEntities) {
+        return protocol_error("Game replication delta has too many entities");
+    }
+    delta.entities.reserve(entity_count);
+    for (size_t index = 0; index < entity_count; ++index) {
+        if (bytes.size() - offset < sizeof(uint64_t)) {
+            return protocol_error("Game replication delta entity guid is truncated");
+        }
+        GameEntitySnapshot entity;
+        entity.entity_guid = {read_u64(bytes, offset)};
+        offset += sizeof(uint64_t);
+        auto payload = read_byte_vector(bytes, offset, kMaxGameEntitySnapshotPayloadBytes,
+                                        "entity delta payload");
+        if (!payload) return payload.error();
+        entity.payload = std::move(*payload);
+        delta.entities.push_back(std::move(entity));
+    }
+
+    if (offset != bytes.size()) return protocol_error("Game replication delta has trailing bytes");
+    if (auto result = validate_delta(delta); !result) return result.error();
+    return delta;
 }
 
 }  // namespace snt::game::replication

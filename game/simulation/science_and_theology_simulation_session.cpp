@@ -19,7 +19,9 @@
 namespace snt::game {
 
 ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSessionConfig config)
-    : config_(std::move(config)), quest_registry_(content_registry_) {}
+    : config_(std::move(config)),
+      quest_registry_(content_registry_),
+      machine_interactions_(content_registry_) {}
 
 ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { shutdown(); }
 

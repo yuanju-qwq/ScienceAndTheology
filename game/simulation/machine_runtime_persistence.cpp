@@ -21,7 +21,9 @@
 namespace snt::game {
 namespace {
 
+constexpr size_t kMaxMachineInputSlots = 64;
 constexpr size_t kMaxMachineOutputSlots = 64;
+constexpr size_t kMaxMachineRecipeInputs = 64;
 constexpr size_t kMaxMachineRecipeOutputs = 64;
 constexpr int32_t kMaxMachineStackSize = 1'000'000;
 constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
@@ -92,11 +94,18 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
 
 [[nodiscard]] snt::core::Expected<void> validate_recipe(
     const MachineRuntimeRecipeSnapshot& recipe) {
-    if (recipe.id.empty() || recipe.input_item_id.empty() ||
+    if (recipe.id.empty() || recipe.inputs.empty() ||
+        recipe.inputs.size() > kMaxMachineRecipeInputs ||
         recipe.duration_ticks <= 0 || recipe.duration_ticks > kMaxMachineRuntimeTicks ||
         recipe.energy_per_tick < 0 || recipe.outputs.empty() ||
         recipe.outputs.size() > kMaxMachineRecipeOutputs) {
         return invalid_argument("Machine persistence recipe snapshot is invalid");
+    }
+    std::unordered_set<std::string> input_ids;
+    for (const MachineRuntimeItemStack& input : recipe.inputs) {
+        if (!is_valid_stack(input, false) || !input_ids.insert(input.item_id).second) {
+            return invalid_argument("Machine persistence recipe input is invalid");
+        }
     }
     for (const MachineRuntimeItemStack& output : recipe.outputs) {
         if (!is_valid_stack(output, false)) {
@@ -114,9 +123,11 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
         return result.error();
     }
     if (record.entity_guid == 0 || record.machine_id.empty() ||
-        !is_valid_stack(record.input, true) ||
+        record.input_slots.size() > kMaxMachineInputSlots ||
         record.output_slots.size() > kMaxMachineOutputSlots ||
         record.stored_energy < 0 || record.energy_capacity < 0 ||
+        record.max_input_slots <= 0 ||
+        record.max_input_slots > static_cast<int32_t>(kMaxMachineInputSlots) ||
         record.max_output_slots <= 0 ||
         record.max_output_slots > static_cast<int32_t>(kMaxMachineOutputSlots) ||
         record.max_stack_size <= 0 || record.max_stack_size > kMaxMachineStackSize ||
@@ -125,16 +136,26 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
         return invalid_argument("Machine persistence record is invalid in chunk " +
                                 describe_chunk(chunk_key));
     }
+    if (record.input_slots.size() > static_cast<size_t>(record.max_input_slots)) {
+        return invalid_argument("Machine persistence input slot count exceeds its configured limit");
+    }
     if (record.output_slots.size() > static_cast<size_t>(record.max_output_slots)) {
         return invalid_argument("Machine persistence output slot count exceeds its configured limit");
+    }
+    for (const MachineRuntimeItemStack& input : record.input_slots) {
+        if (!is_valid_stack(input, false) || input.count > record.max_stack_size) {
+            return invalid_argument("Machine persistence input slot is invalid");
+        }
     }
     for (const MachineRuntimeItemStack& output : record.output_slots) {
         if (!is_valid_stack(output, false) || output.count > record.max_stack_size) {
             return invalid_argument("Machine persistence output slot is invalid");
         }
     }
-    if (record.input.count > record.max_stack_size) {
-        return invalid_argument("Machine persistence input exceeds its configured stack limit");
+    if (record.activation_requested &&
+        (record.active_recipe ||
+         record.run_state != static_cast<uint8_t>(MachineRunState::WaitingForActivation))) {
+        return invalid_argument("Machine persistence activation request is not waiting for activation");
     }
     if (record.active_recipe) {
         if (auto result = validate_recipe(*record.active_recipe); !result) return result.error();
@@ -156,7 +177,10 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
     const MachineRecipeSnapshot& recipe) {
     MachineRuntimeRecipeSnapshot result;
     result.id = recipe.id;
-    result.input_item_id = recipe.input_item_id;
+    result.inputs.reserve(recipe.inputs.size());
+    for (const MachineItemStack& input : recipe.inputs) {
+        result.inputs.push_back(to_persisted_stack(input));
+    }
     result.duration_ticks = recipe.duration_ticks;
     result.energy_per_tick = recipe.energy_per_tick;
     result.outputs.reserve(recipe.outputs.size());
@@ -170,7 +194,10 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
     const MachineRuntimeRecipeSnapshot& recipe) {
     MachineRecipeSnapshot result;
     result.id = recipe.id;
-    result.input_item_id = recipe.input_item_id;
+    result.inputs.reserve(recipe.inputs.size());
+    for (const MachineRuntimeItemStack& input : recipe.inputs) {
+        result.inputs.push_back(to_runtime_stack(input));
+    }
     result.duration_ticks = recipe.duration_ticks;
     result.energy_per_tick = recipe.energy_per_tick;
     result.outputs.reserve(recipe.outputs.size());
@@ -188,19 +215,24 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
     result.anchor_entity_id = anchor_entity_id;
     result.entity_guid = entity_guid.value;
     result.machine_id = runtime.machine_id;
-    result.input = to_persisted_stack(runtime.input);
+    result.input_slots.reserve(runtime.input_slots.size());
+    for (const MachineItemStack& input : runtime.input_slots) {
+        result.input_slots.push_back(to_persisted_stack(input));
+    }
     result.output_slots.reserve(runtime.output_slots.size());
     for (const MachineItemStack& output : runtime.output_slots) {
         result.output_slots.push_back(to_persisted_stack(output));
     }
     result.stored_energy = runtime.stored_energy;
     result.energy_capacity = runtime.energy_capacity;
+    result.max_input_slots = runtime.max_input_slots;
     result.max_output_slots = runtime.max_output_slots;
     result.max_stack_size = runtime.max_stack_size;
     result.progress_ticks = runtime.progress_ticks;
     if (runtime.active_recipe) {
         result.active_recipe = to_persisted_recipe(*runtime.active_recipe);
     }
+    result.activation_requested = runtime.activation_requested;
     result.run_state = static_cast<uint8_t>(runtime.state);
     return result;
 }
@@ -209,19 +241,24 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
     const MachineRuntimePersistenceRecord& record) {
     MachineRuntimeComponent result;
     result.machine_id = record.machine_id;
-    result.input = to_runtime_stack(record.input);
+    result.input_slots.reserve(record.input_slots.size());
+    for (const MachineRuntimeItemStack& input : record.input_slots) {
+        result.input_slots.push_back(to_runtime_stack(input));
+    }
     result.output_slots.reserve(record.output_slots.size());
     for (const MachineRuntimeItemStack& output : record.output_slots) {
         result.output_slots.push_back(to_runtime_stack(output));
     }
     result.stored_energy = record.stored_energy;
     result.energy_capacity = record.energy_capacity;
+    result.max_input_slots = record.max_input_slots;
     result.max_output_slots = record.max_output_slots;
     result.max_stack_size = record.max_stack_size;
     result.progress_ticks = record.progress_ticks;
     if (record.active_recipe) {
         result.active_recipe = to_runtime_recipe(*record.active_recipe);
     }
+    result.activation_requested = record.activation_requested;
     result.state = static_cast<MachineRunState>(record.run_state);
     return result;
 }

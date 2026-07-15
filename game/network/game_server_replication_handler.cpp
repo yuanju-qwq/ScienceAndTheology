@@ -7,14 +7,22 @@
 #include "core/log.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace snt::game::replication {
 namespace {
 
 [[nodiscard]] snt::core::Error protocol_error(std::string message) {
     return {snt::core::ErrorCode::kProtocolError, std::move(message)};
+}
+
+[[nodiscard]] snt::core::Error invalid_state(std::string message) {
+    return {snt::core::ErrorCode::kInvalidState, std::move(message)};
 }
 
 }  // namespace
@@ -32,9 +40,13 @@ void ClosedGamePeerAuthenticator::on_peer_disconnected(const GameAuthenticatedPe
 
 GameServerReplicationHandler::GameServerReplicationHandler(
     IGamePeerAuthenticator& authenticator, IGameReplicationCommandSink* command_sink,
-    IGamePlayerSessionLifecycle* player_lifecycle)
+    IGamePlayerSessionLifecycle* player_lifecycle,
+    IGameReplicationInterestProvider* interest_provider,
+    IGameReplicationSnapshotSource* snapshot_source,
+    GameReplicationBudget replication_budget)
     : authenticator_(&authenticator), command_sink_(command_sink),
-      player_lifecycle_(player_lifecycle) {}
+      player_lifecycle_(player_lifecycle), interest_provider_(interest_provider),
+      snapshot_source_(snapshot_source), replication_budget_(replication_budget) {}
 
 snt::core::Expected<void> GameServerReplicationHandler::on_peer_connected(
     snt::network::PeerId peer, const snt::network::ReplicationTickContext&) {
@@ -128,7 +140,7 @@ void GameServerReplicationHandler::on_peer_disconnected(snt::network::PeerId pee
 }
 
 snt::core::Expected<void> GameServerReplicationHandler::emit_outbound(
-    const snt::network::ReplicationTickContext&,
+    const snt::network::ReplicationTickContext& context,
     snt::network::IReplicationFrameSink& sink) {
     for (size_t index = 0; index < pending_disconnects_.size();) {
         const PendingPeerDisconnect& pending = pending_disconnects_[index];
@@ -150,6 +162,32 @@ snt::core::Expected<void> GameServerReplicationHandler::emit_outbound(
                                    static_cast<std::ptrdiff_t>(index));
     }
 
+    if ((interest_provider_ == nullptr) != (snapshot_source_ == nullptr)) {
+        return invalid_state(
+            "Game replication requires both an interest provider and a snapshot source");
+    }
+    if (interest_provider_ != nullptr) {
+        std::vector<snt::network::PeerId> peers;
+        peers.reserve(peers_.size());
+        for (const auto& [peer, state] : peers_) {
+            if (!state.disconnecting && state.authenticated_peer.has_value()) {
+                peers.push_back(peer);
+            }
+        }
+        std::sort(peers.begin(), peers.end());
+        for (const snt::network::PeerId peer : peers) {
+            const auto state = peers_.find(peer);
+            if (state == peers_.end() || state->second.disconnecting ||
+                !state->second.authenticated_peer.has_value()) {
+                continue;
+            }
+            if (has_pending_replication(peer)) continue;
+            if (auto result = emit_replication_for_peer(peer, state->second, context); !result) {
+                return result.error();
+            }
+        }
+    }
+
     size_t sent = 0;
     for (; sent < pending_outbound_.size(); ++sent) {
         const PendingOutboundFrame& pending = pending_outbound_[sent];
@@ -165,6 +203,116 @@ snt::core::Expected<void> GameServerReplicationHandler::emit_outbound(
     }
     pending_outbound_.clear();
     return {};
+}
+
+snt::core::Expected<void> GameServerReplicationHandler::emit_replication_for_peer(
+    snt::network::PeerId peer,
+    PeerState& state,
+    const snt::network::ReplicationTickContext& context) {
+    if (!state.authenticated_peer.has_value() || interest_provider_ == nullptr ||
+        snapshot_source_ == nullptr) {
+        return invalid_state("Game replication peer has no active synchronization services");
+    }
+
+    auto interest = interest_provider_->compute_interest(*state.authenticated_peer, context);
+    if (!interest) {
+        auto error = interest.error();
+        error.with_context("GameServerReplicationHandler::emit_replication_for_peer(interest)");
+        return error;
+    }
+
+    if (!state.initial_snapshot_emitted) {
+        auto messages = snapshot_source_->build_initial_snapshot(
+            *state.authenticated_peer, *interest, replication_budget_, context);
+        if (!messages) {
+            auto error = messages.error();
+            error.with_context("GameServerReplicationHandler::emit_replication_for_peer(snapshot)");
+            return error;
+        }
+        if (auto result = queue_replication_messages(
+                peer, *messages, GameReplicationMessageKind::kServerSnapshot, context);
+            !result) {
+            return result.error();
+        }
+        state.initial_snapshot_emitted = !messages->empty();
+        return {};
+    }
+
+    auto messages = snapshot_source_->build_deltas(
+        *state.authenticated_peer, *interest, replication_budget_, context);
+    if (!messages) {
+        auto error = messages.error();
+        error.with_context("GameServerReplicationHandler::emit_replication_for_peer(delta)");
+        return error;
+    }
+    return queue_replication_messages(
+        peer, *messages, GameReplicationMessageKind::kServerDelta, context);
+}
+
+snt::core::Expected<void> GameServerReplicationHandler::queue_replication_messages(
+    snt::network::PeerId peer,
+    const std::vector<GameReplicationMessage>& messages,
+    GameReplicationMessageKind expected_kind,
+    const snt::network::ReplicationTickContext& context) {
+    uint64_t total_bytes = 0;
+    uint64_t total_chunks = 0;
+    uint64_t total_entities = 0;
+    uint64_t total_block_deltas = 0;
+    std::vector<PendingOutboundFrame> frames;
+    frames.reserve(messages.size());
+
+    for (const GameReplicationMessage& message : messages) {
+        if (message.kind != expected_kind) {
+            return protocol_error("Game replication source returned a message with the wrong direction or phase");
+        }
+
+        if (expected_kind == GameReplicationMessageKind::kServerSnapshot) {
+            auto snapshot = parse_game_snapshot(message);
+            if (!snapshot) return snapshot.error();
+            total_chunks += snapshot->chunks.size();
+            total_entities += snapshot->entities.size();
+        } else {
+            auto delta = parse_game_delta(message);
+            if (!delta) return delta.error();
+            total_entities += delta->entities.size();
+            for (const GameChunkDelta& chunk : delta->chunks) {
+                total_block_deltas += chunk.blocks.size();
+            }
+        }
+
+        auto payload = encode_game_replication_message(message);
+        if (!payload) return payload.error();
+        total_bytes += payload->size();
+        if (total_bytes > replication_budget_.max_reliable_bytes_per_tick ||
+            total_chunks > replication_budget_.max_chunk_snapshots_per_tick ||
+            total_entities > replication_budget_.max_entity_snapshots_per_tick ||
+            total_block_deltas > replication_budget_.max_block_deltas_per_tick) {
+            return protocol_error("Game replication source exceeded the configured peer budget");
+        }
+
+        frames.push_back({
+            .peer = peer,
+            .frame = {
+                .protocol_version = snt::network::kCurrentReplicationProtocolVersion,
+                .server_tick = context.tick_index,
+                .channel = snt::network::ReplicationChannel::Reliable,
+                .payload = std::move(*payload),
+            },
+            .blocks_replication_generation = true,
+        });
+    }
+    pending_outbound_.insert(pending_outbound_.end(),
+                             std::make_move_iterator(frames.begin()),
+                             std::make_move_iterator(frames.end()));
+    return {};
+}
+
+bool GameServerReplicationHandler::has_pending_replication(
+    snt::network::PeerId peer) const {
+    return std::any_of(pending_outbound_.begin(), pending_outbound_.end(),
+                       [peer](const PendingOutboundFrame& pending) {
+                           return pending.peer == peer && pending.blocks_replication_generation;
+                       });
 }
 
 snt::core::Expected<void> GameServerReplicationHandler::handle_login(

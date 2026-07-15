@@ -4,6 +4,7 @@
 #include "game_content_registry.h"
 
 #include <algorithm>
+#include <set>
 #include <utility>
 
 #include <angelscript.h>
@@ -54,7 +55,8 @@ std::optional<QuestObjectiveKind> parse_quest_objective_kind(std::string_view va
 
 void api_register_recipe(const std::string& id,
                          const std::string& machine_id,
-                         const std::string& input_item_id,
+                         const std::string& first_input_item_id,
+                         int first_input_count,
                          const std::string& output_item_id,
                          int output_count,
                          int duration_ticks,
@@ -66,7 +68,8 @@ void api_register_recipe(const std::string& id,
     RecipeDefinition definition;
     definition.id = id;
     definition.machine_id = machine_id;
-    definition.input_item_id = input_item_id;
+    definition.inputs = {
+        RecipeInputDefinition{first_input_item_id, first_input_count}};
     definition.outputs = {RecipeOutputDefinition{output_item_id, output_count}};
     definition.duration_ticks = duration_ticks;
     definition.energy_per_tick = energy_per_tick;
@@ -76,10 +79,23 @@ void api_register_recipe(const std::string& id,
     }
 }
 
+void api_add_recipe_input(const std::string& recipe_id,
+                          const std::string& item_id,
+                          int count) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    if (auto result = registry->add_script_recipe_input(
+            g_active_script_id, recipe_id, RecipeInputDefinition{item_id, count}); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_machine(const std::string& id,
                           const std::string& display_name,
                           int tier,
-                          int power_capacity) {
+                          int power_capacity,
+                          bool requires_manual_activation) {
     GameContentRegistry* registry = active_registry();
     if (!registry) return;
 
@@ -88,7 +104,28 @@ void api_register_machine(const std::string& id,
     definition.display_name = display_name;
     definition.tier = tier;
     definition.power_capacity = power_capacity;
+    definition.requires_manual_activation = requires_manual_activation;
     if (auto result = registry->register_script_machine(g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_set_machine_activation_requirements(
+    const std::string& machine_id,
+    bool requires_cover,
+    bool requires_ignition,
+    bool requires_valid_structure,
+    const std::string& required_tool_tag) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    MachineActivationRequirements requirements;
+    requirements.requires_cover = requires_cover;
+    requirements.requires_ignition = requires_ignition;
+    requirements.requires_valid_structure = requires_valid_structure;
+    requirements.required_tool_tag = required_tool_tag;
+    if (auto result = registry->set_script_machine_activation_requirements(
+            g_active_script_id, machine_id, std::move(requirements)); !result) {
         report_binding_error(result.error());
     }
 }
@@ -215,12 +252,20 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
 
     if (auto result = register_function(
             engine,
-            "void snt_register_recipe(const string &in, const string &in, const string &in, const string &in, int, int, int, const string &in)",
+            "void snt_register_recipe(const string &in, const string &in, const string &in, int, const string &in, int, int, int, const string &in)",
             asFUNCTION(api_register_recipe)); !result) return result;
     if (auto result = register_function(
             engine,
-            "void snt_register_machine(const string &in, const string &in, int, int)",
+            "void snt_add_recipe_input(const string &in, const string &in, int)",
+            asFUNCTION(api_add_recipe_input)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_register_machine(const string &in, const string &in, int, int, bool)",
             asFUNCTION(api_register_machine)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_machine_activation_requirements(const string &in, bool, bool, bool, const string &in)",
+            asFUNCTION(api_set_machine_activation_requirements)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_register_quest(const string &in, const string &in, const string &in)",
@@ -256,14 +301,36 @@ GameContentRegistry::begin_registration(ScriptId script_id) {
 snt::core::Expected<void> GameContentRegistry::validate(const RecipeDefinition& definition) {
     if (definition.id.empty()) return invalid_argument("Recipe id must not be empty");
     if (definition.machine_id.empty()) return invalid_argument("Recipe machine_id must not be empty");
-    if (definition.input_item_id.empty()) return invalid_argument("Recipe input_item_id must not be empty");
+    if (definition.inputs.empty()) return invalid_argument("Recipe must have at least one input");
     if (definition.outputs.empty()) return invalid_argument("Recipe must have at least one output");
     if (definition.duration_ticks <= 0) return invalid_argument("Recipe duration_ticks must be positive");
     if (definition.energy_per_tick < 0) return invalid_argument("Recipe energy_per_tick must not be negative");
+    std::set<std::string, std::less<>> input_ids;
+    for (const RecipeInputDefinition& input : definition.inputs) {
+        if (auto result = validate(input); !result) return result.error();
+        if (!input_ids.emplace(input.item_id).second) {
+            return invalid_argument("Recipe input item ids must be unique");
+        }
+    }
     for (const auto& output : definition.outputs) {
         if (output.item_id.empty() || output.count <= 0) {
             return invalid_argument("Recipe output item_id must not be empty and count must be positive");
         }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(const RecipeInputDefinition& input) {
+    if (input.item_id.empty() || input.count <= 0) {
+        return invalid_argument("Recipe input item_id must not be empty and count must be positive");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const MachineActivationRequirements& requirements) {
+    if (requirements.required_tool_tag.find('\0') != std::string::npos) {
+        return invalid_argument("Machine activation tool tag must not contain a null character");
     }
     return {};
 }
@@ -273,6 +340,11 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
     if (definition.display_name.empty()) return invalid_argument("Machine display_name must not be empty");
     if (definition.tier <= 0) return invalid_argument("Machine tier must be positive");
     if (definition.power_capacity < 0) return invalid_argument("Machine power_capacity must not be negative");
+    if (auto result = validate(definition.activation_requirements); !result) return result.error();
+    if (!definition.requires_manual_activation && !definition.activation_requirements.empty()) {
+        return invalid_argument(
+            "Machine activation requirements require manual activation to be enabled");
+    }
     return {};
 }
 
@@ -381,6 +453,50 @@ snt::core::Expected<void> GameContentRegistry::add_script_quest_prerequisite(
     }
     prerequisites.push_back(std::move(prerequisite_id));
     ++quest_content_revision_;
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::add_script_recipe_input(
+    ScriptId script_id, std::string recipe_id, RecipeInputDefinition input) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Recipe script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(input); !result) return result.error();
+
+    const auto found = live_recipes_.find(recipe_id);
+    if (found == live_recipes_.end() || found->second.owner != script_id) {
+        return invalid_state("Recipe input can only modify a recipe owned by the active script");
+    }
+    auto& inputs = found->second.definition.inputs;
+    const auto duplicate = std::find_if(
+        inputs.begin(), inputs.end(), [&input](const RecipeInputDefinition& current) {
+            return current.item_id == input.item_id;
+        });
+    if (duplicate != inputs.end()) {
+        return invalid_state("Duplicate recipe input item id: " + input.item_id);
+    }
+    inputs.push_back(std::move(input));
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::set_script_machine_activation_requirements(
+    ScriptId script_id,
+    std::string machine_id,
+    MachineActivationRequirements requirements) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Machine script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(requirements); !result) return result.error();
+
+    const auto found = live_machines_.find(machine_id);
+    if (found == live_machines_.end() || found->second.owner != script_id) {
+        return invalid_state("Machine activation requirements can only modify a machine owned by the active script");
+    }
+    if (!found->second.definition.requires_manual_activation && !requirements.empty()) {
+        return invalid_state(
+            "Machine activation requirements require manual activation to be enabled");
+    }
+    found->second.definition.activation_requirements = std::move(requirements);
     return {};
 }
 
@@ -516,6 +632,13 @@ std::vector<RecipeDefinition> GameContentRegistry::recipes_for_machine(
         (void)id;
         if (entry.definition.machine_id == machine_id) result.push_back(entry.definition);
     }
+    // live_recipes_ is an unordered map. A machine may intentionally have
+    // more than one recipe matching its current inputs, so expose a stable
+    // order before its worker captures this value snapshot.
+    std::sort(result.begin(), result.end(), [](const RecipeDefinition& lhs,
+                                               const RecipeDefinition& rhs) {
+        return lhs.id < rhs.id;
+    });
     return result;
 }
 

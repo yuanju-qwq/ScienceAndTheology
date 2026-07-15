@@ -20,10 +20,6 @@ FetchContent_MakeAvailable(godot-cpp)
 # Core library (pure C++, no Godot dependency)
 add_subdirectory(core)
 
-# snt_server — authoritative server module (engine-agnostic, sockets + protocol)
-# Current multiplayer protocol: docs/游戏网络协议设计.md.
-add_subdirectory(server)
-
 # Engine adapter interfaces (header-only)
 add_subdirectory(adapters)
 
