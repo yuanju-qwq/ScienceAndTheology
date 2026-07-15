@@ -3,6 +3,7 @@
 #define SNT_LOG_CHANNEL "game.server_session"
 #include "game/server/science_and_theology_server_session.h"
 
+#include "game/network/game_account_peer_authenticator.h"
 #include "network/replication.h"
 #include "network/tcp_udp_transport.h"
 
@@ -46,7 +47,10 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
 
-    peer_authenticator_ = std::make_unique<replication::ClosedGamePeerAuthenticator>();
+    // Local names intentionally provide LAN-style account identity. A future
+    // Steamworks package injects a verifier here; Steam login stays rejected
+    // until then instead of trusting a client-supplied SteamID.
+    peer_authenticator_ = std::make_unique<replication::GameAccountPeerAuthenticator>();
     replication_handler_ = std::make_unique<replication::GameServerReplicationHandler>(
         *peer_authenticator_);
     transport_ = std::move(*transport);
@@ -54,7 +58,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         *transport_, *replication_handler_);
     SNT_LOG_INFO("Dedicated server replication enabled (tcp=%u udp=%u max_peers=%u)",
                  transport_->tcp_port(), transport_->udp_port(), config_.server_network.max_peers);
-    SNT_LOG_INFO("Gameplay player admission is closed until a game authenticator is configured");
+    SNT_LOG_INFO("Gameplay local-name admission is enabled; duplicate local names take over one account session");
+    SNT_LOG_INFO("Steam login remains unavailable until a server ticket verifier is installed");
     return {};
 }
 

@@ -1,8 +1,13 @@
 #pragma once
 
+#include "core/expected.h"
+#include "game/quest/quest_progress.h"
+
 #include <cstdint>
 #include <iosfwd>
+#include <span>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -22,6 +27,8 @@ namespace snt::game {
 //         planet_data.bin     ← header + production summary (binary)
 //         regions/
 //           {dim}~{rx}~{ry}~{rz}.region
+//     players/
+//       player_{hex_player_id}.quest  ← per-player quest progress (binary)
 //
 // planet_data.bin format (v2):
 //   Header section:
@@ -107,6 +114,11 @@ public:
     // Current planet data format version (v2 includes summary).
     static constexpr uint8_t kPlanetDataVersion = 2;
 
+    // Current per-player quest progress format version. Player progress is a
+    // universe-level value and deliberately does not live in a spatial region
+    // or one dimension's planet_data.bin.
+    static constexpr uint8_t kQuestProgressVersion = 1;
+
     // --- Per-dimension save / load ---
 
     // Saves only chunks belonging to a specific dimension to a planet
@@ -126,6 +138,19 @@ public:
                               const std::string& dimension_id,
                               ChunkRegistry& voxel_chunks,
                               GameChunkSidecarRegistry& sidecars);
+
+    // --- Per-player quest progress ---
+
+    // Reads/writes one strict current-format quest file below a caller-owned
+    // universe save root. Missing progress is a valid new-player result;
+    // corrupt, mismatched, and trailing data are rejected instead of being
+    // silently ignored. The write path keeps a recoverable previous file while
+    // replacing the primary file.
+    [[nodiscard]] static snt::core::Expected<std::vector<QuestProgressRecord>>
+    load_quest_progress(const std::string& save_dir, std::string_view player_id);
+    [[nodiscard]] static snt::core::Expected<void> save_quest_progress(
+        const std::string& save_dir, std::string_view player_id,
+        std::span<const QuestProgressRecord> progress);
 
     // --- Per-chunk save / load ---
 

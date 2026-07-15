@@ -9,15 +9,18 @@
 #include "engine/client_session.h"
 #include "gameplay_ui.h"
 #include "game_session_config.h"
+#include "game/player/player_identity.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
 
 #include <memory>
+#include <optional>
 
 namespace snt::game {
 
 class ScienceAndTheologyClientSession final : public snt::engine::IClientSession {
 public:
     explicit ScienceAndTheologyClientSession(GameSessionConfig config);
+    ScienceAndTheologyClientSession(GameSessionConfig config, PlayerIdentity local_player_identity);
     ~ScienceAndTheologyClientSession() override;
 
     snt::core::Expected<void> register_content(snt::engine::SimulationServices& services) override;
@@ -29,12 +32,17 @@ public:
     void build_ui(snt::engine::ClientUiContext& context) override;
     void shutdown() noexcept override;
 
+    [[nodiscard]] const PlayerIdentity* local_player_identity() const noexcept {
+        return local_player_identity_ ? &*local_player_identity_ : nullptr;
+    }
+
 private:
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
     ScienceAndTheologySimulationSession simulation_session_;
+    std::optional<PlayerIdentity> local_player_identity_;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;

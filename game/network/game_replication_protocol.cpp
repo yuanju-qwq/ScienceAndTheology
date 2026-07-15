@@ -237,9 +237,23 @@ snt::core::Expected<GameReplicationMessage> make_game_login_request(
     if (request.credential.size() > kMaxGameCredentialBytes) {
         return protocol_error("Game login credential exceeds the protocol limit");
     }
+    if (!is_valid_player_identity_provider(request.identity_provider)) {
+        return protocol_error("Game login identity provider is invalid");
+    }
+    if (auto result = validate_player_display_name(request.display_name); !result) {
+        return protocol_error("Game login display name is invalid");
+    }
+    if (request.identity_provider == PlayerIdentityProvider::kLocalName &&
+        !request.credential.empty()) {
+        return protocol_error("Local-name game login must not send credentials");
+    }
+    if (request.identity_provider == PlayerIdentityProvider::kSteam && request.credential.empty()) {
+        return protocol_error("Steam game login requires an authentication credential");
+    }
 
     GameReplicationMessage message;
     message.kind = GameReplicationMessageKind::kClientLoginRequest;
+    message.payload.push_back(static_cast<std::byte>(request.identity_provider));
     if (auto result = append_short_string(message.payload, request.display_name,
                                           kMaxGamePlayerNameBytes, "login display name", true);
         !result) {
@@ -258,24 +272,49 @@ snt::core::Expected<GameLoginRequest> parse_game_login_request(
     }
 
     const std::span<const std::byte> bytes(message.payload.data(), message.payload.size());
+    if (bytes.empty()) return protocol_error("Game login request is incomplete");
     size_t offset = 0;
+    const auto identity_provider = static_cast<PlayerIdentityProvider>(
+        std::to_integer<uint8_t>(bytes[offset++]));
+    if (!is_valid_player_identity_provider(identity_provider)) {
+        return protocol_error("Game login identity provider is invalid");
+    }
     auto display_name = read_short_string(bytes, offset, kMaxGamePlayerNameBytes,
                                           "login display name", true);
     if (!display_name) return display_name.error();
+    if (auto result = validate_player_display_name(*display_name); !result) {
+        return protocol_error("Game login display name is invalid");
+    }
     auto credential = read_byte_vector(bytes, offset, kMaxGameCredentialBytes, "login credential");
     if (!credential) return credential.error();
+    if (identity_provider == PlayerIdentityProvider::kLocalName && !credential->empty()) {
+        return protocol_error("Local-name game login must not send credentials");
+    }
+    if (identity_provider == PlayerIdentityProvider::kSteam && credential->empty()) {
+        return protocol_error("Steam game login requires an authentication credential");
+    }
     if (offset != bytes.size()) return protocol_error("Game login request has trailing bytes");
 
-    return GameLoginRequest{.display_name = std::move(*display_name),
+    return GameLoginRequest{.identity_provider = identity_provider,
+                            .display_name = std::move(*display_name),
                             .credential = std::move(*credential)};
 }
 
 snt::core::Expected<GameReplicationMessage> make_game_login_accepted(
     const GameLoginAccepted& accepted) {
+    if (auto result = validate_player_identity(accepted.identity); !result) {
+        return protocol_error("Accepted game player identity is invalid");
+    }
     GameReplicationMessage message;
     message.kind = GameReplicationMessageKind::kServerLoginAccepted;
-    if (auto result = append_short_string(message.payload, accepted.player_id,
+    message.payload.push_back(static_cast<std::byte>(accepted.identity.provider));
+    if (auto result = append_short_string(message.payload, accepted.identity.account_id,
                                           kMaxGamePlayerIdBytes, "accepted player id", true);
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_short_string(message.payload, accepted.identity.display_name,
+                                          kMaxGamePlayerNameBytes, "accepted player display name", true);
         !result) {
         return result.error();
     }
@@ -290,12 +329,30 @@ snt::core::Expected<GameLoginAccepted> parse_game_login_accepted(
     }
 
     const std::span<const std::byte> bytes(message.payload.data(), message.payload.size());
+    if (bytes.empty()) return protocol_error("Game login accepted payload is incomplete");
     size_t offset = 0;
-    auto player_id = read_short_string(bytes, offset, kMaxGamePlayerIdBytes,
-                                       "accepted player id", true);
-    if (!player_id) return player_id.error();
+    const auto identity_provider = static_cast<PlayerIdentityProvider>(
+        std::to_integer<uint8_t>(bytes[offset++]));
+    if (!is_valid_player_identity_provider(identity_provider)) {
+        return protocol_error("Accepted game player identity provider is invalid");
+    }
+    auto account_id = read_short_string(bytes, offset, kMaxGamePlayerIdBytes,
+                                        "accepted player id", true);
+    if (!account_id) return account_id.error();
+    auto display_name = read_short_string(bytes, offset, kMaxGamePlayerNameBytes,
+                                          "accepted player display name", true);
+    if (!display_name) return display_name.error();
     if (offset != bytes.size()) return protocol_error("Game login accepted has trailing bytes");
-    return GameLoginAccepted{.player_id = std::move(*player_id)};
+
+    PlayerIdentity identity{
+        .provider = identity_provider,
+        .account_id = std::move(*account_id),
+        .display_name = std::move(*display_name),
+    };
+    if (auto result = validate_player_identity(identity); !result) {
+        return protocol_error("Accepted game player identity is invalid");
+    }
+    return GameLoginAccepted{.identity = std::move(identity)};
 }
 
 snt::core::Expected<GameReplicationMessage> make_game_client_command(

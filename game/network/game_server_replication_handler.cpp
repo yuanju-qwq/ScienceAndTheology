@@ -55,6 +55,9 @@ snt::core::Expected<void> GameServerReplicationHandler::on_frame(
     if (state == peers_.end()) {
         return protocol_error("Game replication frame arrived before peer connection");
     }
+    if (state->second.disconnecting) {
+        return protocol_error("Game replication peer has been superseded by a newer account login");
+    }
     if (frame.protocol_version != snt::network::kCurrentReplicationProtocolVersion) {
         return protocol_error("Replication transport protocol version does not match");
     }
@@ -111,11 +114,34 @@ void GameServerReplicationHandler::on_peer_disconnected(snt::network::PeerId pee
     std::erase_if(pending_outbound_, [peer](const PendingOutboundFrame& pending) {
         return pending.peer == peer;
     });
+    std::erase_if(pending_disconnects_, [peer](const PendingPeerDisconnect& pending) {
+        return pending.peer == peer;
+    });
 }
 
 snt::core::Expected<void> GameServerReplicationHandler::emit_outbound(
     const snt::network::ReplicationTickContext&,
     snt::network::IReplicationFrameSink& sink) {
+    for (size_t index = 0; index < pending_disconnects_.size();) {
+        const PendingPeerDisconnect& pending = pending_disconnects_[index];
+        const auto state = peers_.find(pending.peer);
+        if (state == peers_.end()) {
+            pending_disconnects_.erase(pending_disconnects_.begin() +
+                                       static_cast<std::ptrdiff_t>(index));
+            continue;
+        }
+        if (auto result = sink.disconnect(pending.peer, pending.reason); !result) {
+            auto error = result.error();
+            error.with_context("GameServerReplicationHandler::emit_outbound(account takeover)");
+            return error;
+        }
+        SNT_LOG_INFO("Replication peer %llu disconnected after account session takeover",
+                     static_cast<unsigned long long>(pending.peer));
+        peers_.erase(state);
+        pending_disconnects_.erase(pending_disconnects_.begin() +
+                                   static_cast<std::ptrdiff_t>(index));
+    }
+
     size_t sent = 0;
     for (; sent < pending_outbound_.size(); ++sent) {
         const PendingOutboundFrame& pending = pending_outbound_[sent];
@@ -154,16 +180,17 @@ snt::core::Expected<void> GameServerReplicationHandler::handle_login(
     }
 
     GameAuthenticatedPeer identity = std::move(*authenticated);
-    if (identity.player_id.empty() || identity.player_id.size() > kMaxGamePlayerIdBytes) {
+    if (auto result = validate_player_identity(identity.identity); !result) {
         authenticator_->on_peer_disconnected(identity, "authenticator returned an invalid player id");
         return protocol_error("Game authenticator returned an invalid player id");
     }
-    if (is_player_id_in_use(identity.player_id, peer)) {
-        authenticator_->on_peer_disconnected(identity, "player id is already connected");
-        return protocol_error("Game player id is already connected");
+    if (const auto existing_peer = find_authenticated_peer_for_player_id(
+            identity.identity.account_id, peer);
+        existing_peer.has_value()) {
+        take_over_existing_account_session(*existing_peer, identity.identity.account_id);
     }
 
-    auto accepted = make_game_login_accepted({.player_id = identity.player_id});
+    auto accepted = make_game_login_accepted({.identity = identity.identity});
     if (!accepted) {
         authenticator_->on_peer_disconnected(identity, "login accepted payload could not be encoded");
         return accepted.error();
@@ -184,9 +211,10 @@ snt::core::Expected<void> GameServerReplicationHandler::handle_login(
             .payload = std::move(*payload),
         },
     });
-    SNT_LOG_INFO("Replication peer %llu authenticated as '%s'",
+    SNT_LOG_INFO("Replication peer %llu authenticated as '%s' (%s)",
                  static_cast<unsigned long long>(peer),
-                 state.authenticated_peer->player_id.c_str());
+                 state.authenticated_peer->identity.account_id.c_str(),
+                 player_identity_provider_name(state.authenticated_peer->identity.provider));
     return {};
 }
 
@@ -217,12 +245,35 @@ snt::core::Expected<void> GameServerReplicationHandler::handle_command(
     return {};
 }
 
-bool GameServerReplicationHandler::is_player_id_in_use(std::string_view player_id,
-                                                        snt::network::PeerId except_peer) const {
-    return std::any_of(peers_.begin(), peers_.end(), [player_id, except_peer](const auto& entry) {
-        return entry.first != except_peer && entry.second.authenticated_peer.has_value() &&
-               entry.second.authenticated_peer->player_id == player_id;
+void GameServerReplicationHandler::take_over_existing_account_session(
+    snt::network::PeerId peer, std::string_view account_id) {
+    const auto state = peers_.find(peer);
+    if (state == peers_.end() || !state->second.authenticated_peer.has_value()) return;
+
+    static constexpr std::string_view kTakeoverReason =
+        "player account session was replaced by a newer login";
+    authenticator_->on_peer_disconnected(*state->second.authenticated_peer, kTakeoverReason);
+    state->second.authenticated_peer.reset();
+    state->second.disconnecting = true;
+    std::erase_if(pending_outbound_, [peer](const PendingOutboundFrame& pending) {
+        return pending.peer == peer;
     });
+    pending_disconnects_.push_back({.peer = peer, .reason = std::string(kTakeoverReason)});
+    SNT_LOG_WARN("Player account '%.*s' session takeover: peer %llu will be disconnected",
+                 static_cast<int>(account_id.size()), account_id.data(),
+                 static_cast<unsigned long long>(peer));
+}
+
+std::optional<snt::network::PeerId>
+GameServerReplicationHandler::find_authenticated_peer_for_player_id(
+    std::string_view player_id, snt::network::PeerId except_peer) const {
+    for (const auto& [peer, state] : peers_) {
+        if (peer != except_peer && state.authenticated_peer.has_value() &&
+            state.authenticated_peer->identity.account_id == player_id) {
+            return peer;
+        }
+    }
+    return std::nullopt;
 }
 
 }  // namespace snt::game::replication

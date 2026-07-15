@@ -22,7 +22,7 @@ namespace snt::game::replication {
 // handle or a process-local EntityGuid; a concrete game service maps it to
 // persistent player state during authenticated session creation.
 struct GameAuthenticatedPeer {
-    std::string player_id;
+    PlayerIdentity identity;
 };
 
 class IGamePeerAuthenticator {

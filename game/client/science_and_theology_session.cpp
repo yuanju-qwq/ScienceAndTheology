@@ -51,6 +51,11 @@ void append_cross_arm(snt::ui::Arc2DCommandBuffer& commands, float center_x, flo
 ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(GameSessionConfig config)
     : config_(std::move(config)), simulation_session_(config_) {}
 
+ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(
+    GameSessionConfig config, PlayerIdentity local_player_identity)
+    : config_(std::move(config)), simulation_session_(config_),
+      local_player_identity_(std::move(local_player_identity)) {}
+
 ScienceAndTheologyClientSession::~ScienceAndTheologyClientSession() { shutdown(); }
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::register_content(
@@ -173,6 +178,11 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         InventoryViewModel{make_starting_inventory()},
         make_starting_crafting_recipes());
     performance_ui_ = std::make_unique<PerformanceViewModel>();
+    if (local_player_identity_) {
+        SNT_LOG_INFO("Client local player identity is '%s' (%s)",
+                     local_player_identity_->account_id.c_str(),
+                     player_identity_provider_name(local_player_identity_->provider));
+    }
     SNT_LOG_INFO("ScienceAndTheology client world and gameplay UI initialized");
     return {};
 }

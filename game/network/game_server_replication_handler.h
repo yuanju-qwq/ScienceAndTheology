@@ -11,14 +11,16 @@
 
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace snt::game::replication {
 
-// The dedicated server installs this until the game supplies a real account,
-// Steam, or LAN authenticator. It keeps a transport-enabled server from
-// accidentally admitting unauthenticated players.
+// An explicitly locked-down server or a test can install this authenticator
+// to reject every login. Production ScienceAndTheologyServerSession installs
+// GameAccountPeerAuthenticator instead.
 class ClosedGamePeerAuthenticator final : public IGamePeerAuthenticator {
 public:
     snt::core::Expected<GameAuthenticatedPeer> authenticate(
@@ -50,11 +52,17 @@ public:
 private:
     struct PeerState {
         std::optional<GameAuthenticatedPeer> authenticated_peer;
+        bool disconnecting = false;
     };
 
     struct PendingOutboundFrame {
         snt::network::PeerId peer = snt::network::kInvalidPeerId;
         snt::network::ReplicationFrame frame;
+    };
+
+    struct PendingPeerDisconnect {
+        snt::network::PeerId peer = snt::network::kInvalidPeerId;
+        std::string reason;
     };
 
     snt::core::Expected<void> handle_login(
@@ -65,13 +73,16 @@ private:
         snt::network::PeerId peer, const PeerState& state,
         const GameReplicationMessage& message,
         const snt::network::ReplicationTickContext& context);
-    [[nodiscard]] bool is_player_id_in_use(std::string_view player_id,
-                                            snt::network::PeerId except_peer) const;
+    void take_over_existing_account_session(snt::network::PeerId peer,
+                                            std::string_view account_id);
+    [[nodiscard]] std::optional<snt::network::PeerId> find_authenticated_peer_for_player_id(
+        std::string_view player_id, snt::network::PeerId except_peer) const;
 
     IGamePeerAuthenticator* authenticator_ = nullptr;
     IGameReplicationCommandSink* command_sink_ = nullptr;
     std::unordered_map<snt::network::PeerId, PeerState> peers_;
     std::vector<PendingOutboundFrame> pending_outbound_;
+    std::vector<PendingPeerDisconnect> pending_disconnects_;
 };
 
 }  // namespace snt::game::replication

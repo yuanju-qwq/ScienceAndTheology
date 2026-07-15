@@ -106,6 +106,7 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
         "void snt_register() {"
         "  snt_register_machine(\"p7.test.machine\", \"Test Machine\", 2, 500);"
         "  snt_register_quest(\"p7.test.quest\", \"Test Quest\", \"Description\");"
+        "  snt_add_quest_objective(\"p7.test.quest\", \"craft.test\", \"craft_item\", \"test_ingot\", 2);"
         "}"));
 
     const auto* machine = content.find_machine("p7.test.machine");
@@ -113,7 +114,13 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
     EXPECT_EQ(machine->display_name, "Test Machine");
     EXPECT_EQ(machine->tier, 2);
     EXPECT_EQ(machine->power_capacity, 500);
-    EXPECT_NE(content.find_quest("p7.test.quest"), nullptr);
+    const auto* quest = content.find_quest("p7.test.quest");
+    ASSERT_NE(quest, nullptr);
+    ASSERT_EQ(quest->objectives.size(), 1u);
+    EXPECT_EQ(quest->objectives.front().id, "craft.test");
+    EXPECT_EQ(quest->objectives.front().kind, snt::game::QuestObjectiveKind::kCraftItem);
+    EXPECT_EQ(quest->objectives.front().target_id, "test_ingot");
+    EXPECT_EQ(quest->objectives.front().required_count, 2);
     EXPECT_TRUE(scripts.reload_all());
     scripts.shutdown();
 }

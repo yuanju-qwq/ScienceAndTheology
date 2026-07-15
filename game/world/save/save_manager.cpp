@@ -1,17 +1,20 @@
+#define SNT_LOG_CHANNEL "save"
 #include "save_manager.h"
 
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
-#include <map>
+#include <utility>
 
 #include "chunk_serializer.h"
 #include "voxel/storage/region_file.h"
 
-#define SNT_LOG_CHANNEL "save"
 #include "core/log.h"
 
 namespace fs = std::filesystem;
@@ -91,6 +94,230 @@ void publish_game_chunk(ChunkRegistry& voxel_chunks,
     voxel_chunks.set_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z,
                            std::move(voxel));
     sidecars.set(std::move(key), std::move(sidecar));
+}
+
+constexpr char kQuestProgressMagic[] = {'S', 'N', 'T', 'Q'};
+constexpr size_t kMaxQuestPlayerIdBytes = 256;
+constexpr uint32_t kMaxQuestProgressRecords = 4096;
+constexpr uint32_t kMaxQuestIdBytes = 512;
+constexpr uint32_t kMaxQuestObjectiveIdBytes = 512;
+constexpr uint32_t kMaxQuestObjectivesPerRecord = 256;
+
+snt::core::Error persistence_error(snt::core::ErrorCode code, std::string message) {
+    return {code, std::move(message)};
+}
+
+bool is_valid_quest_state(QuestState state) noexcept {
+    switch (state) {
+        case QuestState::kLocked:
+        case QuestState::kAvailable:
+        case QuestState::kInProgress:
+        case QuestState::kCompleted:
+            return true;
+    }
+    return false;
+}
+
+snt::core::Expected<void> validate_quest_progress_request(std::string_view save_dir,
+                                                           std::string_view player_id) {
+    if (save_dir.empty()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Quest progress save directory must not be empty");
+    }
+    if (player_id.empty() || player_id.size() > kMaxQuestPlayerIdBytes) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Quest progress player id must contain 1 to 256 bytes");
+    }
+    return {};
+}
+
+snt::core::Expected<void> validate_quest_progress_records(
+    std::span<const QuestProgressRecord> progress) {
+    if (progress.size() > kMaxQuestProgressRecords) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Quest progress contains too many quest records");
+    }
+
+    std::set<std::string, std::less<>> quest_ids;
+    for (const QuestProgressRecord& record : progress) {
+        if (record.quest_id.empty() || record.quest_id.size() > kMaxQuestIdBytes ||
+            !is_valid_quest_state(record.state) ||
+            record.objective_counts.size() > kMaxQuestObjectivesPerRecord ||
+            !quest_ids.emplace(record.quest_id).second) {
+            return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                     "Quest progress contains an invalid or duplicate quest record");
+        }
+        for (const auto& [objective_id, count] : record.objective_counts) {
+            if (objective_id.empty() || objective_id.size() > kMaxQuestObjectiveIdBytes || count < 0) {
+                return persistence_error(
+                    snt::core::ErrorCode::kInvalidArgument,
+                    "Quest progress contains an invalid objective record");
+            }
+        }
+    }
+    return {};
+}
+
+std::string hex_player_id(std::string_view player_id) {
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string encoded;
+    encoded.reserve(player_id.size() * 2);
+    for (const unsigned char byte : player_id) {
+        encoded.push_back(kHex[(byte >> 4) & 0x0F]);
+        encoded.push_back(kHex[byte & 0x0F]);
+    }
+    return encoded;
+}
+
+fs::path quest_progress_directory(std::string_view save_dir) {
+    return utf8_path(std::string(save_dir)) / "players";
+}
+
+fs::path quest_progress_path(std::string_view save_dir, std::string_view player_id) {
+    return quest_progress_directory(save_dir) / ("player_" + hex_player_id(player_id) + ".quest");
+}
+
+template <typename T>
+bool write_value(std::ofstream& file, const T& value) {
+    file.write(reinterpret_cast<const char*>(&value), sizeof(value));
+    return file.good();
+}
+
+template <typename T>
+bool read_value(std::ifstream& file, T& value) {
+    file.read(reinterpret_cast<char*>(&value), sizeof(value));
+    return file.good();
+}
+
+bool write_quest_string(std::ofstream& file, std::string_view value, uint32_t max_length) {
+    if (value.size() > max_length || value.size() > std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+    const uint32_t length = static_cast<uint32_t>(value.size());
+    if (!write_value(file, length)) return false;
+    if (length == 0) return true;
+    file.write(value.data(), static_cast<std::streamsize>(length));
+    return file.good();
+}
+
+bool read_quest_string(std::ifstream& file, std::string& value, uint32_t max_length) {
+    uint32_t length = 0;
+    if (!read_value(file, length) || length > max_length) return false;
+    value.resize(length);
+    if (length == 0) return true;
+    file.read(value.data(), static_cast<std::streamsize>(length));
+    return file.good();
+}
+
+bool write_quest_progress_record(std::ofstream& file, const QuestProgressRecord& record) {
+    const uint8_t state = static_cast<uint8_t>(record.state);
+    const uint8_t reward_claimed = record.reward_claimed ? 1 : 0;
+    const uint32_t objective_count = static_cast<uint32_t>(record.objective_counts.size());
+    if (!write_quest_string(file, record.quest_id, kMaxQuestIdBytes) ||
+        !write_value(file, state) ||
+        !write_value(file, record.completed_tick) ||
+        !write_value(file, record.completion_count) ||
+        !write_value(file, reward_claimed) ||
+        !write_value(file, objective_count)) {
+        return false;
+    }
+    for (const auto& [objective_id, count] : record.objective_counts) {
+        if (!write_quest_string(file, objective_id, kMaxQuestObjectiveIdBytes) ||
+            !write_value(file, count)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool read_quest_progress_record(std::ifstream& file, QuestProgressRecord& record) {
+    QuestProgressRecord restored;
+    uint8_t state = 0;
+    uint8_t reward_claimed = 0;
+    uint32_t objective_count = 0;
+    if (!read_quest_string(file, restored.quest_id, kMaxQuestIdBytes) ||
+        restored.quest_id.empty() ||
+        !read_value(file, state) ||
+        !read_value(file, restored.completed_tick) ||
+        !read_value(file, restored.completion_count) ||
+        !read_value(file, reward_claimed) || reward_claimed > 1 ||
+        !read_value(file, objective_count) || objective_count > kMaxQuestObjectivesPerRecord) {
+        return false;
+    }
+    restored.state = static_cast<QuestState>(state);
+    if (!is_valid_quest_state(restored.state)) return false;
+
+    for (uint32_t index = 0; index < objective_count; ++index) {
+        std::string objective_id;
+        int32_t count = 0;
+        if (!read_quest_string(file, objective_id, kMaxQuestObjectiveIdBytes) ||
+            objective_id.empty() || !read_value(file, count) || count < 0 ||
+            !restored.objective_counts.emplace(std::move(objective_id), count).second) {
+            return false;
+        }
+    }
+    restored.reward_claimed = reward_claimed == 1;
+    record = std::move(restored);
+    return true;
+}
+
+snt::core::Expected<void> replace_quest_progress_file(const fs::path& final_path,
+                                                       const fs::path& temporary_path,
+                                                       const fs::path& backup_path) {
+    std::error_code ec;
+    const bool has_final = fs::exists(final_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect quest progress destination: " + ec.message());
+    }
+    const bool has_backup = fs::exists(backup_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect quest progress backup: " + ec.message());
+    }
+
+    if (!has_final && has_backup) {
+        fs::rename(backup_path, final_path, ec);
+        if (ec) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to recover previous quest progress: " + ec.message());
+        }
+    } else if (has_final && has_backup) {
+        fs::remove(backup_path, ec);
+        if (ec) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to remove stale quest progress backup: " + ec.message());
+        }
+    }
+
+    const bool primary_exists = fs::exists(final_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect quest progress primary file: " + ec.message());
+    }
+    if (primary_exists) {
+        fs::rename(final_path, backup_path, ec);
+        if (ec) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to stage previous quest progress: " + ec.message());
+        }
+    }
+
+    fs::rename(temporary_path, final_path, ec);
+    if (!ec) {
+        fs::remove(backup_path, ec);
+        return {};
+    }
+
+    const std::string rename_error = ec.message();
+    std::error_code restore_error;
+    const bool final_exists_after_failure = fs::exists(final_path, restore_error);
+    if (!restore_error && !final_exists_after_failure && fs::exists(backup_path, restore_error) &&
+        !restore_error) {
+        fs::rename(backup_path, final_path, restore_error);
+    }
+    return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                             "Unable to promote quest progress file: " + rename_error);
 }
 
 } // namespace
@@ -317,6 +544,149 @@ int GameSaveManager::load_dimension(const std::string& planet_dir,
     }
 
     return loaded_count;
+}
+
+snt::core::Expected<std::vector<QuestProgressRecord>>
+GameSaveManager::load_quest_progress(const std::string& save_dir, std::string_view player_id) {
+    if (auto result = validate_quest_progress_request(save_dir, player_id); !result) {
+        return result.error();
+    }
+
+    const fs::path primary_path = quest_progress_path(save_dir, player_id);
+    fs::path backup_path = primary_path;
+    backup_path += ".bak";
+
+    std::error_code ec;
+    const bool primary_exists = fs::exists(primary_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect quest progress file: " + ec.message());
+    }
+
+    fs::path selected_path = primary_path;
+    if (!primary_exists) {
+        const bool backup_exists = fs::exists(backup_path, ec);
+        if (ec) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to inspect quest progress backup: " + ec.message());
+        }
+        if (!backup_exists) return std::vector<QuestProgressRecord>{};
+
+        selected_path = backup_path;
+        SNT_LOG_WARN("Quest progress primary file was missing for player '%.*s'; using recovery backup",
+                     static_cast<int>(player_id.size()), player_id.data());
+    }
+
+    std::ifstream file(selected_path, std::ios::binary);
+    if (!file.is_open()) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to open quest progress file: " + path_to_utf8(selected_path));
+    }
+
+    char magic[sizeof(kQuestProgressMagic)] = {};
+    uint8_t version = 0;
+    std::string stored_player_id;
+    uint32_t record_count = 0;
+    file.read(magic, sizeof(magic));
+    if (!file.good() || std::memcmp(magic, kQuestProgressMagic, sizeof(magic)) != 0 ||
+        !read_value(file, version) || version != kQuestProgressVersion ||
+        !read_quest_string(file, stored_player_id, static_cast<uint32_t>(kMaxQuestPlayerIdBytes)) ||
+        stored_player_id != player_id || !read_value(file, record_count) ||
+        record_count > kMaxQuestProgressRecords) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Quest progress file is corrupt or not the current format");
+    }
+
+    std::vector<QuestProgressRecord> progress;
+    progress.reserve(record_count);
+    std::set<std::string, std::less<>> quest_ids;
+    for (uint32_t index = 0; index < record_count; ++index) {
+        QuestProgressRecord record;
+        if (!read_quest_progress_record(file, record) ||
+            !quest_ids.emplace(record.quest_id).second) {
+            return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                     "Quest progress file contains an invalid or duplicate record");
+        }
+        progress.push_back(std::move(record));
+    }
+
+    if (file.peek() != std::char_traits<char>::eof() || file.bad()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Quest progress file has trailing or unreadable data");
+    }
+    return progress;
+}
+
+snt::core::Expected<void> GameSaveManager::save_quest_progress(
+    const std::string& save_dir, std::string_view player_id,
+    std::span<const QuestProgressRecord> progress) {
+    if (auto result = validate_quest_progress_request(save_dir, player_id); !result) {
+        return result.error();
+    }
+    if (auto result = validate_quest_progress_records(progress); !result) {
+        return result.error();
+    }
+
+    std::vector<QuestProgressRecord> ordered_progress(progress.begin(), progress.end());
+    std::sort(ordered_progress.begin(), ordered_progress.end(),
+              [](const QuestProgressRecord& left, const QuestProgressRecord& right) {
+                  return left.quest_id < right.quest_id;
+              });
+
+    const fs::path directory = quest_progress_directory(save_dir);
+    if (!ensure_directory(path_to_utf8(directory))) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to create quest progress directory: " + path_to_utf8(directory));
+    }
+
+    const fs::path primary_path = quest_progress_path(save_dir, player_id);
+    fs::path temporary_path = primary_path;
+    temporary_path += ".tmp";
+    fs::path backup_path = primary_path;
+    backup_path += ".bak";
+
+    std::error_code ec;
+    fs::remove(temporary_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to remove stale quest progress temporary file: " + ec.message());
+    }
+
+    {
+        std::ofstream file(temporary_path, std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to create quest progress temporary file: " +
+                                         path_to_utf8(temporary_path));
+        }
+
+        const uint32_t record_count = static_cast<uint32_t>(ordered_progress.size());
+        file.write(kQuestProgressMagic, sizeof(kQuestProgressMagic));
+        bool wrote = file.good() && write_value(file, kQuestProgressVersion) &&
+                     write_quest_string(file, player_id,
+                                        static_cast<uint32_t>(kMaxQuestPlayerIdBytes)) &&
+                     write_value(file, record_count);
+        for (const QuestProgressRecord& record : ordered_progress) {
+            wrote = wrote && write_quest_progress_record(file, record);
+        }
+        file.flush();
+        wrote = wrote && file.good();
+        file.close();
+        if (!wrote || file.fail()) {
+            std::error_code remove_error;
+            fs::remove(temporary_path, remove_error);
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to write complete quest progress file");
+        }
+    }
+
+    if (auto result = replace_quest_progress_file(primary_path, temporary_path, backup_path);
+        !result) {
+        std::error_code remove_error;
+        fs::remove(temporary_path, remove_error);
+        return result.error();
+    }
+    return {};
 }
 
 // --- Per-chunk save / load ---

@@ -13,6 +13,7 @@
 #include "engine/simulation_session.h"
 #include "game/client/game_content_registry.h"
 #include "game/client/game_session_config.h"
+#include "game/quest/quest_registry.h"
 #include "game/world/game_chunk.h"
 
 namespace snt::engine {
@@ -34,10 +35,13 @@ public:
     snt::core::Expected<void> after_fixed_tick(snt::engine::FixedTickContext& context) override;
     void shutdown() noexcept override;
 
+    QuestRegistry& quests() noexcept { return quest_registry_; }
+
 private:
     GameSessionConfig config_;
     snt::engine::SimulationServices* services_ = nullptr;
     GameContentRegistry content_registry_;
+    QuestRegistry quest_registry_;
     GameChunkSidecarRegistry chunk_sidecars_;
     bool scripts_started_ = false;
 };

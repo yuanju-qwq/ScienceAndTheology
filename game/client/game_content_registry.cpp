@@ -42,6 +42,16 @@ GameContentRegistry* active_registry() {
     return nullptr;
 }
 
+std::optional<QuestObjectiveKind> parse_quest_objective_kind(std::string_view value) {
+    if (value == "acquire_item") return QuestObjectiveKind::kAcquireItem;
+    if (value == "craft_item") return QuestObjectiveKind::kCraftItem;
+    if (value == "mine_block") return QuestObjectiveKind::kMineBlock;
+    if (value == "place_machine") return QuestObjectiveKind::kPlaceMachine;
+    if (value == "reach_tick") return QuestObjectiveKind::kReachTick;
+    if (value == "custom") return QuestObjectiveKind::kCustomEvent;
+    return std::nullopt;
+}
+
 void api_register_recipe(const std::string& id,
                          const std::string& machine_id,
                          const std::string& input_item_id,
@@ -94,6 +104,44 @@ void api_register_quest(const std::string& id,
     definition.title = title;
     definition.description = description;
     if (auto result = registry->register_script_quest(g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_add_quest_prerequisite(const std::string& quest_id,
+                                const std::string& prerequisite_id) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    if (auto result = registry->add_script_quest_prerequisite(
+            g_active_script_id, quest_id, prerequisite_id); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_add_quest_objective(const std::string& quest_id,
+                             const std::string& objective_id,
+                             const std::string& objective_kind,
+                             const std::string& target_id,
+                             int required_count) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    const auto kind = parse_quest_objective_kind(objective_kind);
+    if (!kind) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Unknown quest objective kind: " + objective_kind});
+        return;
+    }
+
+    QuestObjectiveDefinition objective;
+    objective.id = objective_id;
+    objective.kind = *kind;
+    objective.target_id = target_id;
+    objective.required_count = required_count;
+    if (auto result = registry->add_script_quest_objective(
+            g_active_script_id, quest_id, std::move(objective)); !result) {
         report_binding_error(result.error());
     }
 }
@@ -178,6 +226,13 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             "void snt_register_quest(const string &in, const string &in, const string &in)",
             asFUNCTION(api_register_quest)); !result) return result;
     if (auto result = register_function(
+            engine, "void snt_add_quest_prerequisite(const string &in, const string &in)",
+            asFUNCTION(api_add_quest_prerequisite)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_add_quest_objective(const string &in, const string &in, const string &in, const string &in, int)",
+            asFUNCTION(api_add_quest_objective)); !result) return result;
+    if (auto result = register_function(
             engine, "void snt_on(const string &in, const string &in)",
             asFUNCTION(api_on)); !result) return result;
     if (auto result = register_function(
@@ -224,6 +279,47 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
 snt::core::Expected<void> GameContentRegistry::validate(const QuestDefinition& definition) {
     if (definition.id.empty()) return invalid_argument("Quest id must not be empty");
     if (definition.title.empty()) return invalid_argument("Quest title must not be empty");
+    for (const std::string& prerequisite : definition.prerequisites) {
+        if (prerequisite.empty()) return invalid_argument("Quest prerequisite id must not be empty");
+        if (prerequisite == definition.id) {
+            return invalid_argument("Quest cannot list itself as a prerequisite");
+        }
+        if (std::count(definition.prerequisites.begin(), definition.prerequisites.end(),
+                       prerequisite) != 1) {
+            return invalid_argument("Quest prerequisite ids must be unique within a quest");
+        }
+    }
+    for (size_t index = 0; index < definition.objectives.size(); ++index) {
+        if (auto result = validate(definition.objectives[index]); !result) return result.error();
+        for (size_t prior = 0; prior < index; ++prior) {
+            if (definition.objectives[prior].id == definition.objectives[index].id) {
+                return invalid_argument("Quest objective ids must be unique within a quest");
+            }
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const QuestObjectiveDefinition& objective) {
+    if (objective.id.empty()) return invalid_argument("Quest objective id must not be empty");
+    if (objective.required_count <= 0) {
+        return invalid_argument("Quest objective required_count must be positive");
+    }
+    switch (objective.kind) {
+        case QuestObjectiveKind::kAcquireItem:
+        case QuestObjectiveKind::kCraftItem:
+        case QuestObjectiveKind::kMineBlock:
+        case QuestObjectiveKind::kPlaceMachine:
+        case QuestObjectiveKind::kReachTick:
+        case QuestObjectiveKind::kCustomEvent:
+            break;
+        default:
+            return invalid_argument("Quest objective kind is invalid");
+    }
+    if (objective.kind != QuestObjectiveKind::kReachTick && objective.target_id.empty()) {
+        return invalid_argument("Quest objective target_id must not be empty");
+    }
     return {};
 }
 
@@ -261,6 +357,55 @@ snt::core::Expected<void> GameContentRegistry::register_script_machine(
 snt::core::Expected<void> GameContentRegistry::register_script_quest(
     ScriptId script_id, QuestDefinition definition) {
     return register_quest(script_id, std::move(definition), false);
+}
+
+snt::core::Expected<void> GameContentRegistry::add_script_quest_prerequisite(
+    ScriptId script_id, std::string quest_id, std::string prerequisite_id) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Quest script mutations require a non-builtin ScriptId");
+    }
+    if (quest_id.empty() || prerequisite_id.empty()) {
+        return invalid_argument("Quest and prerequisite ids must not be empty");
+    }
+    if (quest_id == prerequisite_id) {
+        return invalid_argument("Quest cannot list itself as a prerequisite");
+    }
+
+    const auto found = live_quests_.find(quest_id);
+    if (found == live_quests_.end() || found->second.owner != script_id) {
+        return invalid_state("Quest prerequisite can only modify a quest owned by the active script");
+    }
+    auto& prerequisites = found->second.definition.prerequisites;
+    if (std::find(prerequisites.begin(), prerequisites.end(), prerequisite_id) != prerequisites.end()) {
+        return invalid_state("Duplicate quest prerequisite: " + prerequisite_id);
+    }
+    prerequisites.push_back(std::move(prerequisite_id));
+    ++quest_content_revision_;
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::add_script_quest_objective(
+    ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Quest script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(objective); !result) return result.error();
+
+    const auto found = live_quests_.find(quest_id);
+    if (found == live_quests_.end() || found->second.owner != script_id) {
+        return invalid_state("Quest objective can only modify a quest owned by the active script");
+    }
+    auto& objectives = found->second.definition.objectives;
+    const auto duplicate = std::find_if(
+        objectives.begin(), objectives.end(), [&objective](const QuestObjectiveDefinition& current) {
+            return current.id == objective.id;
+        });
+    if (duplicate != objectives.end()) {
+        return invalid_state("Duplicate quest objective: " + objective.id);
+    }
+    objectives.push_back(std::move(objective));
+    ++quest_content_revision_;
+    return {};
 }
 
 snt::core::Expected<void> GameContentRegistry::register_recipe(
@@ -335,6 +480,7 @@ snt::core::Expected<void> GameContentRegistry::register_quest(
     OwnedDefinition<QuestDefinition> entry{owner, std::move(definition)};
     if (builtin) backup_quests_[id] = entry;
     live_quests_[id] = std::move(entry);
+    ++quest_content_revision_;
     return {};
 }
 
@@ -351,6 +497,16 @@ const MachineDefinition* GameContentRegistry::find_machine(std::string_view id) 
 const QuestDefinition* GameContentRegistry::find_quest(std::string_view id) const {
     auto it = live_quests_.find(id);
     return it == live_quests_.end() ? nullptr : &it->second.definition;
+}
+
+std::vector<QuestDefinition> GameContentRegistry::quest_definitions() const {
+    std::vector<QuestDefinition> definitions;
+    definitions.reserve(live_quests_.size());
+    for (const auto& [id, entry] : live_quests_) {
+        (void)id;
+        definitions.push_back(entry.definition);
+    }
+    return definitions;
 }
 
 std::vector<RecipeDefinition> GameContentRegistry::recipes_for_machine(
@@ -454,6 +610,7 @@ snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id)
 }
 
 void GameContentRegistry::reset() {
+    const bool had_quests = !backup_quests_.empty() || !live_quests_.empty();
     backup_recipes_.clear();
     backup_machines_.clear();
     backup_quests_.clear();
@@ -463,6 +620,7 @@ void GameContentRegistry::reset() {
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();
+    if (had_quests) ++quest_content_revision_;
 }
 
 GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content(
@@ -511,11 +669,13 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
             ++it;
         }
     }
+    bool quests_changed = false;
     for (auto it = live_quests_.begin(); it != live_quests_.end();) {
         if (it->second.owner != script_id) {
             ++it;
             continue;
         }
+        quests_changed = true;
         auto backup = backup_quests_.find(it->first);
         if (backup == backup_quests_.end()) it = live_quests_.erase(it);
         else {
@@ -523,6 +683,7 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
             ++it;
         }
     }
+    if (quests_changed) ++quest_content_revision_;
     for (auto events = event_listeners_.begin(); events != event_listeners_.end();) {
         auto& listeners = events->second;
         std::erase_if(listeners, [script_id](const EventListener& listener) {
@@ -537,6 +698,7 @@ void GameContentRegistry::restore_script_content(const ReloadSnapshot& snapshot)
     for (const auto& [id, entry] : snapshot.recipes) live_recipes_[id] = entry;
     for (const auto& [id, entry] : snapshot.machines) live_machines_[id] = entry;
     for (const auto& [id, entry] : snapshot.quests) live_quests_[id] = entry;
+    if (!snapshot.quests.empty()) ++quest_content_revision_;
     for (const auto& listener : snapshot.event_listeners) {
         event_listeners_[listener.event_name].push_back(listener);
         sort_event_listeners(listener.event_name);

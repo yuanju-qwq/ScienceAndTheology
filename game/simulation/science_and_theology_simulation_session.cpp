@@ -17,7 +17,7 @@
 namespace snt::game {
 
 ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSessionConfig config)
-    : config_(std::move(config)) {}
+    : config_(std::move(config)), quest_registry_(content_registry_) {}
 
 ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { shutdown(); }
 
@@ -74,6 +74,12 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         }
     }
 
+    if (auto result = quest_registry_.refresh_definitions(); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::create_world(quest definitions)");
+        return error;
+    }
+
     if (auto result = bootstrap_demo_world(config_.demo, world_session.chunks(), chunk_sidecars_);
         !result) {
         auto error = result.error();
@@ -92,6 +98,11 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
     if (scripts_started_) {
         context.services().scripts().update(context.delta_seconds());
     }
+    if (auto result = quest_registry_.tick(context.tick_index()); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::fixed_tick(quests)");
+        return error;
+    }
     return {};
 }
 
@@ -101,6 +112,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
+    quest_registry_.clear();
     if (scripts_started_ && services_) {
         services_->scripts().shutdown();
         scripts_started_ = false;

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "core/expected.h"
+#include "game/player/player_identity.h"
 #include "network/replication.h"
 
 #include <cstddef>
@@ -19,11 +20,11 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 1;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 2;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
-inline constexpr size_t kMaxGamePlayerNameBytes = 48;
-inline constexpr size_t kMaxGamePlayerIdBytes = 128;
+inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
+inline constexpr size_t kMaxGamePlayerIdBytes = kMaxPlayerAccountIdBytes;
 inline constexpr size_t kMaxGameCredentialBytes = 1024;
 inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
 
@@ -69,15 +70,17 @@ struct GameReplicationMessage {
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> decode_game_replication_message(
     std::span<const std::byte> bytes);
 
-// Credentials are opaque to the codec and must never be logged. A concrete
-// IGamePeerAuthenticator decides whether and how to validate them.
+// Credentials are opaque to the codec and must never be logged. The identity
+// provider tells the server whether it should validate a Steam ticket or map a
+// deliberate local-name account. A client-supplied Steam id is never encoded.
 struct GameLoginRequest {
+    PlayerIdentityProvider identity_provider = PlayerIdentityProvider::kLocalName;
     std::string display_name;
     std::vector<std::byte> credential;
 };
 
 struct GameLoginAccepted {
-    std::string player_id;
+    PlayerIdentity identity;
 };
 
 // Command ids are game-owned. The network boundary preserves order and

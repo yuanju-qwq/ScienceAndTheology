@@ -52,13 +52,35 @@ struct MachineDefinition {
     std::vector<std::string> recipe_types;
 };
 
+// Quest objectives are content data, while their counters and state belong to
+// QuestRegistry. The explicit type prevents gameplay systems from parsing
+// ad-hoc objective strings and gives P7.4 a stable progress-key boundary.
+enum class QuestObjectiveKind : uint8_t {
+    kAcquireItem,
+    kCraftItem,
+    kMineBlock,
+    kPlaceMachine,
+    kReachTick,
+    kCustomEvent,
+};
+
+struct QuestObjectiveDefinition {
+    std::string id;
+    QuestObjectiveKind kind = QuestObjectiveKind::kCraftItem;
+    std::string target_id;
+    int32_t required_count = 1;
+};
+
 struct QuestDefinition {
     std::string id;
     std::string title;
     std::string description;
     std::vector<std::string> prerequisites;
-    std::vector<std::string> objectives;
+    std::vector<QuestObjectiveDefinition> objectives;
     std::vector<std::string> rewards;
+    bool hidden = false;
+    bool repeatable = false;
+    bool auto_start = false;
 };
 
 struct EventListener {
@@ -102,11 +124,19 @@ public:
                                                       MachineDefinition definition);
     snt::core::Expected<void> register_script_quest(ScriptId script_id,
                                                     QuestDefinition definition);
+    snt::core::Expected<void> add_script_quest_prerequisite(
+        ScriptId script_id, std::string quest_id, std::string prerequisite_id);
+    snt::core::Expected<void> add_script_quest_objective(
+        ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
 
     const RecipeDefinition* find_recipe(std::string_view id) const;
     const MachineDefinition* find_machine(std::string_view id) const;
     const QuestDefinition* find_quest(std::string_view id) const;
     std::vector<RecipeDefinition> recipes_for_machine(std::string_view machine_id) const;
+    std::vector<QuestDefinition> quest_definitions() const;
+    [[nodiscard]] uint64_t quest_content_revision() const noexcept {
+        return quest_content_revision_;
+    }
 
     snt::core::Expected<void> add_event_listener(EventListener listener);
     std::vector<EventListener> event_listeners(std::string_view event_name) const;
@@ -150,6 +180,7 @@ private:
     static snt::core::Expected<void> validate(const RecipeDefinition& definition);
     static snt::core::Expected<void> validate(const MachineDefinition& definition);
     static snt::core::Expected<void> validate(const QuestDefinition& definition);
+    static snt::core::Expected<void> validate(const QuestObjectiveDefinition& objective);
     static snt::core::Expected<void> validate(const EventListener& listener);
 
     void erase_script_content(ScriptId script_id);
@@ -168,6 +199,7 @@ private:
     std::map<std::string, std::vector<EventListener>, std::less<>> event_listeners_;
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;
+    uint64_t quest_content_revision_ = 1;
 };
 
 }  // namespace snt::game

@@ -34,6 +34,7 @@ target_link_libraries(snt_game_worldgen PUBLIC
 
 add_library(snt_game_world_save STATIC
     world/save/chunk_serializer.cpp
+    world/save/quest_progress_persistence.cpp
     world/save/save_manager.cpp
 )
 target_include_directories(snt_game_world_save PUBLIC
@@ -62,10 +63,26 @@ target_link_libraries(snt_game_world_mobile PUBLIC
     snt_game_worldgen
 )
 
+# Stable player identities are game-owned and reusable by the headless server,
+# client startup flow, network authentication, and gameplay persistence. This
+# target has no SDL, Vulkan, Steamworks, or simulation dependency.
+add_library(snt_game_identity STATIC
+    player/local_player_profile_store.cpp
+    player/player_identity.cpp
+)
+target_include_directories(snt_game_identity PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_identity PUBLIC
+    snt_engine_settings
+    snt_core
+)
+
 # Game-owned authoritative replication semantics. This target stays headless:
 # snt_network owns transport framing while this module owns game message
 # versions, authenticated command admission, and future AOI/snapshot contracts.
 add_library(snt_game_network STATIC
+    network/game_account_peer_authenticator.cpp
     network/game_replication_protocol.cpp
     network/game_server_replication_handler.cpp
 )
@@ -75,6 +92,7 @@ target_include_directories(snt_game_network PUBLIC
 target_link_libraries(snt_game_network PUBLIC
     snt_engine_settings
     snt_core
+    snt_game_identity
     snt_network
     snt_ecs
     snt_voxel_data
@@ -88,6 +106,7 @@ add_library(snt_game_simulation STATIC
     client/demo_world_bootstrap.cpp
     client/game_content_registry.cpp
     client/machine_tick_system.cpp
+    quest/quest_registry.cpp
     simulation/science_and_theology_simulation_session.cpp
 )
 target_include_directories(snt_game_simulation PUBLIC
@@ -109,6 +128,7 @@ target_link_libraries(snt_game_simulation PRIVATE
 
 add_executable(snt_game_client
     client/main.cpp
+    runtime/local_player_name_prompt.cpp
     runtime/runtime_package.cpp
     client/gameplay_ui.cpp
     client/science_and_theology_session.cpp
@@ -118,6 +138,7 @@ target_include_directories(snt_game_client PRIVATE
 )
 target_link_libraries(snt_game_client PRIVATE
     snt_client_runtime
+    snt_game_identity
     snt_game_simulation
     snt_engine_settings
     snt_core
@@ -205,6 +226,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
         tests/test_game_components.cpp
+        tests/test_player_identity.cpp
+        tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
         tests/test_server_session.cpp
@@ -227,6 +250,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_world_data
         snt_game_worldgen
         snt_game_world_save
+        snt_game_identity
         snt_game_network
         snt_engine_settings
         snt_third_party
