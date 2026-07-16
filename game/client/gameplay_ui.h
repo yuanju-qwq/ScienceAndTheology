@@ -1,4 +1,4 @@
-// ScienceAndTheology gameplay UI state and retained-view builders.
+// ScienceAndTheology gameplay UI state and WidgetTree builders.
 //
 // Ownership: ScienceAndTheologyClientSession owns these models for one game
 // session. They depend on snt::ui only for generic retained-MUI primitives;
@@ -10,7 +10,8 @@
 
 #pragma once
 
-#include "ui/retained_mui.h"
+#include "ui/ui_packed_scene.h"
+#include "core/expected.h"
 
 #include <cstdint>
 #include <memory>
@@ -22,6 +23,7 @@
 namespace snt::game::localization {
 class LocalizationService;
 }
+namespace snt::core { class RuntimePathResolver; }
 
 namespace snt::game {
 
@@ -74,6 +76,7 @@ public:
     void set_visible(bool visible);
     void toggle_visible() { set_visible(!visible_); }
     bool visible() const { return visible_; }
+    uint64_t revision() const noexcept { return revision_; }
 
     snt::ui::ViewModel& bindings() { return bindings_; }
     const snt::ui::ViewModel& bindings() const { return bindings_; }
@@ -82,6 +85,7 @@ private:
     PerformanceStats stats_{};
     bool visible_ = true;
     snt::ui::ViewModel bindings_;
+    uint64_t revision_ = 0;
 };
 
 class InventoryViewModel {
@@ -97,11 +101,13 @@ public:
 
     snt::ui::ViewModel& bindings() { return bindings_; }
     const snt::ui::ViewModel& bindings() const { return bindings_; }
+    uint64_t revision() const noexcept { return revision_; }
     void publish();
 
 private:
     InventoryState state_{};
     snt::ui::ViewModel bindings_;
+    uint64_t revision_ = 0;
 };
 
 class HotbarViewModel {
@@ -124,15 +130,17 @@ public:
                       std::vector<CraftingRecipeState> recipes = {});
 
     const std::vector<CraftingRecipeState>& recipes() const { return recipes_; }
-    void set_recipes(std::vector<CraftingRecipeState> recipes) { recipes_ = std::move(recipes); }
+    void set_recipes(std::vector<CraftingRecipeState> recipes);
     bool can_craft(const CraftingRecipeState& recipe) const;
     CraftedItemResult craft(std::string_view recipe_id);
     snt::ui::ViewModel& bindings() { return bindings_; }
+    uint64_t revision() const noexcept { return revision_; }
 
 private:
     InventoryViewModel& inventory_;
     std::vector<CraftingRecipeState> recipes_;
     snt::ui::ViewModel bindings_;
+    uint64_t revision_ = 0;
 };
 
 enum class GameplayUiScreen : uint8_t {
@@ -153,6 +161,7 @@ public:
     GameplayUiScreen open_screen() const { return open_screen_; }
     bool inventory_open() const { return open_screen_ == GameplayUiScreen::Inventory; }
     bool crafting_open() const { return open_screen_ == GameplayUiScreen::Crafting; }
+    uint64_t revision() const noexcept { return revision_; }
 
     void open_inventory();
     void open_crafting();
@@ -161,10 +170,13 @@ public:
     void toggle_crafting();
 
 private:
+    void set_open_screen(GameplayUiScreen screen);
+
     InventoryViewModel inventory_;
     HotbarViewModel hotbar_;
     CraftingViewModel crafting_;
     GameplayUiScreen open_screen_ = GameplayUiScreen::None;
+    uint64_t revision_ = 0;
 };
 
 std::unique_ptr<snt::ui::ViewGroup> build_hotbar_view(const HotbarViewModel& model);
@@ -178,6 +190,37 @@ std::unique_ptr<snt::ui::ViewGroup> build_performance_panel_view(
 std::unique_ptr<snt::ui::ViewGroup> build_gameplay_ui_root(GameplayUiController& controller,
                                                             snt::ui::Vec2 viewport,
                                                             const localization::LocalizationService& localization);
+
+// The client layer stack consumes this canonical tree directly. The
+// retained-MUI mounting layer owns the resulting View objects and preserves
+// their state while this tree identity remains stable.
+[[nodiscard]] snt::ui::UiWidgetTree build_gameplay_ui_widget_tree(
+    GameplayUiController& controller,
+    snt::ui::Vec2 viewport,
+    const localization::LocalizationService& localization);
+
+// Host-owned dispatch boundary for declarative action IDs in the tree.
+void dispatch_gameplay_ui_action(GameplayUiController& controller,
+                                 std::string_view action_id);
+
+// Dynamic Retained-MUI entry point. The factory instantiates the shared
+// WidgetTree once, then its updater replaces children only after a gameplay
+// UI model revision, open-screen state, or viewport change.
+[[nodiscard]] snt::ui::UiScreenFactory make_gameplay_ui_factory(
+    GameplayUiController& controller,
+    const localization::LocalizationService& localization);
+
+// The performance overlay is a HUD-layer retained screen. Its updater changes
+// existing text and bar views instead of allocating a new panel every frame.
+[[nodiscard]] snt::ui::UiScreenFactory make_performance_ui_factory(
+    PerformanceViewModel& model,
+    const localization::LocalizationService& localization);
+
+// Game-owned mapping from stable item keys to packaged PNG resources. The
+// engine only accepts logical UI image keys; content chooses their files.
+[[nodiscard]] snt::core::Expected<void> register_gameplay_ui_images(
+    snt::ui::UiImageRegistry& images,
+    const snt::core::RuntimePathResolver& paths);
 
 std::vector<CraftingRecipeState> make_starting_crafting_recipes();
 InventoryState make_starting_inventory();

@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -84,7 +85,7 @@ snt::core::Expected<std::shared_ptr<LocalizationService>> make_test_localization
 snt::core::Expected<snt::core::RuntimePathResolver> make_test_path_resolver() {
     return snt::core::RuntimePathResolver::create({
         .engine_root = SNT_ENGINE_TEST_ROOT,
-        .game_root = SNT_ENGINE_TEST_ROOT,
+        .game_root = SNT_GAME_TEST_ROOT,
         .user_root = SNT_ENGINE_TEST_ROOT,
     });
 }
@@ -160,6 +161,33 @@ TEST(GameplayUi, InventoryScreenOpensAndRendersThroughArc2D) {
     EXPECT_TRUE(title->layout.contains_cjk);
 }
 
+TEST(GameplayUi, PackagedItemImagesRegisterAndRenderInInventorySlots) {
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    UiRuntime runtime(*paths);
+    auto registration = register_gameplay_ui_images(runtime.images(), *paths);
+    ASSERT_TRUE(registration) << registration.error().format();
+    EXPECT_EQ(runtime.images().image_count(), 5u);
+    EXPECT_NE(runtime.images().resolve("item.missing"), nullptr);
+    EXPECT_NE(runtime.images().resolve("plank.oak"), nullptr);
+
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+    GameplayUiController controller{
+        InventoryViewModel{make_starting_inventory()},
+        make_starting_crafting_recipes(),
+    };
+    controller.open_inventory();
+    auto root = build_gameplay_ui_root(controller, {1280.0f, 720.0f}, **localization);
+
+    const UiFrameResult frame = layout_and_paint(runtime, *root, {1280.0f, 720.0f});
+    ASSERT_TRUE(frame.draw_data.image_atlas);
+    EXPECT_GT(frame.draw_data.image_atlas->revision, 0u);
+    EXPECT_TRUE(std::any_of(
+        frame.draw_data.vertices.begin(), frame.draw_data.vertices.end(),
+        [](const UiVertex& vertex) { return vertex.texture_mode == UiTextureMode::Image; }));
+}
+
 TEST(GameplayUi, PerformancePanelUsesRetainedViewModel) {
     const auto localization = make_test_localization();
     ASSERT_TRUE(localization) << localization.error().format();
@@ -185,6 +213,114 @@ TEST(GameplayUi, PerformancePanelUsesRetainedViewModel) {
     EXPECT_TRUE(has_text_command(frame.commands, "72.5"));
     EXPECT_TRUE(has_text_command(frame.commands, "工作线程"));
     EXPECT_FALSE(frame.draw_data.vertices.empty());
+}
+
+TEST(GameplayUi, PerformanceHudFactoryRetainsRootAndUpdatesExistingWidgets) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+    PerformanceViewModel model;
+    UiImageRegistry images;
+    UiLayerStack layers;
+    ASSERT_TRUE(layers.register_screen({
+        .owner_id = "science_and_theology",
+        .screen_id = "performance",
+        .layer = UiLayer::Hud,
+        .initially_visible = true,
+        .factory = make_performance_ui_factory(model, **localization),
+    }));
+
+    const auto& first_frame = layers.prepare_frame({
+        .viewport = {1280.0f, 720.0f},
+        .images = images,
+    });
+    ASSERT_EQ(first_frame.size(), 1u);
+    View* const mounted_root = first_frame.front().root;
+    ASSERT_NE(mounted_root, nullptr);
+
+    model.publish({
+        .fps = 72.5f,
+        .frame_ms = 13.79f,
+        .tps = 20.0f,
+        .mspt = 4.25f,
+        .job_workers = 8,
+    });
+    const auto& updated_frame = layers.prepare_frame({
+        .viewport = {1280.0f, 720.0f},
+        .images = images,
+    });
+    ASSERT_EQ(updated_frame.size(), 1u);
+    EXPECT_EQ(updated_frame.front().root, mounted_root);
+
+    auto* root_group = dynamic_cast<ViewGroup*>(mounted_root);
+    ASSERT_NE(root_group, nullptr);
+    auto* fps = dynamic_cast<TextView*>(root_group->find("performance_fps"));
+    ASSERT_NE(fps, nullptr);
+    EXPECT_NE(fps->text().find("72.5"), std::string::npos);
+
+    ASSERT_TRUE(layers.set_visible("science_and_theology", "performance", false));
+    EXPECT_TRUE(layers.is_mounted("science_and_theology", "performance"));
+    ASSERT_TRUE(layers.set_visible("science_and_theology", "performance", true));
+    const auto& reopened_frame = layers.prepare_frame({
+        .viewport = {1280.0f, 720.0f},
+        .images = images,
+    });
+    ASSERT_EQ(reopened_frame.size(), 1u);
+    EXPECT_EQ(reopened_frame.front().root, mounted_root);
+}
+
+TEST(GameplayUi, GameplayFactoryKeepsCraftingScrollUntilModelChanges) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+    GameplayUiController controller{
+        InventoryViewModel{make_starting_inventory()},
+        make_starting_crafting_recipes(),
+    };
+    controller.open_crafting();
+
+    UiImageRegistry images;
+    UiLayerStack layers;
+    ASSERT_TRUE(layers.register_screen({
+        .owner_id = "science_and_theology",
+        .screen_id = "gameplay",
+        .layer = UiLayer::Screen,
+        .initially_visible = true,
+        .factory = make_gameplay_ui_factory(controller, **localization),
+        .dispatch_action = [&controller](std::string_view action_id) {
+            dispatch_gameplay_ui_action(controller, action_id);
+        },
+    }));
+
+    const auto& first_frame = layers.prepare_frame({
+        .viewport = {1280.0f, 720.0f},
+        .images = images,
+    });
+    ASSERT_EQ(first_frame.size(), 1u);
+    auto* root = dynamic_cast<ViewGroup*>(first_frame.front().root);
+    ASSERT_NE(root, nullptr);
+    auto* first_scroll = dynamic_cast<ScrollView*>(root->find("crafting_recipe_scroll"));
+    ASSERT_NE(first_scroll, nullptr);
+
+    const auto& unchanged_frame = layers.prepare_frame({
+        .viewport = {1280.0f, 720.0f},
+        .images = images,
+    });
+    ASSERT_EQ(unchanged_frame.size(), 1u);
+    auto* unchanged_scroll = dynamic_cast<ScrollView*>(root->find("crafting_recipe_scroll"));
+    EXPECT_EQ(unchanged_scroll, first_scroll);
+
+    ASSERT_TRUE(controller.inventory().remove_item("plank.oak", 5));
+    const auto& changed_frame = layers.prepare_frame({
+        .viewport = {1280.0f, 720.0f},
+        .images = images,
+    });
+    ASSERT_EQ(changed_frame.size(), 1u);
+    auto* changed_scroll = dynamic_cast<ScrollView*>(root->find("crafting_recipe_scroll"));
+    ASSERT_NE(changed_scroll, nullptr);
+    EXPECT_NE(changed_scroll, first_scroll);
+
+    auto* recipe_label = dynamic_cast<TextView*>(root->find("recipe_label_craft_workbench"));
+    ASSERT_NE(recipe_label, nullptr);
+    EXPECT_NE(recipe_label->text().find("材料不足"), std::string::npos);
 }
 
 TEST(GameplayUi, CraftingScreenConsumesInputsAndProducesOutput) {

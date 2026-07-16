@@ -68,6 +68,7 @@ private:
     uint64_t last_movement_send_tick_ = 0;
     bool has_last_sent_movement_input_ = false;
     snt::engine::SimulationServices* services_ = nullptr;
+    snt::ui::UiLayerStack* ui_layers_ = nullptr;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;
 };

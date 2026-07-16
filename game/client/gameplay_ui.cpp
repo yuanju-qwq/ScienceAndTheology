@@ -4,10 +4,14 @@
 #include "gameplay_ui.h"
 
 #include "core/log.h"
+#include "core/path_utils.h"
 #include "game/localization/localization.h"
+#include "ui/ui_packed_scene.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
+#include <string_view>
 #include <utility>
 
 namespace snt::game {
@@ -25,45 +29,267 @@ LayoutParams fixed(float width, float height) {
     return lp;
 }
 
-std::unique_ptr<TextView> label(std::string id, std::string text, float size = 16.0f) {
-    auto view = std::make_unique<TextView>(std::move(id));
-    view->set_text(std::move(text));
-    TextStyle style;
-    style.size_px = size;
-    style.color = {230, 236, 245, 255};
-    view->set_text_style(style);
-    return view;
-}
-
 std::string format_float(const char* fmt, float value) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), fmt, value);
     return buf;
 }
 
-std::unique_ptr<SlotView> slot_view(std::string id, const ItemStackState& stack, bool selected) {
-    auto slot = std::make_unique<SlotView>(std::move(id));
-    slot->set_layout_params(fixed(kSlotSize, kSlotSize));
-    slot->set_slot_state({
+UiWidgetTemplate text_widget(std::string id, std::string text, float size = 16.0f) {
+    UiWidgetTemplate widget;
+    widget.type = UiWidgetType::Text;
+    widget.id = std::move(id);
+    widget.text = std::move(text);
+    widget.text_style.size_px = size;
+    widget.text_style.color = {230, 236, 245, 255};
+    return widget;
+}
+
+UiWidgetTemplate slot_widget(std::string id, const ItemStackState& stack, bool selected) {
+    UiWidgetTemplate widget;
+    widget.type = UiWidgetType::Slot;
+    widget.id = std::move(id);
+    widget.layout.params = fixed(kSlotSize, kSlotSize);
+    widget.slot = {
         .item_key = stack.item_key,
         .count = stack.count,
         .selected = selected,
-    });
-    return slot;
+    };
+    return widget;
 }
 
-void add_slots_grid(LinearLayout& root, const InventoryState& inventory, int32_t columns) {
-    const int32_t safe_columns = std::max(1, columns);
-    auto grid = std::make_unique<GridLayout>("inventory_grid");
-    grid->set_columns(safe_columns);
-    grid->set_column_spacing(kSlotGap);
-    grid->set_row_spacing(kSlotGap);
-    for (int32_t index = 0; index < static_cast<int32_t>(inventory.slots.size()); ++index) {
-        grid->add_child(slot_view("inventory_slot_" + std::to_string(index),
-                                  inventory.slots[index],
-                                  index == inventory.selected_hotbar));
+UiWidgetTemplate& append_child(UiWidgetTemplate& parent, UiWidgetTemplate child) {
+    parent.children.push_back(std::move(child));
+    return parent.children.back();
+}
+
+std::unique_ptr<ViewGroup> instantiate_group(UiWidgetTemplate root,
+                                             UiWidgetActionDispatcher dispatch_action = {}) {
+    UiWidgetTree tree{.root = std::move(root)};
+    auto instantiated = instantiate_ui_widget_tree(
+        tree, {.dispatch_action = std::move(dispatch_action)});
+    if (!instantiated) {
+        SNT_LOG_ERROR("Gameplay WidgetTree instantiation failed: %s",
+                      instantiated.error().format().c_str());
+        return {};
     }
-    root.add_child(std::move(grid));
+
+    std::unique_ptr<View> view = std::move(*instantiated);
+    auto* group = dynamic_cast<ViewGroup*>(view.get());
+    if (!group) {
+        SNT_LOG_ERROR("Gameplay WidgetTree root is not a ViewGroup");
+        return {};
+    }
+    view.release();
+    return std::unique_ptr<ViewGroup>(group);
+}
+
+UiWidgetTemplate hotbar_template(const HotbarViewModel& model) {
+    UiWidgetTemplate root;
+    root.type = UiWidgetType::Linear;
+    root.id = "hotbar";
+    root.layout.orientation = Orientation::Horizontal;
+    root.layout.spacing = kSlotGap;
+    root.layout.padding = {4, 4, 4, 4};
+    root.background = Color{12, 15, 20, 205};
+    root.background_radius = 4.0f;
+
+    const auto& inventory = model.inventory();
+    const int32_t limit = std::min<int32_t>(9, static_cast<int32_t>(inventory.slots.size()));
+    for (int32_t index = 0; index < limit; ++index) {
+        append_child(root, slot_widget("hotbar_slot_" + std::to_string(index),
+                                       inventory.slots[index],
+                                       index == model.selected_index()));
+    }
+    return root;
+}
+
+UiWidgetTemplate inventory_template(const InventoryViewModel& model,
+                                    const localization::LocalizationService& localization) {
+    UiWidgetTemplate panel;
+    panel.type = UiWidgetType::Linear;
+    panel.id = "inventory_panel";
+    panel.layout.orientation = Orientation::Vertical;
+    panel.layout.spacing = 8.0f;
+    panel.layout.padding = {10, 10, 10, 10};
+    panel.background = Color{13, 15, 21, 235};
+    panel.background_radius = 6.0f;
+    panel.layout.params = fixed(430.0f, 250.0f);
+
+    UiWidgetTemplate title = text_widget("inventory_title", localization.translate("ui.inventory.title"), 18.0f);
+    title.layout.params = fixed(300.0f, 28.0f);
+    append_child(panel, std::move(title));
+
+    UiWidgetTemplate grid;
+    grid.type = UiWidgetType::Grid;
+    grid.id = "inventory_grid";
+    grid.layout.columns = std::max(1, model.state().columns);
+    grid.layout.column_spacing = kSlotGap;
+    grid.layout.row_spacing = kSlotGap;
+    for (int32_t index = 0; index < static_cast<int32_t>(model.state().slots.size()); ++index) {
+        append_child(grid, slot_widget("inventory_slot_" + std::to_string(index),
+                                       model.state().slots[index],
+                                       index == model.state().selected_hotbar));
+    }
+    append_child(panel, std::move(grid));
+    return panel;
+}
+
+UiWidgetTemplate crafting_template(const CraftingViewModel& model,
+                                   const localization::LocalizationService& localization) {
+    UiWidgetTemplate panel;
+    panel.type = UiWidgetType::Linear;
+    panel.id = "crafting_panel";
+    panel.layout.orientation = Orientation::Vertical;
+    panel.layout.spacing = 8.0f;
+    panel.layout.padding = {10, 10, 10, 10};
+    panel.background = Color{14, 16, 22, 238};
+    panel.background_radius = 6.0f;
+    panel.layout.params = fixed(520.0f, 310.0f);
+
+    UiWidgetTemplate title = text_widget("crafting_title", localization.translate("ui.crafting.title"), 18.0f);
+    title.layout.params = fixed(320.0f, 28.0f);
+    append_child(panel, std::move(title));
+
+    UiWidgetTemplate scroll;
+    scroll.type = UiWidgetType::Scroll;
+    scroll.id = "crafting_recipe_scroll";
+    scroll.layout.params = fixed(500.0f, 244.0f);
+    UiWidgetTemplate list;
+    list.type = UiWidgetType::Linear;
+    list.id = "crafting_recipe_list";
+    list.layout.orientation = Orientation::Vertical;
+    list.layout.spacing = 6.0f;
+
+    for (const auto& recipe : model.recipes()) {
+        UiWidgetTemplate row;
+        row.type = UiWidgetType::Linear;
+        row.id = "recipe_" + recipe.id;
+        row.layout.orientation = Orientation::Horizontal;
+        row.layout.spacing = 8.0f;
+        row.layout.params = fixed(480.0f, 48.0f);
+        append_child(row, slot_widget("recipe_output_" + recipe.id, recipe.output, false));
+
+        const std::string output_name = localization.translate(recipe.output.item_key);
+        const std::string output_count = std::to_string(recipe.output.count);
+        const std::string availability = localization.translate(
+            model.can_craft(recipe) ? "ui.crafting.ready" : "ui.crafting.insufficient");
+        UiWidgetTemplate name = text_widget(
+            "recipe_label_" + recipe.id,
+            localization.format("ui.crafting.recipe",
+                                {{"item", output_name}, {"count", output_count}, {"availability", availability}}),
+            14.0f);
+        name.layout.params = fixed(280.0f, 36.0f);
+        append_child(row, std::move(name));
+
+        UiWidgetTemplate craft;
+        craft.type = UiWidgetType::Button;
+        craft.id = "recipe_button_" + recipe.id;
+        craft.text = localization.translate("ui.crafting.craft");
+        craft.action_id = "craft:" + recipe.id;
+        craft.layout.params = fixed(72.0f, 32.0f);
+        append_child(row, std::move(craft));
+        append_child(list, std::move(row));
+    }
+    append_child(scroll, std::move(list));
+    append_child(panel, std::move(scroll));
+    return panel;
+}
+
+void dispatch_crafting_action(CraftingViewModel& model, std::string_view action_id) {
+    constexpr std::string_view kCraftActionPrefix = "craft:";
+    if (!action_id.starts_with(kCraftActionPrefix)) {
+        SNT_LOG_WARN("Craft UI received an unsupported WidgetTree action '%.*s'",
+                     static_cast<int>(action_id.size()), action_id.data());
+        return;
+    }
+    const std::string recipe_id(action_id.substr(kCraftActionPrefix.size()));
+    const CraftedItemResult result = model.craft(recipe_id);
+    if (!result.ok) {
+        SNT_LOG_WARN("Craft UI rejected recipe '%s': %s",
+                     recipe_id.c_str(), result.reason.c_str());
+        return;
+    }
+    SNT_LOG_INFO("Craft UI completed recipe '%s' -> %s x%d",
+                 recipe_id.c_str(), result.output.item_key.c_str(), result.output.count);
+}
+
+UiWidgetActionDispatcher crafting_actions(CraftingViewModel& model) {
+    return [&model](std::string_view action_id) {
+        dispatch_crafting_action(model, action_id);
+    };
+}
+
+UiWidgetTemplate performance_panel_template(const PerformanceViewModel& model,
+                                            const localization::LocalizationService& localization) {
+    UiWidgetTemplate panel;
+    panel.type = UiWidgetType::Linear;
+    panel.id = "performance_panel";
+    panel.layout.orientation = Orientation::Vertical;
+    panel.layout.spacing = 3.0f;
+    panel.layout.padding = {8, 8, 8, 8};
+    panel.background = Color{10, 12, 16, 210};
+    panel.background_radius = 5.0f;
+    panel.layout.params = fixed(230.0f, 116.0f);
+    panel.layout.params.margin.left = 12.0f;
+    panel.layout.params.margin.top = 12.0f;
+
+    const auto& stats = model.stats();
+    UiWidgetTemplate title = text_widget("performance_title", localization.translate("ui.performance.title"), 14.0f);
+    title.layout.params = fixed(210.0f, 20.0f);
+    append_child(panel, std::move(title));
+
+    const std::string fps_value = format_float("%.1f", stats.fps);
+    const std::string frame_ms_value = format_float("%.2f", stats.frame_ms);
+    UiWidgetTemplate fps = text_widget(
+        "performance_fps",
+        localization.format("ui.performance.fps", {{"fps", fps_value}, {"frame_ms", frame_ms_value}}),
+        12.0f);
+    fps.layout.params = fixed(210.0f, 18.0f);
+    append_child(panel, std::move(fps));
+
+    const std::string tps_value = format_float("%.1f", stats.tps);
+    const std::string mspt_value = format_float("%.2f", stats.mspt);
+    UiWidgetTemplate tps = text_widget(
+        "performance_tps",
+        localization.format("ui.performance.tps", {{"tps", tps_value}, {"mspt", mspt_value}}),
+        12.0f);
+    tps.layout.params = fixed(210.0f, 18.0f);
+    append_child(panel, std::move(tps));
+
+    UiWidgetTemplate jobs = text_widget(
+        "performance_jobs",
+        localization.format("ui.performance.workers", {{"workers", std::to_string(stats.job_workers)}}),
+        12.0f);
+    jobs.layout.params = fixed(210.0f, 18.0f);
+    append_child(panel, std::move(jobs));
+
+    UiWidgetTemplate bar_background;
+    bar_background.type = UiWidgetType::View;
+    bar_background.id = "performance_fps_bar_bg";
+    bar_background.layout.params = fixed(210.0f, 5.0f);
+    bar_background.background = Color{38, 44, 55, 230};
+    bar_background.background_radius = 2.0f;
+    append_child(panel, std::move(bar_background));
+
+    const float fps_fraction = std::clamp(stats.fps / 120.0f, 0.0f, 1.0f);
+    UiWidgetTemplate bar;
+    bar.type = UiWidgetType::View;
+    bar.id = "performance_fps_bar";
+    bar.layout.params = fixed(std::max(2.0f, 210.0f * fps_fraction), 5.0f);
+    bar.background = Color{86, 170, 120, 245};
+    bar.background_radius = 2.0f;
+    append_child(panel, std::move(bar));
+    return panel;
+}
+
+UiWidgetTree performance_ui_widget_tree(const PerformanceViewModel& model,
+                                        const localization::LocalizationService& localization) {
+    UiWidgetTree tree;
+    tree.root.type = UiWidgetType::Frame;
+    tree.root.id = "performance_ui_root";
+    append_child(tree.root, performance_panel_template(model, localization));
+    return tree;
 }
 
 }  // namespace
@@ -74,7 +300,14 @@ PerformanceViewModel::PerformanceViewModel() {
 }
 
 void PerformanceViewModel::publish(PerformanceStats stats) {
+    const bool unchanged = stats_.fps == stats.fps &&
+        stats_.frame_ms == stats.frame_ms &&
+        stats_.tps == stats.tps &&
+        stats_.mspt == stats.mspt &&
+        stats_.job_workers == stats.job_workers;
+    if (unchanged) return;
     stats_ = stats;
+    ++revision_;
     bindings_.set("performance.fps", static_cast<double>(stats_.fps));
     bindings_.set("performance.frame_ms", static_cast<double>(stats_.frame_ms));
     bindings_.set("performance.tps", static_cast<double>(stats_.tps));
@@ -83,7 +316,9 @@ void PerformanceViewModel::publish(PerformanceStats stats) {
 }
 
 void PerformanceViewModel::set_visible(bool visible) {
+    if (visible_ == visible) return;
     visible_ = visible;
+    ++revision_;
     bindings_.set("performance.visible", visible_);
 }
 
@@ -143,6 +378,7 @@ bool InventoryViewModel::add_item(ItemStackState stack) {
 }
 
 void InventoryViewModel::publish() {
+    ++revision_;
     bindings_.set("inventory.slot_count", static_cast<int64_t>(state_.slots.size()));
     bindings_.set("inventory.selected_hotbar", static_cast<int64_t>(state_.selected_hotbar));
 }
@@ -168,8 +404,13 @@ const InventoryState& HotbarViewModel::inventory() const {
 
 CraftingViewModel::CraftingViewModel(InventoryViewModel& inventory,
                                      std::vector<CraftingRecipeState> recipes)
-    : inventory_(inventory),
-      recipes_(std::move(recipes)) {
+    : inventory_(inventory) {
+    set_recipes(std::move(recipes));
+}
+
+void CraftingViewModel::set_recipes(std::vector<CraftingRecipeState> recipes) {
+    recipes_ = std::move(recipes);
+    ++revision_;
     bindings_.set("crafting.recipe_count", static_cast<int64_t>(recipes_.size()));
 }
 
@@ -201,6 +442,7 @@ CraftedItemResult CraftingViewModel::craft(std::string_view recipe_id) {
         return {.ok = false, .reason = "output inventory full"};
     }
 
+    ++revision_;
     bindings_.set("crafting.last_crafted", it->output.item_key);
     return {.ok = true, .output = it->output};
 }
@@ -212,193 +454,314 @@ GameplayUiController::GameplayUiController(InventoryViewModel inventory,
       crafting_(inventory_, std::move(recipes)) {}
 
 void GameplayUiController::open_inventory() {
-    open_screen_ = GameplayUiScreen::Inventory;
+    set_open_screen(GameplayUiScreen::Inventory);
 }
 
 void GameplayUiController::open_crafting() {
-    open_screen_ = GameplayUiScreen::Crafting;
+    set_open_screen(GameplayUiScreen::Crafting);
 }
 
 void GameplayUiController::close() {
-    open_screen_ = GameplayUiScreen::None;
+    set_open_screen(GameplayUiScreen::None);
 }
 
 void GameplayUiController::toggle_inventory() {
-    open_screen_ = inventory_open() ? GameplayUiScreen::None : GameplayUiScreen::Inventory;
+    set_open_screen(inventory_open() ? GameplayUiScreen::None : GameplayUiScreen::Inventory);
 }
 
 void GameplayUiController::toggle_crafting() {
-    open_screen_ = crafting_open() ? GameplayUiScreen::None : GameplayUiScreen::Crafting;
+    set_open_screen(crafting_open() ? GameplayUiScreen::None : GameplayUiScreen::Crafting);
+}
+
+void GameplayUiController::set_open_screen(GameplayUiScreen screen) {
+    if (open_screen_ == screen) return;
+    open_screen_ = screen;
+    ++revision_;
 }
 
 std::unique_ptr<ViewGroup> build_hotbar_view(const HotbarViewModel& model) {
-    auto root = std::make_unique<LinearLayout>("hotbar");
-    root->set_orientation(Orientation::Horizontal);
-    root->set_spacing(kSlotGap);
-    root->set_padding({4, 4, 4, 4});
-    root->set_background({12, 15, 20, 205}, 4.0f);
-
-    const auto& inv = model.inventory();
-    const int32_t limit = std::min<int32_t>(9, static_cast<int32_t>(inv.slots.size()));
-    for (int32_t i = 0; i < limit; ++i) {
-        root->add_child(slot_view("hotbar_slot_" + std::to_string(i),
-                                  inv.slots[i],
-                                  i == model.selected_index()));
-    }
-    return root;
+    return instantiate_group(hotbar_template(model));
 }
 
 std::unique_ptr<ViewGroup> build_inventory_view(
     const InventoryViewModel& model, const localization::LocalizationService& localization) {
-    auto panel = std::make_unique<LinearLayout>("inventory_panel");
-    panel->set_orientation(Orientation::Vertical);
-    panel->set_spacing(8.0f);
-    panel->set_padding({10, 10, 10, 10});
-    panel->set_background({13, 15, 21, 235}, 6.0f);
-    panel->set_layout_params(fixed(430.0f, 250.0f));
-
-    auto title = label("inventory_title", localization.translate("ui.inventory.title"), 18.0f);
-    title->set_layout_params(fixed(300.0f, 28.0f));
-    panel->add_child(std::move(title));
-
-    add_slots_grid(*panel, model.state(), std::max(1, model.state().columns));
-    return panel;
+    return instantiate_group(inventory_template(model, localization));
 }
 
 std::unique_ptr<ViewGroup> build_crafting_view(
     CraftingViewModel& model, const localization::LocalizationService& localization) {
-    auto panel = std::make_unique<LinearLayout>("crafting_panel");
-    panel->set_orientation(Orientation::Vertical);
-    panel->set_spacing(8.0f);
-    panel->set_padding({10, 10, 10, 10});
-    panel->set_background({14, 16, 22, 238}, 6.0f);
-    panel->set_layout_params(fixed(520.0f, 310.0f));
-
-    auto title = label("crafting_title", localization.translate("ui.crafting.title"), 18.0f);
-    title->set_layout_params(fixed(320.0f, 28.0f));
-    panel->add_child(std::move(title));
-
-    for (const auto& recipe : model.recipes()) {
-        auto row = std::make_unique<LinearLayout>("recipe_" + recipe.id);
-        row->set_orientation(Orientation::Horizontal);
-        row->set_spacing(8.0f);
-        row->set_layout_params(fixed(480.0f, 48.0f));
-
-        row->add_child(slot_view("recipe_output_" + recipe.id, recipe.output, false));
-
-        const std::string output_name = localization.translate(recipe.output.item_key);
-        const std::string output_count = std::to_string(recipe.output.count);
-        const std::string availability = localization.translate(
-            model.can_craft(recipe) ? "ui.crafting.ready" : "ui.crafting.insufficient");
-        const std::string text = localization.format(
-            "ui.crafting.recipe",
-            {{"item", output_name}, {"count", output_count}, {"availability", availability}});
-        auto name = label("recipe_label_" + recipe.id, text, 14.0f);
-        name->set_layout_params(fixed(280.0f, 36.0f));
-        row->add_child(std::move(name));
-
-        auto craft = std::make_unique<Button>("recipe_button_" + recipe.id);
-        craft->set_text(localization.translate("ui.crafting.craft"));
-        const std::string recipe_id = recipe.id;
-        craft->set_on_activate([&model, recipe_id] {
-            const CraftedItemResult result = model.craft(recipe_id);
-            if (!result.ok) {
-                SNT_LOG_WARN("Craft UI rejected recipe '%s': %s",
-                             recipe_id.c_str(), result.reason.c_str());
-                return;
-            }
-            SNT_LOG_INFO("Craft UI completed recipe '%s' -> %s x%d",
-                         recipe_id.c_str(), result.output.item_key.c_str(), result.output.count);
-        });
-        craft->set_layout_params(fixed(72.0f, 32.0f));
-        row->add_child(std::move(craft));
-
-        panel->add_child(std::move(row));
-    }
-
-    return panel;
+    return instantiate_group(crafting_template(model, localization), crafting_actions(model));
 }
 
 std::unique_ptr<ViewGroup> build_performance_panel_view(
     const PerformanceViewModel& model, const localization::LocalizationService& localization) {
-    auto panel = std::make_unique<LinearLayout>("performance_panel");
-    panel->set_orientation(Orientation::Vertical);
-    panel->set_spacing(3.0f);
-    panel->set_padding({8, 8, 8, 8});
-    panel->set_background({10, 12, 16, 210}, 5.0f);
-    panel->set_layout_params(fixed(230.0f, 116.0f));
-    panel->layout_params().margin.left = 12.0f;
-    panel->layout_params().margin.top = 12.0f;
+    return instantiate_group(performance_panel_template(model, localization));
+}
 
-    const auto& s = model.stats();
+UiWidgetTree build_gameplay_ui_widget_tree(
+    GameplayUiController& controller,
+    Vec2 viewport,
+    const localization::LocalizationService& localization) {
+    UiWidgetTree tree;
+    UiWidgetTemplate& root = tree.root;
+    root.type = UiWidgetType::Frame;
+    root.id = "gameplay_ui_root";
+    root.layout.params = fixed(viewport.x, viewport.y);
 
-    auto title = label("performance_title", localization.translate("ui.performance.title"), 14.0f);
-    title->set_layout_params(fixed(210.0f, 20.0f));
-    panel->add_child(std::move(title));
+    UiWidgetTemplate& hotbar = append_child(root, hotbar_template(controller.hotbar()));
+    hotbar.layout.params = fixed(9.0f * kSlotSize + 8.0f * kSlotGap + 8.0f,
+                                 kSlotSize + 8.0f);
+    hotbar.layout.params.margin.left = (viewport.x - hotbar.layout.params.width) * 0.5f;
+    hotbar.layout.params.margin.top = viewport.y - hotbar.layout.params.height - 18.0f;
 
-    const std::string fps_value = format_float("%.1f", s.fps);
-    const std::string frame_ms_value = format_float("%.2f", s.frame_ms);
-    auto fps = label("performance_fps", localization.format(
-                         "ui.performance.fps", {{"fps", fps_value}, {"frame_ms", frame_ms_value}}),
-                     12.0f);
-    fps->set_layout_params(fixed(210.0f, 18.0f));
-    panel->add_child(std::move(fps));
+    if (controller.inventory_open()) {
+        UiWidgetTemplate& inventory = append_child(
+            root, inventory_template(controller.inventory(), localization));
+        inventory.layout.params.margin.left =
+            (viewport.x - inventory.layout.params.width) * 0.5f;
+        inventory.layout.params.margin.top =
+            (viewport.y - inventory.layout.params.height) * 0.5f;
+    } else if (controller.crafting_open()) {
+        UiWidgetTemplate& crafting = append_child(
+            root, crafting_template(controller.crafting(), localization));
+        crafting.layout.params.margin.left =
+            (viewport.x - crafting.layout.params.width) * 0.5f;
+        crafting.layout.params.margin.top =
+            (viewport.y - crafting.layout.params.height) * 0.5f;
+    }
 
-    const std::string tps_value = format_float("%.1f", s.tps);
-    const std::string mspt_value = format_float("%.2f", s.mspt);
-    auto tps = label("performance_tps", localization.format(
-                         "ui.performance.tps", {{"tps", tps_value}, {"mspt", mspt_value}}),
-                     12.0f);
-    tps->set_layout_params(fixed(210.0f, 18.0f));
-    panel->add_child(std::move(tps));
+    return tree;
+}
 
-    const std::string worker_count = std::to_string(s.job_workers);
-    auto jobs = label("performance_jobs", localization.format(
-                          "ui.performance.workers", {{"workers", worker_count}}),
-                      12.0f);
-    jobs->set_layout_params(fixed(210.0f, 18.0f));
-    panel->add_child(std::move(jobs));
+namespace {
 
-    const float fps_fraction = std::clamp(s.fps / 120.0f, 0.0f, 1.0f);
-    auto bar_bg = std::make_unique<View>("performance_fps_bar_bg");
-    bar_bg->set_layout_params(fixed(210.0f, 5.0f));
-    bar_bg->set_background({38, 44, 55, 230}, 2.0f);
-    panel->add_child(std::move(bar_bg));
+// This snapshot deliberately tracks only inputs that change the generated
+// WidgetTree. A retained mount stays untouched on ordinary frames, including
+// while a ScrollView owns local scroll state.
+struct GameplayUiTreeState {
+    uint64_t controller_revision = 0;
+    uint64_t inventory_revision = 0;
+    uint64_t crafting_revision = 0;
+    Vec2 viewport{};
 
-    auto bar = std::make_unique<View>("performance_fps_bar");
-    bar->set_layout_params(fixed(std::max(2.0f, 210.0f * fps_fraction), 5.0f));
-    bar->set_background({86, 170, 120, 245}, 2.0f);
-    panel->add_child(std::move(bar));
+    bool operator==(const GameplayUiTreeState& other) const {
+        return controller_revision == other.controller_revision &&
+            inventory_revision == other.inventory_revision &&
+            crafting_revision == other.crafting_revision &&
+            viewport.x == other.viewport.x && viewport.y == other.viewport.y;
+    }
+};
 
-    return panel;
+GameplayUiTreeState gameplay_ui_tree_state(GameplayUiController& controller,
+                                           Vec2 viewport) {
+    return {
+        .controller_revision = controller.revision(),
+        .inventory_revision = controller.inventory().revision(),
+        .crafting_revision = controller.crafting().revision(),
+        .viewport = viewport,
+    };
+}
+
+struct GameplayUiMountState {
+    GameplayUiTreeState tree_state{};
+    bool refresh_failure_logged = false;
+};
+
+snt::core::Expected<void> replace_gameplay_ui_children(
+    View& mounted_root,
+    GameplayUiController& controller,
+    Vec2 viewport,
+    const localization::LocalizationService& localization,
+    const UiWidgetActionDispatcher& dispatch_action) {
+    auto* target_root = dynamic_cast<ViewGroup*>(&mounted_root);
+    if (!target_root) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Gameplay UI mount root is not a ViewGroup"};
+    }
+
+    auto candidate = instantiate_ui_widget_tree(
+        build_gameplay_ui_widget_tree(controller, viewport, localization), {
+            .dispatch_action = dispatch_action,
+        });
+    if (!candidate) return candidate.error();
+
+    auto* candidate_root = dynamic_cast<ViewGroup*>(candidate->get());
+    if (!candidate_root) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Gameplay UI WidgetTree root is not a ViewGroup"};
+    }
+
+    target_root->set_layout_params(candidate_root->layout_params());
+    std::vector<std::unique_ptr<View>> children = std::move(candidate_root->children());
+    target_root->clear_children();
+    for (std::unique_ptr<View>& child : children) {
+        target_root->add_child(std::move(child));
+    }
+    return {};
+}
+
+struct PerformanceUiMountState {
+    uint64_t model_revision = 0;
+    TextView* fps = nullptr;
+    TextView* tps = nullptr;
+    TextView* workers = nullptr;
+    View* fps_bar = nullptr;
+};
+
+snt::core::Expected<void> bind_performance_panel(
+    View& mounted_root,
+    PerformanceUiMountState& state) {
+    auto* root = dynamic_cast<ViewGroup*>(&mounted_root);
+    if (!root) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Performance UI mount root is not a ViewGroup"};
+    }
+    state.fps = dynamic_cast<TextView*>(root->find("performance_fps"));
+    state.tps = dynamic_cast<TextView*>(root->find("performance_tps"));
+    state.workers = dynamic_cast<TextView*>(root->find("performance_jobs"));
+    state.fps_bar = root->find("performance_fps_bar");
+    if (!state.fps || !state.tps || !state.workers || !state.fps_bar) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Performance UI mount is missing a required widget"};
+    }
+    return {};
+}
+
+void refresh_performance_panel(PerformanceUiMountState& state,
+                               const PerformanceViewModel& model,
+                               const localization::LocalizationService& localization) {
+    const PerformanceStats& stats = model.stats();
+    const std::string fps_value = format_float("%.1f", stats.fps);
+    const std::string frame_ms_value = format_float("%.2f", stats.frame_ms);
+    state.fps->set_text(localization.format(
+        "ui.performance.fps", {{"fps", fps_value}, {"frame_ms", frame_ms_value}}));
+
+    const std::string tps_value = format_float("%.1f", stats.tps);
+    const std::string mspt_value = format_float("%.2f", stats.mspt);
+    state.tps->set_text(localization.format(
+        "ui.performance.tps", {{"tps", tps_value}, {"mspt", mspt_value}}));
+    state.workers->set_text(localization.format(
+        "ui.performance.workers", {{"workers", std::to_string(stats.job_workers)}}));
+
+    const float bar_width = std::max(2.0f, 210.0f * std::clamp(stats.fps / 120.0f, 0.0f, 1.0f));
+    LayoutParams params = state.fps_bar->layout_params();
+    if (params.width != bar_width) {
+        params.width = bar_width;
+        state.fps_bar->set_layout_params(params);
+    }
+}
+
+}  // namespace
+
+void dispatch_gameplay_ui_action(GameplayUiController& controller,
+                                 std::string_view action_id) {
+    dispatch_crafting_action(controller.crafting(), action_id);
+}
+
+UiScreenFactory make_gameplay_ui_factory(
+    GameplayUiController& controller,
+    const localization::LocalizationService& localization) {
+    return [&controller, &localization](const UiScreenMountContext& context)
+        -> snt::core::Expected<UiScreenMount> {
+        const Vec2 viewport = context.viewport;
+        UiWidgetActionDispatcher dispatch_action = context.dispatch_action;
+        auto root = instantiate_ui_widget_tree(
+            build_gameplay_ui_widget_tree(controller, viewport, localization), {
+                .dispatch_action = dispatch_action,
+            });
+        if (!root) return root.error();
+        if (!dynamic_cast<ViewGroup*>(root->get())) {
+            return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                    "Gameplay UI WidgetTree root is not a ViewGroup"};
+        }
+
+        auto state = std::make_shared<GameplayUiMountState>();
+        state->tree_state = gameplay_ui_tree_state(controller, viewport);
+        return UiScreenMount{
+            .root = std::move(*root),
+            .update = [&controller, &localization, dispatch_action = std::move(dispatch_action), state](
+                          View& mounted_root,
+                          const UiScreenFrameContext& frame_context) {
+                const GameplayUiTreeState next_state = gameplay_ui_tree_state(
+                    controller, frame_context.viewport);
+                if (next_state == state->tree_state) return;
+
+                auto refreshed = replace_gameplay_ui_children(
+                    mounted_root, controller, frame_context.viewport, localization, dispatch_action);
+                if (!refreshed) {
+                    if (!state->refresh_failure_logged) {
+                        SNT_LOG_ERROR("Gameplay retained UI refresh failed: %s",
+                                      refreshed.error().format().c_str());
+                        state->refresh_failure_logged = true;
+                    }
+                    return;
+                }
+                state->tree_state = next_state;
+                state->refresh_failure_logged = false;
+            },
+        };
+    };
+}
+
+UiScreenFactory make_performance_ui_factory(
+    PerformanceViewModel& model,
+    const localization::LocalizationService& localization) {
+    return [&model, &localization](const UiScreenMountContext&)
+        -> snt::core::Expected<UiScreenMount> {
+        auto root = instantiate_ui_widget_tree(performance_ui_widget_tree(model, localization));
+        if (!root) return root.error();
+
+        auto state = std::make_shared<PerformanceUiMountState>();
+        if (auto binding = bind_performance_panel(**root, *state); !binding) {
+            return binding.error();
+        }
+        state->model_revision = model.revision();
+        return UiScreenMount{
+            .root = std::move(*root),
+            .update = [&model, &localization, state](View&,
+                                                      const UiScreenFrameContext&) {
+                if (state->model_revision == model.revision()) return;
+                refresh_performance_panel(*state, model, localization);
+                state->model_revision = model.revision();
+            },
+        };
+    };
 }
 
 std::unique_ptr<ViewGroup> build_gameplay_ui_root(GameplayUiController& controller,
                                                   Vec2 viewport,
                                                   const localization::LocalizationService& localization) {
-    auto root = std::make_unique<FrameLayout>("gameplay_ui_root");
-    root->set_layout_params(fixed(viewport.x, viewport.y));
+    UiWidgetTree tree = build_gameplay_ui_widget_tree(controller, viewport, localization);
+    return instantiate_group(std::move(tree.root), crafting_actions(controller.crafting()));
+}
 
-    auto hotbar = build_hotbar_view(controller.hotbar());
-    hotbar->set_layout_params(fixed(9.0f * kSlotSize + 8.0f * kSlotGap + 8.0f,
-                                    kSlotSize + 8.0f));
-    hotbar->layout_params().margin.left = (viewport.x - hotbar->layout_params().width) * 0.5f;
-    hotbar->layout_params().margin.top = viewport.y - hotbar->layout_params().height - 18.0f;
-    root->add_child(std::move(hotbar));
+snt::core::Expected<void> register_gameplay_ui_images(
+    UiImageRegistry& images,
+    const snt::core::RuntimePathResolver& paths) {
+    struct ImageRegistration {
+        const char* key;
+        const char* relative_path;
+    };
+    constexpr ImageRegistration kImages[] = {
+        {"item.missing", "resource/items/missing_icon_32.png"},
+        {"plank.oak", "resource/items/materials/wood_plank_icon_32.png"},
+        {"material.coal", "resource/items/tfc/charcoal_icon_32.png"},
+        {"stick", "resource/items/materials/stick_icon_32.png"},
+        {"workbench", "resource/items/placeables/workbench_icon_32.png"},
+    };
 
-    if (controller.inventory_open()) {
-        auto inventory = build_inventory_view(controller.inventory(), localization);
-        inventory->layout_params().margin.left = (viewport.x - inventory->layout_params().width) * 0.5f;
-        inventory->layout_params().margin.top = (viewport.y - inventory->layout_params().height) * 0.5f;
-        root->add_child(std::move(inventory));
-    } else if (controller.crafting_open()) {
-        auto crafting = build_crafting_view(controller.crafting(), localization);
-        crafting->layout_params().margin.left = (viewport.x - crafting->layout_params().width) * 0.5f;
-        crafting->layout_params().margin.top = (viewport.y - crafting->layout_params().height) * 0.5f;
-        root->add_child(std::move(crafting));
+    for (const ImageRegistration& image : kImages) {
+        if (auto result = images.register_file(image.key, paths.resolve_game(image.relative_path)); !result) {
+            auto error = result.error();
+            error.with_context("register_gameplay_ui_images");
+            return error;
+        }
     }
-
-    return root;
+    if (auto result = images.set_fallback("item.missing"); !result) {
+        return result.error();
+    }
+    SNT_LOG_INFO("Gameplay UI image catalog registered (%zu images)", std::size(kImages));
+    return {};
 }
 
 std::vector<CraftingRecipeState> make_starting_crafting_recipes() {

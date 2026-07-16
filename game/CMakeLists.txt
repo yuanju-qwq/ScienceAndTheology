@@ -294,6 +294,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     )
     target_compile_definitions(snt_game_tests PRIVATE
         SNT_ENGINE_TEST_ROOT="${SNT_ENGINE_SOURCE_DIR}"
+        SNT_GAME_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
     )
     target_link_libraries(snt_game_tests PRIVATE
         snt_game_simulation
@@ -346,6 +347,9 @@ function(snt_assemble_game_content target)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/../resource/terrain
             $<TARGET_FILE_DIR:${target}>/game/assets/terrain
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/../resource/items
+            $<TARGET_FILE_DIR:${target}>/game/resource/items
         COMMENT "Assembling ScienceAndTheology game content"
     )
 endfunction()

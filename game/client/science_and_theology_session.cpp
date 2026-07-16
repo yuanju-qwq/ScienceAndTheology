@@ -234,10 +234,46 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         return error;
     }
 
+    if (auto result = register_gameplay_ui_images(world_session.ui_images(), services_->paths()); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::create_client_world(ui images)");
+        return error;
+    }
+
     gameplay_ui_ = std::make_unique<GameplayUiController>(
         InventoryViewModel{make_starting_inventory()},
         make_starting_crafting_recipes());
     performance_ui_ = std::make_unique<PerformanceViewModel>();
+    auto& layers = world_session.ui_layers();
+    if (auto result = layers.register_screen({
+            .owner_id = "science_and_theology",
+            .screen_id = "gameplay",
+            .layer = snt::ui::UiLayer::Screen,
+            .initially_visible = true,
+            .factory = make_gameplay_ui_factory(*gameplay_ui_, *localization_),
+            .dispatch_action = [this](std::string_view action_id) {
+                if (!gameplay_ui_) return;
+                dispatch_gameplay_ui_action(*gameplay_ui_, action_id);
+            },
+        }); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::create_client_world(register gameplay UI)");
+        return error;
+    }
+    if (auto result = layers.register_screen({
+            .owner_id = "science_and_theology",
+            .screen_id = "performance",
+            .layer = snt::ui::UiLayer::Hud,
+            .initially_visible = performance_ui_->visible(),
+            .factory = make_performance_ui_factory(*performance_ui_, *localization_),
+        }); !result) {
+        const size_t removed = layers.unregister_owner("science_and_theology");
+        SNT_LOG_WARN("Performance UI registration failed; removed %zu partial UI screen(s)", removed);
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::create_client_world(register performance UI)");
+        return error;
+    }
+    ui_layers_ = &layers;
     if (local_player_identity_) {
         SNT_LOG_INFO("Client local player identity is '%s' (%s)",
                      local_player_identity_->account_id.c_str(),
@@ -354,19 +390,17 @@ void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& con
 }
 
 void ScienceAndTheologyClientSession::build_ui(snt::engine::ClientUiContext& context) {
-    if (gameplay_ui_ && localization_) {
-        auto root = build_gameplay_ui_root(
-            *gameplay_ui_, {context.viewport_width(), context.viewport_height()}, *localization_);
-        context.submit(std::move(root), snt::ui::UiLayer::Screen);
-    }
-    if (performance_ui_ && performance_ui_->visible() && localization_) {
-        auto panel = build_performance_panel_view(*performance_ui_, *localization_);
-        context.submit(std::move(panel), snt::ui::UiLayer::Debug);
-    }
     if (context.mouse_locked()) draw_crosshair(context);
 }
 
 void ScienceAndTheologyClientSession::shutdown() noexcept {
+    if (ui_layers_) {
+        const size_t removed = ui_layers_->unregister_owner("science_and_theology");
+        if (removed != 2u) {
+            SNT_LOG_WARN("Gameplay UI layer cleanup removed %zu screen(s), expected 2", removed);
+        }
+        ui_layers_ = nullptr;
+    }
     presentation_world_ = nullptr;
     remote_player_world_.reset();
     if (replication_session_) replication_session_->shutdown();
@@ -448,6 +482,14 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
     }
     if (input.key_pressed[SDL_SCANCODE_F3] && performance_ui_) {
         performance_ui_->toggle_visible();
+        if (ui_layers_) {
+            if (auto result = ui_layers_->set_visible(
+                    "science_and_theology", "performance", performance_ui_->visible());
+                !result) {
+                SNT_LOG_WARN("Performance UI layer visibility update failed: %s",
+                             result.error().format().c_str());
+            }
+        }
         SNT_LOG_INFO("Performance UI %s", performance_ui_->visible() ? "opened" : "closed");
     }
 
