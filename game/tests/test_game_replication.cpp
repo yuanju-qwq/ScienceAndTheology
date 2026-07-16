@@ -6,7 +6,10 @@
 #include "game/network/game_server_replication_handler.h"
 #include "game/server/game_server_command_sink.h"
 #include "game/server/game_server_player_lifecycle.h"
+#include "game/server/game_server_player_movement.h"
+#include "game/world/save/player_state_persistence.h"
 #include "network/tcp_udp_transport.h"
+#include "ecs/world.h"
 
 #include <gtest/gtest.h>
 
@@ -29,6 +32,7 @@ using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameClientCommand;
 using snt::game::replication::GameClientCommandType;
 using snt::game::replication::GameLoginRequest;
+using snt::game::replication::GamePlayerMovementInput;
 using snt::game::replication::GameDelta;
 using snt::game::replication::GameReplicationMessage;
 using snt::game::replication::GameReplicationMessageKind;
@@ -101,6 +105,16 @@ public:
         return {};
     }
 
+    snt::core::Expected<void> enqueue_player_movement_input(
+        const GameAuthenticatedPeer& peer, GamePlayerMovementInput input,
+        const snt::network::ReplicationTickContext& context) override {
+        ++movement_call_count;
+        last_movement_peer = peer.peer;
+        last_movement_input = input;
+        last_movement_tick_index = context.tick_index;
+        return {};
+    }
+
     void on_peer_disconnected(const GameAuthenticatedPeer& peer,
                               std::string_view reason) noexcept override {
         ++disconnected_call_count;
@@ -109,11 +123,44 @@ public:
     }
 
     int call_count = 0;
+    int movement_call_count = 0;
     int disconnected_call_count = 0;
     snt::network::PeerId last_peer = snt::network::kInvalidPeerId;
     snt::network::PeerId disconnected_peer = snt::network::kInvalidPeerId;
     std::string last_player_id;
     GameClientCommand last_command;
+    GamePlayerMovementInput last_movement_input;
+    snt::network::PeerId last_movement_peer = snt::network::kInvalidPeerId;
+    uint64_t last_tick_index = 0;
+    uint64_t last_movement_tick_index = 0;
+    std::string disconnect_reason;
+};
+
+class RecordingMovementInputSink final
+    : public snt::game::replication::IGameServerPlayerMovementInputSink {
+public:
+    snt::core::Expected<void> enqueue_player_movement_input(
+        const GameAuthenticatedPeer& peer, GamePlayerMovementInput input,
+        const snt::network::ReplicationTickContext& context) override {
+        ++call_count;
+        last_peer = peer;
+        last_input = input;
+        last_tick_index = context.tick_index;
+        return {};
+    }
+
+    void on_peer_disconnected(const GameAuthenticatedPeer& peer,
+                              std::string_view reason) noexcept override {
+        ++disconnected_call_count;
+        disconnected_peer = peer;
+        disconnect_reason = reason;
+    }
+
+    int call_count = 0;
+    int disconnected_call_count = 0;
+    GameAuthenticatedPeer last_peer;
+    GameAuthenticatedPeer disconnected_peer;
+    GamePlayerMovementInput last_input;
     uint64_t last_tick_index = 0;
     std::string disconnect_reason;
 };
@@ -275,6 +322,13 @@ public:
         return delta_messages;
     }
 
+    void on_peer_disconnected(const GameAuthenticatedPeer& peer,
+                              std::string_view reason) noexcept override {
+        ++disconnected_call_count;
+        disconnected_peer = peer;
+        disconnect_reason = reason;
+    }
+
     std::vector<GameReplicationMessage> initial_messages;
     std::vector<GameReplicationMessage> delta_messages;
     int initial_call_count = 0;
@@ -283,6 +337,9 @@ public:
     snt::game::replication::GameReplicationInterest last_interest;
     snt::game::replication::GameReplicationBudget last_budget;
     uint64_t last_tick = 0;
+    int disconnected_call_count = 0;
+    GameAuthenticatedPeer disconnected_peer;
+    std::string disconnect_reason;
 };
 
 // Deterministic transport for client-handler state transitions that should
@@ -402,10 +459,30 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
     auto parsed_quest_accept = snt::game::replication::parse_game_quest_accept_command(*quest_accept);
     ASSERT_TRUE(parsed_quest_accept) << parsed_quest_accept.error().format();
     EXPECT_EQ(parsed_quest_accept->quest_id, "network.quest.accept");
+
+    const GamePlayerMovementInput movement{
+        .client_sequence = 93,
+        .forward_axis = 1,
+        .strafe_axis = -1,
+        .flags = snt::game::replication::kGamePlayerMovementFlagSprint,
+        .yaw_centidegrees = -9000,
+        .pitch_centidegrees = -2500,
+    };
+    auto movement_message = snt::game::replication::make_game_player_movement_input(movement);
+    ASSERT_TRUE(movement_message) << movement_message.error().format();
+    EXPECT_EQ(movement_message->kind, GameReplicationMessageKind::kClientMovementInput);
+    auto parsed_movement = snt::game::replication::parse_game_player_movement_input(*movement_message);
+    ASSERT_TRUE(parsed_movement) << parsed_movement.error().format();
+    EXPECT_EQ(parsed_movement->client_sequence, movement.client_sequence);
+    EXPECT_EQ(parsed_movement->forward_axis, movement.forward_axis);
+    EXPECT_EQ(parsed_movement->strafe_axis, movement.strafe_axis);
+    EXPECT_EQ(parsed_movement->flags, movement.flags);
+    EXPECT_EQ(parsed_movement->yaw_centidegrees, movement.yaw_centidegrees);
+    EXPECT_EQ(parsed_movement->pitch_centidegrees, movement.pitch_centidegrees);
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 4u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 5u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
@@ -477,6 +554,44 @@ TEST(GameReplicationProtocolTest, RejectsInvalidEnvelopeAndUnreliableMessages) {
         snt::network::ReplicationChannel::Unreliable);
     ASSERT_FALSE(wrong_channel);
     EXPECT_EQ(wrong_channel.error().code(), snt::core::ErrorCode::kProtocolError);
+
+    EXPECT_TRUE(snt::game::replication::validate_game_replication_channel(
+        GameReplicationMessageKind::kClientMovementInput,
+        snt::network::ReplicationChannel::Unreliable));
+    EXPECT_FALSE(snt::game::replication::validate_game_replication_channel(
+        GameReplicationMessageKind::kClientMovementInput,
+        snt::network::ReplicationChannel::Reliable));
+}
+
+TEST(GameReplicationHandlerTest, RoutesOnlyUnreliablePlayerMovementIntentAfterLogin) {
+    RecordingAuthenticator authenticator;
+    RecordingCommandSink command_sink;
+    snt::game::replication::GameServerReplicationHandler handler(authenticator, &command_sink);
+    const snt::network::ReplicationTickContext context{.tick_index = 71, .delta_seconds = 0.05f};
+    constexpr snt::network::PeerId kPeer = 177;
+    ASSERT_TRUE(handler.on_peer_connected(kPeer, context));
+    auto login = snt::game::replication::make_game_login_request({
+        .identity_provider = PlayerIdentityProvider::kLocalName,
+        .display_name = "Alice",
+        .credential = {},
+    });
+    ASSERT_TRUE(login) << login.error().format();
+    ASSERT_TRUE(handler.on_frame(kPeer, make_frame(*login), context));
+
+    auto movement = snt::game::replication::make_game_player_movement_input({
+        .client_sequence = 1,
+        .forward_axis = 1,
+        .yaw_centidegrees = -9000,
+    });
+    ASSERT_TRUE(movement) << movement.error().format();
+    ASSERT_TRUE(handler.on_frame(
+        kPeer, make_frame(*movement, snt::network::ReplicationChannel::Unreliable), context));
+    EXPECT_EQ(command_sink.movement_call_count, 1);
+    EXPECT_EQ(command_sink.last_movement_peer, kPeer);
+    EXPECT_EQ(command_sink.last_movement_input.forward_axis, 1);
+    EXPECT_EQ(command_sink.last_movement_tick_index, context.tick_index);
+
+    EXPECT_FALSE(handler.on_frame(kPeer, make_frame(*movement), context));
 }
 
 TEST(GameReplicationHandlerTest, AuthenticatesThenQueuesCommandsAndAcknowledgesLogin) {
@@ -713,6 +828,44 @@ TEST(GameReplicationHandlerTest, WaitsForQueuedSnapshotBeforeProducingMoreReplic
     EXPECT_EQ(snapshot_source.delta_call_count, 1);
 }
 
+TEST(GameReplicationHandlerTest, ReleasesSnapshotSourcePeerStateOnDisconnectAndTakeover) {
+    const snt::network::ReplicationTickContext context{
+        .tick_index = 56,
+        .delta_seconds = 0.05f,
+    };
+    auto login = snt::game::replication::make_game_login_request({
+        .identity_provider = PlayerIdentityProvider::kLocalName,
+        .display_name = "Alice",
+    });
+    ASSERT_TRUE(login) << login.error().format();
+
+    RecordingAuthenticator disconnect_authenticator;
+    RecordingInterestProvider disconnect_interest;
+    RecordingSnapshotSource disconnect_source;
+    snt::game::replication::GameServerReplicationHandler disconnect_handler(
+        disconnect_authenticator, nullptr, nullptr, &disconnect_interest, &disconnect_source);
+    ASSERT_TRUE(disconnect_handler.on_peer_connected(121, context));
+    ASSERT_TRUE(disconnect_handler.on_frame(121, make_frame(*login), context));
+    disconnect_handler.on_peer_disconnected(121, "test disconnect");
+    EXPECT_EQ(disconnect_source.disconnected_call_count, 1);
+    EXPECT_EQ(disconnect_source.disconnected_peer.peer, 121u);
+    EXPECT_EQ(disconnect_source.disconnect_reason, "test disconnect");
+
+    RecordingAuthenticator takeover_authenticator;
+    RecordingInterestProvider takeover_interest;
+    RecordingSnapshotSource takeover_source;
+    snt::game::replication::GameServerReplicationHandler takeover_handler(
+        takeover_authenticator, nullptr, nullptr, &takeover_interest, &takeover_source);
+    ASSERT_TRUE(takeover_handler.on_peer_connected(122, context));
+    ASSERT_TRUE(takeover_handler.on_peer_connected(123, context));
+    ASSERT_TRUE(takeover_handler.on_frame(122, make_frame(*login), context));
+    ASSERT_TRUE(takeover_handler.on_frame(123, make_frame(*login), context));
+    EXPECT_EQ(takeover_source.disconnected_call_count, 1);
+    EXPECT_EQ(takeover_source.disconnected_peer.peer, 122u);
+    EXPECT_EQ(takeover_source.disconnect_reason,
+              "player account session was replaced by a newer login");
+}
+
 TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerCommands) {
     GameContentRegistry content;
     QuestDefinition quest;
@@ -766,7 +919,7 @@ TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerComm
         .identity = make_local_identity("DisconnectedPlayer"),
     };
     auto canceled = snt::game::replication::make_game_quest_accept_command(
-        0, {.quest_id = "network.quest.canceled"});
+        1, {.quest_id = "network.quest.canceled"});
     ASSERT_TRUE(canceled) << canceled.error().format();
     ASSERT_TRUE(sink.enqueue_client_command(disconnected_peer, std::move(*canceled), context));
     sink.on_peer_disconnected(disconnected_peer, "test disconnected before tick");
@@ -779,6 +932,39 @@ TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerComm
     EXPECT_EQ(accepted_progress->state, QuestState::kInProgress);
     EXPECT_EQ(quests.find_progress(disconnected_peer.identity.account_id,
                                    "network.quest.canceled"), nullptr);
+}
+
+TEST(GameServerCommandSinkTest, CoalescesLatestMovementIntentPerPeer) {
+    GameContentRegistry content;
+    QuestRegistry quests(content);
+    RecordingMovementInputSink movement;
+    snt::game::replication::GameServerCommandSink sink(quests, &movement);
+    const snt::network::ReplicationTickContext context{.tick_index = 23, .delta_seconds = 0.05f};
+    const GameAuthenticatedPeer peer{
+        .peer = 72,
+        .identity = make_local_identity("MovementCommandPlayer"),
+    };
+
+    ASSERT_TRUE(sink.enqueue_player_movement_input(
+        peer, {.client_sequence = 1, .forward_axis = 1, .yaw_centidegrees = -9000}, context));
+    ASSERT_TRUE(sink.enqueue_player_movement_input(
+        peer, {.client_sequence = 2, .strafe_axis = 1, .yaw_centidegrees = -9000}, context));
+    EXPECT_EQ(sink.pending_command_count(), 1u);
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index));
+    EXPECT_EQ(movement.call_count, 1);
+    EXPECT_EQ(movement.last_peer.peer, peer.peer);
+    EXPECT_EQ(movement.last_input.client_sequence, 2u);
+    EXPECT_EQ(movement.last_input.forward_axis, 0);
+    EXPECT_EQ(movement.last_input.strafe_axis, 1);
+    EXPECT_EQ(movement.last_tick_index, context.tick_index);
+
+    ASSERT_TRUE(sink.enqueue_player_movement_input(
+        peer, {.client_sequence = 3, .forward_axis = -1, .yaw_centidegrees = -9000}, context));
+    sink.on_peer_disconnected(peer, "test input disconnect");
+    EXPECT_EQ(sink.pending_command_count(), 0u);
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index + 1));
+    EXPECT_EQ(movement.call_count, 1);
+    EXPECT_EQ(movement.disconnected_call_count, 1);
 }
 
 TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRestart) {
@@ -802,9 +988,16 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     GameAuthenticatedPeer replacement{.peer = 82, .identity = identity};
 
     QuestRegistry live_quests(content);
+    snt::ecs::World live_world;
+    auto live_player_state = snt::game::replication::GameServerPlayerState::create(live_world);
+    ASSERT_TRUE(live_player_state) << live_player_state.error().format();
     snt::game::replication::GameServerPlayerLifecycle live_lifecycle(
-        live_quests, save_dir.string());
+        live_quests, **live_player_state, save_dir.string());
     ASSERT_TRUE(live_lifecycle.on_peer_authenticated(original, context));
+    ASSERT_TRUE((*live_player_state)->set_authoritative_position(
+        original, {.dimension_id = "overworld", .position = {.x = 23, .y = 71, .z = -6}}));
+    ASSERT_TRUE((*live_player_state)->apply_inventory_transaction(
+        original, {.additions = {{.item_id = "iron_ingot", .count = 4}}}));
     ASSERT_TRUE(live_quests.accept(identity.account_id, "network.quest.lifecycle", context.tick_index));
     ASSERT_TRUE(live_quests.record_progress(
         identity.account_id,
@@ -821,10 +1014,15 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     live_lifecycle.on_peer_disconnected(replacement, "test disconnect");
     EXPECT_EQ(live_lifecycle.active_player_count(), 0u);
     live_lifecycle.shutdown();
+    (*live_player_state)->shutdown();
 
     QuestRegistry restarted_quests(content);
+    snt::ecs::World restarted_world;
+    auto restarted_player_state = snt::game::replication::GameServerPlayerState::create(
+        restarted_world);
+    ASSERT_TRUE(restarted_player_state) << restarted_player_state.error().format();
     snt::game::replication::GameServerPlayerLifecycle restarted_lifecycle(
-        restarted_quests, save_dir.string());
+        restarted_quests, **restarted_player_state, save_dir.string());
     GameAuthenticatedPeer reconnect{.peer = 83, .identity = identity};
     ASSERT_TRUE(restarted_lifecycle.on_peer_authenticated(reconnect, context));
     const auto* restored_progress = restarted_quests.find_progress(
@@ -832,7 +1030,16 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     ASSERT_NE(restored_progress, nullptr);
     EXPECT_EQ(restored_progress->state, QuestState::kInProgress);
     EXPECT_EQ(restored_progress->objective_counts.at("craft"), 2);
+    auto restored_player = (*restarted_player_state)->snapshot_for_peer(reconnect);
+    ASSERT_TRUE(restored_player) << restored_player.error().format();
+    EXPECT_EQ(restored_player->position.position.x, 23);
+    auto restored_inventory = (*restarted_player_state)->inventory_for_peer(reconnect);
+    ASSERT_TRUE(restored_inventory) << restored_inventory.error().format();
+    ASSERT_EQ(restored_inventory->slots.size(), 36u);
+    EXPECT_EQ(restored_inventory->slots[0].item_id, "iron_ingot");
+    EXPECT_EQ(restored_inventory->slots[0].count, 4);
     restarted_lifecycle.shutdown();
+    (*restarted_player_state)->shutdown();
 
     std::error_code error;
     std::filesystem::remove_all(save_dir, error);
@@ -859,8 +1066,11 @@ TEST(GameServerPlayerLifecycleTest, AutosavesOnlyChangedProgressAtConfiguredInte
     GameAuthenticatedPeer peer{.peer = 84, .identity = identity};
 
     QuestRegistry quests(content);
+    snt::ecs::World world;
+    auto player_state = snt::game::replication::GameServerPlayerState::create(world);
+    ASSERT_TRUE(player_state) << player_state.error().format();
     snt::game::replication::GameServerPlayerLifecycle lifecycle(
-        quests, save_dir.string(), 5);
+        quests, **player_state, save_dir.string(), 5);
     ASSERT_TRUE(lifecycle.on_peer_authenticated(peer, context));
     ASSERT_TRUE(lifecycle.flush_due(0));
     ASSERT_TRUE(quests.accept(identity.account_id, "network.quest.autosave", 1));
@@ -891,6 +1101,54 @@ TEST(GameServerPlayerLifecycleTest, AutosavesOnlyChangedProgressAtConfiguredInte
     EXPECT_EQ(restored->front().objective_counts.at("craft"), 1);
 
     lifecycle.shutdown();
+    (*player_state)->shutdown();
+    std::error_code error;
+    std::filesystem::remove_all(save_dir, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameServerPlayerLifecycleTest, AutosavesMarkedAuthoritativePlayerStateAtConfiguredInterval) {
+    const auto save_dir = make_player_lifecycle_save_dir();
+    GameContentRegistry content;
+    QuestRegistry quests(content);
+    snt::ecs::World world;
+    auto player_state = snt::game::replication::GameServerPlayerState::create(world);
+    ASSERT_TRUE(player_state) << player_state.error().format();
+
+    const auto identity = make_local_identity("StateAutosavePlayer");
+    GameAuthenticatedPeer peer{.peer = 85, .identity = identity};
+    const snt::network::ReplicationTickContext context{.tick_index = 0, .delta_seconds = 0.05f};
+    snt::game::replication::GameServerPlayerLifecycle lifecycle(
+        quests, **player_state, save_dir.string(), 5);
+    ASSERT_TRUE(lifecycle.on_peer_authenticated(peer, context));
+    ASSERT_TRUE((*player_state)->set_authoritative_position(
+        peer, {.dimension_id = "overworld", .position = {.x = 17, .y = 71, .z = -9}}));
+    ASSERT_TRUE(lifecycle.mark_player_state_dirty(peer));
+    ASSERT_TRUE(lifecycle.flush_due(0));
+
+    snt::game::GameSavePlayerStatePersistence persistence(save_dir.string());
+    auto first = persistence.load_player_state(identity.account_id);
+    ASSERT_TRUE(first) << first.error().format();
+    ASSERT_TRUE(first->has_value());
+    EXPECT_EQ((**first).position.position.x, 17);
+
+    ASSERT_TRUE((*player_state)->set_authoritative_position(
+        peer, {.dimension_id = "overworld", .position = {.x = 21, .y = 71, .z = -9}}));
+    ASSERT_TRUE(lifecycle.flush_due(5));
+    auto unmarked = persistence.load_player_state(identity.account_id);
+    ASSERT_TRUE(unmarked) << unmarked.error().format();
+    ASSERT_TRUE(unmarked->has_value());
+    EXPECT_EQ((**unmarked).position.position.x, 17);
+
+    ASSERT_TRUE(lifecycle.mark_player_state_dirty(peer));
+    ASSERT_TRUE(lifecycle.flush_due(10));
+    auto updated = persistence.load_player_state(identity.account_id);
+    ASSERT_TRUE(updated) << updated.error().format();
+    ASSERT_TRUE(updated->has_value());
+    EXPECT_EQ((**updated).position.position.x, 21);
+
+    lifecycle.shutdown();
+    (*player_state)->shutdown();
     std::error_code error;
     std::filesystem::remove_all(save_dir, error);
     EXPECT_FALSE(error) << error.message();
@@ -1102,6 +1360,55 @@ TEST(GameClientReplicationSessionTest, DrainsAuthenticatedSnapshotAndDeltaValueU
     EXPECT_EQ(drained_delta->base_snapshot_id, 111u);
     EXPECT_EQ(drained_delta->sequence, 1u);
     EXPECT_TRUE((*session)->drain_replication_updates().empty());
+}
+
+TEST(GameClientReplicationSessionTest, QueuesLatestMovementIntentOnTheUnreliableChannel) {
+    auto transport = std::make_unique<ControlledReplicationTransport>();
+    ControlledReplicationTransport* const transport_view = transport.get();
+    transport_view->peers = {snt::network::kServerPeerId};
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::PeerConnected,
+        .peer = snt::network::kServerPeerId,
+    });
+
+    auto session = snt::game::replication::GameClientReplicationSession::create(
+        std::move(transport), {.local_identity = make_local_identity("MovementClient")});
+    ASSERT_TRUE(session) << session.error().format();
+    const snt::network::ReplicationTickContext context{.tick_index = 64, .delta_seconds = 0.05f};
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    ASSERT_TRUE((*session)->emit_outbound(context));
+    transport_view->sent.clear();
+
+    auto accepted = snt::game::replication::make_game_login_accepted({
+        .identity = make_local_identity("MovementClient"),
+    });
+    ASSERT_TRUE(accepted) << accepted.error().format();
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::FrameReceived,
+        .peer = snt::network::kServerPeerId,
+        .frame = make_frame(*accepted),
+    });
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    ASSERT_EQ((*session)->status().state,
+              snt::game::replication::GameClientConnectionState::kAuthenticated);
+
+    ASSERT_TRUE((*session)->enqueue_player_movement_input({
+        .client_sequence = 1,
+        .forward_axis = 1,
+        .flags = snt::game::replication::kGamePlayerMovementFlagSprint,
+        .yaw_centidegrees = -9000,
+    }));
+    ASSERT_TRUE((*session)->emit_outbound(context));
+    ASSERT_EQ(transport_view->sent.size(), 1u);
+    EXPECT_EQ(transport_view->sent.front().second.channel,
+              snt::network::ReplicationChannel::Unreliable);
+    auto message = snt::game::replication::decode_game_replication_message(
+        transport_view->sent.front().second.payload);
+    ASSERT_TRUE(message) << message.error().format();
+    auto movement = snt::game::replication::parse_game_player_movement_input(*message);
+    ASSERT_TRUE(movement) << movement.error().format();
+    EXPECT_EQ(movement->client_sequence, 1u);
+    EXPECT_EQ(movement->forward_axis, 1);
 }
 
 TEST(GameClientReplicationSessionTest, RejectsDeltaThatDoesNotMatchAnAcceptedSnapshot) {

@@ -35,6 +35,7 @@ target_link_libraries(snt_game_worldgen PUBLIC
 
 add_library(snt_game_world_save STATIC
     world/save/chunk_serializer.cpp
+    world/save/player_state_persistence.cpp
     world/save/quest_progress_persistence.cpp
     world/save/save_manager.cpp
     world/save/world_persistence_lifecycle.cpp
@@ -45,6 +46,7 @@ target_include_directories(snt_game_world_save PUBLIC
 target_link_libraries(snt_game_world_save PUBLIC
     snt_engine_settings
     snt_core
+    snt_ecs
     snt_voxel_data
     snt_voxel_storage
     snt_game_world_data
@@ -88,6 +90,7 @@ add_library(snt_game_network STATIC
     network/game_client_replication_session.cpp
     network/game_replication_protocol.cpp
     network/game_server_replication_handler.cpp
+    player/player_replication.cpp
 )
 target_include_directories(snt_game_network PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -165,7 +168,11 @@ set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theolog
 add_executable(snt_game_server
     server/main.cpp
     server/game_server_command_sink.cpp
+    server/game_server_player_death.cpp
     server/game_server_player_lifecycle.cpp
+    server/game_server_player_movement.cpp
+    server/game_server_player_replication.cpp
+    server/game_server_player_state.cpp
     server/science_and_theology_server_session.cpp
     runtime/runtime_package.cpp
 )
@@ -179,6 +186,7 @@ target_link_libraries(snt_game_server PRIVATE
     snt_game_simulation
     snt_game_network
     snt_game_world_save
+    snt_voxel_collision
 )
 set_target_properties(snt_game_server PROPERTIES OUTPUT_NAME science_and_theology_server)
 
@@ -230,7 +238,11 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     add_executable(snt_game_tests
         client/gameplay_ui.cpp
         server/game_server_command_sink.cpp
+        server/game_server_player_death.cpp
         server/game_server_player_lifecycle.cpp
+        server/game_server_player_movement.cpp
+        server/game_server_player_replication.cpp
+        server/game_server_player_state.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
         tests/test_gameplay_ui.cpp
@@ -242,6 +254,11 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_machine_runtime_persistence.cpp
         tests/test_game_components.cpp
         tests/test_player_identity.cpp
+        tests/test_player_state_persistence.cpp
+        tests/test_player_replication.cpp
+        tests/test_game_server_player_death.cpp
+        tests/test_game_server_player_movement.cpp
+        tests/test_game_server_player_state.cpp
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
@@ -261,6 +278,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_script
         snt_ui
         snt_voxel_data
+        snt_voxel_collision
         snt_voxel_storage
         snt_game_world_data
         snt_game_worldgen

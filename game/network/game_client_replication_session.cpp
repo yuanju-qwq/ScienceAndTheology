@@ -131,6 +131,7 @@ public:
                     "Game replication server payload is declared but no client codec is implemented"};
             case GameReplicationMessageKind::kClientLoginRequest:
             case GameReplicationMessageKind::kClientCommand:
+            case GameReplicationMessageKind::kClientMovementInput:
             case GameReplicationMessageKind::kClientInterestUpdate:
             case GameReplicationMessageKind::kClientSnapshotAcknowledgement:
                 return protocol_error("Client replication received an invalid game message direction");
@@ -165,7 +166,7 @@ public:
             snt::network::ReplicationFrame frame{
                 .protocol_version = snt::network::kCurrentReplicationProtocolVersion,
                 .server_tick = context.tick_index,
-                .channel = snt::network::ReplicationChannel::Reliable,
+                .channel = pending.channel,
                 .payload = pending.payload,
             };
             if (auto result = sink.send(pending.peer, frame); !result) return result.error();
@@ -180,17 +181,19 @@ public:
         if (status_.state != GameClientConnectionState::kAuthenticated) {
             return invalid_state("Game client command requires an authenticated server session");
         }
-        if (has_last_command_sequence_ && command.client_sequence <= last_command_sequence_) {
-            return invalid_argument("Game client command sequence must increase strictly");
-        }
-
         auto message = make_game_client_command(command);
         if (!message) return message.error();
-        if (auto result = queue_message(server_peer_, std::move(*message)); !result) return result.error();
+        return enqueue_sequenced_message(command.client_sequence, std::move(*message));
+    }
 
-        has_last_command_sequence_ = true;
-        last_command_sequence_ = command.client_sequence;
-        return {};
+    [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
+        GamePlayerMovementInput input) {
+        if (status_.state != GameClientConnectionState::kAuthenticated) {
+            return invalid_state("Game player movement input requires an authenticated server session");
+        }
+        auto message = make_game_player_movement_input(input);
+        if (!message) return message.error();
+        return enqueue_sequenced_message(input.client_sequence, std::move(*message));
     }
 
     [[nodiscard]] GameClientReplicationStatus status() const { return status_; }
@@ -216,11 +219,36 @@ public:
 private:
     struct PendingOutboundMessage {
         snt::network::PeerId peer = snt::network::kInvalidPeerId;
+        snt::network::ReplicationChannel channel = snt::network::ReplicationChannel::Reliable;
         std::vector<std::byte> payload;
     };
 
+    [[nodiscard]] snt::core::Expected<void> enqueue_sequenced_message(
+        uint64_t client_sequence, GameReplicationMessage message) {
+        if (client_sequence == 0) {
+            return invalid_argument("Game client command sequence must be non-zero");
+        }
+        if (has_last_client_sequence_ && client_sequence <= last_client_sequence_) {
+            return invalid_argument("Game client command sequence must increase strictly");
+        }
+        if (auto result = queue_message(server_peer_, std::move(message)); !result) return result.error();
+        has_last_client_sequence_ = true;
+        last_client_sequence_ = client_sequence;
+        return {};
+    }
+
     [[nodiscard]] snt::core::Expected<void> queue_message(
         snt::network::PeerId peer, GameReplicationMessage message) {
+        if (!is_client_game_replication_message(message.kind)) {
+            return protocol_error("Game client attempted to queue a server-originated replication message");
+        }
+        const snt::network::ReplicationChannel channel =
+            message.kind == GameReplicationMessageKind::kClientMovementInput
+                ? snt::network::ReplicationChannel::Unreliable
+                : snt::network::ReplicationChannel::Reliable;
+        if (auto result = validate_game_replication_channel(message.kind, channel); !result) {
+            return result.error();
+        }
         auto encoded = encode_game_replication_message(message);
         if (!encoded) return encoded.error();
         if (encoded->size() > kMaxQueuedClientGameBytes - pending_outbound_bytes_) {
@@ -229,7 +257,8 @@ private:
         }
 
         pending_outbound_bytes_ += encoded->size();
-        pending_outbound_.push_back({.peer = peer, .payload = std::move(*encoded)});
+        pending_outbound_.push_back(
+            {.peer = peer, .channel = channel, .payload = std::move(*encoded)});
         return {};
     }
 
@@ -317,8 +346,8 @@ private:
     bool has_snapshot_ = false;
     uint64_t active_snapshot_id_ = 0;
     uint64_t last_delta_sequence_ = 0;
-    uint64_t last_command_sequence_ = 0;
-    bool has_last_command_sequence_ = false;
+    uint64_t last_client_sequence_ = 0;
+    bool has_last_client_sequence_ = false;
 };
 
 }  // namespace
@@ -395,6 +424,14 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_quest_accept(
     auto encoded = make_game_quest_accept_command(client_sequence, command);
     if (!encoded) return encoded.error();
     return enqueue_command(std::move(*encoded));
+}
+
+snt::core::Expected<void> GameClientReplicationSession::enqueue_player_movement_input(
+    GamePlayerMovementInput input) {
+    if (!impl_ || !impl_->handler) {
+        return invalid_state("Game client replication session was already shut down");
+    }
+    return impl_->handler->enqueue_player_movement_input(std::move(input));
 }
 
 std::vector<GameClientReplicationUpdate>

@@ -61,6 +61,46 @@ struct GameServerNetworkConfig {
     uint32_t max_peers = 64;
 };
 
+// Server-owned player state stays separate from camera/presentation settings.
+// Current defaults establish spawn, fixed inventory capacity, interaction
+// reach, and server-authoritative movement. Position intent remains a network
+// input value; this configuration never grants a client a movement result.
+struct GameServerPlayerConfig {
+    int32_t spawn_block_x = 4;
+    int32_t spawn_block_y = 6;
+    int32_t spawn_block_z = 8;
+    uint32_t inventory_slots = 36;
+    int32_t inventory_max_stack_size = 64;
+    int32_t interaction_reach_blocks = 5;
+    float movement_walk_speed_blocks_per_second = 4.3f;
+    float movement_sprint_multiplier = 1.45f;
+    float movement_jump_speed_blocks_per_second = 6.2f;
+    float movement_gravity_blocks_per_second_squared = 20.0f;
+    float movement_terminal_velocity_blocks_per_second = 48.0f;
+    float movement_body_width_blocks = 0.6f;
+    float movement_body_height_blocks = 1.8f;
+    uint64_t movement_input_timeout_ticks = 6;
+    bool movement_missing_chunks_are_solid = true;
+    // Reserved world material for the current-format indestructible grave
+    // anchor. The content pack supplies its visual mapping separately.
+    uint32_t grave_material_id = 255;
+    uint32_t grave_vertical_search_blocks = 32;
+    uint32_t respawn_safe_search_radius_blocks = 16;
+};
+
+// Per-observer player replication limits. These values are deliberately data
+// rather than protocol constants so AOI coverage and throughput can be tuned
+// from runtime configuration and performance tests.
+struct GameServerReplicationConfig {
+    uint32_t player_horizontal_aoi_radius_blocks = 96;
+    uint32_t player_vertical_aoi_radius_blocks = 48;
+    uint32_t max_visible_players = 64;
+    uint32_t max_reliable_bytes_per_tick = 256u * 1024u;
+    uint32_t max_chunk_snapshots_per_tick = 2;
+    uint32_t max_entity_snapshots_per_tick = 128;
+    uint32_t max_block_deltas_per_tick = 1024;
+};
+
 // Graphical-client transport settings. Authentication evidence is not config:
 // local-name credentials are empty, while a future Steamworks package injects
 // its opaque ticket at startup and must never write it to game JSON or logs.
@@ -78,6 +118,8 @@ struct GameSessionConfig {
     GameDemoConfig demo;
     GamePersistenceConfig persistence;
     GameServerNetworkConfig server_network;
+    GameServerPlayerConfig server_player;
+    GameServerReplicationConfig server_replication;
     GameClientNetworkConfig client_network;
 };
 

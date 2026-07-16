@@ -22,7 +22,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 4;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 5;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -48,8 +48,12 @@ inline constexpr size_t kMaxGameBlockDeltas = 16384;
 enum class GameReplicationMessageKind : uint8_t {
     kClientLoginRequest = 1,
     kClientCommand = 2,
-    kClientInterestUpdate = 3,
-    kClientSnapshotAcknowledgement = 4,
+    // Movement is a latest-state intent, so it deliberately has an explicit
+    // unreliable lane instead of letting reliable interaction traffic backlog
+    // client movement behind old packets.
+    kClientMovementInput = 3,
+    kClientInterestUpdate = 4,
+    kClientSnapshotAcknowledgement = 5,
 
     kServerLoginAccepted = 64,
     kServerSnapshot = 65,
@@ -73,9 +77,11 @@ struct GameReplicationMessage {
 [[nodiscard]] bool is_server_game_replication_message(
     GameReplicationMessageKind kind) noexcept;
 
-// All currently declared game messages use the reliable ordered channel.
-// A future unreliable message must receive a new kind and explicit validation
-// here before it is accepted by the server.
+// Login, commands, and server replication use the reliable ordered channel.
+// Player movement intent is the only current unreliable message and carries a
+// sequence number so gameplay can discard stale intent without trusting a
+// client position. New unreliable messages must receive their own kind and
+// explicit validation here before the server accepts them.
 [[nodiscard]] snt::core::Expected<void> validate_game_replication_channel(
     GameReplicationMessageKind kind, snt::network::ReplicationChannel channel);
 
@@ -110,6 +116,24 @@ struct GameClientCommand {
     uint64_t client_sequence = 0;
     uint16_t command_type = 0;
     std::vector<std::byte> payload;
+};
+
+// Latest-state movement intent. Axes are canonicalized to -1, 0, or 1; yaw
+// and pitch are centidegrees so neither float NaNs nor client coordinates can
+// cross the protocol boundary. The server owns integration, collision, and
+// the resulting player position.
+inline constexpr uint8_t kGamePlayerMovementFlagSprint = 1u << 0u;
+inline constexpr uint8_t kGamePlayerMovementFlagJump = 1u << 1u;
+inline constexpr uint8_t kGamePlayerMovementKnownFlags =
+    kGamePlayerMovementFlagSprint | kGamePlayerMovementFlagJump;
+
+struct GamePlayerMovementInput {
+    uint64_t client_sequence = 0;
+    int8_t forward_axis = 0;
+    int8_t strafe_axis = 0;
+    uint8_t flags = 0;
+    int16_t yaw_centidegrees = 0;
+    int16_t pitch_centidegrees = 0;
 };
 
 struct GameQuestAcceptCommand {
@@ -170,6 +194,13 @@ struct GameDelta {
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_client_command(
     const GameClientCommand& command);
 [[nodiscard]] snt::core::Expected<GameClientCommand> parse_game_client_command(
+    const GameReplicationMessage& message);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_player_movement_input(
+    const GamePlayerMovementInput& input);
+[[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_player_movement_input(
+    const GamePlayerMovementInput& input);
+[[nodiscard]] snt::core::Expected<GamePlayerMovementInput> parse_game_player_movement_input(
     const GameReplicationMessage& message);
 
 [[nodiscard]] snt::core::Expected<GameClientCommand> make_game_quest_accept_command(

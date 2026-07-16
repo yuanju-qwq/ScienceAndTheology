@@ -1,10 +1,12 @@
 #pragma once
 
 #include "core/expected.h"
+#include "game/player/player_state.h"
 #include "game/quest/quest_progress.h"
 
 #include <cstdint>
 #include <iosfwd>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -119,6 +121,11 @@ public:
     // or one dimension's planet_data.bin.
     static constexpr uint8_t kQuestProgressVersion = 1;
 
+    // Current per-player authoritative state format. Position, fixed-slot
+    // inventory, equipment, bed respawn point, and opaque organ state are
+    // universe-level values, never region payloads or client UI state.
+    static constexpr uint8_t kPlayerStateVersion = 1;
+
     // --- Per-dimension save / load ---
 
     // Saves only chunks belonging to a specific dimension to a planet
@@ -151,6 +158,15 @@ public:
     [[nodiscard]] static snt::core::Expected<void> save_quest_progress(
         const std::string& save_dir, std::string_view player_id,
         std::span<const QuestProgressRecord> progress);
+
+    // Missing player state is a valid first-login result. Primary corruption,
+    // format mismatches, and trailing data are rejected; backup is considered
+    // only if the primary is absent.
+    [[nodiscard]] static snt::core::Expected<std::optional<GamePlayerPersistentState>>
+    load_player_state(const std::string& save_dir, std::string_view player_id);
+    [[nodiscard]] static snt::core::Expected<void> save_player_state(
+        const std::string& save_dir, std::string_view player_id,
+        const GamePlayerPersistentState& state);
 
     // --- Per-chunk save / load ---
 

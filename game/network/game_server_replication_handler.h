@@ -79,6 +79,10 @@ private:
         snt::network::PeerId peer, const PeerState& state,
         const GameReplicationMessage& message,
         const snt::network::ReplicationTickContext& context);
+    snt::core::Expected<void> handle_player_movement_input(
+        snt::network::PeerId peer, const PeerState& state,
+        const GameReplicationMessage& message,
+        const snt::network::ReplicationTickContext& context);
     snt::core::Expected<void> emit_replication_for_peer(
         snt::network::PeerId peer, PeerState& state,
         const snt::network::ReplicationTickContext& context);

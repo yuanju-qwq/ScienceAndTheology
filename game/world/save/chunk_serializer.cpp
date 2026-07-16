@@ -13,6 +13,9 @@ constexpr uint32_t kMaxMachineOutputSlots = 64;
 constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
+constexpr uint32_t kMaxPlayerBedRecords = 4096;
+constexpr uint32_t kMaxPlayerGraveRecords = 4096;
+constexpr uint32_t kMaxPlayerGraveItemStacks = 128;
 
 }  // namespace
 
@@ -86,6 +89,16 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     write_uint32(buf, static_cast<uint32_t>(chunk.block_entities.size()));
     for (const auto& be : chunk.block_entities) {
         write_block_entity(buf, be);
+    }
+
+    // Player bed anchors and grave inventories are game-owned world values.
+    write_uint32(buf, static_cast<uint32_t>(chunk.player_beds.size()));
+    for (const GamePlayerBedRecord& record : chunk.player_beds) {
+        write_player_bed_record(buf, record);
+    }
+    write_uint32(buf, static_cast<uint32_t>(chunk.player_graves.size()));
+    for (const GamePlayerGraveRecord& record : chunk.player_graves) {
+        write_player_grave_record(buf, record);
     }
 
     // Population cell (ecosystem data, version 6+).
@@ -230,6 +243,31 @@ bool GameChunkSerializer::deserialize(
         BlockEntityPlacement be;
         if (!read_block_entity(data, offset, be)) return false;
         chunk.block_entities.push_back(std::move(be));
+    }
+
+    // Player bed anchors and grave inventories.
+    uint32_t bed_count;
+    if (!read_uint32(data, offset, bed_count) || bed_count > kMaxPlayerBedRecords) {
+        return false;
+    }
+    chunk.player_beds.clear();
+    chunk.player_beds.reserve(bed_count);
+    for (uint32_t i = 0; i < bed_count; ++i) {
+        GamePlayerBedRecord record;
+        if (!read_player_bed_record(data, offset, record)) return false;
+        chunk.player_beds.push_back(std::move(record));
+    }
+
+    uint32_t grave_count;
+    if (!read_uint32(data, offset, grave_count) || grave_count > kMaxPlayerGraveRecords) {
+        return false;
+    }
+    chunk.player_graves.clear();
+    chunk.player_graves.reserve(grave_count);
+    for (uint32_t i = 0; i < grave_count; ++i) {
+        GamePlayerGraveRecord record;
+        if (!read_player_grave_record(data, offset, record)) return false;
+        chunk.player_graves.push_back(std::move(record));
     }
 
     // Population cell.
@@ -546,6 +584,87 @@ bool GameChunkSerializer::read_block_entity(
     if (!read_uint32(data, offset, entity.owned_cell_count)) return false;
 
     return true;
+}
+
+// --- Player bed/grave sidecar helpers ---
+
+void GameChunkSerializer::write_player_bed_record(
+    std::vector<uint8_t>& buf,
+    const GamePlayerBedRecord& record) {
+    write_int32(buf, record.root_x);
+    write_int32(buf, record.root_y);
+    write_int32(buf, record.root_z);
+}
+
+bool GameChunkSerializer::read_player_bed_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    GamePlayerBedRecord& record) {
+    return read_int32(data, offset, record.root_x) &&
+           read_int32(data, offset, record.root_y) &&
+           read_int32(data, offset, record.root_z);
+}
+
+void GameChunkSerializer::write_player_grave_item_stack(
+    std::vector<uint8_t>& buf,
+    const GamePlayerGraveItemStack& stack) {
+    write_string(buf, stack.item_id);
+    write_int32(buf, stack.count);
+    write_string(buf, stack.instance_data);
+}
+
+bool GameChunkSerializer::read_player_grave_item_stack(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    GamePlayerGraveItemStack& stack) {
+    return read_string(data, offset, stack.item_id) &&
+           read_int32(data, offset, stack.count) &&
+           read_string(data, offset, stack.instance_data);
+}
+
+void GameChunkSerializer::write_player_grave_record(
+    std::vector<uint8_t>& buf,
+    const GamePlayerGraveRecord& record) {
+    write_uint64(buf, record.grave_id);
+    write_string(buf, record.owner_account_id);
+    write_uint64(buf, record.death_tick);
+    write_int32(buf, record.root_x);
+    write_int32(buf, record.root_y);
+    write_int32(buf, record.root_z);
+    write_uint32(buf, static_cast<uint32_t>(record.items.size()));
+    for (const GamePlayerGraveItemStack& item : record.items) {
+        write_player_grave_item_stack(buf, item);
+    }
+}
+
+bool GameChunkSerializer::read_player_grave_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    GamePlayerGraveRecord& record) {
+    if (!read_uint64(data, offset, record.grave_id) ||
+        !read_string(data, offset, record.owner_account_id) ||
+        !read_uint64(data, offset, record.death_tick) ||
+        !read_int32(data, offset, record.root_x) ||
+        !read_int32(data, offset, record.root_y) ||
+        !read_int32(data, offset, record.root_z)) {
+        return false;
+    }
+    uint32_t item_count;
+    if (!read_uint32(data, offset, item_count) || item_count == 0 ||
+        item_count > kMaxPlayerGraveItemStacks) {
+        return false;
+    }
+    record.items.clear();
+    record.items.reserve(item_count);
+    for (uint32_t index = 0; index < item_count; ++index) {
+        GamePlayerGraveItemStack item;
+        if (!read_player_grave_item_stack(data, offset, item) || item.item_id.empty() ||
+            item.count <= 0) {
+            return false;
+        }
+        record.items.push_back(std::move(item));
+    }
+    return record.grave_id != 0 && !record.owner_account_id.empty();
 }
 
 // --- Machine runtime sidecar helpers ---

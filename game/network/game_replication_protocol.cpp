@@ -34,6 +34,10 @@ void append_u64(std::vector<std::byte>& bytes, uint64_t value) {
     }
 }
 
+void append_i16(std::vector<std::byte>& bytes, int16_t value) {
+    append_u16(bytes, std::bit_cast<uint16_t>(value));
+}
+
 void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     append_u32(bytes, std::bit_cast<uint32_t>(value));
 }
@@ -57,6 +61,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         value = (value << 8u) | std::to_integer<uint8_t>(bytes[offset + index]);
     }
     return value;
+}
+
+[[nodiscard]] int16_t read_i16(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int16_t>(read_u16(bytes, offset));
 }
 
 [[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
@@ -277,6 +285,7 @@ bool is_known_game_replication_message_kind(GameReplicationMessageKind kind) noe
     switch (kind) {
         case GameReplicationMessageKind::kClientLoginRequest:
         case GameReplicationMessageKind::kClientCommand:
+        case GameReplicationMessageKind::kClientMovementInput:
         case GameReplicationMessageKind::kClientInterestUpdate:
         case GameReplicationMessageKind::kClientSnapshotAcknowledgement:
         case GameReplicationMessageKind::kServerLoginAccepted:
@@ -292,6 +301,7 @@ bool is_client_game_replication_message(GameReplicationMessageKind kind) noexcep
     switch (kind) {
         case GameReplicationMessageKind::kClientLoginRequest:
         case GameReplicationMessageKind::kClientCommand:
+        case GameReplicationMessageKind::kClientMovementInput:
         case GameReplicationMessageKind::kClientInterestUpdate:
         case GameReplicationMessageKind::kClientSnapshotAcknowledgement:
             return true;
@@ -314,7 +324,11 @@ snt::core::Expected<void> validate_game_replication_channel(
     if (!is_known_game_replication_message_kind(kind)) {
         return protocol_error("Unknown game replication message kind");
     }
-    if (channel != snt::network::ReplicationChannel::Reliable) {
+    const snt::network::ReplicationChannel expected_channel =
+        kind == GameReplicationMessageKind::kClientMovementInput
+            ? snt::network::ReplicationChannel::Unreliable
+            : snt::network::ReplicationChannel::Reliable;
+    if (channel != expected_channel) {
         return protocol_error("Game replication message was sent on the wrong channel");
     }
     return {};
@@ -496,8 +510,8 @@ snt::core::Expected<GameLoginAccepted> parse_game_login_accepted(
 
 snt::core::Expected<GameReplicationMessage> make_game_client_command(
     const GameClientCommand& command) {
-    if (command.command_type == 0) {
-        return protocol_error("Game client command type must be non-zero");
+    if (command.client_sequence == 0 || command.command_type == 0) {
+        return protocol_error("Game client command sequence and type must be non-zero");
     }
     if (command.payload.size() > kMaxGameCommandPayloadBytes) {
         return protocol_error("Game client command payload exceeds the protocol limit");
@@ -531,8 +545,8 @@ snt::core::Expected<GameClientCommand> parse_game_client_command(
     offset += sizeof(uint64_t);
     command.command_type = read_u16(bytes, offset);
     offset += sizeof(uint16_t);
-    if (command.command_type == 0) {
-        return protocol_error("Game client command type must be non-zero");
+    if (command.client_sequence == 0 || command.command_type == 0) {
+        return protocol_error("Game client command sequence and type must be non-zero");
     }
     auto payload = read_byte_vector(bytes, offset, kMaxGameCommandPayloadBytes,
                                     "client command payload");
@@ -540,6 +554,67 @@ snt::core::Expected<GameClientCommand> parse_game_client_command(
     if (offset != bytes.size()) return protocol_error("Game client command has trailing bytes");
     command.payload = std::move(*payload);
     return command;
+}
+
+snt::core::Expected<void> validate_game_player_movement_input(
+    const GamePlayerMovementInput& input) {
+    if (input.client_sequence == 0) {
+        return protocol_error("Game player movement input sequence must be non-zero");
+    }
+    if (input.forward_axis < -1 || input.forward_axis > 1 ||
+        input.strafe_axis < -1 || input.strafe_axis > 1) {
+        return protocol_error("Game player movement input axis is invalid");
+    }
+    if ((input.flags & ~kGamePlayerMovementKnownFlags) != 0) {
+        return protocol_error("Game player movement input flags are invalid");
+    }
+    if (input.yaw_centidegrees < -18000 || input.yaw_centidegrees >= 18000 ||
+        input.pitch_centidegrees < -8900 || input.pitch_centidegrees > 8900) {
+        return protocol_error("Game player movement input look angles are invalid");
+    }
+    return {};
+}
+
+snt::core::Expected<GameReplicationMessage> make_game_player_movement_input(
+    const GamePlayerMovementInput& input) {
+    if (auto result = validate_game_player_movement_input(input); !result) return result.error();
+
+    GameReplicationMessage message;
+    message.kind = GameReplicationMessageKind::kClientMovementInput;
+    message.payload.reserve(16);
+    append_u64(message.payload, input.client_sequence);
+    message.payload.push_back(static_cast<std::byte>(std::bit_cast<uint8_t>(input.forward_axis)));
+    message.payload.push_back(static_cast<std::byte>(std::bit_cast<uint8_t>(input.strafe_axis)));
+    message.payload.push_back(static_cast<std::byte>(input.flags));
+    message.payload.push_back(std::byte{0});
+    append_i16(message.payload, input.yaw_centidegrees);
+    append_i16(message.payload, input.pitch_centidegrees);
+    return message;
+}
+
+snt::core::Expected<GamePlayerMovementInput> parse_game_player_movement_input(
+    const GameReplicationMessage& message) {
+    if (auto result = validate_message_kind(message, GameReplicationMessageKind::kClientMovementInput);
+        !result) {
+        return result.error();
+    }
+    constexpr size_t kMovementInputBytes = 16;
+    if (message.payload.size() != kMovementInputBytes ||
+        std::to_integer<uint8_t>(message.payload[11]) != 0) {
+        return protocol_error("Game player movement input payload is invalid");
+    }
+
+    const std::span<const std::byte> bytes(message.payload.data(), message.payload.size());
+    GamePlayerMovementInput input{
+        .client_sequence = read_u64(bytes, 0),
+        .forward_axis = std::bit_cast<int8_t>(std::to_integer<uint8_t>(bytes[8])),
+        .strafe_axis = std::bit_cast<int8_t>(std::to_integer<uint8_t>(bytes[9])),
+        .flags = std::to_integer<uint8_t>(bytes[10]),
+        .yaw_centidegrees = read_i16(bytes, 12),
+        .pitch_centidegrees = read_i16(bytes, 14),
+    };
+    if (auto result = validate_game_player_movement_input(input); !result) return result.error();
+    return input;
 }
 
 snt::core::Expected<GameClientCommand> make_game_quest_accept_command(

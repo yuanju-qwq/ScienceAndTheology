@@ -52,6 +52,11 @@ public:
     MachineInteractionService& machine_interactions() noexcept {
         return machine_interactions_;
     }
+    // Server-owned world services may bind durable block-sidecar state here;
+    // caller remains on the simulation main thread and must not retain it
+    // past this session's shutdown.
+    GameChunkSidecarRegistry& world_sidecars() noexcept { return chunk_sidecars_; }
+    const GameChunkSidecarRegistry& world_sidecars() const noexcept { return chunk_sidecars_; }
 
 private:
     GameSessionConfig config_;

@@ -67,6 +67,47 @@ void from_json(const json& object, GameServerNetworkConfig& value) {
     read_optional(object, "max_peers", value.max_peers);
 }
 
+void from_json(const json& object, GameServerPlayerConfig& value) {
+    value = GameServerPlayerConfig{};
+    read_optional(object, "spawn_block_x", value.spawn_block_x);
+    read_optional(object, "spawn_block_y", value.spawn_block_y);
+    read_optional(object, "spawn_block_z", value.spawn_block_z);
+    read_optional(object, "inventory_slots", value.inventory_slots);
+    read_optional(object, "inventory_max_stack_size", value.inventory_max_stack_size);
+    read_optional(object, "interaction_reach_blocks", value.interaction_reach_blocks);
+    read_optional(object, "movement_walk_speed_blocks_per_second",
+                  value.movement_walk_speed_blocks_per_second);
+    read_optional(object, "movement_sprint_multiplier", value.movement_sprint_multiplier);
+    read_optional(object, "movement_jump_speed_blocks_per_second",
+                  value.movement_jump_speed_blocks_per_second);
+    read_optional(object, "movement_gravity_blocks_per_second_squared",
+                  value.movement_gravity_blocks_per_second_squared);
+    read_optional(object, "movement_terminal_velocity_blocks_per_second",
+                  value.movement_terminal_velocity_blocks_per_second);
+    read_optional(object, "movement_body_width_blocks", value.movement_body_width_blocks);
+    read_optional(object, "movement_body_height_blocks", value.movement_body_height_blocks);
+    read_optional(object, "movement_input_timeout_ticks", value.movement_input_timeout_ticks);
+    read_optional(object, "movement_missing_chunks_are_solid",
+                  value.movement_missing_chunks_are_solid);
+    read_optional(object, "grave_material_id", value.grave_material_id);
+    read_optional(object, "grave_vertical_search_blocks", value.grave_vertical_search_blocks);
+    read_optional(object, "respawn_safe_search_radius_blocks",
+                  value.respawn_safe_search_radius_blocks);
+}
+
+void from_json(const json& object, GameServerReplicationConfig& value) {
+    value = GameServerReplicationConfig{};
+    read_optional(object, "player_horizontal_aoi_radius_blocks",
+                  value.player_horizontal_aoi_radius_blocks);
+    read_optional(object, "player_vertical_aoi_radius_blocks",
+                  value.player_vertical_aoi_radius_blocks);
+    read_optional(object, "max_visible_players", value.max_visible_players);
+    read_optional(object, "max_reliable_bytes_per_tick", value.max_reliable_bytes_per_tick);
+    read_optional(object, "max_chunk_snapshots_per_tick", value.max_chunk_snapshots_per_tick);
+    read_optional(object, "max_entity_snapshots_per_tick", value.max_entity_snapshots_per_tick);
+    read_optional(object, "max_block_deltas_per_tick", value.max_block_deltas_per_tick);
+}
+
 void from_json(const json& object, GamePersistenceConfig& value) {
     value = GamePersistenceConfig{};
     read_optional(object, "universe_save_dir", value.universe_save_dir);
@@ -96,6 +137,12 @@ void from_json(const json& object, GameSessionConfig& value) {
     }
     if (object.contains("server_network")) {
         value.server_network = object["server_network"].get<GameServerNetworkConfig>();
+    }
+    if (object.contains("server_player")) {
+        value.server_player = object["server_player"].get<GameServerPlayerConfig>();
+    }
+    if (object.contains("server_replication")) {
+        value.server_replication = object["server_replication"].get<GameServerReplicationConfig>();
     }
     if (object.contains("client_network")) {
         value.client_network = object["client_network"].get<GameClientNetworkConfig>();

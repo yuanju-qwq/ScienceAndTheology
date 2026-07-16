@@ -65,6 +65,35 @@
     "udp_port": 23586,
     "max_peers": 64
   },
+  "server_player": {
+    "spawn_block_x": 4,
+    "spawn_block_y": 6,
+    "spawn_block_z": 8,
+    "inventory_slots": 36,
+    "inventory_max_stack_size": 64,
+    "interaction_reach_blocks": 5,
+    "movement_walk_speed_blocks_per_second": 4.3,
+    "movement_sprint_multiplier": 1.45,
+    "movement_jump_speed_blocks_per_second": 6.2,
+    "movement_gravity_blocks_per_second_squared": 20.0,
+    "movement_terminal_velocity_blocks_per_second": 48.0,
+    "movement_body_width_blocks": 0.6,
+    "movement_body_height_blocks": 1.8,
+    "movement_input_timeout_ticks": 6,
+    "movement_missing_chunks_are_solid": true,
+    "grave_material_id": 255,
+    "grave_vertical_search_blocks": 32,
+    "respawn_safe_search_radius_blocks": 16
+  },
+  "server_replication": {
+    "player_horizontal_aoi_radius_blocks": 96,
+    "player_vertical_aoi_radius_blocks": 48,
+    "max_visible_players": 64,
+    "max_reliable_bytes_per_tick": 262144,
+    "max_chunk_snapshots_per_tick": 2,
+    "max_entity_snapshots_per_tick": 128,
+    "max_block_deltas_per_tick": 1024
+  },
   "client_network": {
     "enabled": false,
     "host": "127.0.0.1",

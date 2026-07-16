@@ -102,12 +102,39 @@ struct MachineRuntimePersistenceRecord {
     uint8_t run_state = 0;
 };
 
+// Player beds and graves are world-owned sidecar values. They intentionally
+// do not use player ECS types: account-backed inventory conversion happens in
+// the dedicated-server service, while sidecars remain reusable world data.
+struct GamePlayerBedRecord {
+    int32_t root_x = 0;
+    int32_t root_y = 0;
+    int32_t root_z = 0;
+};
+
+struct GamePlayerGraveItemStack {
+    std::string item_id;
+    int32_t count = 0;
+    std::string instance_data;
+};
+
+struct GamePlayerGraveRecord {
+    uint64_t grave_id = 0;
+    std::string owner_account_id;
+    uint64_t death_tick = 0;
+    int32_t root_x = 0;
+    int32_t root_y = 0;
+    int32_t root_z = 0;
+    std::vector<GamePlayerGraveItemStack> items;
+};
+
 struct GameChunkSidecar {
     std::vector<ConnectorPlacement> connectors;
     std::vector<MechanismPlacement> mechanisms;
     std::vector<EntityId> entities;
     std::vector<MachineRuntimePersistenceRecord> machine_runtime_records;
     std::vector<BlockEntityPlacement> block_entities;
+    std::vector<GamePlayerBedRecord> player_beds;
+    std::vector<GamePlayerGraveRecord> player_graves;
     std::vector<ConnectorId> connector_ids;
     bool has_population_cell = false;
     PopulationCell population_cell{};

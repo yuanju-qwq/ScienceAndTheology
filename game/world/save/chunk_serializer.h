@@ -17,9 +17,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v11 persists multi-input machine slots,
-    // recipe snapshots, and pending manual activation requests.
-    static constexpr uint8_t kCurrentVersion = 11;
+    // Current binary format version. v12 adds persistent player bed anchors
+    // and indestructible grave storage to game-owned chunk sidecars.
+    static constexpr uint8_t kCurrentVersion = 12;
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;
@@ -90,6 +90,30 @@ private:
     static bool read_block_entity(const std::vector<uint8_t>& data,
                                   size_t& offset,
                                   BlockEntityPlacement& entity);
+
+    // --- Player bed/grave sidecar serialization ---
+
+    static void write_player_bed_record(
+        std::vector<uint8_t>& buf,
+        const GamePlayerBedRecord& record);
+    static bool read_player_bed_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        GamePlayerBedRecord& record);
+    static void write_player_grave_record(
+        std::vector<uint8_t>& buf,
+        const GamePlayerGraveRecord& record);
+    static bool read_player_grave_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        GamePlayerGraveRecord& record);
+    static void write_player_grave_item_stack(
+        std::vector<uint8_t>& buf,
+        const GamePlayerGraveItemStack& stack);
+    static bool read_player_grave_item_stack(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        GamePlayerGraveItemStack& stack);
 
     // --- Machine runtime sidecar serialization ---
 

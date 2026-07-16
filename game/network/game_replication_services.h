@@ -77,6 +77,14 @@ public:
         const GameAuthenticatedPeer& peer, GameClientCommand command,
         const snt::network::ReplicationTickContext& context) = 0;
 
+    // Movement uses a separate unreliable protocol lane. The sink applies the
+    // same authenticated-peer and sequence rules as reliable commands, but it
+    // may coalesce stale movement intent because only the latest axes/look
+    // state affects the next server simulation tick.
+    virtual snt::core::Expected<void> enqueue_player_movement_input(
+        const GameAuthenticatedPeer& peer, GamePlayerMovementInput input,
+        const snt::network::ReplicationTickContext& context) = 0;
+
     // The handler invokes this before it discards an authenticated session.
     // Implementations cancel queued commands and discard per-peer sequence
     // state; persistent game progress remains keyed by peer.identity.account_id.
@@ -129,6 +137,16 @@ public:
         const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
         const GameReplicationBudget& budget,
         const snt::network::ReplicationTickContext& context) = 0;
+
+    // Stateful sources can discard an observer baseline when the transport
+    // session ends or is superseded. The default preserves stateless source
+    // implementations without forcing unrelated gameplay providers to carry
+    // peer lifecycle state.
+    virtual void on_peer_disconnected(const GameAuthenticatedPeer& peer,
+                                      std::string_view reason) noexcept {
+        static_cast<void>(peer);
+        static_cast<void>(reason);
+    }
 };
 
 }  // namespace snt::game::replication

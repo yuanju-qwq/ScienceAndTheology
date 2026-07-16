@@ -78,6 +78,42 @@ TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {
     EXPECT_FLOAT_EQ(restored.population_cell.vegetation_density, 0.75f);
 }
 
+TEST(GameChunkSerializerTest, RoundTripsPersistentPlayerBedsAndGraves) {
+    snt::game::GameChunk original;
+    original.chunk_x = -1;
+    original.chunk_y = 0;
+    original.chunk_z = 2;
+    original.terrain.resize(1, 1, 1);
+    original.player_beds.push_back({.root_x = -3, .root_y = 64, .root_z = 7});
+    original.player_graves.push_back({
+        .grave_id = 0x800000000000002Aull,
+        .owner_account_id = "local-name:Sidecar Player",
+        .death_tick = 1234,
+        .root_x = -4,
+        .root_y = 65,
+        .root_z = 8,
+        .items = {
+            {.item_id = "iron_ingot", .count = 12},
+            {.item_id = "relic", .count = 1, .instance_data = "unique"},
+        },
+    });
+
+    const snt::game::GameChunkSerializer serializer;
+    const auto payload = serializer.serialize("overworld", original);
+    snt::game::GameChunk restored;
+    std::string dimension;
+    ASSERT_TRUE(serializer.deserialize(payload, dimension, restored));
+    ASSERT_EQ(restored.player_beds.size(), 1u);
+    EXPECT_EQ(restored.player_beds.front().root_x, -3);
+    ASSERT_EQ(restored.player_graves.size(), 1u);
+    const auto& grave = restored.player_graves.front();
+    EXPECT_EQ(grave.grave_id, 0x800000000000002Aull);
+    EXPECT_EQ(grave.owner_account_id, "local-name:Sidecar Player");
+    EXPECT_EQ(grave.death_tick, 1234u);
+    ASSERT_EQ(grave.items.size(), 2u);
+    EXPECT_EQ(grave.items[1].instance_data, "unique");
+}
+
 TEST(GameChunkSerializerTest, RejectsNonCurrentPayload) {
     snt::game::GameChunk chunk;
     chunk.terrain.resize(1, 1, 1);

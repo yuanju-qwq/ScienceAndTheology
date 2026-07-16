@@ -97,11 +97,19 @@ void publish_game_chunk(ChunkRegistry& voxel_chunks,
 }
 
 constexpr char kQuestProgressMagic[] = {'S', 'N', 'T', 'Q'};
+constexpr char kPlayerStateMagic[] = {'S', 'N', 'T', 'P'};
 constexpr size_t kMaxQuestPlayerIdBytes = 256;
 constexpr uint32_t kMaxQuestProgressRecords = 4096;
 constexpr uint32_t kMaxQuestIdBytes = 512;
 constexpr uint32_t kMaxQuestObjectiveIdBytes = 512;
 constexpr uint32_t kMaxQuestObjectivesPerRecord = 256;
+constexpr size_t kMaxPlayerStateDimensionIdBytes = 128;
+constexpr size_t kMaxPlayerStateItemIdBytes = 256;
+constexpr size_t kMaxPlayerStateItemInstanceBytes = 16u * 1024u;
+constexpr uint32_t kMaxPlayerStateInventorySlots = 256;
+constexpr int32_t kMaxPlayerStateStackSize = 65536;
+constexpr size_t kMaxPlayerStateOrganSchemaIdBytes = 128;
+constexpr size_t kMaxPlayerStateOrganPayloadBytes = 64u * 1024u;
 
 snt::core::Error persistence_error(snt::core::ErrorCode code, std::string message) {
     return {code, std::move(message)};
@@ -175,6 +183,10 @@ fs::path quest_progress_directory(std::string_view save_dir) {
 
 fs::path quest_progress_path(std::string_view save_dir, std::string_view player_id) {
     return quest_progress_directory(save_dir) / ("player_" + hex_player_id(player_id) + ".quest");
+}
+
+fs::path player_state_path(std::string_view save_dir, std::string_view player_id) {
+    return quest_progress_directory(save_dir) / ("player_" + hex_player_id(player_id) + ".player");
 }
 
 template <typename T>
@@ -261,45 +273,46 @@ bool read_quest_progress_record(std::ifstream& file, QuestProgressRecord& record
     return true;
 }
 
-snt::core::Expected<void> replace_quest_progress_file(const fs::path& final_path,
-                                                       const fs::path& temporary_path,
-                                                       const fs::path& backup_path) {
+snt::core::Expected<void> replace_recoverable_player_file(const fs::path& final_path,
+                                                           const fs::path& temporary_path,
+                                                           const fs::path& backup_path,
+                                                           std::string_view label) {
     std::error_code ec;
     const bool has_final = fs::exists(final_path, ec);
     if (ec) {
         return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                                 "Unable to inspect quest progress destination: " + ec.message());
+                                 "Unable to inspect " + std::string(label) + " destination: " + ec.message());
     }
     const bool has_backup = fs::exists(backup_path, ec);
     if (ec) {
         return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                                 "Unable to inspect quest progress backup: " + ec.message());
+                                 "Unable to inspect " + std::string(label) + " backup: " + ec.message());
     }
 
     if (!has_final && has_backup) {
         fs::rename(backup_path, final_path, ec);
         if (ec) {
             return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                                     "Unable to recover previous quest progress: " + ec.message());
+                                     "Unable to recover previous " + std::string(label) + ": " + ec.message());
         }
     } else if (has_final && has_backup) {
         fs::remove(backup_path, ec);
         if (ec) {
             return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                                     "Unable to remove stale quest progress backup: " + ec.message());
+                                     "Unable to remove stale " + std::string(label) + " backup: " + ec.message());
         }
     }
 
     const bool primary_exists = fs::exists(final_path, ec);
     if (ec) {
         return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                                 "Unable to inspect quest progress primary file: " + ec.message());
+                                 "Unable to inspect " + std::string(label) + " primary file: " + ec.message());
     }
     if (primary_exists) {
         fs::rename(final_path, backup_path, ec);
         if (ec) {
             return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                                     "Unable to stage previous quest progress: " + ec.message());
+                                     "Unable to stage previous " + std::string(label) + ": " + ec.message());
         }
     }
 
@@ -317,7 +330,220 @@ snt::core::Expected<void> replace_quest_progress_file(const fs::path& final_path
         fs::rename(backup_path, final_path, restore_error);
     }
     return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
-                             "Unable to promote quest progress file: " + rename_error);
+                             "Unable to promote " + std::string(label) + " file: " + rename_error);
+}
+
+snt::core::Expected<void> validate_player_state_request(std::string_view save_dir,
+                                                         std::string_view player_id) {
+    if (save_dir.empty()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state save directory must not be empty");
+    }
+    if (player_id.empty() || player_id.size() > kMaxQuestPlayerIdBytes) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state player id must contain 1 to 256 bytes");
+    }
+    return {};
+}
+
+bool is_empty_player_state_stack(const GamePlayerItemStack& stack) noexcept {
+    return stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty();
+}
+
+bool is_valid_player_state_stack(const GamePlayerItemStack& stack,
+                                 int32_t max_stack_size,
+                                 bool equipment_slot) noexcept {
+    if (is_empty_player_state_stack(stack)) return true;
+    if (stack.item_id.empty() || stack.item_id.size() > kMaxPlayerStateItemIdBytes ||
+        stack.count <= 0 || stack.instance_data.size() > kMaxPlayerStateItemInstanceBytes) {
+        return false;
+    }
+    if (equipment_slot || !stack.instance_data.empty()) return stack.count == 1;
+    return stack.count <= max_stack_size;
+}
+
+snt::core::Expected<void> validate_player_state_position(const GamePlayerWorldPosition& position) {
+    if (position.dimension_id.empty() ||
+        position.dimension_id.size() > kMaxPlayerStateDimensionIdBytes) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state contains an invalid dimension id");
+    }
+    return {};
+}
+
+snt::core::Expected<void> validate_player_state_value(const GamePlayerPersistentState& state) {
+    if (auto result = validate_player_state_position(state.position); !result) return result.error();
+    if (state.respawn_point.has_value()) {
+        if (auto result = validate_player_state_position(*state.respawn_point); !result) {
+            return result.error();
+        }
+    }
+
+    const GamePlayerInventory& inventory = state.inventory;
+    if (inventory.max_slots == 0 || inventory.max_slots > kMaxPlayerStateInventorySlots ||
+        inventory.max_stack_size <= 0 || inventory.max_stack_size > kMaxPlayerStateStackSize ||
+        inventory.slots.size() != inventory.max_slots) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state contains invalid fixed inventory capacity");
+    }
+    for (const GamePlayerItemStack& stack : inventory.slots) {
+        if (!is_valid_player_state_stack(stack, inventory.max_stack_size, false)) {
+            return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                     "Player state contains an invalid inventory stack");
+        }
+    }
+    for (const GamePlayerItemStack& stack : state.equipment.slots) {
+        if (!is_valid_player_state_stack(stack, inventory.max_stack_size, true)) {
+            return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                     "Player state contains an invalid equipment stack");
+        }
+    }
+
+    const GamePlayerOrganState& organs = state.organs;
+    if (organs.schema_id.empty()) {
+        if (organs.schema_version != 0 || !organs.payload.empty()) {
+            return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                     "Player state has an incomplete organ schema declaration");
+        }
+    } else if (organs.schema_id.size() > kMaxPlayerStateOrganSchemaIdBytes ||
+               organs.schema_version == 0 || organs.payload.size() > kMaxPlayerStateOrganPayloadBytes) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state organ payload exceeds persistence limits");
+    }
+    return {};
+}
+
+bool write_player_state_position(std::ofstream& file, const GamePlayerWorldPosition& position) {
+    return write_quest_string(file, position.dimension_id,
+                              static_cast<uint32_t>(kMaxPlayerStateDimensionIdBytes)) &&
+           write_value(file, position.position.x) &&
+           write_value(file, position.position.y) &&
+           write_value(file, position.position.z);
+}
+
+bool read_player_state_position(std::ifstream& file, GamePlayerWorldPosition& position) {
+    GamePlayerWorldPosition restored;
+    if (!read_quest_string(file, restored.dimension_id,
+                           static_cast<uint32_t>(kMaxPlayerStateDimensionIdBytes)) ||
+        !read_value(file, restored.position.x) || !read_value(file, restored.position.y) ||
+        !read_value(file, restored.position.z)) {
+        return false;
+    }
+    position = std::move(restored);
+    return true;
+}
+
+bool write_player_state_stack(std::ofstream& file, const GamePlayerItemStack& stack) {
+    const uint8_t present = is_empty_player_state_stack(stack) ? 0 : 1;
+    if (!write_value(file, present) || present == 0) return file.good();
+    return write_quest_string(file, stack.item_id,
+                              static_cast<uint32_t>(kMaxPlayerStateItemIdBytes)) &&
+           write_value(file, stack.count) &&
+           write_quest_string(file, stack.instance_data,
+                              static_cast<uint32_t>(kMaxPlayerStateItemInstanceBytes));
+}
+
+bool read_player_state_stack(std::ifstream& file, GamePlayerItemStack& stack) {
+    uint8_t present = 0;
+    if (!read_value(file, present) || present > 1) return false;
+    if (present == 0) {
+        stack = {};
+        return true;
+    }
+    GamePlayerItemStack restored;
+    if (!read_quest_string(file, restored.item_id,
+                           static_cast<uint32_t>(kMaxPlayerStateItemIdBytes)) ||
+        !read_value(file, restored.count) ||
+        !read_quest_string(file, restored.instance_data,
+                           static_cast<uint32_t>(kMaxPlayerStateItemInstanceBytes))) {
+        return false;
+    }
+    stack = std::move(restored);
+    return true;
+}
+
+bool write_player_state_value(std::ofstream& file, const GamePlayerPersistentState& state) {
+    const uint8_t has_respawn = state.respawn_point.has_value() ? 1 : 0;
+    const uint32_t inventory_slot_count = static_cast<uint32_t>(state.inventory.slots.size());
+    const uint32_t equipment_slot_count = static_cast<uint32_t>(state.equipment.slots.size());
+    const uint32_t organ_payload_size = static_cast<uint32_t>(state.organs.payload.size());
+    if (!write_player_state_position(file, state.position) || !write_value(file, has_respawn)) {
+        return false;
+    }
+    if (has_respawn != 0 && !write_player_state_position(file, *state.respawn_point)) return false;
+    if (!write_value(file, state.inventory.max_slots) ||
+        !write_value(file, state.inventory.max_stack_size) ||
+        !write_value(file, inventory_slot_count)) {
+        return false;
+    }
+    for (const GamePlayerItemStack& stack : state.inventory.slots) {
+        if (!write_player_state_stack(file, stack)) return false;
+    }
+    if (!write_value(file, equipment_slot_count)) return false;
+    for (const GamePlayerItemStack& stack : state.equipment.slots) {
+        if (!write_player_state_stack(file, stack)) return false;
+    }
+    if (!write_quest_string(file, state.organs.schema_id,
+                            static_cast<uint32_t>(kMaxPlayerStateOrganSchemaIdBytes)) ||
+        !write_value(file, state.organs.schema_version) ||
+        !write_value(file, organ_payload_size)) {
+        return false;
+    }
+    if (organ_payload_size != 0) {
+        file.write(reinterpret_cast<const char*>(state.organs.payload.data()),
+                   static_cast<std::streamsize>(organ_payload_size));
+    }
+    return file.good();
+}
+
+bool read_player_state_value(std::ifstream& file, GamePlayerPersistentState& state) {
+    GamePlayerPersistentState restored;
+    uint8_t has_respawn = 0;
+    uint32_t inventory_slot_count = 0;
+    uint32_t equipment_slot_count = 0;
+    uint32_t organ_payload_size = 0;
+    if (!read_player_state_position(file, restored.position) || !read_value(file, has_respawn) ||
+        has_respawn > 1) {
+        return false;
+    }
+    if (has_respawn != 0) {
+        GamePlayerWorldPosition respawn;
+        if (!read_player_state_position(file, respawn)) return false;
+        restored.respawn_point = std::move(respawn);
+    }
+    if (!read_value(file, restored.inventory.max_slots) ||
+        !read_value(file, restored.inventory.max_stack_size) ||
+        !read_value(file, inventory_slot_count) ||
+        inventory_slot_count > kMaxPlayerStateInventorySlots ||
+        inventory_slot_count != restored.inventory.max_slots) {
+        return false;
+    }
+    restored.inventory.slots.resize(inventory_slot_count);
+    for (GamePlayerItemStack& stack : restored.inventory.slots) {
+        if (!read_player_state_stack(file, stack)) return false;
+    }
+    if (!read_value(file, equipment_slot_count) ||
+        equipment_slot_count != restored.equipment.slots.size()) {
+        return false;
+    }
+    for (GamePlayerItemStack& stack : restored.equipment.slots) {
+        if (!read_player_state_stack(file, stack)) return false;
+    }
+    if (!read_quest_string(file, restored.organs.schema_id,
+                           static_cast<uint32_t>(kMaxPlayerStateOrganSchemaIdBytes)) ||
+        !read_value(file, restored.organs.schema_version) ||
+        !read_value(file, organ_payload_size) ||
+        organ_payload_size > kMaxPlayerStateOrganPayloadBytes) {
+        return false;
+    }
+    restored.organs.payload.resize(organ_payload_size);
+    if (organ_payload_size != 0) {
+        file.read(reinterpret_cast<char*>(restored.organs.payload.data()),
+                  static_cast<std::streamsize>(organ_payload_size));
+        if (!file.good()) return false;
+    }
+    state = std::move(restored);
+    return true;
 }
 
 } // namespace
@@ -681,7 +907,125 @@ snt::core::Expected<void> GameSaveManager::save_quest_progress(
         }
     }
 
-    if (auto result = replace_quest_progress_file(primary_path, temporary_path, backup_path);
+    if (auto result = replace_recoverable_player_file(
+            primary_path, temporary_path, backup_path, "quest progress");
+        !result) {
+        std::error_code remove_error;
+        fs::remove(temporary_path, remove_error);
+        return result.error();
+    }
+    return {};
+}
+
+snt::core::Expected<std::optional<GamePlayerPersistentState>>
+GameSaveManager::load_player_state(const std::string& save_dir, std::string_view player_id) {
+    if (auto result = validate_player_state_request(save_dir, player_id); !result) {
+        return result.error();
+    }
+
+    const fs::path primary_path = player_state_path(save_dir, player_id);
+    fs::path backup_path = primary_path;
+    backup_path += ".bak";
+
+    std::error_code ec;
+    const bool primary_exists = fs::exists(primary_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect player state file: " + ec.message());
+    }
+
+    fs::path selected_path = primary_path;
+    if (!primary_exists) {
+        const bool backup_exists = fs::exists(backup_path, ec);
+        if (ec) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to inspect player state backup: " + ec.message());
+        }
+        if (!backup_exists) return std::optional<GamePlayerPersistentState>{};
+
+        selected_path = backup_path;
+        SNT_LOG_WARN("Player state primary file was missing for account '%.*s'; using recovery backup",
+                     static_cast<int>(player_id.size()), player_id.data());
+    }
+
+    std::ifstream file(selected_path, std::ios::binary);
+    if (!file.is_open()) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to open player state file: " + path_to_utf8(selected_path));
+    }
+
+    char magic[sizeof(kPlayerStateMagic)] = {};
+    uint8_t version = 0;
+    std::string stored_player_id;
+    GamePlayerPersistentState state;
+    file.read(magic, sizeof(magic));
+    if (!file.good() || std::memcmp(magic, kPlayerStateMagic, sizeof(magic)) != 0 ||
+        !read_value(file, version) || version != kPlayerStateVersion ||
+        !read_quest_string(file, stored_player_id, static_cast<uint32_t>(kMaxQuestPlayerIdBytes)) ||
+        stored_player_id != player_id || !read_player_state_value(file, state)) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state file is corrupt or not the current format");
+    }
+    if (file.peek() != std::char_traits<char>::eof() || file.bad()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state file has trailing or unreadable data");
+    }
+    if (auto result = validate_player_state_value(state); !result) return result.error();
+    return std::optional<GamePlayerPersistentState>{std::move(state)};
+}
+
+snt::core::Expected<void> GameSaveManager::save_player_state(
+    const std::string& save_dir, std::string_view player_id,
+    const GamePlayerPersistentState& state) {
+    if (auto result = validate_player_state_request(save_dir, player_id); !result) {
+        return result.error();
+    }
+    if (auto result = validate_player_state_value(state); !result) return result.error();
+
+    const fs::path directory = quest_progress_directory(save_dir);
+    if (!ensure_directory(path_to_utf8(directory))) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to create player state directory: " + path_to_utf8(directory));
+    }
+
+    const fs::path primary_path = player_state_path(save_dir, player_id);
+    fs::path temporary_path = primary_path;
+    temporary_path += ".tmp";
+    fs::path backup_path = primary_path;
+    backup_path += ".bak";
+
+    std::error_code ec;
+    fs::remove(temporary_path, ec);
+    if (ec) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to remove stale player state temporary file: " + ec.message());
+    }
+
+    {
+        std::ofstream file(temporary_path, std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to create player state temporary file: " +
+                                         path_to_utf8(temporary_path));
+        }
+        file.write(kPlayerStateMagic, sizeof(kPlayerStateMagic));
+        bool wrote = file.good() && write_value(file, kPlayerStateVersion) &&
+                     write_quest_string(file, player_id,
+                                        static_cast<uint32_t>(kMaxQuestPlayerIdBytes)) &&
+                     write_player_state_value(file, state);
+        file.flush();
+        wrote = wrote && file.good();
+        file.close();
+        if (!wrote || file.fail()) {
+            std::error_code remove_error;
+            fs::remove(temporary_path, remove_error);
+            return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                     "Unable to write complete player state file");
+        }
+    }
+
+    if (auto result = replace_recoverable_player_file(
+            primary_path, temporary_path, backup_path, "player state");
         !result) {
         std::error_code remove_error;
         fs::remove(temporary_path, remove_error);

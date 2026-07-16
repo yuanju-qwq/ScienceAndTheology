@@ -98,6 +98,8 @@ public:
     [[nodiscard]] snt::core::Expected<void> enqueue_command(GameClientCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_quest_accept(
         uint64_t client_sequence, GameQuestAcceptCommand command);
+    [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
+        GamePlayerMovementInput input);
 
     // Called by the client simulation main thread after poll_inbound(). The
     // returned values preserve reliable transport order and are detached from

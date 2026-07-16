@@ -14,6 +14,15 @@
 
 #include <memory>
 #include <optional>
+#include <cstdint>
+
+namespace snt::game::replication {
+class GameRemotePlayerWorld;
+}
+
+namespace snt::ecs {
+class World;
+}
 
 namespace snt::game {
 
@@ -39,6 +48,8 @@ public:
 
 private:
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
+    void sample_network_movement_input(snt::engine::ClientFrameContext& context);
+    void apply_authoritative_local_player();
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
@@ -46,6 +57,13 @@ private:
     std::optional<PlayerIdentity> local_player_identity_;
     std::optional<replication::GameClientAuthentication> connection_authentication_;
     std::unique_ptr<replication::GameClientReplicationSession> replication_session_;
+    std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
+    snt::ecs::World* presentation_world_ = nullptr;
+    replication::GamePlayerMovementInput sampled_movement_input_;
+    replication::GamePlayerMovementInput last_sent_movement_input_;
+    uint64_t next_movement_sequence_ = 1;
+    uint64_t last_movement_send_tick_ = 0;
+    bool has_last_sent_movement_input_ = false;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;

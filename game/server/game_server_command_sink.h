@@ -19,9 +19,13 @@
 
 namespace snt::game::replication {
 
+class IGameServerPlayerMovementInputSink;
+
 class GameServerCommandSink final : public IGameReplicationCommandSink {
 public:
-    explicit GameServerCommandSink(QuestRegistry& quests);
+    explicit GameServerCommandSink(
+        QuestRegistry& quests,
+        IGameServerPlayerMovementInputSink* player_movement = nullptr);
 
     GameServerCommandSink(const GameServerCommandSink&) = delete;
     GameServerCommandSink& operator=(const GameServerCommandSink&) = delete;
@@ -31,6 +35,9 @@ public:
     // semantic application waits for apply_pending_commands().
     [[nodiscard]] snt::core::Expected<void> enqueue_client_command(
         const GameAuthenticatedPeer& peer, GameClientCommand command,
+        const snt::network::ReplicationTickContext& context) override;
+    [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
+        const GameAuthenticatedPeer& peer, GamePlayerMovementInput input,
         const snt::network::ReplicationTickContext& context) override;
     void on_peer_disconnected(const GameAuthenticatedPeer& peer,
                               std::string_view reason) noexcept override;
@@ -42,7 +49,9 @@ public:
     // healthy dedicated server connection.
     [[nodiscard]] snt::core::Expected<void> apply_pending_commands(uint64_t tick_index);
 
-    [[nodiscard]] size_t pending_command_count() const noexcept { return pending_.size(); }
+    [[nodiscard]] size_t pending_command_count() const noexcept {
+        return pending_.size() + pending_movement_.size();
+    }
 
 private:
     struct PeerSequenceState {
@@ -57,12 +66,22 @@ private:
         std::string quest_id;
     };
 
+    struct PendingMovementInput {
+        GameAuthenticatedPeer peer;
+        uint64_t client_sequence = 0;
+        GamePlayerMovementInput input;
+    };
+
+    [[nodiscard]] snt::core::Expected<void> validate_and_advance_sequence(
+        const GameAuthenticatedPeer& peer, uint64_t client_sequence);
     void record_gameplay_rejection(uint64_t tick_index, const PendingQuestAccept& command,
                                    const snt::core::Error& error) noexcept;
 
     QuestRegistry* quests_ = nullptr;
+    IGameServerPlayerMovementInputSink* player_movement_ = nullptr;
     std::map<snt::network::PeerId, PeerSequenceState> sequences_;
     std::vector<PendingQuestAccept> pending_;
+    std::map<snt::network::PeerId, PendingMovementInput> pending_movement_;
     uint64_t last_rejection_log_tick_ = 0;
     uint32_t suppressed_rejections_ = 0;
     bool has_rejection_log_tick_ = false;

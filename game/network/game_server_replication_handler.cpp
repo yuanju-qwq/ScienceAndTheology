@@ -96,6 +96,8 @@ snt::core::Expected<void> GameServerReplicationHandler::on_frame(
             return handle_login(peer, state->second, *message, context);
         case GameReplicationMessageKind::kClientCommand:
             return handle_command(peer, state->second, *message, context);
+        case GameReplicationMessageKind::kClientMovementInput:
+            return handle_player_movement_input(peer, state->second, *message, context);
         case GameReplicationMessageKind::kClientInterestUpdate:
         case GameReplicationMessageKind::kClientSnapshotAcknowledgement:
             return snt::core::Error{snt::core::ErrorCode::kNotImplemented,
@@ -117,6 +119,9 @@ void GameServerReplicationHandler::on_peer_disconnected(snt::network::PeerId pee
     if (state->second.authenticated_peer.has_value()) {
         if (command_sink_ != nullptr) {
             command_sink_->on_peer_disconnected(*state->second.authenticated_peer, reason);
+        }
+        if (snapshot_source_ != nullptr) {
+            snapshot_source_->on_peer_disconnected(*state->second.authenticated_peer, reason);
         }
         if (player_lifecycle_ != nullptr) {
             player_lifecycle_->on_peer_disconnected(*state->second.authenticated_peer, reason);
@@ -429,6 +434,33 @@ snt::core::Expected<void> GameServerReplicationHandler::handle_command(
     return {};
 }
 
+snt::core::Expected<void> GameServerReplicationHandler::handle_player_movement_input(
+    snt::network::PeerId, const PeerState& state, const GameReplicationMessage& message,
+    const snt::network::ReplicationTickContext& context) {
+    if (!state.authenticated_peer.has_value()) {
+        return protocol_error("Game player movement input arrived before successful login");
+    }
+    if (command_sink_ == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kNotImplemented,
+                                "Dedicated server has no player movement input sink"};
+    }
+
+    auto input = parse_game_player_movement_input(message);
+    if (!input) {
+        auto error = input.error();
+        error.with_context("GameServerReplicationHandler::handle_player_movement_input(parse input)");
+        return error;
+    }
+    auto result = command_sink_->enqueue_player_movement_input(
+        *state.authenticated_peer, std::move(*input), context);
+    if (!result) {
+        auto error = result.error();
+        error.with_context("GameServerReplicationHandler::handle_player_movement_input(enqueue)");
+        return error;
+    }
+    return {};
+}
+
 void GameServerReplicationHandler::take_over_existing_account_session(
     snt::network::PeerId peer, std::string_view account_id) {
     const auto state = peers_.find(peer);
@@ -438,6 +470,9 @@ void GameServerReplicationHandler::take_over_existing_account_session(
         "player account session was replaced by a newer login";
     if (command_sink_ != nullptr) {
         command_sink_->on_peer_disconnected(*state->second.authenticated_peer, kTakeoverReason);
+    }
+    if (snapshot_source_ != nullptr) {
+        snapshot_source_->on_peer_disconnected(*state->second.authenticated_peer, kTakeoverReason);
     }
     authenticator_->on_peer_disconnected(*state->second.authenticated_peer, kTakeoverReason);
     state->second.authenticated_peer.reset();
