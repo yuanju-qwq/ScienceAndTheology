@@ -50,6 +50,7 @@ snt::game::MachineRuntimePersistenceRecord make_machine_record() {
         .duration_ticks = 5,
         .energy_per_tick = 3,
     };
+    record.job_owner_account_id = "account:machine-owner";
     record.run_state = static_cast<uint8_t>(MachineRunState::Running);
     return record;
 }
@@ -96,6 +97,7 @@ TEST(GameChunkSerializerTest, RoundTripsChunkAnchoredMachineRuntimeRecord) {
     EXPECT_EQ(record.active_recipe->inputs[1].count, 1);
     EXPECT_EQ(record.active_recipe->outputs.front().item_id, "iron_ingot");
     EXPECT_FALSE(record.activation_requested);
+    EXPECT_EQ(record.job_owner_account_id, "account:machine-owner");
     EXPECT_EQ(record.run_state,
               static_cast<uint8_t>(snt::game::MachineRunState::Running));
 }
@@ -125,6 +127,7 @@ TEST(GameChunkSerializerTest, RoundTripsPendingManualMachineActivation) {
     const auto& restored_record = restored.machine_runtime_records.front();
     EXPECT_TRUE(restored_record.activation_requested);
     EXPECT_FALSE(restored_record.active_recipe.has_value());
+    EXPECT_EQ(restored_record.job_owner_account_id, "account:machine-owner");
     EXPECT_EQ(restored_record.run_state,
               static_cast<uint8_t>(snt::game::MachineRunState::WaitingForActivation));
     ASSERT_EQ(restored_record.input_slots.size(), 2u);
@@ -152,12 +155,14 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     EXPECT_EQ(restored.input_slots[1].item_id, "charcoal");
     ASSERT_TRUE(restored.active_recipe.has_value());
     EXPECT_EQ(restored.active_recipe->outputs.front().item_id, "iron_ingot");
+    EXPECT_EQ(restored.job_owner_account_id, "account:machine-owner");
 
     restored.stored_energy = 33;
     restored.input_slots = {{"iron_ore", 2}, {"charcoal", 4}};
     restored.active_recipe.reset();
     restored.progress_ticks = 0;
     restored.activation_requested = true;
+    restored.job_owner_account_id = "account:machine-owner-updated";
     restored.state = MachineRunState::WaitingForActivation;
     const entt::entity unanchored_entity = world.create_entity();
     auto& unanchored = world.add_component<MachineRuntimeComponent>(unanchored_entity);
@@ -178,6 +183,8 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     ASSERT_EQ(captured->machine_runtime_records.front().input_slots.size(), 2u);
     EXPECT_EQ(captured->machine_runtime_records.front().input_slots[1].item_id, "charcoal");
     EXPECT_TRUE(captured->machine_runtime_records.front().activation_requested);
+    EXPECT_EQ(captured->machine_runtime_records.front().job_owner_account_id,
+              "account:machine-owner-updated");
     EXPECT_EQ(captured->machine_runtime_records.front().run_state,
               static_cast<uint8_t>(MachineRunState::WaitingForActivation));
 }

@@ -75,8 +75,10 @@ void append_cross_arm(snt::ui::Arc2DCommandBuffer& commands, float center_x, flo
 
 ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(
     GameSessionConfig config,
+    std::shared_ptr<localization::LocalizationService> localization,
     std::optional<replication::GameClientAuthentication> connection_authentication)
     : config_(std::move(config)), simulation_session_(config_),
+      localization_(std::move(localization)),
       connection_authentication_(std::move(connection_authentication)) {
     if (connection_authentication_) {
         local_player_identity_ = connection_authentication_->local_identity;
@@ -352,14 +354,14 @@ void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& con
 }
 
 void ScienceAndTheologyClientSession::build_ui(snt::engine::ClientUiContext& context) {
-    if (gameplay_ui_) {
+    if (gameplay_ui_ && localization_) {
         auto root = build_gameplay_ui_root(
-            *gameplay_ui_, {context.viewport_width(), context.viewport_height()});
-        context.submit(*root);
+            *gameplay_ui_, {context.viewport_width(), context.viewport_height()}, *localization_);
+        context.submit(std::move(root), snt::ui::UiLayer::Screen);
     }
-    if (performance_ui_ && performance_ui_->visible()) {
-        auto panel = build_performance_panel_view(*performance_ui_);
-        context.submit(*panel);
+    if (performance_ui_ && performance_ui_->visible() && localization_) {
+        auto panel = build_performance_panel_view(*performance_ui_, *localization_);
+        context.submit(std::move(panel), snt::ui::UiLayer::Debug);
     }
     if (context.mouse_locked()) draw_crosshair(context);
 }
@@ -372,6 +374,7 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     connection_authentication_.reset();
     gameplay_ui_.reset();
     performance_ui_.reset();
+    localization_.reset();
     simulation_session_.shutdown();
     services_ = nullptr;
 }
@@ -443,18 +446,6 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         gameplay_ui_->toggle_crafting();
         SNT_LOG_INFO("Crafting UI %s", gameplay_ui_->crafting_open() ? "opened" : "closed");
     }
-    if (input.key_pressed[SDL_SCANCODE_RETURN] && gameplay_ui_->crafting_open()) {
-        for (const auto& recipe : gameplay_ui_->crafting().recipes()) {
-            if (!gameplay_ui_->crafting().can_craft(recipe)) continue;
-            const auto result = gameplay_ui_->crafting().craft(recipe.id);
-            if (result.ok) {
-                SNT_LOG_INFO("Crafted %s x%d", result.output.item_key.c_str(), result.output.count);
-            } else {
-                SNT_LOG_WARN("Craft failed: %s", result.reason.c_str());
-            }
-            break;
-        }
-    }
     if (input.key_pressed[SDL_SCANCODE_F3] && performance_ui_) {
         performance_ui_->toggle_visible();
         SNT_LOG_INFO("Performance UI %s", performance_ui_->visible() ? "opened" : "closed");
@@ -479,7 +470,7 @@ void ScienceAndTheologyClientSession::draw_crosshair(snt::engine::ClientUiContex
     snt::ui::Arc2DCommandBuffer commands;
     append_cross_arm(commands, center_x, center_y, 1.0f, 1.0f, {0, 0, 0, 160});
     append_cross_arm(commands, center_x, center_y, 0.0f, 0.0f, {255, 255, 255, 220});
-    context.submit(commands);
+    context.submit(std::move(commands), snt::ui::UiLayer::Hud);
 }
 
 }  // namespace snt::game

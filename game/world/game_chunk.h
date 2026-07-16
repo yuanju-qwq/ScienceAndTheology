@@ -99,6 +99,10 @@ struct MachineRuntimePersistenceRecord {
     int32_t progress_ticks = 0;
     std::optional<MachineRuntimeRecipeSnapshot> active_recipe;
     bool activation_requested = false;
+    // Stable authenticated account that started the pending/manual job. This
+    // survives a controlled restart so completion can emit a task event to
+    // the correct player without storing a transport peer or ECS handle.
+    std::string job_owner_account_id;
     uint8_t run_state = 0;
 };
 

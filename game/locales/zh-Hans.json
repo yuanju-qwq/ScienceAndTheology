@@ -1,0 +1,20 @@
+{
+  "locale": "zh-Hans",
+  "messages": {
+    "ui.inventory.title": "背包",
+    "ui.crafting.title": "合成",
+    "ui.crafting.recipe": "{item} x{count}  {availability}",
+    "ui.crafting.ready": "可合成",
+    "ui.crafting.insufficient": "材料不足",
+    "ui.crafting.craft": "合成",
+    "ui.performance.title": "性能",
+    "ui.performance.fps": "FPS  {fps}   帧时间 {frame_ms} ms",
+    "ui.performance.tps": "TPS  {tps}   每刻耗时 {mspt}",
+    "ui.performance.workers": "工作线程  {workers}",
+    "plank.oak": "橡木板",
+    "material.coal": "煤炭",
+    "stick": "木棍",
+    "workbench": "工作台",
+    "torch": "火把"
+  }
+}

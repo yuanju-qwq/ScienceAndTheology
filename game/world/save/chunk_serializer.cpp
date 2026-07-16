@@ -13,6 +13,7 @@ constexpr uint32_t kMaxMachineOutputSlots = 64;
 constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
+constexpr uint32_t kMaxMachineJobOwnerAccountBytes = 256;
 constexpr uint32_t kMaxPlayerBedRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveItemStacks = 128;
@@ -763,6 +764,7 @@ void GameChunkSerializer::write_machine_runtime_record(
         write_machine_runtime_recipe_snapshot(buf, *record.active_recipe);
     }
     write_uint8(buf, record.activation_requested ? 1 : 0);
+    write_string(buf, record.job_owner_account_id);
     write_uint8(buf, record.run_state);
 }
 
@@ -829,6 +831,12 @@ bool GameChunkSerializer::read_machine_runtime_record(
         return false;
     }
     record.activation_requested = activation_requested != 0;
+
+    if (!read_string(data, offset, record.job_owner_account_id) ||
+        record.job_owner_account_id.size() > kMaxMachineJobOwnerAccountBytes ||
+        record.job_owner_account_id.find('\0') != std::string::npos) {
+        return false;
+    }
 
     if (!read_uint8(data, offset, record.run_state) ||
         record.run_state >= kMachineRunStateCount) {

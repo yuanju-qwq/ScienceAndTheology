@@ -82,6 +82,22 @@ target_link_libraries(snt_game_identity PUBLIC
     snt_core
 )
 
+# Game text is content, not an engine service. This target stays headless so
+# callers can validate catalogs without pulling in SDL, Vulkan, or retained UI.
+add_library(snt_game_localization STATIC
+    localization/localization.cpp
+)
+target_include_directories(snt_game_localization PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_localization PUBLIC
+    snt_engine_settings
+    snt_core
+)
+target_link_libraries(snt_game_localization PRIVATE
+    nlohmann_json::nlohmann_json
+)
+
 # Game-owned authoritative replication semantics. This target stays headless:
 # snt_network owns transport framing while this module owns game message
 # versions, authenticated command admission, and AOI/snapshot value contracts.
@@ -148,6 +164,7 @@ target_include_directories(snt_game_client PRIVATE
 target_link_libraries(snt_game_client PRIVATE
     snt_client_runtime
     snt_game_identity
+    snt_game_localization
     snt_game_network
     snt_game_simulation
     snt_engine_settings
@@ -169,6 +186,8 @@ add_executable(snt_game_server
     server/main.cpp
     server/game_server_command_sink.cpp
     server/game_server_player_death.cpp
+    server/game_server_player_interaction.cpp
+    server/game_server_quest_events.cpp
     server/game_server_player_lifecycle.cpp
     server/game_server_player_movement.cpp
     server/game_server_player_replication.cpp
@@ -239,12 +258,15 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         client/gameplay_ui.cpp
         server/game_server_command_sink.cpp
         server/game_server_player_death.cpp
+        server/game_server_player_interaction.cpp
+        server/game_server_quest_events.cpp
         server/game_server_player_lifecycle.cpp
         server/game_server_player_movement.cpp
         server/game_server_player_replication.cpp
         server/game_server_player_state.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
+        tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
@@ -257,6 +279,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_player_state_persistence.cpp
         tests/test_player_replication.cpp
         tests/test_game_server_player_death.cpp
+        tests/test_game_server_player_interaction.cpp
+        tests/test_game_server_quest_events.cpp
         tests/test_game_server_player_movement.cpp
         tests/test_game_server_player_state.cpp
         tests/test_quest_registry.cpp
@@ -284,6 +308,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_worldgen
         snt_game_world_save
         snt_game_identity
+        snt_game_localization
         snt_game_network
         snt_engine_settings
         snt_third_party
@@ -338,6 +363,9 @@ add_custom_command(TARGET snt_game_client POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}/scenes
         $<TARGET_FILE_DIR:snt_game_client>/game/scenes
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/locales
+        $<TARGET_FILE_DIR:snt_game_client>/game/locales
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_RUNTIME_DLLS:snt_game_client>
         $<TARGET_FILE_DIR:snt_game_client>

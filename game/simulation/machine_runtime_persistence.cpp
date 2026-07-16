@@ -25,6 +25,7 @@ constexpr size_t kMaxMachineInputSlots = 64;
 constexpr size_t kMaxMachineOutputSlots = 64;
 constexpr size_t kMaxMachineRecipeInputs = 64;
 constexpr size_t kMaxMachineRecipeOutputs = 64;
+constexpr size_t kMaxMachineJobOwnerAccountBytes = 256;
 constexpr int32_t kMaxMachineStackSize = 1'000'000;
 constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
 
@@ -157,6 +158,12 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
          record.run_state != static_cast<uint8_t>(MachineRunState::WaitingForActivation))) {
         return invalid_argument("Machine persistence activation request is not waiting for activation");
     }
+    if (record.job_owner_account_id.size() > kMaxMachineJobOwnerAccountBytes ||
+        record.job_owner_account_id.find('\0') != std::string::npos ||
+        (!record.job_owner_account_id.empty() &&
+         !record.activation_requested && !record.active_recipe)) {
+        return invalid_argument("Machine persistence job owner is invalid");
+    }
     if (record.active_recipe) {
         if (auto result = validate_recipe(*record.active_recipe); !result) return result.error();
     } else if (record.progress_ticks != 0) {
@@ -233,6 +240,7 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
         result.active_recipe = to_persisted_recipe(*runtime.active_recipe);
     }
     result.activation_requested = runtime.activation_requested;
+    result.job_owner_account_id = runtime.job_owner_account_id;
     result.run_state = static_cast<uint8_t>(runtime.state);
     return result;
 }
@@ -259,6 +267,7 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
         result.active_recipe = to_runtime_recipe(*record.active_recipe);
     }
     result.activation_requested = record.activation_requested;
+    result.job_owner_account_id = record.job_owner_account_id;
     result.state = static_cast<MachineRunState>(record.run_state);
     return result;
 }

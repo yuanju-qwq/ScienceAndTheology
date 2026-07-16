@@ -17,9 +17,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v12 adds persistent player bed anchors
-    // and indestructible grave storage to game-owned chunk sidecars.
-    static constexpr uint8_t kCurrentVersion = 12;
+    // Current binary format version. v13 adds the authenticated owner of an
+    // in-flight manual machine job, preserving task credit across restarts.
+    static constexpr uint8_t kCurrentVersion = 13;
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;

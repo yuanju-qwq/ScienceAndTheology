@@ -5,7 +5,9 @@
 
 #define SNT_LOG_CHANNEL "game_host"
 #include "core/log.h"
+#include "core/path_utils.h"
 #include "engine/client_runtime.h"
+#include "game/localization/localization.h"
 #include "game/runtime/local_player_name_prompt.h"
 #include "game/runtime/runtime_package.h"
 #include "science_and_theology_session.h"
@@ -17,6 +19,18 @@ int main(int argc, char* argv[]) {
         argc > 0 ? argv[0] : "science_and_theology");
     if (!package) {
         SNT_LOG_ERROR("Runtime package load failed: %s", package.error().format().c_str());
+        return 1;
+    }
+
+    auto localization = snt::game::localization::LocalizationService::load(
+        std::make_shared<snt::game::localization::JsonFileLocalizationCatalogSource>(
+            snt::core::path_utils::join(package->paths.game_root, "locales")),
+        {
+            .locale = package->runtime_config.ui.locale,
+            .fallback_locale = "en",
+        });
+    if (!localization) {
+        SNT_LOG_ERROR("Localization startup failed: %s", localization.error().format().c_str());
         return 1;
     }
 
@@ -34,6 +48,7 @@ int main(int argc, char* argv[]) {
     snt::engine::ClientRuntime runtime;
     auto session = std::make_unique<snt::game::ScienceAndTheologyClientSession>(
         std::move(package->session_config),
+        std::move(*localization),
         snt::game::replication::GameClientAuthentication{
             .local_identity = std::move(*player_identity),
         });

@@ -96,13 +96,29 @@ struct QuestObjectiveDefinition {
     int32_t required_count = 1;
 };
 
+// Reward values remain gameplay content, but their effect is committed only
+// by the authoritative quest reward service after a player explicitly claims
+// a completed quest. `target_id` is an item id for kItem and a quest id for
+// kUnlockQuest; the explicit kind keeps scripts from encoding a mini-language
+// into an opaque string.
+enum class QuestRewardKind : uint8_t {
+    kItem,
+    kUnlockQuest,
+};
+
+struct QuestRewardDefinition {
+    QuestRewardKind kind = QuestRewardKind::kItem;
+    std::string target_id;
+    int32_t count = 1;
+};
+
 struct QuestDefinition {
     std::string id;
     std::string title;
     std::string description;
     std::vector<std::string> prerequisites;
     std::vector<QuestObjectiveDefinition> objectives;
-    std::vector<std::string> rewards;
+    std::vector<QuestRewardDefinition> rewards;
     bool hidden = false;
     bool repeatable = false;
     bool auto_start = false;
@@ -158,6 +174,8 @@ public:
         MachineActivationRequirements requirements);
     snt::core::Expected<void> add_script_quest_objective(
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
+    snt::core::Expected<void> add_script_quest_reward(
+        ScriptId script_id, std::string quest_id, QuestRewardDefinition reward);
 
     const RecipeDefinition* find_recipe(std::string_view id) const;
     const MachineDefinition* find_machine(std::string_view id) const;
@@ -214,6 +232,7 @@ private:
     static snt::core::Expected<void> validate(const MachineDefinition& definition);
     static snt::core::Expected<void> validate(const QuestDefinition& definition);
     static snt::core::Expected<void> validate(const QuestObjectiveDefinition& objective);
+    static snt::core::Expected<void> validate(const QuestRewardDefinition& reward);
     static snt::core::Expected<void> validate(const EventListener& listener);
 
     void erase_script_content(ScriptId script_id);

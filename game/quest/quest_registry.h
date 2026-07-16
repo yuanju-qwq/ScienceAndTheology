@@ -26,7 +26,13 @@ struct QuestProgressEvent {
     int32_t amount = 1;
 };
 
+enum class QuestLifecycleEventKind : uint8_t {
+    kStateChanged,
+    kRewardClaimed,
+};
+
 struct QuestLifecycleEvent {
+    QuestLifecycleEventKind kind = QuestLifecycleEventKind::kStateChanged;
     QuestPlayerId player_id;
     std::string quest_id;
     QuestState previous_state = QuestState::kLocked;
@@ -42,15 +48,23 @@ public:
     virtual void on_quest_lifecycle_event(const QuestLifecycleEvent& event) = 0;
 };
 
-// Declaration-only reward seam. Reward effects may alter inventories, unlock
-// content, or schedule world mutations, so they must be committed by a game
-// service rather than encoded into QuestProgressRecord.
+// QuestRegistry resolves content reward declarations into these value-only
+// inventory additions. The sink owns host inventory transactions and must
+// either commit the complete list or reject it without a partial grant.
+struct QuestItemReward {
+    std::string item_id;
+    int32_t count = 1;
+};
+
+// Reward effects may alter inventories or schedule world mutations, so they
+// are committed by a game service rather than encoded into QuestProgressRecord.
+// QuestRegistry itself handles kUnlockQuest progress-state changes.
 class IQuestRewardSink {
 public:
     virtual ~IQuestRewardSink() = default;
-    virtual snt::core::Expected<void> grant_rewards(
+    virtual snt::core::Expected<void> grant_item_rewards(
         std::string_view player_id, std::string_view quest_id,
-        std::span<const std::string> rewards) = 0;
+        std::span<const QuestItemReward> rewards) = 0;
 };
 
 class QuestRegistry final {
@@ -77,6 +91,20 @@ public:
         QuestPlayerId player_id, const InventoryCountQuery& item_count, uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> reset_repeatable(
         QuestPlayerId player_id, std::string_view quest_id, uint64_t tick_index);
+    // Reward delivery is an explicit host-side transaction. A task-book UI
+    // will invoke this through its dedicated command path; it is deliberately
+    // not folded into QuestAccept or a generic world-interaction payload.
+    [[nodiscard]] snt::core::Expected<void> claim_reward(
+        QuestPlayerId player_id, std::string_view quest_id, uint64_t tick_index);
+
+    // Composition-only lifecycle wiring. Callers must set sinks on the
+    // simulation main thread while no worker task is publishing quest events.
+    void set_lifecycle_sink(IQuestLifecycleSink* lifecycle_sink) noexcept {
+        lifecycle_sink_ = lifecycle_sink;
+    }
+    void set_reward_sink(IQuestRewardSink* reward_sink) noexcept {
+        reward_sink_ = reward_sink;
+    }
 
     [[nodiscard]] const QuestProgressRecord* find_progress(
         std::string_view player_id, std::string_view quest_id) const;
@@ -118,11 +146,14 @@ private:
                                                uint64_t tick_index) const;
     bool transition(std::string_view player_id, QuestProgressRecord& progress,
                     QuestState state, uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> validate_reward_targets(
+        const QuestDefinition& definition) const;
     void mark_progress_changed(std::string_view player_id);
     void log_definition_warnings() const;
 
     const GameContentRegistry* definitions_source_ = nullptr;
     IQuestLifecycleSink* lifecycle_sink_ = nullptr;
+    IQuestRewardSink* reward_sink_ = nullptr;
     DefinitionMap definitions_;
     std::map<QuestPlayerId, PlayerProgressMap, std::less<>> players_;
     std::map<QuestPlayerId, uint64_t, std::less<>> player_progress_revisions_;

@@ -41,8 +41,10 @@ using snt::game::GameContentRegistry;
 using snt::game::PlayerIdentity;
 using snt::game::PlayerIdentityProvider;
 using snt::game::QuestDefinition;
+using snt::game::QuestItemReward;
 using snt::game::QuestObjectiveDefinition;
 using snt::game::QuestObjectiveKind;
+using snt::game::QuestRewardKind;
 using snt::game::QuestRegistry;
 using snt::game::QuestState;
 
@@ -57,6 +59,22 @@ std::vector<std::byte> bytes_from_text(std::string_view text) {
     for (const char value : text) bytes.push_back(static_cast<std::byte>(value));
     return bytes;
 }
+
+class RecordingQuestRewardSink final : public snt::game::IQuestRewardSink {
+public:
+    snt::core::Expected<void> grant_item_rewards(
+        std::string_view player_id, std::string_view quest_id,
+        std::span<const QuestItemReward> rewards) override {
+        player_ids.emplace_back(player_id);
+        quest_ids.emplace_back(quest_id);
+        grants.emplace_back(rewards.begin(), rewards.end());
+        return {};
+    }
+
+    std::vector<std::string> player_ids;
+    std::vector<std::string> quest_ids;
+    std::vector<std::vector<QuestItemReward>> grants;
+};
 
 class RecordingAuthenticator final : public snt::game::replication::IGamePeerAuthenticator {
 public:
@@ -460,8 +478,19 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
     ASSERT_TRUE(parsed_quest_accept) << parsed_quest_accept.error().format();
     EXPECT_EQ(parsed_quest_accept->quest_id, "network.quest.accept");
 
+    auto quest_claim_reward = snt::game::replication::make_game_quest_claim_reward_command(
+        93, {.quest_id = "network.quest.claim"});
+    ASSERT_TRUE(quest_claim_reward) << quest_claim_reward.error().format();
+    EXPECT_EQ(quest_claim_reward->command_type,
+              static_cast<uint16_t>(GameClientCommandType::kQuestClaimReward));
+    auto parsed_quest_claim_reward =
+        snt::game::replication::parse_game_quest_claim_reward_command(*quest_claim_reward);
+    ASSERT_TRUE(parsed_quest_claim_reward) << parsed_quest_claim_reward.error().format();
+    EXPECT_EQ(parsed_quest_claim_reward->quest_id, "network.quest.claim");
+    EXPECT_FALSE(snt::game::replication::parse_game_quest_claim_reward_command(*quest_accept));
+
     const GamePlayerMovementInput movement{
-        .client_sequence = 93,
+        .client_sequence = 94,
         .forward_axis = 1,
         .strafe_axis = -1,
         .flags = snt::game::replication::kGamePlayerMovementFlagSprint,
@@ -482,7 +511,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 5u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 7u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
@@ -866,7 +895,7 @@ TEST(GameReplicationHandlerTest, ReleasesSnapshotSourcePeerStateOnDisconnectAndT
               "player account session was replaced by a newer login");
 }
 
-TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerCommands) {
+TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndClaimRewardAndCancelsDisconnectedPeerCommands) {
     GameContentRegistry content;
     QuestDefinition quest;
     quest.id = "network.quest.accept";
@@ -877,6 +906,11 @@ TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerComm
         .kind = QuestObjectiveKind::kCraftItem,
         .target_id = "iron_ingot",
         .required_count = 1,
+    });
+    quest.rewards.push_back({
+        .kind = QuestRewardKind::kItem,
+        .target_id = "wrought_iron",
+        .count = 2,
     });
     ASSERT_TRUE(content.register_builtin_quest(std::move(quest)));
 
@@ -894,6 +928,8 @@ TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerComm
 
     QuestRegistry quests(content);
     ASSERT_TRUE(quests.refresh_definitions());
+    RecordingQuestRewardSink reward_sink;
+    quests.set_reward_sink(&reward_sink);
     snt::game::replication::GameServerCommandSink sink(quests);
     const snt::network::ReplicationTickContext context{.tick_index = 13, .delta_seconds = 0.05f};
 
@@ -932,6 +968,42 @@ TEST(GameServerCommandSinkTest, AppliesQuestAcceptAndCancelsDisconnectedPeerComm
     EXPECT_EQ(accepted_progress->state, QuestState::kInProgress);
     EXPECT_EQ(quests.find_progress(disconnected_peer.identity.account_id,
                                    "network.quest.canceled"), nullptr);
+
+    ASSERT_TRUE(quests.record_progress(
+        accepting_peer.identity.account_id,
+        {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1},
+        context.tick_index + 1));
+    accepted_progress = quests.find_progress(accepting_peer.identity.account_id,
+                                             "network.quest.accept");
+    ASSERT_NE(accepted_progress, nullptr);
+    ASSERT_EQ(accepted_progress->state, QuestState::kCompleted);
+
+    auto claim = snt::game::replication::make_game_quest_claim_reward_command(
+        5, {.quest_id = "network.quest.accept"});
+    ASSERT_TRUE(claim) << claim.error().format();
+    ASSERT_TRUE(sink.enqueue_client_command(accepting_peer, std::move(*claim), context));
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index + 1));
+    accepted_progress = quests.find_progress(accepting_peer.identity.account_id,
+                                             "network.quest.accept");
+    ASSERT_NE(accepted_progress, nullptr);
+    EXPECT_TRUE(accepted_progress->reward_claimed);
+    ASSERT_EQ(reward_sink.player_ids.size(), 1u);
+    EXPECT_EQ(reward_sink.player_ids.front(), accepting_peer.identity.account_id);
+    ASSERT_EQ(reward_sink.quest_ids.size(), 1u);
+    EXPECT_EQ(reward_sink.quest_ids.front(), "network.quest.accept");
+    ASSERT_EQ(reward_sink.grants.size(), 1u);
+    ASSERT_EQ(reward_sink.grants.front().size(), 1u);
+    EXPECT_EQ(reward_sink.grants.front().front().item_id, "wrought_iron");
+    EXPECT_EQ(reward_sink.grants.front().front().count, 2);
+
+    const uint64_t claimed_revision = quests.progress_revision(accepting_peer.identity.account_id);
+    auto repeated_claim = snt::game::replication::make_game_quest_claim_reward_command(
+        6, {.quest_id = "network.quest.accept"});
+    ASSERT_TRUE(repeated_claim) << repeated_claim.error().format();
+    ASSERT_TRUE(sink.enqueue_client_command(accepting_peer, std::move(*repeated_claim), context));
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index + 2));
+    EXPECT_EQ(quests.progress_revision(accepting_peer.identity.account_id), claimed_revision);
+    EXPECT_EQ(reward_sink.grants.size(), 1u);
 }
 
 TEST(GameServerCommandSinkTest, CoalescesLatestMovementIntentPerPeer) {
@@ -1453,7 +1525,7 @@ TEST(GameClientReplicationSessionTest, RejectsDeltaThatDoesNotMatchAnAcceptedSna
     EXPECT_EQ(transport_view->disconnected.front().first, snt::network::kServerPeerId);
 }
 
-TEST(GameClientReplicationSessionTest, CompletesLocalLoginAndAppliesQuestAcceptOverTcpUdp) {
+TEST(GameClientReplicationSessionTest, CompletesLocalLoginAndAppliesQuestCommandsOverTcpUdp) {
     auto server_transport = snt::network::TcpUdpReplicationTransport::listen({
         .bind_address = "127.0.0.1",
         .tcp_port = 0,
@@ -1545,6 +1617,39 @@ TEST(GameClientReplicationSessionTest, CompletesLocalLoginAndAppliesQuestAcceptO
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     EXPECT_TRUE(quest_accepted) << "Timed out waiting for authoritative quest acceptance";
+
+    ASSERT_TRUE(quests.record_progress(
+        "local-name:NetworkClient",
+        {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1},
+        1001));
+    const auto* completed_progress = quests.find_progress("local-name:NetworkClient", command.quest_id);
+    ASSERT_NE(completed_progress, nullptr);
+    ASSERT_EQ(completed_progress->state, QuestState::kCompleted);
+
+    const snt::game::replication::GameQuestClaimRewardCommand claim_command{
+        .quest_id = command.quest_id,
+    };
+    ASSERT_TRUE((*client_session)->enqueue_quest_claim_reward(12, claim_command));
+
+    bool reward_claimed = false;
+    for (uint64_t tick = 1001; tick <= 1500; ++tick) {
+        const snt::network::ReplicationTickContext context{
+            .tick_index = tick,
+            .delta_seconds = 0.05f,
+        };
+        ASSERT_TRUE((*client_session)->poll_inbound(context));
+        ASSERT_TRUE((*client_session)->emit_outbound(context));
+        ASSERT_TRUE(server_service.poll_inbound(context));
+        ASSERT_TRUE(command_sink.apply_pending_commands(context.tick_index));
+        ASSERT_TRUE(server_service.emit_outbound(context));
+        const auto* progress = quests.find_progress("local-name:NetworkClient", command.quest_id);
+        if (progress != nullptr && progress->reward_claimed) {
+            reward_claimed = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_TRUE(reward_claimed) << "Timed out waiting for authoritative quest reward claim";
 
     (*client_session)->shutdown();
     server_service.shutdown();

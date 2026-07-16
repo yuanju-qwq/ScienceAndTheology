@@ -199,6 +199,77 @@ snt::core::Expected<void> QuestRegistry::reset_repeatable(
     return {};
 }
 
+snt::core::Expected<void> QuestRegistry::claim_reward(
+    QuestPlayerId player_id, std::string_view quest_id, uint64_t tick_index) {
+    if (auto result = validate_player_id(player_id); !result) return result.error();
+    if (quest_id.empty()) return invalid_argument("Quest id must not be empty");
+    if (auto result = synchronize_player(player_id, tick_index); !result) return result.error();
+
+    const auto definition = definitions_.find(quest_id);
+    if (definition == definitions_.end()) return invalid_argument("Quest definition is not registered");
+    if (auto result = validate_reward_targets(definition->second); !result) return result.error();
+
+    auto& player_progress = players_.at(player_id);
+    auto& progress = player_progress.at(std::string(quest_id));
+    if (progress.state != QuestState::kCompleted) {
+        return invalid_state("Only completed quests can claim rewards");
+    }
+    if (progress.reward_claimed) return invalid_state("Quest reward has already been claimed");
+
+    std::vector<QuestItemReward> item_rewards;
+    std::vector<std::string> unlock_quests;
+    item_rewards.reserve(definition->second.rewards.size());
+    unlock_quests.reserve(definition->second.rewards.size());
+    for (const QuestRewardDefinition& reward : definition->second.rewards) {
+        switch (reward.kind) {
+            case QuestRewardKind::kItem:
+                item_rewards.push_back({.item_id = reward.target_id, .count = reward.count});
+                break;
+            case QuestRewardKind::kUnlockQuest:
+                unlock_quests.push_back(reward.target_id);
+                break;
+            default:
+                return invalid_state("Quest definition has an unsupported reward kind");
+        }
+    }
+
+    if (!item_rewards.empty()) {
+        if (reward_sink_ == nullptr) {
+            return invalid_state("Quest reward claim requires an authoritative reward sink");
+        }
+        if (auto result = reward_sink_->grant_item_rewards(
+                player_id, quest_id, item_rewards);
+            !result) {
+            auto error = result.error();
+            error.with_context("QuestRegistry::claim_reward(item rewards)");
+            return error;
+        }
+    }
+
+    bool changed = false;
+    for (const std::string& unlocked_quest_id : unlock_quests) {
+        QuestProgressRecord& unlocked = player_progress.at(unlocked_quest_id);
+        if (unlocked.state == QuestState::kLocked) {
+            changed |= transition(player_id, unlocked, QuestState::kAvailable, tick_index);
+        }
+    }
+    progress.reward_claimed = true;
+    changed = true;
+    if (lifecycle_sink_ != nullptr) {
+        lifecycle_sink_->on_quest_lifecycle_event({
+            .kind = QuestLifecycleEventKind::kRewardClaimed,
+            .player_id = player_id,
+            .quest_id = progress.quest_id,
+            .previous_state = progress.state,
+            .state = progress.state,
+            .tick_index = tick_index,
+        });
+    }
+    changed |= reconcile_player(player_id, player_progress, tick_index);
+    if (changed) mark_progress_changed(player_id);
+    return {};
+}
+
 const QuestProgressRecord* QuestRegistry::find_progress(std::string_view player_id,
                                                          std::string_view quest_id) const {
     const auto player = players_.find(std::string(player_id));
@@ -408,6 +479,7 @@ bool QuestRegistry::transition(std::string_view player_id, QuestProgressRecord& 
                  state_name(previous), state_name(state));
     if (lifecycle_sink_) {
         lifecycle_sink_->on_quest_lifecycle_event({
+            .kind = QuestLifecycleEventKind::kStateChanged,
             .player_id = std::string(player_id),
             .quest_id = progress.quest_id,
             .previous_state = previous,
@@ -416,6 +488,17 @@ bool QuestRegistry::transition(std::string_view player_id, QuestProgressRecord& 
         });
     }
     return true;
+}
+
+snt::core::Expected<void> QuestRegistry::validate_reward_targets(
+    const QuestDefinition& definition) const {
+    for (const QuestRewardDefinition& reward : definition.rewards) {
+        if (reward.kind != QuestRewardKind::kUnlockQuest) continue;
+        if (reward.target_id == definition.id || !definitions_.contains(reward.target_id)) {
+            return invalid_state("Quest unlock reward references an unavailable quest definition");
+        }
+    }
+    return {};
 }
 
 void QuestRegistry::mark_progress_changed(std::string_view player_id) {

@@ -7,6 +7,7 @@
 #include <bit>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
@@ -158,6 +159,23 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         return protocol_error("Game replication chunk dimension id is invalid");
     }
     return {};
+}
+
+[[nodiscard]] bool has_embedded_nul(std::string_view value) noexcept {
+    return value.find('\0') != std::string_view::npos;
+}
+
+[[nodiscard]] bool is_known_block_interaction_action(
+    GameBlockInteractionAction action) noexcept {
+    switch (action) {
+        case GameBlockInteractionAction::kMine:
+        case GameBlockInteractionAction::kPlace:
+        case GameBlockInteractionAction::kUse:
+        case GameBlockInteractionAction::kActivateMachine:
+        case GameBlockInteractionAction::kCollectMachineOutput:
+            return true;
+    }
+    return false;
 }
 
 [[nodiscard]] snt::core::Expected<void> append_chunk_key(
@@ -643,6 +661,143 @@ snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
     if (!quest_id) return quest_id.error();
     if (offset != bytes.size()) return protocol_error("Quest accept command has trailing bytes");
     return GameQuestAcceptCommand{.quest_id = std::move(*quest_id)};
+}
+
+snt::core::Expected<GameClientCommand> make_game_quest_claim_reward_command(
+    uint64_t client_sequence, const GameQuestClaimRewardCommand& command) {
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kQuestClaimReward);
+    if (auto result = append_short_string(encoded.payload, command.quest_id,
+                                          kMaxGameQuestIdBytes, "quest reward claim id", true);
+        !result) {
+        return result.error();
+    }
+    return encoded;
+}
+
+snt::core::Expected<GameQuestClaimRewardCommand> parse_game_quest_claim_reward_command(
+    const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kQuestClaimReward)) {
+        return protocol_error("Game client command type is not QuestClaimReward");
+    }
+
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    size_t offset = 0;
+    auto quest_id = read_short_string(bytes, offset, kMaxGameQuestIdBytes,
+                                      "quest reward claim id", true);
+    if (!quest_id) return quest_id.error();
+    if (offset != bytes.size()) return protocol_error("Quest reward claim command has trailing bytes");
+    return GameQuestClaimRewardCommand{.quest_id = std::move(*quest_id)};
+}
+
+snt::core::Expected<void> validate_game_block_interaction_command(
+    const GameBlockInteractionCommand& command) {
+    if (!is_known_block_interaction_action(command.action)) {
+        return protocol_error("Game block interaction action is invalid");
+    }
+    if (command.dimension_id.empty() ||
+        command.dimension_id.size() > kMaxGameDimensionIdBytes ||
+        has_embedded_nul(command.dimension_id)) {
+        return protocol_error("Game block interaction dimension id is invalid");
+    }
+    if (command.expected_material > kGameNoExpectedTerrainMaterial) {
+        return protocol_error("Game block interaction expected material is invalid");
+    }
+    if (command.selected_item_id.size() > kMaxGameItemIdBytes ||
+        has_embedded_nul(command.selected_item_id)) {
+        return protocol_error("Game block interaction selected item id is invalid");
+    }
+    if ((command.client_hints & ~kGameBlockInteractionKnownHints) != 0) {
+        return protocol_error("Game block interaction hints are invalid");
+    }
+    if (command.action == GameBlockInteractionAction::kPlace &&
+        command.selected_item_id.empty()) {
+        return protocol_error("Game block placement requires a selected item id");
+    }
+    if (command.action != GameBlockInteractionAction::kActivateMachine &&
+        command.client_hints != 0) {
+        return protocol_error("Game block interaction hints are only valid for machine activation");
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_block_interaction_command(
+    uint64_t client_sequence, const GameBlockInteractionCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game block interaction command sequence must be non-zero");
+    }
+    if (auto result = validate_game_block_interaction_command(command); !result) {
+        return result.error();
+    }
+
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kBlockInteraction);
+    encoded.payload.reserve(2 + sizeof(uint16_t) + sizeof(uint32_t) * 3 +
+                            command.dimension_id.size() + command.selected_item_id.size() + 4);
+    encoded.payload.push_back(static_cast<std::byte>(command.action));
+    encoded.payload.push_back(static_cast<std::byte>(command.client_hints));
+    append_u16(encoded.payload, command.expected_material);
+    if (auto result = append_short_string(encoded.payload, command.dimension_id,
+                                          kMaxGameDimensionIdBytes,
+                                          "block interaction dimension id", true);
+        !result) {
+        return result.error();
+    }
+    append_i32(encoded.payload, command.block_x);
+    append_i32(encoded.payload, command.block_y);
+    append_i32(encoded.payload, command.block_z);
+    if (auto result = append_short_string(encoded.payload, command.selected_item_id,
+                                          kMaxGameItemIdBytes,
+                                          "block interaction selected item id", false);
+        !result) {
+        return result.error();
+    }
+    return encoded;
+}
+
+snt::core::Expected<GameBlockInteractionCommand> parse_game_block_interaction_command(
+    const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kBlockInteraction)) {
+        return protocol_error("Game client command type is not BlockInteraction");
+    }
+
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    constexpr size_t kPrefixBytes = sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t);
+    constexpr size_t kCoordinatesBytes = sizeof(uint32_t) * 3;
+    if (bytes.size() < kPrefixBytes) {
+        return protocol_error("Game block interaction command is incomplete");
+    }
+    size_t offset = 0;
+    GameBlockInteractionCommand decoded;
+    decoded.action = static_cast<GameBlockInteractionAction>(
+        std::to_integer<uint8_t>(bytes[offset++]));
+    decoded.client_hints = std::to_integer<uint8_t>(bytes[offset++]);
+    decoded.expected_material = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    auto dimension = read_short_string(bytes, offset, kMaxGameDimensionIdBytes,
+                                       "block interaction dimension id", true);
+    if (!dimension) return dimension.error();
+    if (bytes.size() - offset < kCoordinatesBytes) {
+        return protocol_error("Game block interaction coordinates are truncated");
+    }
+    decoded.dimension_id = std::move(*dimension);
+    decoded.block_x = read_i32(bytes, offset);
+    decoded.block_y = read_i32(bytes, offset + sizeof(uint32_t));
+    decoded.block_z = read_i32(bytes, offset + sizeof(uint32_t) * 2);
+    offset += kCoordinatesBytes;
+    auto selected_item = read_short_string(bytes, offset, kMaxGameItemIdBytes,
+                                           "block interaction selected item id", false);
+    if (!selected_item) return selected_item.error();
+    decoded.selected_item_id = std::move(*selected_item);
+    if (offset != bytes.size()) {
+        return protocol_error("Game block interaction command has trailing bytes");
+    }
+    if (auto result = validate_game_block_interaction_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
 }
 
 snt::core::Expected<GameReplicationMessage> make_game_snapshot(

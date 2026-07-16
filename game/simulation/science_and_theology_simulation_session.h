@@ -36,6 +36,8 @@ class World;
 namespace snt::game {
 
 class GameWorldPersistenceLifecycle;
+class IMachineTickEventSink;
+class MachineTickSystem;
 
 class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession {
 public:
@@ -52,6 +54,13 @@ public:
     MachineInteractionService& machine_interactions() noexcept {
         return machine_interactions_;
     }
+    // Server composition installs host-only consumers before world creation.
+    // Runtime calls are main-thread lifecycle operations; the session updates
+    // an already registered machine system only when no worker task is live.
+    void set_machine_tick_event_sink(IMachineTickEventSink* event_sink) noexcept;
+    void set_quest_reward_sink(IQuestRewardSink* reward_sink) noexcept {
+        quest_registry_.set_reward_sink(reward_sink);
+    }
     // Server-owned world services may bind durable block-sidecar state here;
     // caller remains on the simulation main thread and must not retain it
     // past this session's shutdown.
@@ -66,6 +75,8 @@ private:
     MachineInteractionService machine_interactions_;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
+    std::shared_ptr<MachineTickSystem> machine_tick_system_;
+    IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;
     snt::voxel::ChunkRegistry* chunks_ = nullptr;
     bool world_ready_ = false;

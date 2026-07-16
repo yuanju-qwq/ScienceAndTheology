@@ -426,6 +426,20 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_quest_accept(
     return enqueue_command(std::move(*encoded));
 }
 
+snt::core::Expected<void> GameClientReplicationSession::enqueue_quest_claim_reward(
+    uint64_t client_sequence, GameQuestClaimRewardCommand command) {
+    auto encoded = make_game_quest_claim_reward_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
+snt::core::Expected<void> GameClientReplicationSession::enqueue_block_interaction(
+    uint64_t client_sequence, GameBlockInteractionCommand command) {
+    auto encoded = make_game_block_interaction_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
 snt::core::Expected<void> GameClientReplicationSession::enqueue_player_movement_input(
     GamePlayerMovementInput input) {
     if (!impl_ || !impl_->handler) {

@@ -19,6 +19,10 @@
 #include <utility>
 #include <vector>
 
+namespace snt::game::localization {
+class LocalizationService;
+}
+
 namespace snt::game {
 
 struct ItemStackState {
@@ -164,13 +168,16 @@ private:
 };
 
 std::unique_ptr<snt::ui::ViewGroup> build_hotbar_view(const HotbarViewModel& model);
-std::unique_ptr<snt::ui::ViewGroup> build_inventory_view(const InventoryViewModel& model);
-std::unique_ptr<snt::ui::ViewGroup> build_crafting_view(const CraftingViewModel& model);
+std::unique_ptr<snt::ui::ViewGroup> build_inventory_view(
+    const InventoryViewModel& model, const localization::LocalizationService& localization);
+std::unique_ptr<snt::ui::ViewGroup> build_crafting_view(
+    CraftingViewModel& model, const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_performance_panel_view(
-    const PerformanceViewModel& model);
+    const PerformanceViewModel& model, const localization::LocalizationService& localization);
 
 std::unique_ptr<snt::ui::ViewGroup> build_gameplay_ui_root(GameplayUiController& controller,
-                                                            snt::ui::Vec2 viewport);
+                                                            snt::ui::Vec2 viewport,
+                                                            const localization::LocalizationService& localization);
 
 std::vector<CraftingRecipeState> make_starting_crafting_recipes();
 InventoryState make_starting_inventory();

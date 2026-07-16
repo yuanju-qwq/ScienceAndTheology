@@ -20,12 +20,14 @@
 namespace snt::game::replication {
 
 class IGameServerPlayerMovementInputSink;
+class IGameServerPlayerInteractionService;
 
 class GameServerCommandSink final : public IGameReplicationCommandSink {
 public:
     explicit GameServerCommandSink(
         QuestRegistry& quests,
-        IGameServerPlayerMovementInputSink* player_movement = nullptr);
+        IGameServerPlayerMovementInputSink* player_movement = nullptr,
+        IGameServerPlayerInteractionService* player_interactions = nullptr);
 
     GameServerCommandSink(const GameServerCommandSink&) = delete;
     GameServerCommandSink& operator=(const GameServerCommandSink&) = delete;
@@ -59,11 +61,13 @@ private:
         bool has_sequence = false;
     };
 
-    struct PendingQuestAccept {
-        std::string account_id;
-        snt::network::PeerId peer = snt::network::kInvalidPeerId;
+    struct PendingCommand {
+        GameAuthenticatedPeer peer;
         uint64_t client_sequence = 0;
-        std::string quest_id;
+        GameClientCommandType type = GameClientCommandType::kQuestAccept;
+        GameQuestAcceptCommand quest_accept;
+        GameQuestClaimRewardCommand quest_claim_reward;
+        GameBlockInteractionCommand block_interaction;
     };
 
     struct PendingMovementInput {
@@ -74,13 +78,14 @@ private:
 
     [[nodiscard]] snt::core::Expected<void> validate_and_advance_sequence(
         const GameAuthenticatedPeer& peer, uint64_t client_sequence);
-    void record_gameplay_rejection(uint64_t tick_index, const PendingQuestAccept& command,
+    void record_gameplay_rejection(uint64_t tick_index, const PendingCommand& command,
                                    const snt::core::Error& error) noexcept;
 
     QuestRegistry* quests_ = nullptr;
     IGameServerPlayerMovementInputSink* player_movement_ = nullptr;
+    IGameServerPlayerInteractionService* player_interactions_ = nullptr;
     std::map<snt::network::PeerId, PeerSequenceState> sequences_;
-    std::vector<PendingQuestAccept> pending_;
+    std::vector<PendingCommand> pending_;
     std::map<snt::network::PeerId, PendingMovementInput> pending_movement_;
     uint64_t last_rejection_log_tick_ = 0;
     uint32_t suppressed_rejections_ = 0;

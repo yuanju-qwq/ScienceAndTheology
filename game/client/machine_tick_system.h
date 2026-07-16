@@ -84,6 +84,10 @@ struct MachineRuntimeComponent {
     // tools, cover, and ignition. The worker consumes it once when it
     // reserves a matching recipe's inputs.
     bool activation_requested = false;
+    // A manual machine job is credited to the authenticated account that
+    // queued it. The value persists while the request or active recipe exists
+    // so a restart cannot silently lose a completed craft quest event.
+    std::string job_owner_account_id;
     MachineRunState state = MachineRunState::Idle;
 };
 
@@ -94,9 +98,12 @@ enum class MachineTickEventKind : uint8_t {
 
 struct MachineTickEvent {
     MachineTickEventKind kind = MachineTickEventKind::StateChanged;
+    uint64_t tick_index = 0;
     snt::ecs::EntityGuid entity_guid;
     std::string machine_id;
     std::string recipe_id;
+    std::string account_id;
+    std::vector<MachineItemStack> outputs;
     MachineRunState previous_state = MachineRunState::Idle;
     MachineRunState state = MachineRunState::Idle;
 };
@@ -111,6 +118,14 @@ class MachineTickSystem final : public snt::ecs::IWorkerSystem {
 public:
     explicit MachineTickSystem(GameContentRegistry& content_registry,
                                IMachineTickEventSink* event_sink = nullptr);
+
+    // Set only on the simulation main thread before capture(). The value is
+    // copied into barrier-published events so consumers never infer a tick
+    // from wall-clock time or worker scheduling order.
+    void set_tick_index(uint64_t tick_index) noexcept { tick_index_ = tick_index; }
+    void set_event_sink(IMachineTickEventSink* event_sink) noexcept {
+        event_sink_ = event_sink;
+    }
 
     snt::ecs::SystemMetadata metadata() const override {
         return {
@@ -130,6 +145,7 @@ public:
 private:
     GameContentRegistry& content_registry_;
     IMachineTickEventSink* event_sink_ = nullptr;
+    uint64_t tick_index_ = 0;
 };
 
 }  // namespace snt::game

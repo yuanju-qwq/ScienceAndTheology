@@ -4,6 +4,7 @@
 #include "game/server/game_server_command_sink.h"
 
 #include "game/server/game_server_player_movement.h"
+#include "game/server/game_server_player_interaction.h"
 
 #include "core/error.h"
 #include "core/log.h"
@@ -29,8 +30,10 @@ constexpr uint64_t kRejectionLogIntervalTicks = 20;
 }  // namespace
 
 GameServerCommandSink::GameServerCommandSink(
-    QuestRegistry& quests, IGameServerPlayerMovementInputSink* player_movement)
-    : quests_(&quests), player_movement_(player_movement) {}
+    QuestRegistry& quests, IGameServerPlayerMovementInputSink* player_movement,
+    IGameServerPlayerInteractionService* player_interactions)
+    : quests_(&quests), player_movement_(player_movement),
+      player_interactions_(player_interactions) {}
 
 snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
     const GameAuthenticatedPeer& peer, GameClientCommand command,
@@ -47,7 +50,10 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
                                 "Authoritative game command queue limit exceeded"};
     }
 
-    GameQuestAcceptCommand accept;
+    PendingCommand pending{
+        .peer = peer,
+        .client_sequence = command.client_sequence,
+    };
     switch (static_cast<GameClientCommandType>(command.command_type)) {
         case GameClientCommandType::kQuestAccept: {
             auto parsed = parse_game_quest_accept_command(command);
@@ -56,7 +62,37 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
                 error.with_context("GameServerCommandSink::enqueue_client_command(QuestAccept)");
                 return error;
             }
-            accept = std::move(*parsed);
+            pending.type = GameClientCommandType::kQuestAccept;
+            pending.quest_accept = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kQuestClaimReward: {
+            auto parsed = parse_game_quest_claim_reward_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(QuestClaimReward)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kQuestClaimReward;
+            pending.quest_claim_reward = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kBlockInteraction: {
+            if (player_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no host player interaction service"};
+            }
+            auto parsed = parse_game_block_interaction_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(BlockInteraction)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kBlockInteraction;
+            pending.block_interaction = std::move(*parsed);
             break;
         }
         default:
@@ -66,12 +102,7 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
     if (auto result = validate_and_advance_sequence(peer, command.client_sequence); !result) {
         return result.error();
     }
-    pending_.push_back({
-        .account_id = peer.identity.account_id,
-        .peer = peer.peer,
-        .client_sequence = command.client_sequence,
-        .quest_id = std::move(accept.quest_id),
-    });
+    pending_.push_back(std::move(pending));
     return {};
 }
 
@@ -113,8 +144,8 @@ void GameServerCommandSink::on_peer_disconnected(const GameAuthenticatedPeer& pe
                                                   std::string_view) noexcept {
     if (peer.peer == snt::network::kInvalidPeerId) return;
     sequences_.erase(peer.peer);
-    std::erase_if(pending_, [&peer](const PendingQuestAccept& command) {
-        return command.peer == peer.peer;
+    std::erase_if(pending_, [&peer](const PendingCommand& command) {
+        return command.peer.peer == peer.peer;
     });
     pending_movement_.erase(peer.peer);
     if (player_movement_ != nullptr) player_movement_->on_peer_disconnected(peer, "peer disconnected");
@@ -123,16 +154,45 @@ void GameServerCommandSink::on_peer_disconnected(const GameAuthenticatedPeer& pe
 snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t tick_index) {
     if (quests_ == nullptr) return invalid_state("Game server command sink has no QuestRegistry");
 
-    std::sort(pending_.begin(), pending_.end(), [](const PendingQuestAccept& lhs,
-                                                    const PendingQuestAccept& rhs) {
-        if (lhs.account_id != rhs.account_id) return lhs.account_id < rhs.account_id;
-        if (lhs.peer != rhs.peer) return lhs.peer < rhs.peer;
+    std::sort(pending_.begin(), pending_.end(), [](const PendingCommand& lhs,
+                                                    const PendingCommand& rhs) {
+        if (lhs.peer.identity.account_id != rhs.peer.identity.account_id) {
+            return lhs.peer.identity.account_id < rhs.peer.identity.account_id;
+        }
+        if (lhs.peer.peer != rhs.peer.peer) return lhs.peer.peer < rhs.peer.peer;
         return lhs.client_sequence < rhs.client_sequence;
     });
 
-    for (const PendingQuestAccept& command : pending_) {
-        if (auto result = quests_->accept(command.account_id, command.quest_id, tick_index); !result) {
-            record_gameplay_rejection(tick_index, command, result.error());
+    for (const PendingCommand& command : pending_) {
+        switch (command.type) {
+            case GameClientCommandType::kQuestAccept:
+                if (auto result = quests_->accept(command.peer.identity.account_id,
+                                                   command.quest_accept.quest_id, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
+            case GameClientCommandType::kQuestClaimReward:
+                if (auto result = quests_->claim_reward(
+                        command.peer.identity.account_id,
+                        command.quest_claim_reward.quest_id, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
+            case GameClientCommandType::kBlockInteraction:
+                if (player_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its player interaction service"));
+                    break;
+                }
+                if (auto result = player_interactions_->apply_block_interaction(
+                        command.peer, command.block_interaction, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
         }
     }
     pending_.clear();
@@ -183,16 +243,30 @@ snt::core::Expected<void> GameServerCommandSink::validate_and_advance_sequence(
 }
 
 void GameServerCommandSink::record_gameplay_rejection(
-    uint64_t tick_index, const PendingQuestAccept& command,
+    uint64_t tick_index, const PendingCommand& command,
     const snt::core::Error& error) noexcept {
     ++suppressed_rejections_;
     if (has_rejection_log_tick_ && tick_index - last_rejection_log_tick_ < kRejectionLogIntervalTicks) {
         return;
     }
 
-    SNT_LOG_WARN("Rejected %u authoritative game command(s); latest peer=%llu player='%s' quest='%s': %s",
-                 suppressed_rejections_, static_cast<unsigned long long>(command.peer),
-                 command.account_id.c_str(), command.quest_id.c_str(), error.format().c_str());
+    const char* command_name = "unknown";
+    switch (command.type) {
+        case GameClientCommandType::kQuestAccept:
+            command_name = "quest_accept";
+            break;
+        case GameClientCommandType::kQuestClaimReward:
+            command_name = "quest_claim_reward";
+            break;
+        case GameClientCommandType::kBlockInteraction:
+            command_name = "block_interaction";
+            break;
+    }
+    SNT_LOG_WARN("Rejected %u host game command(s); latest peer=%llu player='%s' command=%s: %s",
+                 suppressed_rejections_,
+                 static_cast<unsigned long long>(command.peer.peer),
+                 command.peer.identity.account_id.c_str(), command_name,
+                 error.format().c_str());
     suppressed_rejections_ = 0;
     last_rejection_log_tick_ = tick_index;
     has_rejection_log_tick_ = true;

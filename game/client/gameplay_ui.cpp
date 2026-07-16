@@ -4,6 +4,7 @@
 #include "gameplay_ui.h"
 
 #include "core/log.h"
+#include "game/localization/localization.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -53,18 +54,16 @@ std::unique_ptr<SlotView> slot_view(std::string id, const ItemStackState& stack,
 
 void add_slots_grid(LinearLayout& root, const InventoryState& inventory, int32_t columns) {
     const int32_t safe_columns = std::max(1, columns);
-    for (int32_t i = 0; i < static_cast<int32_t>(inventory.slots.size()); i += safe_columns) {
-        auto row = std::make_unique<LinearLayout>("inventory_row_" + std::to_string(i / safe_columns));
-        row->set_orientation(Orientation::Horizontal);
-        row->set_spacing(kSlotGap);
-        for (int32_t col = 0; col < safe_columns && i + col < static_cast<int32_t>(inventory.slots.size()); ++col) {
-            const int32_t index = i + col;
-            row->add_child(slot_view("inventory_slot_" + std::to_string(index),
-                                     inventory.slots[index],
-                                     index == inventory.selected_hotbar));
-        }
-        root.add_child(std::move(row));
+    auto grid = std::make_unique<GridLayout>("inventory_grid");
+    grid->set_columns(safe_columns);
+    grid->set_column_spacing(kSlotGap);
+    grid->set_row_spacing(kSlotGap);
+    for (int32_t index = 0; index < static_cast<int32_t>(inventory.slots.size()); ++index) {
+        grid->add_child(slot_view("inventory_slot_" + std::to_string(index),
+                                  inventory.slots[index],
+                                  index == inventory.selected_hotbar));
     }
+    root.add_child(std::move(grid));
 }
 
 }  // namespace
@@ -172,11 +171,6 @@ CraftingViewModel::CraftingViewModel(InventoryViewModel& inventory,
     : inventory_(inventory),
       recipes_(std::move(recipes)) {
     bindings_.set("crafting.recipe_count", static_cast<int64_t>(recipes_.size()));
-    bindings_.set_command("craft", [this](const BindingValue& payload) {
-        if (const auto* recipe_id = std::get_if<std::string>(&payload)) {
-            craft(*recipe_id);
-        }
-    });
 }
 
 bool CraftingViewModel::can_craft(const CraftingRecipeState& recipe) const {
@@ -254,7 +248,8 @@ std::unique_ptr<ViewGroup> build_hotbar_view(const HotbarViewModel& model) {
     return root;
 }
 
-std::unique_ptr<ViewGroup> build_inventory_view(const InventoryViewModel& model) {
+std::unique_ptr<ViewGroup> build_inventory_view(
+    const InventoryViewModel& model, const localization::LocalizationService& localization) {
     auto panel = std::make_unique<LinearLayout>("inventory_panel");
     panel->set_orientation(Orientation::Vertical);
     panel->set_spacing(8.0f);
@@ -262,7 +257,7 @@ std::unique_ptr<ViewGroup> build_inventory_view(const InventoryViewModel& model)
     panel->set_background({13, 15, 21, 235}, 6.0f);
     panel->set_layout_params(fixed(430.0f, 250.0f));
 
-    auto title = label("inventory_title", "背包 Inventory 🎒", 18.0f);
+    auto title = label("inventory_title", localization.translate("ui.inventory.title"), 18.0f);
     title->set_layout_params(fixed(300.0f, 28.0f));
     panel->add_child(std::move(title));
 
@@ -270,7 +265,8 @@ std::unique_ptr<ViewGroup> build_inventory_view(const InventoryViewModel& model)
     return panel;
 }
 
-std::unique_ptr<ViewGroup> build_crafting_view(const CraftingViewModel& model) {
+std::unique_ptr<ViewGroup> build_crafting_view(
+    CraftingViewModel& model, const localization::LocalizationService& localization) {
     auto panel = std::make_unique<LinearLayout>("crafting_panel");
     panel->set_orientation(Orientation::Vertical);
     panel->set_spacing(8.0f);
@@ -278,7 +274,7 @@ std::unique_ptr<ViewGroup> build_crafting_view(const CraftingViewModel& model) {
     panel->set_background({14, 16, 22, 238}, 6.0f);
     panel->set_layout_params(fixed(520.0f, 310.0f));
 
-    auto title = label("crafting_title", "合成 Crafting ⚒", 18.0f);
+    auto title = label("crafting_title", localization.translate("ui.crafting.title"), 18.0f);
     title->set_layout_params(fixed(320.0f, 28.0f));
     panel->add_child(std::move(title));
 
@@ -290,15 +286,30 @@ std::unique_ptr<ViewGroup> build_crafting_view(const CraftingViewModel& model) {
 
         row->add_child(slot_view("recipe_output_" + recipe.id, recipe.output, false));
 
-        std::string text = recipe.output.item_key + " x" + std::to_string(recipe.output.count);
-        text += model.can_craft(recipe) ? "  可合成 ✅" : "  材料不足 ❌";
+        const std::string output_name = localization.translate(recipe.output.item_key);
+        const std::string output_count = std::to_string(recipe.output.count);
+        const std::string availability = localization.translate(
+            model.can_craft(recipe) ? "ui.crafting.ready" : "ui.crafting.insufficient");
+        const std::string text = localization.format(
+            "ui.crafting.recipe",
+            {{"item", output_name}, {"count", output_count}, {"availability", availability}});
         auto name = label("recipe_label_" + recipe.id, text, 14.0f);
         name->set_layout_params(fixed(280.0f, 36.0f));
         row->add_child(std::move(name));
 
         auto craft = std::make_unique<Button>("recipe_button_" + recipe.id);
-        craft->set_text("合成");
-        craft->set_command("craft");
+        craft->set_text(localization.translate("ui.crafting.craft"));
+        const std::string recipe_id = recipe.id;
+        craft->set_on_activate([&model, recipe_id] {
+            const CraftedItemResult result = model.craft(recipe_id);
+            if (!result.ok) {
+                SNT_LOG_WARN("Craft UI rejected recipe '%s': %s",
+                             recipe_id.c_str(), result.reason.c_str());
+                return;
+            }
+            SNT_LOG_INFO("Craft UI completed recipe '%s' -> %s x%d",
+                         recipe_id.c_str(), result.output.item_key.c_str(), result.output.count);
+        });
         craft->set_layout_params(fixed(72.0f, 32.0f));
         row->add_child(std::move(craft));
 
@@ -308,7 +319,8 @@ std::unique_ptr<ViewGroup> build_crafting_view(const CraftingViewModel& model) {
     return panel;
 }
 
-std::unique_ptr<ViewGroup> build_performance_panel_view(const PerformanceViewModel& model) {
+std::unique_ptr<ViewGroup> build_performance_panel_view(
+    const PerformanceViewModel& model, const localization::LocalizationService& localization) {
     auto panel = std::make_unique<LinearLayout>("performance_panel");
     panel->set_orientation(Orientation::Vertical);
     panel->set_spacing(3.0f);
@@ -320,26 +332,29 @@ std::unique_ptr<ViewGroup> build_performance_panel_view(const PerformanceViewMod
 
     const auto& s = model.stats();
 
-    auto title = label("performance_title", "性能 Performance", 14.0f);
+    auto title = label("performance_title", localization.translate("ui.performance.title"), 14.0f);
     title->set_layout_params(fixed(210.0f, 20.0f));
     panel->add_child(std::move(title));
 
-    auto fps = label("performance_fps",
-                     "FPS  " + format_float("%.1f", s.fps) +
-                         "   Frame " + format_float("%.2f ms", s.frame_ms),
+    const std::string fps_value = format_float("%.1f", s.fps);
+    const std::string frame_ms_value = format_float("%.2f", s.frame_ms);
+    auto fps = label("performance_fps", localization.format(
+                         "ui.performance.fps", {{"fps", fps_value}, {"frame_ms", frame_ms_value}}),
                      12.0f);
     fps->set_layout_params(fixed(210.0f, 18.0f));
     panel->add_child(std::move(fps));
 
-    auto tps = label("performance_tps",
-                     "TPS  " + format_float("%.1f", s.tps) +
-                         "   MSPT " + format_float("%.2f", s.mspt),
+    const std::string tps_value = format_float("%.1f", s.tps);
+    const std::string mspt_value = format_float("%.2f", s.mspt);
+    auto tps = label("performance_tps", localization.format(
+                         "ui.performance.tps", {{"tps", tps_value}, {"mspt", mspt_value}}),
                      12.0f);
     tps->set_layout_params(fixed(210.0f, 18.0f));
     panel->add_child(std::move(tps));
 
-    auto jobs = label("performance_jobs",
-                      "Job Workers  " + std::to_string(s.job_workers),
+    const std::string worker_count = std::to_string(s.job_workers);
+    auto jobs = label("performance_jobs", localization.format(
+                          "ui.performance.workers", {{"workers", worker_count}}),
                       12.0f);
     jobs->set_layout_params(fixed(210.0f, 18.0f));
     panel->add_child(std::move(jobs));
@@ -359,7 +374,8 @@ std::unique_ptr<ViewGroup> build_performance_panel_view(const PerformanceViewMod
 }
 
 std::unique_ptr<ViewGroup> build_gameplay_ui_root(GameplayUiController& controller,
-                                                  Vec2 viewport) {
+                                                  Vec2 viewport,
+                                                  const localization::LocalizationService& localization) {
     auto root = std::make_unique<FrameLayout>("gameplay_ui_root");
     root->set_layout_params(fixed(viewport.x, viewport.y));
 
@@ -371,12 +387,12 @@ std::unique_ptr<ViewGroup> build_gameplay_ui_root(GameplayUiController& controll
     root->add_child(std::move(hotbar));
 
     if (controller.inventory_open()) {
-        auto inventory = build_inventory_view(controller.inventory());
+        auto inventory = build_inventory_view(controller.inventory(), localization);
         inventory->layout_params().margin.left = (viewport.x - inventory->layout_params().width) * 0.5f;
         inventory->layout_params().margin.top = (viewport.y - inventory->layout_params().height) * 0.5f;
         root->add_child(std::move(inventory));
     } else if (controller.crafting_open()) {
-        auto crafting = build_crafting_view(controller.crafting());
+        auto crafting = build_crafting_view(controller.crafting(), localization);
         crafting->layout_params().margin.left = (viewport.x - crafting->layout_params().width) * 0.5f;
         crafting->layout_params().margin.top = (viewport.y - crafting->layout_params().height) * 0.5f;
         root->add_child(std::move(crafting));

@@ -1,0 +1,20 @@
+{
+  "locale": "en",
+  "messages": {
+    "ui.inventory.title": "Inventory",
+    "ui.crafting.title": "Crafting",
+    "ui.crafting.recipe": "{item} x{count}  {availability}",
+    "ui.crafting.ready": "Craftable",
+    "ui.crafting.insufficient": "Missing materials",
+    "ui.crafting.craft": "Craft",
+    "ui.performance.title": "Performance",
+    "ui.performance.fps": "FPS  {fps}   Frame {frame_ms} ms",
+    "ui.performance.tps": "TPS  {tps}   MSPT {mspt}",
+    "ui.performance.workers": "Job Workers  {workers}",
+    "plank.oak": "Oak Plank",
+    "material.coal": "Coal",
+    "stick": "Stick",
+    "workbench": "Workbench",
+    "torch": "Torch"
+  }
+}

@@ -6,8 +6,10 @@
 #include "game/network/game_account_peer_authenticator.h"
 #include "game/server/game_server_command_sink.h"
 #include "game/server/game_server_player_death.h"
+#include "game/server/game_server_player_interaction.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_movement.h"
+#include "game/server/game_server_quest_events.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
 #include "network/replication.h"
@@ -39,7 +41,16 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::register_content(
 
 snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     snt::engine::SimulationWorldSession& world) {
+    if (config_.server_network.enabled) {
+        quest_events_ = std::make_unique<replication::GameServerQuestEventService>(
+            simulation_session_.quests());
+        simulation_session_.set_machine_tick_event_sink(quest_events_.get());
+        simulation_session_.set_quest_reward_sink(quest_events_.get());
+    }
     if (auto result = simulation_session_.create_world(world); !result) {
+        simulation_session_.set_machine_tick_event_sink(nullptr);
+        simulation_session_.set_quest_reward_sink(nullptr);
+        quest_events_.reset();
         auto error = result.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(simulation)");
         return error;
@@ -114,8 +125,6 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_movement_ = std::move(*player_movement);
-    command_sink_ = std::make_unique<replication::GameServerCommandSink>(
-        simulation_session_.quests(), player_movement_.get());
     auto player_replication = replication::GameServerPlayerReplication::create(
         *player_state_,
         {
@@ -135,6 +144,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         simulation_session_.quests(), *player_state_,
         services_->paths().resolve_user(config_.persistence.universe_save_dir),
         config_.persistence.player_progress_autosave_interval_ticks);
+    quest_events_->bind_player_state(*player_state_, player_lifecycle_.get());
     auto player_beds = replication::GameServerPlayerBedService::create(
         *player_state_, world.chunks(), simulation_session_.world_sidecars(),
         player_lifecycle_.get());
@@ -186,6 +196,22 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_death_ = std::move(*player_death);
+    auto player_interactions = replication::GameServerPlayerInteractionService::create(
+        world.world(), world.chunks(), simulation_session_.world_sidecars(), *player_state_,
+        *player_beds_, simulation_session_.machine_interactions(), player_lifecycle_.get(),
+        quest_events_.get(),
+        {
+            .air_material_id = 0,
+            .reserved_grave_material_id = config_.server_player.grave_material_id,
+        });
+    if (!player_interactions) {
+        auto error = player_interactions.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(player interactions)");
+        return error;
+    }
+    player_interactions_ = std::move(*player_interactions);
+    command_sink_ = std::make_unique<replication::GameServerCommandSink>(
+        simulation_session_.quests(), player_movement_.get(), player_interactions_.get());
     const replication::GameReplicationBudget replication_budget{
         .max_reliable_bytes_per_tick = config_.server_replication.max_reliable_bytes_per_tick,
         .max_chunk_snapshots_per_tick = config_.server_replication.max_chunk_snapshots_per_tick,
@@ -217,6 +243,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                  config_.server_player.grave_material_id,
                  config_.server_player.grave_vertical_search_blocks,
                  config_.server_player.respawn_safe_search_radius_blocks);
+    SNT_LOG_INFO("Host block interactions enabled: client raycast and machine prerequisite hints are trusted; host commits shared world/inventory state");
+    SNT_LOG_INFO("Committed gameplay events drive host quest progress; item rewards await explicit task-book claims");
     SNT_LOG_INFO("Steam login remains unavailable until a server ticket verifier is installed");
     return {};
 }
@@ -285,13 +313,18 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     replication_service_.reset();
     transport_.reset();
     replication_handler_.reset();
+    command_sink_.reset();
     player_replication_.reset();
+    player_interactions_.reset();
+    simulation_session_.set_machine_tick_event_sink(nullptr);
+    simulation_session_.set_quest_reward_sink(nullptr);
+    if (quest_events_) quest_events_->unbind_player_state();
+    quest_events_.reset();
     player_death_.reset();
     player_respawn_.reset();
     player_graves_.reset();
     player_beds_.reset();
     peer_authenticator_.reset();
-    command_sink_.reset();
     player_movement_.reset();
     player_lifecycle_.reset();
     if (player_state_) player_state_->shutdown();

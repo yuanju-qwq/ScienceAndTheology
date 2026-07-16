@@ -170,7 +170,8 @@ bool is_diagnostic_state(MachineRunState state) {
 
 void transition(MachineTickResult& result,
                 MachineRunState state,
-                const std::string& recipe_id) {
+                const std::string& recipe_id,
+                uint64_t tick_index) {
     MachineRuntimeComponent& machine = result.machine;
     if (machine.state == state) return;
 
@@ -178,6 +179,7 @@ void transition(MachineTickResult& result,
     machine.state = state;
     result.events.push_back({
         .kind = MachineTickEventKind::StateChanged,
+        .tick_index = tick_index,
         .entity_guid = result.entity_guid,
         .machine_id = machine.machine_id,
         .recipe_id = recipe_id,
@@ -186,12 +188,17 @@ void transition(MachineTickResult& result,
     });
 }
 
-void publish_completion(MachineTickResult& result, const std::string& recipe_id) {
+void publish_completion(MachineTickResult& result,
+                        const MachineRecipeSnapshot& recipe,
+                        uint64_t tick_index) {
     result.events.push_back({
         .kind = MachineTickEventKind::RecipeCompleted,
+        .tick_index = tick_index,
         .entity_guid = result.entity_guid,
         .machine_id = result.machine.machine_id,
-        .recipe_id = recipe_id,
+        .recipe_id = recipe.id,
+        .account_id = result.machine.job_owner_account_id,
+        .outputs = recipe.outputs,
         .previous_state = result.machine.state,
         .state = result.machine.state,
     });
@@ -199,7 +206,8 @@ void publish_completion(MachineTickResult& result, const std::string& recipe_id)
 
 void tick_machine(MachineTickResult& result,
                   const std::vector<RecipeDefinition>& recipes,
-                  bool requires_manual_activation) {
+                  bool requires_manual_activation,
+                  uint64_t tick_index) {
     MachineRuntimeComponent& machine = result.machine;
     normalize_input_slots(machine);
     normalize_output_slots(machine);
@@ -208,7 +216,8 @@ void tick_machine(MachineTickResult& result,
     if (!machine.active_recipe) {
         if (machine.input_slots.empty()) {
             machine.activation_requested = false;
-            transition(result, MachineRunState::Idle, "");
+            machine.job_owner_account_id.clear();
+            transition(result, MachineRunState::Idle, "", tick_index);
             return;
         }
 
@@ -222,27 +231,32 @@ void tick_machine(MachineTickResult& result,
         });
         if (recipe == recipes.end()) {
             machine.activation_requested = false;
-            transition(result, MachineRunState::NoMatchingRecipe, "");
+            machine.job_owner_account_id.clear();
+            transition(result, MachineRunState::NoMatchingRecipe, "", tick_index);
             return;
         }
 
         MachineRecipeSnapshot snapshot = make_snapshot(*recipe);
         if (requires_manual_activation && !machine.activation_requested) {
-            transition(result, MachineRunState::WaitingForActivation, snapshot.id);
+            machine.job_owner_account_id.clear();
+            transition(result, MachineRunState::WaitingForActivation, snapshot.id, tick_index);
             return;
         }
         if (!can_accept_outputs(machine, snapshot)) {
             machine.activation_requested = false;
-            transition(result, MachineRunState::WaitingForOutput, snapshot.id);
+            machine.job_owner_account_id.clear();
+            transition(result, MachineRunState::WaitingForOutput, snapshot.id, tick_index);
             return;
         }
 
         // Reserve every recipe input at start. This copy is later applied as
         // one deterministic World command at the fixed-tick barrier.
         if (!reserve_inputs(machine, snapshot.inputs)) {
-            transition(result, MachineRunState::NoMatchingRecipe, snapshot.id);
+            machine.job_owner_account_id.clear();
+            transition(result, MachineRunState::NoMatchingRecipe, snapshot.id, tick_index);
             return;
         }
+        if (!requires_manual_activation) machine.job_owner_account_id.clear();
         machine.activation_requested = false;
         machine.progress_ticks = 0;
         machine.active_recipe = std::move(snapshot);
@@ -251,46 +265,48 @@ void tick_machine(MachineTickResult& result,
     MachineRecipeSnapshot& active = *machine.active_recipe;
     if (machine.progress_ticks >= active.duration_ticks) {
         if (!commit_outputs(machine, active)) {
-            transition(result, MachineRunState::WaitingForOutput, active.id);
+            transition(result, MachineRunState::WaitingForOutput, active.id, tick_index);
             return;
         }
+        publish_completion(result, active, tick_index);
         const std::string recipe_id = active.id;
         machine.active_recipe.reset();
         machine.progress_ticks = 0;
-        publish_completion(result, recipe_id);
-        transition(result, MachineRunState::Idle, recipe_id);
+        machine.job_owner_account_id.clear();
+        transition(result, MachineRunState::Idle, recipe_id, tick_index);
         return;
     }
 
     if (active.energy_per_tick > machine.stored_energy) {
-        transition(result, MachineRunState::WaitingForEnergy, active.id);
+        transition(result, MachineRunState::WaitingForEnergy, active.id, tick_index);
         return;
     }
 
     machine.stored_energy -= active.energy_per_tick;
     ++machine.progress_ticks;
-    transition(result, MachineRunState::Running, active.id);
+    transition(result, MachineRunState::Running, active.id, tick_index);
 
     if (machine.progress_ticks < active.duration_ticks) return;
 
     if (!commit_outputs(machine, active)) {
-        transition(result, MachineRunState::WaitingForOutput, active.id);
+        transition(result, MachineRunState::WaitingForOutput, active.id, tick_index);
         return;
     }
+    publish_completion(result, active, tick_index);
     const std::string recipe_id = active.id;
     machine.active_recipe.reset();
     machine.progress_ticks = 0;
-    publish_completion(result, recipe_id);
-    transition(result, MachineRunState::Idle, recipe_id);
+    machine.job_owner_account_id.clear();
+    transition(result, MachineRunState::Idle, recipe_id, tick_index);
 }
 
-MachineTickResult compute_tick_result(const MachineWorkItem& work_item) {
+MachineTickResult compute_tick_result(const MachineWorkItem& work_item, uint64_t tick_index) {
     MachineTickResult result{
         work_item.entity_guid,
         work_item.machine,
         {},
     };
-    tick_machine(result, work_item.recipes, work_item.requires_manual_activation);
+    tick_machine(result, work_item.recipes, work_item.requires_manual_activation, tick_index);
     return result;
 }
 
@@ -314,8 +330,9 @@ void publish_events(const std::vector<MachineTickEvent>& events,
 class MachineTickTask final : public snt::ecs::IWorkerTask {
 public:
     MachineTickTask(std::vector<MachineWorkItem> work_items,
-                    IMachineTickEventSink* event_sink)
-        : work_items_(std::move(work_items)), event_sink_(event_sink) {}
+                    IMachineTickEventSink* event_sink,
+                    uint64_t tick_index)
+        : work_items_(std::move(work_items)), event_sink_(event_sink), tick_index_(tick_index) {}
 
     void execute(snt::ecs::WorkerCommandContext& commands) override {
         std::vector<MachineTickResult> results;
@@ -333,14 +350,14 @@ public:
             const auto* work_items = &work_items_;
             commands.parallel_for(
                 static_cast<int32_t>(work_items_.size()),
-                [work_items, &results](int32_t, int32_t item_index) {
+                [work_items, &results, tick_index = tick_index_](int32_t, int32_t item_index) {
                     const size_t index = static_cast<size_t>(item_index);
-                    results[index] = compute_tick_result((*work_items)[index]);
+                    results[index] = compute_tick_result((*work_items)[index], tick_index);
                 },
                 kMachineParallelForBatchSize);
         } else {
             for (const MachineWorkItem& work_item : work_items_) {
-                results.push_back(compute_tick_result(work_item));
+                results.push_back(compute_tick_result(work_item, tick_index_));
             }
         }
 
@@ -366,6 +383,7 @@ public:
 private:
     std::vector<MachineWorkItem> work_items_;
     IMachineTickEventSink* event_sink_ = nullptr;
+    uint64_t tick_index_ = 0;
 };
 
 }  // namespace
@@ -411,7 +429,7 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
     }
 
     if (work_items.empty()) return nullptr;
-    return std::make_unique<MachineTickTask>(std::move(work_items), event_sink_);
+    return std::make_unique<MachineTickTask>(std::move(work_items), event_sink_, tick_index_);
 }
 
 }  // namespace snt::game

@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,13 +17,33 @@
 namespace {
 
 using snt::game::GameContentRegistry;
+using snt::game::IQuestRewardSink;
 using snt::game::QuestDefinition;
 using snt::game::QuestObjectiveDefinition;
 using snt::game::QuestObjectiveKind;
 using snt::game::QuestProgressEvent;
+using snt::game::QuestItemReward;
 using snt::game::QuestRegistry;
+using snt::game::QuestRewardDefinition;
+using snt::game::QuestRewardKind;
 using snt::game::QuestState;
 using snt::game::GameSaveQuestProgressPersistence;
+
+class RecordingQuestRewardSink final : public IQuestRewardSink {
+public:
+    snt::core::Expected<void> grant_item_rewards(
+        std::string_view player_id, std::string_view quest_id,
+        std::span<const QuestItemReward> rewards) override {
+        player_ids.emplace_back(player_id);
+        quest_ids.emplace_back(quest_id);
+        grants.emplace_back(rewards.begin(), rewards.end());
+        return {};
+    }
+
+    std::vector<std::string> player_ids;
+    std::vector<std::string> quest_ids;
+    std::vector<std::vector<QuestItemReward>> grants;
+};
 
 QuestDefinition make_craft_quest(std::string id, int32_t required_count) {
     QuestDefinition definition;
@@ -203,6 +224,61 @@ TEST(QuestRegistryTest, ResetsRepeatableQuestWithoutLosingCompletionHistory) {
     ASSERT_NE(progress, nullptr);
     EXPECT_EQ(progress->state, QuestState::kCompleted);
     EXPECT_EQ(progress->completion_count, 2u);
+}
+
+TEST(QuestRegistryTest, RequiresRewardSinkBeforeClaimingItemRewardsAndUnlocksQuest) {
+    GameContentRegistry content;
+    QuestDefinition gate = make_craft_quest("p7.reward.gate", 100);
+    QuestDefinition unlocked = make_craft_quest("p7.reward.unlocked", 1);
+    unlocked.prerequisites = {gate.id};
+    QuestDefinition rewarded = make_craft_quest("p7.reward.source", 1);
+    rewarded.rewards = {
+        {.kind = QuestRewardKind::kItem, .target_id = "wrought_iron", .count = 2},
+        {.kind = QuestRewardKind::kUnlockQuest, .target_id = unlocked.id, .count = 1},
+    };
+    ASSERT_TRUE(content.register_builtin_quest(std::move(gate)));
+    ASSERT_TRUE(content.register_builtin_quest(std::move(unlocked)));
+    ASSERT_TRUE(content.register_builtin_quest(std::move(rewarded)));
+
+    QuestRegistry quests(content);
+    ASSERT_TRUE(quests.accept("player:reward", "p7.reward.source", 1));
+    ASSERT_TRUE(quests.record_progress(
+        "player:reward",
+        {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1}, 2));
+    const auto* source = quests.find_progress("player:reward", "p7.reward.source");
+    ASSERT_NE(source, nullptr);
+    ASSERT_EQ(source->state, QuestState::kCompleted);
+    EXPECT_FALSE(source->reward_claimed);
+    const auto* initially_locked = quests.find_progress("player:reward", "p7.reward.unlocked");
+    ASSERT_NE(initially_locked, nullptr);
+    EXPECT_EQ(initially_locked->state, QuestState::kLocked);
+
+    EXPECT_FALSE(quests.claim_reward("player:reward", "p7.reward.source", 3));
+    source = quests.find_progress("player:reward", "p7.reward.source");
+    ASSERT_NE(source, nullptr);
+    EXPECT_FALSE(source->reward_claimed);
+    const auto* still_locked = quests.find_progress("player:reward", "p7.reward.unlocked");
+    ASSERT_NE(still_locked, nullptr);
+    EXPECT_EQ(still_locked->state, QuestState::kLocked);
+
+    RecordingQuestRewardSink reward_sink;
+    quests.set_reward_sink(&reward_sink);
+    ASSERT_TRUE(quests.claim_reward("player:reward", "p7.reward.source", 4));
+    source = quests.find_progress("player:reward", "p7.reward.source");
+    ASSERT_NE(source, nullptr);
+    EXPECT_TRUE(source->reward_claimed);
+    const auto* unlocked_progress = quests.find_progress("player:reward", "p7.reward.unlocked");
+    ASSERT_NE(unlocked_progress, nullptr);
+    EXPECT_EQ(unlocked_progress->state, QuestState::kAvailable);
+    ASSERT_EQ(reward_sink.player_ids.size(), 1u);
+    EXPECT_EQ(reward_sink.player_ids.front(), "player:reward");
+    ASSERT_EQ(reward_sink.quest_ids.size(), 1u);
+    EXPECT_EQ(reward_sink.quest_ids.front(), "p7.reward.source");
+    ASSERT_EQ(reward_sink.grants.size(), 1u);
+    ASSERT_EQ(reward_sink.grants.front().size(), 1u);
+    EXPECT_EQ(reward_sink.grants.front().front().item_id, "wrought_iron");
+    EXPECT_EQ(reward_sink.grants.front().front().count, 2);
+    EXPECT_FALSE(quests.claim_reward("player:reward", "p7.reward.source", 5));
 }
 
 TEST(QuestRegistryTest, RestoresStableProgressSnapshotWithoutDefinitionsOwningState) {

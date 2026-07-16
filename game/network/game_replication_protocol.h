@@ -22,7 +22,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 5;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 7;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -31,6 +31,7 @@ inline constexpr size_t kMaxGameCredentialBytes = 1024;
 inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameQuestIdBytes = 512;
 inline constexpr size_t kMaxGameDimensionIdBytes = 128;
+inline constexpr size_t kMaxGameItemIdBytes = 256;
 inline constexpr size_t kMaxGameChunkSnapshotPayloadBytes = 512u * 1024u;
 inline constexpr size_t kMaxGameEntitySnapshotPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameSnapshotChunks = 128;
@@ -103,11 +104,14 @@ struct GameLoginAccepted {
     PlayerIdentity identity;
 };
 
-// Command ids are game-owned and latest-version-only. The first authoritative
-// command is task acceptance; player movement and block editing remain absent
-// until their server-owned player/AOI data model is defined.
+// Command ids are game-owned and latest-version-only. The host owns final
+// shared-world mutation, while block interaction carries client-computed
+// presentation/gameplay hints so a co-op session does not spend server time
+// replaying raycasts or other anti-cheat checks.
 enum class GameClientCommandType : uint16_t {
     kQuestAccept = 1,
+    kBlockInteraction = 2,
+    kQuestClaimReward = 3,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -138,6 +142,49 @@ struct GamePlayerMovementInput {
 
 struct GameQuestAcceptCommand {
     std::string quest_id;
+};
+
+// A claim contains only the completed quest identifier. The authenticated
+// server peer determines the player, and QuestRegistry owns reward validation
+// plus any authoritative inventory transaction.
+struct GameQuestClaimRewardCommand {
+    std::string quest_id;
+};
+
+// The client chooses the requested action and target. The host treats
+// cover/ignition/structure/tool hints as trusted co-op input, but still owns
+// catalog resolution, inventory arithmetic, sidecar integrity, and the final
+// terrain mutation. Values not represented here must not acquire gameplay
+// meaning from opaque command bytes.
+enum class GameBlockInteractionAction : uint8_t {
+    kMine = 1,
+    kPlace = 2,
+    kUse = 3,
+    kActivateMachine = 4,
+    kCollectMachineOutput = 5,
+};
+
+inline constexpr uint8_t kGameBlockInteractionHintCover = 1u << 0u;
+inline constexpr uint8_t kGameBlockInteractionHintIgnition = 1u << 1u;
+inline constexpr uint8_t kGameBlockInteractionHintStructure = 1u << 2u;
+inline constexpr uint8_t kGameBlockInteractionKnownHints =
+    kGameBlockInteractionHintCover |
+    kGameBlockInteractionHintIgnition |
+    kGameBlockInteractionHintStructure;
+
+// Terrain material ids are uint8_t. The out-of-band value lets a client omit
+// an optimistic stale-material guard without overloading air material 0.
+inline constexpr uint16_t kGameNoExpectedTerrainMaterial = 256;
+
+struct GameBlockInteractionCommand {
+    GameBlockInteractionAction action = GameBlockInteractionAction::kMine;
+    std::string dimension_id;
+    int32_t block_x = 0;
+    int32_t block_y = 0;
+    int32_t block_z = 0;
+    uint16_t expected_material = kGameNoExpectedTerrainMaterial;
+    std::string selected_item_id;
+    uint8_t client_hints = 0;
 };
 
 // Snapshot and delta payloads deliberately keep world/actor semantics opaque.
@@ -207,6 +254,18 @@ struct GameDelta {
     uint64_t client_sequence, const GameQuestAcceptCommand& command);
 [[nodiscard]] snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
     const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_quest_claim_reward_command(
+    uint64_t client_sequence, const GameQuestClaimRewardCommand& command);
+[[nodiscard]] snt::core::Expected<GameQuestClaimRewardCommand>
+parse_game_quest_claim_reward_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_block_interaction_command(
+    const GameBlockInteractionCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_block_interaction_command(
+    uint64_t client_sequence, const GameBlockInteractionCommand& command);
+[[nodiscard]] snt::core::Expected<GameBlockInteractionCommand>
+parse_game_block_interaction_command(const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_snapshot(
     const GameSnapshot& snapshot);

@@ -25,6 +25,12 @@ ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSes
 
 ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { shutdown(); }
 
+void ScienceAndTheologySimulationSession::set_machine_tick_event_sink(
+    IMachineTickEventSink* event_sink) noexcept {
+    machine_tick_event_sink_ = event_sink;
+    if (machine_tick_system_) machine_tick_system_->set_event_sink(event_sink);
+}
+
 snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
     snt::engine::SimulationServices& services) {
     services_ = &services;
@@ -79,8 +85,10 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     }
 
     if (scripts_started_) {
-        auto machine_system = std::make_shared<MachineTickSystem>(content_registry_);
-        if (auto result = world_session.register_worker_system(std::move(machine_system)); !result) {
+        machine_tick_system_ = std::make_shared<MachineTickSystem>(
+            content_registry_, machine_tick_event_sink_);
+        if (auto result = world_session.register_worker_system(machine_tick_system_); !result) {
+            machine_tick_system_.reset();
             auto error = result.error();
             error.with_context(
                 "ScienceAndTheologySimulationSession::create_world(register MachineTickSystem)");
@@ -130,6 +138,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
 
 snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
     snt::engine::FixedTickContext& context) {
+    if (machine_tick_system_) machine_tick_system_->set_tick_index(context.tick_index());
     // File-watcher polling stays on the simulation main thread so a dedicated
     // server receives the same reload lifecycle as a graphical client.
     if (scripts_started_) {
@@ -149,6 +158,8 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
+    if (machine_tick_system_) machine_tick_system_->set_event_sink(nullptr);
+    machine_tick_system_.reset();
     if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
         if (auto result = GameMachineRuntimePersistence::capture(*world_, chunk_sidecars_); !result) {
             SNT_LOG_ERROR("Game machine runtime capture during session shutdown failed: %s",

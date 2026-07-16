@@ -8,6 +8,7 @@
 
 #include "engine/client_session.h"
 #include "game/network/game_client_replication_session.h"
+#include "game/localization/localization.h"
 #include "gameplay_ui.h"
 #include "game_session_config.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
@@ -30,6 +31,7 @@ class ScienceAndTheologyClientSession final : public snt::engine::IClientSession
 public:
     explicit ScienceAndTheologyClientSession(
         GameSessionConfig config,
+        std::shared_ptr<localization::LocalizationService> localization,
         std::optional<replication::GameClientAuthentication> connection_authentication = std::nullopt);
     ~ScienceAndTheologyClientSession() override;
 
@@ -53,6 +55,7 @@ private:
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
+    std::shared_ptr<localization::LocalizationService> localization_;
     ScienceAndTheologySimulationSession simulation_session_;
     std::optional<PlayerIdentity> local_player_identity_;
     std::optional<replication::GameClientAuthentication> connection_authentication_;

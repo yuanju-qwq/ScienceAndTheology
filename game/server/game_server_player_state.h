@@ -80,6 +80,12 @@ public:
     [[nodiscard]] snt::core::Expected<std::vector<std::string>> held_tool_tags_for_peer(
         const GameAuthenticatedPeer& peer) const;
 
+    // Server-composition services receive stable account ids from committed
+    // gameplay events. This resolves that id back to the currently active,
+    // authenticated session without accepting any client supplied identity.
+    [[nodiscard]] snt::core::Expected<GameAuthenticatedPeer> active_peer_for_account(
+        std::string_view account_id) const;
+
     // These mutation APIs receive an already authenticated peer rather than a
     // client payload. Command handlers must derive their values from server
     // simulation state before calling them.

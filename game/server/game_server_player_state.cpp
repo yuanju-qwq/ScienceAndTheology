@@ -218,6 +218,34 @@ snt::core::Expected<std::vector<std::string>> GameServerPlayerState::held_tool_t
     return world_->get_component<GamePlayerToolState>(*entity).held_tool_tags;
 }
 
+snt::core::Expected<GameAuthenticatedPeer> GameServerPlayerState::active_peer_for_account(
+    std::string_view account_id) const {
+    if (stopped_) return invalid_state("Dedicated server player state is stopped");
+    if (account_id.empty()) return invalid_argument("Authoritative player account id must not be empty");
+    const auto player = players_.find(account_id);
+    if (player == players_.end() || player->second.peer == snt::network::kInvalidPeerId) {
+        return invalid_state("Authoritative player account is not active");
+    }
+    const auto active = active_peers_.find(player->second.peer);
+    if (active == active_peers_.end() || active->second != account_id) {
+        return invalid_state("Authoritative player account has inconsistent active peer state");
+    }
+    auto entity = entity_for_record(player->second);
+    if (!entity) return entity.error();
+    const auto& identity = world_->get_component<GamePlayerIdentityComponent>(*entity);
+    if (identity.account_id != account_id) {
+        return invalid_state("Authoritative player entity has an inconsistent account id");
+    }
+    return GameAuthenticatedPeer{
+        .peer = player->second.peer,
+        .identity = {
+            .provider = identity.provider,
+            .account_id = identity.account_id,
+            .display_name = identity.display_name,
+        },
+    };
+}
+
 snt::core::Expected<GamePlayerPersistentState> GameServerPlayerState::capture_persistent_state(
     const GameAuthenticatedPeer& peer) const {
     auto record = find_active_record(peer);

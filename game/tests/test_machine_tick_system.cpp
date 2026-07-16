@@ -281,7 +281,9 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
     machine.machine_id = "bloomery";
     machine.input_slots = {{"iron_crushed", 5}};
 
-    auto system = std::make_shared<MachineTickSystem>(content);
+    CapturingMachineEvents events;
+    auto system = std::make_shared<MachineTickSystem>(content, &events);
+    system->set_tick_index(73);
     MachineInteractionService interactions(content);
     ASSERT_TRUE(tick_machine(world, system));
     EXPECT_EQ(machine.state, MachineRunState::NoMatchingRecipe);
@@ -298,6 +300,7 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
 
     ASSERT_TRUE(interactions.request_manual_activation(
         world, world.guid_of(entity), {.target_is_reachable = true}));
+    machine.job_owner_account_id = "account:machine-owner";
     ASSERT_TRUE(tick_machine(world, system));
     EXPECT_EQ(machine.state, MachineRunState::Running);
     EXPECT_TRUE(machine.active_recipe.has_value());
@@ -313,6 +316,18 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
     ASSERT_EQ(machine.output_slots.size(), 1u);
     EXPECT_EQ(machine.output_slots.front().item_id, "iron_bloom");
     EXPECT_EQ(machine.output_slots.front().count, 1);
+    EXPECT_TRUE(machine.job_owner_account_id.empty());
+
+    const auto completion = std::find_if(
+        events.events.begin(), events.events.end(), [](const MachineTickEvent& event) {
+            return event.kind == MachineTickEventKind::RecipeCompleted;
+        });
+    ASSERT_NE(completion, events.events.end());
+    EXPECT_EQ(completion->tick_index, 73u);
+    EXPECT_EQ(completion->account_id, "account:machine-owner");
+    ASSERT_EQ(completion->outputs.size(), 1u);
+    EXPECT_EQ(completion->outputs.front().item_id, "iron_bloom");
+    EXPECT_EQ(completion->outputs.front().count, 1);
 }
 
 TEST(MachineTickSystemTest, ChoosesFirstMatchingRecipeInStableIdOrder) {

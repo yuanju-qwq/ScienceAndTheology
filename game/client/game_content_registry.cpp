@@ -183,6 +183,35 @@ void api_add_quest_objective(const std::string& quest_id,
     }
 }
 
+void api_add_quest_item_reward(const std::string& quest_id,
+                               const std::string& item_id,
+                               int count) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    if (auto result = registry->add_script_quest_reward(
+            g_active_script_id, quest_id,
+            {.kind = QuestRewardKind::kItem, .target_id = item_id, .count = count});
+        !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_add_quest_unlock_reward(const std::string& quest_id,
+                                 const std::string& unlocked_quest_id) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    if (auto result = registry->add_script_quest_reward(
+            g_active_script_id, quest_id,
+            {.kind = QuestRewardKind::kUnlockQuest,
+             .target_id = unlocked_quest_id,
+             .count = 1});
+        !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_on(const std::string& event_name, const std::string& callback_id) {
     GameContentRegistry* registry = active_registry();
     if (!registry) return;
@@ -278,6 +307,14 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             "void snt_add_quest_objective(const string &in, const string &in, const string &in, const string &in, int)",
             asFUNCTION(api_add_quest_objective)); !result) return result;
     if (auto result = register_function(
+            engine,
+            "void snt_add_quest_item_reward(const string &in, const string &in, int)",
+            asFUNCTION(api_add_quest_item_reward)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_add_quest_unlock_reward(const string &in, const string &in)",
+            asFUNCTION(api_add_quest_unlock_reward)); !result) return result;
+    if (auto result = register_function(
             engine, "void snt_on(const string &in, const string &in)",
             asFUNCTION(api_on)); !result) return result;
     if (auto result = register_function(
@@ -369,6 +406,12 @@ snt::core::Expected<void> GameContentRegistry::validate(const QuestDefinition& d
             }
         }
     }
+    for (const QuestRewardDefinition& reward : definition.rewards) {
+        if (auto result = validate(reward); !result) return result.error();
+        if (reward.kind == QuestRewardKind::kUnlockQuest && reward.target_id == definition.id) {
+            return invalid_argument("Quest cannot unlock itself as a reward");
+        }
+    }
     return {};
 }
 
@@ -391,6 +434,24 @@ snt::core::Expected<void> GameContentRegistry::validate(
     }
     if (objective.kind != QuestObjectiveKind::kReachTick && objective.target_id.empty()) {
         return invalid_argument("Quest objective target_id must not be empty");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const QuestRewardDefinition& reward) {
+    if (reward.target_id.empty()) return invalid_argument("Quest reward target_id must not be empty");
+    if (reward.count <= 0) return invalid_argument("Quest reward count must be positive");
+    switch (reward.kind) {
+        case QuestRewardKind::kItem:
+            break;
+        case QuestRewardKind::kUnlockQuest:
+            if (reward.count != 1) {
+                return invalid_argument("Quest unlock reward count must be exactly one");
+            }
+            break;
+        default:
+            return invalid_argument("Quest reward kind is invalid");
     }
     return {};
 }
@@ -520,6 +581,25 @@ snt::core::Expected<void> GameContentRegistry::add_script_quest_objective(
         return invalid_state("Duplicate quest objective: " + objective.id);
     }
     objectives.push_back(std::move(objective));
+    ++quest_content_revision_;
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::add_script_quest_reward(
+    ScriptId script_id, std::string quest_id, QuestRewardDefinition reward) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Quest script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(reward); !result) return result.error();
+
+    const auto found = live_quests_.find(quest_id);
+    if (found == live_quests_.end() || found->second.owner != script_id) {
+        return invalid_state("Quest reward can only modify a quest owned by the active script");
+    }
+    if (reward.kind == QuestRewardKind::kUnlockQuest && reward.target_id == quest_id) {
+        return invalid_argument("Quest cannot unlock itself as a reward");
+    }
+    found->second.definition.rewards.push_back(std::move(reward));
     ++quest_content_revision_;
     return {};
 }
