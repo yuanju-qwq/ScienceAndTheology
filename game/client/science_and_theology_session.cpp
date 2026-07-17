@@ -219,7 +219,12 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
             .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
     } else {
         presentation_world_ = &world;
+        chunk_render_system_ = &world_session.chunk_render_system();
+        remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
+            world_session.chunks());
+        remote_machine_world_ = std::make_unique<replication::GameRemoteMachineWorld>();
         SNT_LOG_INFO("Client movement uses server-authoritative input and position updates");
+        SNT_LOG_INFO("Client terrain and machine presentation await authoritative replication");
     }
 
     // Match PlayerPhysicsSystem::sync_camera_transform before the first
@@ -339,6 +344,15 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
         }
         if (replication_session_->status().state ==
             replication::GameClientConnectionState::kDisconnected) {
+            if (remote_chunk_world_) {
+                remote_chunk_world_->clear();
+                if (chunk_render_system_) {
+                    for (const snt::voxel::ChunkKey& key : remote_chunk_world_->drain_dirty_chunks()) {
+                        chunk_render_system_->mark_dirty(key);
+                    }
+                }
+            }
+            if (remote_machine_world_) remote_machine_world_->clear();
             if (remote_player_world_) remote_player_world_->clear();
             if (quest_book_state_) quest_book_state_->clear();
         } else {
@@ -348,6 +362,36 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                     remote_player_world_ && remote_player_world_->active_snapshot_id() == 0;
                 const bool first_quest_book_snapshot =
                     quest_book_state_ && quest_book_state_->active_snapshot_id() == 0;
+                const bool first_chunk_snapshot =
+                    remote_chunk_world_ && remote_chunk_world_->active_snapshot_id() == 0;
+                const bool first_machine_snapshot =
+                    remote_machine_world_ && remote_machine_world_->active_snapshot_id() == 0;
+                if (remote_chunk_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_chunk_world_->apply(value); }, update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(remote chunk replication)");
+                        return error;
+                    }
+                    if (chunk_render_system_) {
+                        for (const snt::voxel::ChunkKey& key :
+                             remote_chunk_world_->drain_dirty_chunks()) {
+                            chunk_render_system_->mark_dirty(key);
+                        }
+                    }
+                }
+                if (remote_machine_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_machine_world_->apply(value); }, update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(remote machine replication)");
+                        return error;
+                    }
+                }
                 if (quest_book_state_) {
                     auto applied = std::visit(
                         [this](const auto& value) { return quest_book_state_->apply(value); }, update);
@@ -382,6 +426,20 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                                  static_cast<unsigned long long>(
                                      quest_book_state_->active_snapshot_id()),
                                  quest_book_state_->snapshot()->progress.size());
+                }
+                if (first_chunk_snapshot && remote_chunk_world_ &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative terrain snapshot %llu with %zu chunk(s)",
+                                 static_cast<unsigned long long>(
+                                     remote_chunk_world_->active_snapshot_id()),
+                                 remote_chunk_world_->chunk_count());
+                }
+                if (first_machine_snapshot && remote_machine_world_ &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative machine snapshot %llu with %zu machine value(s)",
+                                 static_cast<unsigned long long>(
+                                     remote_machine_world_->active_snapshot_id()),
+                                 remote_machine_world_->machine_count());
                 }
             }
             if (remote_player_world_) apply_authoritative_local_player();
@@ -474,6 +532,10 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
         ui_layers_ = nullptr;
     }
     presentation_world_ = nullptr;
+    if (remote_chunk_world_) remote_chunk_world_->clear();
+    remote_chunk_world_.reset();
+    remote_machine_world_.reset();
+    chunk_render_system_ = nullptr;
     remote_player_world_.reset();
     quest_book_ui_.reset();
     quest_book_state_.reset();

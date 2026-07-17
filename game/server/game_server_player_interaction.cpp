@@ -236,7 +236,7 @@ GameServerPlayerInteractionService::create(
     GameServerPlayerBedService& beds, const GameContentRegistry& content,
     MachineInteractionService& machine_interactions,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
-    IGameServerPlayerInteractionEventSink* event_sink,
+    std::vector<IGameServerPlayerInteractionEventSink*> event_sinks,
     GameServerPlayerInteractionConfig config) {
     if (config.block_definitions.empty()) {
         config.block_definitions = default_block_definitions();
@@ -245,10 +245,16 @@ GameServerPlayerInteractionService::create(
     if (auto result = validate_machine_placement_catalog(content, config); !result) {
         return result.error();
     }
+    if (std::any_of(event_sinks.begin(), event_sinks.end(),
+                    [](const IGameServerPlayerInteractionEventSink* sink) {
+                        return sink == nullptr;
+                    })) {
+        return invalid_argument("Game server player interaction has a null event sink");
+    }
     return std::unique_ptr<GameServerPlayerInteractionService>(
         new GameServerPlayerInteractionService(
             world, chunks, sidecars, player_state, beds, content, machine_interactions,
-            checkpoint_sink, event_sink, std::move(config)));
+            checkpoint_sink, std::move(event_sinks), std::move(config)));
 }
 
 GameServerPlayerInteractionService::GameServerPlayerInteractionService(
@@ -257,11 +263,12 @@ GameServerPlayerInteractionService::GameServerPlayerInteractionService(
     GameServerPlayerBedService& beds, const GameContentRegistry& content,
     MachineInteractionService& machine_interactions,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
-    IGameServerPlayerInteractionEventSink* event_sink,
+    std::vector<IGameServerPlayerInteractionEventSink*> event_sinks,
     GameServerPlayerInteractionConfig config)
     : world_(&world), chunks_(&chunks), sidecars_(&sidecars), player_state_(&player_state),
       beds_(&beds), content_(&content), machine_interactions_(&machine_interactions),
-      checkpoint_sink_(checkpoint_sink), event_sink_(event_sink), config_(std::move(config)) {}
+      checkpoint_sink_(checkpoint_sink), event_sinks_(std::move(event_sinks)),
+      config_(std::move(config)) {}
 
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_block_interaction(
     const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
@@ -678,7 +685,9 @@ snt::core::Expected<void> GameServerPlayerInteractionService::mark_player_state_
 
 void GameServerPlayerInteractionService::emit_event(
     GameServerPlayerInteractionEvent event) const {
-    if (event_sink_ != nullptr) event_sink_->on_player_interaction(event);
+    for (IGameServerPlayerInteractionEventSink* sink : event_sinks_) {
+        sink->on_player_interaction(event);
+    }
 }
 
 }  // namespace snt::game::replication

@@ -21,9 +21,12 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "core/runtime_key_index.h"
 #include "ecs/entity_guid.h"
 #include "ecs/system.h"
 
@@ -38,6 +41,10 @@ class GameContentRegistry;
 struct MachineItemStack {
     std::string item_id;
     int32_t count = 0;
+    // Filled only on the main-thread capture boundary. Persistent storage,
+    // command payloads, and events retain item_id; worker calculations use
+    // item_runtime_id from one immutable RuntimeKeyIndex snapshot.
+    snt::core::RuntimeKeyId item_runtime_id = snt::core::kInvalidRuntimeKeyId;
 
     bool empty() const { return item_id.empty() || count <= 0; }
 };
@@ -50,6 +57,11 @@ struct MachineRecipeSnapshot {
     std::vector<MachineItemStack> outputs;
     int32_t duration_ticks = 0;
     int32_t energy_per_tick = 0;
+    // An active job keeps this immutable mapping across a content reload so
+    // it never combines IDs from different generations. Persistence excludes
+    // the snapshot and restores it from the current catalog on first capture.
+    snt::core::RuntimeKeyIndex::Snapshot item_runtime_index;
+    uint64_t item_runtime_generation = 0;
 };
 
 enum class MachineRunState : uint8_t {
@@ -143,9 +155,13 @@ public:
         const snt::ecs::World& world, float dt) override;
 
 private:
+    void log_unresolved_item_key(uint64_t generation, std::string_view key);
+
     GameContentRegistry& content_registry_;
     IMachineTickEventSink* event_sink_ = nullptr;
     uint64_t tick_index_ = 0;
+    uint64_t unresolved_item_log_generation_ = 0;
+    std::set<std::string, std::less<>> unresolved_item_keys_logged_;
 };
 
 }  // namespace snt::game

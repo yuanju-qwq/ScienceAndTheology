@@ -3,6 +3,29 @@
 // machine work. Manual activation is the runtime boundary for future player
 // commands to validate structure, cover, light, tools, and fuel.
 void snt_register() {
+    // Persistent saves and commands use these StringKeys. GameContentRegistry
+    // normalizes and sorts the complete set before publishing RuntimeIds.
+    snt_register_item("furnace", "item.furnace", 1);
+    snt_register_item("pit_kiln", "item.pit_kiln", 1);
+    snt_register_item("charcoal_pit", "item.charcoal_pit", 1);
+    snt_register_item("bloomery", "item.bloomery", 1);
+    snt_register_item("anvil", "item.anvil", 1);
+    snt_register_item("iron_ore", "item.iron_ore", 64);
+    snt_register_item("iron_ingot", "item.iron_ingot", 64);
+    snt_register_item("unfired_bowl", "item.unfired_bowl", 16);
+    snt_register_item("fired_bowl", "item.fired_bowl", 16);
+    snt_register_item("unfired_jug", "item.unfired_jug", 16);
+    snt_register_item("fired_jug", "item.fired_jug", 16);
+    snt_register_item("unfired_crucible", "item.unfired_crucible", 16);
+    snt_register_item("fired_crucible", "item.fired_crucible", 16);
+    snt_register_item("unfired_brick", "item.unfired_brick", 64);
+    snt_register_item("refractory_brick", "item.refractory_brick", 64);
+    snt_register_item("wood_dust", "item.wood_dust", 64);
+    snt_register_item("charcoal", "item.charcoal", 64);
+    snt_register_item("iron_crushed", "item.iron_crushed", 64);
+    snt_register_item("iron_bloom", "item.iron_bloom", 16);
+    snt_register_item("wrought_iron_ingot", "item.wrought_iron_ingot", 64);
+
     snt_register_machine("furnace", "Furnace", 1, 0, false);
     snt_register_machine_placement("furnace", "furnace", 7);
     snt_register_recipe("snt.furnace.iron", "furnace", "iron_ore", 1,

@@ -281,6 +281,7 @@ snt::core::Expected<void> GameServerReplicationHandler::queue_replication_messag
         } else {
             auto delta = parse_game_delta(message);
             if (!delta) return delta.error();
+            total_chunks += delta->chunk_snapshots.size();
             total_entities += delta->entities.size();
             total_values += delta->values.size();
             for (const GameChunkDelta& chunk : delta->chunks) {

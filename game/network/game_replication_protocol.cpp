@@ -302,6 +302,8 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 
 [[nodiscard]] snt::core::Expected<void> validate_delta(const GameDelta& delta) {
     if (delta.base_snapshot_id == 0 || delta.sequence == 0 ||
+        delta.chunk_snapshots.size() > kMaxGameDeltaChunks ||
+        delta.removed_chunks.size() > kMaxGameDeltaChunks ||
         delta.chunks.size() > kMaxGameDeltaChunks ||
         delta.entities.size() > kMaxGameSnapshotEntities ||
         delta.values.size() > kMaxGameSnapshotValues) {
@@ -310,7 +312,24 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 
     size_t block_count = 0;
     std::unordered_set<snt::voxel::ChunkKey> chunks;
-    chunks.reserve(delta.chunks.size());
+    chunks.reserve(delta.chunk_snapshots.size() + delta.removed_chunks.size() +
+                   delta.chunks.size());
+    for (const GameChunkSnapshot& chunk : delta.chunk_snapshots) {
+        if (auto result = validate_chunk_key(chunk.chunk); !result) return result.error();
+        if (chunk.payload.empty() ||
+            chunk.payload.size() > kMaxGameChunkSnapshotPayloadBytes) {
+            return protocol_error("Game replication delta chunk snapshot payload is invalid");
+        }
+        if (!chunks.insert(chunk.chunk).second) {
+            return protocol_error("Game replication delta contains a duplicate chunk");
+        }
+    }
+    for (const snt::voxel::ChunkKey& chunk : delta.removed_chunks) {
+        if (auto result = validate_chunk_key(chunk); !result) return result.error();
+        if (!chunks.insert(chunk).second) {
+            return protocol_error("Game replication delta contains a duplicate chunk");
+        }
+    }
     for (const GameChunkDelta& chunk : delta.chunks) {
         if (auto result = validate_chunk_key(chunk.chunk); !result) return result.error();
         if (chunk.blocks.empty() ||
@@ -951,6 +970,16 @@ snt::core::Expected<GameReplicationMessage> make_game_delta(const GameDelta& del
     message.kind = GameReplicationMessageKind::kServerDelta;
     append_u64(message.payload, delta.base_snapshot_id);
     append_u64(message.payload, delta.sequence);
+    append_u16(message.payload, static_cast<uint16_t>(delta.chunk_snapshots.size()));
+    for (const GameChunkSnapshot& chunk : delta.chunk_snapshots) {
+        if (auto result = append_chunk_key(message.payload, chunk.chunk); !result) return result.error();
+        append_u32(message.payload, static_cast<uint32_t>(chunk.payload.size()));
+        message.payload.insert(message.payload.end(), chunk.payload.begin(), chunk.payload.end());
+    }
+    append_u16(message.payload, static_cast<uint16_t>(delta.removed_chunks.size()));
+    for (const snt::voxel::ChunkKey& chunk : delta.removed_chunks) {
+        if (auto result = append_chunk_key(message.payload, chunk); !result) return result.error();
+    }
     append_u16(message.payload, static_cast<uint16_t>(delta.chunks.size()));
     for (const GameChunkDelta& chunk : delta.chunks) {
         if (auto result = append_chunk_key(message.payload, chunk.chunk); !result) return result.error();
@@ -996,10 +1025,44 @@ snt::core::Expected<GameDelta> parse_game_delta(const GameReplicationMessage& me
     offset += sizeof(uint64_t);
     delta.sequence = read_u64(bytes, offset);
     offset += sizeof(uint64_t);
+    const size_t chunk_snapshot_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (chunk_snapshot_count > kMaxGameDeltaChunks) {
+        return protocol_error("Game replication delta has too many chunk snapshots");
+    }
+    delta.chunk_snapshots.reserve(chunk_snapshot_count);
+    for (size_t index = 0; index < chunk_snapshot_count; ++index) {
+        auto chunk = read_chunk_key(bytes, offset);
+        if (!chunk) return chunk.error();
+        auto payload = read_byte_vector(bytes, offset, kMaxGameChunkSnapshotPayloadBytes,
+                                        "delta chunk snapshot payload");
+        if (!payload) return payload.error();
+        delta.chunk_snapshots.push_back({.chunk = std::move(*chunk),
+                                         .payload = std::move(*payload)});
+    }
+
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("Game replication delta removed chunk count is truncated");
+    }
+    const size_t removed_chunk_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (removed_chunk_count > kMaxGameDeltaChunks) {
+        return protocol_error("Game replication delta has too many removed chunks");
+    }
+    delta.removed_chunks.reserve(removed_chunk_count);
+    for (size_t index = 0; index < removed_chunk_count; ++index) {
+        auto chunk = read_chunk_key(bytes, offset);
+        if (!chunk) return chunk.error();
+        delta.removed_chunks.push_back(std::move(*chunk));
+    }
+
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("Game replication delta block chunk count is truncated");
+    }
     const size_t chunk_count = read_u16(bytes, offset);
     offset += sizeof(uint16_t);
     if (chunk_count > kMaxGameDeltaChunks) {
-        return protocol_error("Game replication delta has too many chunks");
+        return protocol_error("Game replication delta has too many block chunks");
     }
     delta.chunks.reserve(chunk_count);
     size_t total_block_count = 0;

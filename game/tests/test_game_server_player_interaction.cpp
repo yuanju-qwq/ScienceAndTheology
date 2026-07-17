@@ -184,7 +184,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     MachineInteractionService machine_interactions(content);
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        &checkpoint, &events);
+        &checkpoint, {&events});
     ASSERT_TRUE(interactions) << interactions.error().format();
 
     const GameBlockInteractionCommand place{
@@ -276,7 +276,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        &checkpoint, &events);
+        &checkpoint, {&events});
     ASSERT_TRUE(interactions) << interactions.error().format();
 
     const GameBlockInteractionCommand place{

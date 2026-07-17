@@ -3,8 +3,10 @@
 #include "game/player/player_replication.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
+#include "game/world/game_chunk.h"
 
 #include "ecs/world.h"
+#include "voxel/data/chunk_registry.h"
 
 #include <gtest/gtest.h>
 
@@ -138,6 +140,8 @@ TEST(GamePlayerReplicationCodecTest, RoundTripsPresentationOnlyPlayerValues) {
 
 TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToRemoteWorld) {
     snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    snt::game::GameChunkSidecarRegistry sidecars;
     auto players = GameServerPlayerState::create(world);
     ASSERT_TRUE(players) << players.error().format();
 
@@ -151,7 +155,7 @@ TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToR
     ASSERT_TRUE((*players)->on_peer_authenticated(dana, state_at(**players, "nether", 0, 64, 0)));
 
     auto replication = GameServerPlayerReplication::create(
-        **players,
+        **players, world, chunks, sidecars,
         {
             .horizontal_aoi_radius_blocks = 12,
             .vertical_aoi_radius_blocks = 8,
@@ -241,6 +245,8 @@ TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToR
 
 TEST(GameServerPlayerReplicationTest, LimitsInitialPlayerSnapshotToObserverBudget) {
     snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    snt::game::GameChunkSidecarRegistry sidecars;
     auto players = GameServerPlayerState::create(world);
     ASSERT_TRUE(players) << players.error().format();
 
@@ -249,7 +255,8 @@ TEST(GameServerPlayerReplicationTest, LimitsInitialPlayerSnapshotToObserverBudge
     ASSERT_TRUE((*players)->on_peer_authenticated(observer, state_at(**players, "overworld", 0, 64, 0)));
     ASSERT_TRUE((*players)->on_peer_authenticated(nearby, state_at(**players, "overworld", 1, 64, 0)));
     auto replication = GameServerPlayerReplication::create(
-        **players, {.horizontal_aoi_radius_blocks = 16, .vertical_aoi_radius_blocks = 8,
+        **players, world, chunks, sidecars,
+        {.horizontal_aoi_radius_blocks = 16, .vertical_aoi_radius_blocks = 8,
                     .max_visible_players = 8});
     ASSERT_TRUE(replication) << replication.error().format();
     const snt::network::ReplicationTickContext context{.tick_index = 4, .delta_seconds = 0.05f};
@@ -273,6 +280,8 @@ TEST(GameServerPlayerReplicationTest, LimitsInitialPlayerSnapshotToObserverBudge
 
 TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUnchangedValues) {
     snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    snt::game::GameChunkSidecarRegistry sidecars;
     auto players = GameServerPlayerState::create(world);
     ASSERT_TRUE(players) << players.error().format();
 
@@ -281,7 +290,7 @@ TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUn
         observer, state_at(**players, "overworld", 0, 64, 0)));
     MutableQuestBookValueSource task_book_source;
     auto replication = GameServerPlayerReplication::create(
-        **players,
+        **players, world, chunks, sidecars,
         {
             .horizontal_aoi_radius_blocks = 16,
             .vertical_aoi_radius_blocks = 8,
@@ -337,6 +346,168 @@ TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUn
 
     (*replication)->on_peer_disconnected(observer, "test completed");
     EXPECT_EQ(task_book_source.disconnect_call_count, 1);
+    (*players)->shutdown();
+}
+
+TEST(GameChunkReplicationTest, AppliesChunkSnapshotsDeltasAndRestoresLocalBootstrapOnRemoval) {
+    const snt::voxel::ChunkKey key{"overworld", 0, 0, 0};
+    snt::voxel::ChunkRegistry chunks;
+    snt::voxel::VoxelChunk local;
+    local.terrain.resize(2, 1, 1);
+    local.terrain.cells[0] = {.material = 1, .flags = snt::voxel::TF_SOLID};
+    local.terrain.cells[1] = {.material = 1, .flags = snt::voxel::TF_SOLID};
+    chunks.set_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z, local);
+
+    snt::voxel::VoxelChunk authoritative = local;
+    authoritative.terrain.cells[0] = {.material = 3, .flags = snt::voxel::TF_MINEABLE};
+    authoritative.terrain.cells[1] = {.material = 3, .flags = snt::voxel::TF_MINEABLE};
+    auto payload = snt::game::replication::encode_game_terrain_chunk_snapshot(authoritative);
+    ASSERT_TRUE(payload) << payload.error().format();
+    auto decoded = snt::game::replication::decode_game_terrain_chunk_snapshot(*payload);
+    ASSERT_TRUE(decoded) << decoded.error().format();
+    ASSERT_EQ(decoded->cells.size(), 2u);
+    EXPECT_EQ(decoded->cells[0].material, 3u);
+
+    snt::game::replication::GameClientRemoteChunkWorld remote_chunks(chunks);
+    const snt::game::replication::GameSnapshot snapshot{
+        .snapshot_id = 71,
+        .chunks = {{.chunk = key, .payload = *payload}},
+    };
+    ASSERT_TRUE(remote_chunks.apply(snapshot));
+    ASSERT_EQ(remote_chunks.chunk_count(), 1u);
+    const snt::voxel::VoxelChunk* applied = chunks.get_chunk(
+        key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    ASSERT_NE(applied, nullptr);
+    EXPECT_EQ(applied->terrain.cells[0].material, 3u);
+
+    const snt::game::replication::GameDelta delta{
+        .base_snapshot_id = 71,
+        .sequence = 1,
+        .chunks = {{.chunk = key,
+                    .blocks = {{.local_index = 1,
+                                .material = 4,
+                                .flags = snt::voxel::TF_WALKABLE}}}},
+    };
+    ASSERT_TRUE(remote_chunks.apply(delta));
+    applied = chunks.get_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    ASSERT_NE(applied, nullptr);
+    EXPECT_EQ(applied->terrain.cells[1].material, 4u);
+    EXPECT_EQ(applied->terrain.cells[1].flags, static_cast<uint32_t>(snt::voxel::TF_WALKABLE));
+
+    const snt::game::replication::GameDelta removal{
+        .base_snapshot_id = 71,
+        .sequence = 2,
+        .removed_chunks = {key},
+    };
+    ASSERT_TRUE(remote_chunks.apply(removal));
+    applied = chunks.get_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    ASSERT_NE(applied, nullptr);
+    EXPECT_EQ(applied->terrain.cells[0].material, 1u);
+    EXPECT_EQ(applied->terrain.cells[1].material, 1u);
+}
+
+TEST(GameMachineReplicationTest, RoundTripsPresentationStateAndAppliesOrderedRemoval) {
+    const snt::game::replication::GameReplicatedMachineState state{
+        .anchor_chunk = {"overworld", 0, 0, 0},
+        .root_x = 4,
+        .root_y = 8,
+        .root_z = -2,
+        .machine_id = "primitive_furnace",
+        .input_slots = {{.item_id = "iron_crushed", .count = 2}, {}},
+        .output_slots = {{.item_id = "iron_ingot", .count = 1}},
+        .stored_energy = 20,
+        .energy_capacity = 100,
+        .progress_ticks = 30,
+        .active_recipe_duration_ticks = 80,
+        .run_state = 1,
+    };
+    auto payload = snt::game::replication::encode_game_machine_replication_entity({
+        .operation = snt::game::replication::GameMachineReplicationOperation::kUpsert,
+        .machine = state,
+    });
+    ASSERT_TRUE(payload) << payload.error().format();
+    auto decoded = snt::game::replication::decode_game_machine_replication_entity(*payload);
+    ASSERT_TRUE(decoded) << decoded.error().format();
+    ASSERT_TRUE(decoded->machine.has_value());
+    EXPECT_EQ(decoded->machine->machine_id, "primitive_furnace");
+    EXPECT_EQ(decoded->machine->input_slots.size(), 2u);
+
+    snt::game::replication::GameRemoteMachineWorld machines;
+    ASSERT_TRUE(machines.apply(snt::game::replication::GameSnapshot{
+        .snapshot_id = 91,
+        .entities = {{.entity_guid = {.value = 9001}, .payload = *payload}},
+    }));
+    ASSERT_EQ(machines.machine_count(), 1u);
+    auto remove_payload = snt::game::replication::encode_game_machine_replication_entity({
+        .operation = snt::game::replication::GameMachineReplicationOperation::kRemove,
+    });
+    ASSERT_TRUE(remove_payload) << remove_payload.error().format();
+    ASSERT_TRUE(machines.apply(snt::game::replication::GameDelta{
+        .base_snapshot_id = 91,
+        .sequence = 1,
+        .entities = {{.entity_guid = {.value = 9001}, .payload = *remove_payload}},
+    }));
+    EXPECT_EQ(machines.machine_count(), 0u);
+}
+
+TEST(GameServerPlayerReplicationTest, EmitsCommittedBlockDeltaForVisibleAuthoritativeChunk) {
+    snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    snt::game::GameChunkSidecarRegistry sidecars;
+    const snt::voxel::ChunkKey key{"overworld", 0, 0, 0};
+    snt::voxel::VoxelChunk terrain;
+    terrain.terrain.resize(2, 1, 1);
+    terrain.terrain.cells[0] = {.material = 1, .flags = snt::voxel::TF_SOLID};
+    terrain.terrain.cells[1] = {.material = 1, .flags = snt::voxel::TF_SOLID};
+    chunks.set_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z, std::move(terrain));
+
+    auto players = GameServerPlayerState::create(world);
+    ASSERT_TRUE(players) << players.error().format();
+    const GameAuthenticatedPeer observer = make_peer(701, "TerrainObserver");
+    ASSERT_TRUE((*players)->on_peer_authenticated(
+        observer, state_at(**players, "overworld", 0, 0, 0)));
+    auto replication = GameServerPlayerReplication::create(
+        **players, world, chunks, sidecars,
+        {
+            .horizontal_aoi_radius_blocks = 16,
+            .vertical_aoi_radius_blocks = 16,
+            .max_visible_players = 4,
+            .chunk_horizontal_aoi_radius_blocks = 32,
+            .chunk_vertical_aoi_radius_blocks = 32,
+            .max_visible_chunks = 1,
+        });
+    ASSERT_TRUE(replication) << replication.error().format();
+    const snt::network::ReplicationTickContext context{.tick_index = 19, .delta_seconds = 0.05f};
+    auto interest = (*replication)->compute_interest(observer, context);
+    ASSERT_TRUE(interest) << interest.error().format();
+    ASSERT_EQ(interest->chunks.size(), 1u);
+    const snt::game::replication::GameReplicationBudget budget{
+        .max_reliable_bytes_per_tick = 4096,
+        .max_chunk_snapshots_per_tick = 1,
+        .max_entity_snapshots_per_tick = 4,
+        .max_block_deltas_per_tick = 4,
+    };
+    auto initial = (*replication)->build_initial_snapshot(observer, *interest, budget, context);
+    ASSERT_TRUE(initial) << initial.error().format();
+    ASSERT_EQ(initial->size(), 1u);
+    auto parsed_initial = snt::game::replication::parse_game_snapshot(initial->front());
+    ASSERT_TRUE(parsed_initial) << parsed_initial.error().format();
+    ASSERT_EQ(parsed_initial->chunks.size(), 1u);
+
+    snt::voxel::VoxelChunk* current = chunks.get_chunk(
+        key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    ASSERT_NE(current, nullptr);
+    current->terrain.cells[0] = {.material = 4, .flags = snt::voxel::TF_MINEABLE};
+    (*replication)->mark_block_dirty("overworld", 0, 0, 0);
+    auto changed = (*replication)->build_deltas(observer, *interest, budget, context);
+    ASSERT_TRUE(changed) << changed.error().format();
+    ASSERT_EQ(changed->size(), 1u);
+    auto parsed_delta = snt::game::replication::parse_game_delta(changed->front());
+    ASSERT_TRUE(parsed_delta) << parsed_delta.error().format();
+    ASSERT_EQ(parsed_delta->chunks.size(), 1u);
+    ASSERT_EQ(parsed_delta->chunks.front().blocks.size(), 1u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().local_index, 0u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().material, 4u);
     (*players)->shutdown();
 }
 

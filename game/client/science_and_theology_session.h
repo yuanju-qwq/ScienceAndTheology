@@ -7,6 +7,7 @@
 #pragma once
 
 #include "engine/client_session.h"
+#include "game/network/game_chunk_replication.h"
 #include "game/network/game_client_replication_session.h"
 #include "game/localization/localization.h"
 #include "gameplay_ui.h"
@@ -26,6 +27,10 @@ class GameRemotePlayerWorld;
 
 namespace snt::ecs {
 class World;
+}
+
+namespace snt::voxel {
+class ChunkRenderSystem;
 }
 
 namespace snt::game {
@@ -70,10 +75,13 @@ private:
     std::optional<PlayerIdentity> local_player_identity_;
     std::optional<replication::GameClientAuthentication> connection_authentication_;
     std::unique_ptr<replication::GameClientReplicationSession> replication_session_;
+    std::unique_ptr<replication::GameClientRemoteChunkWorld> remote_chunk_world_;
+    std::unique_ptr<replication::GameRemoteMachineWorld> remote_machine_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
     std::unique_ptr<QuestBookViewModel> quest_book_ui_;
     snt::ecs::World* presentation_world_ = nullptr;
+    snt::voxel::ChunkRenderSystem* chunk_render_system_ = nullptr;
     replication::GamePlayerMovementInput sampled_movement_input_;
     replication::GamePlayerMovementInput last_sent_movement_input_;
     uint64_t next_movement_sequence_ = 1;

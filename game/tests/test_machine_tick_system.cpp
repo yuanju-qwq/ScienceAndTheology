@@ -3,8 +3,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -49,6 +51,21 @@ RecipeDefinition make_recipe(std::string id,
     return recipe;
 }
 
+bool register_items(GameContentRegistry& content,
+                    std::initializer_list<std::string_view> item_ids) {
+    for (const std::string_view item_id : item_ids) {
+        if (content.find_item(item_id) != nullptr) continue;
+        if (!content.register_builtin_item({
+                .id = std::string(item_id),
+                .title_key = "item.test",
+                .max_stack = 64,
+            })) {
+            return false;
+        }
+    }
+    return true;
+}
+
 class CapturingMachineEvents final : public IMachineTickEventSink {
 public:
     void on_machine_tick_event(const MachineTickEvent& event) override {
@@ -70,6 +87,7 @@ bool tick_machine(snt::ecs::World& world,
 
 TEST(MachineTickSystemTest, ProcessesFurnaceRecipeAndPublishesCompletion) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"iron_ore", "iron_ingot"}));
     ASSERT_TRUE(content.register_builtin_recipe(
         make_recipe("snt.furnace.iron", "iron_ore", "iron_ingot", 3)));
 
@@ -102,6 +120,7 @@ TEST(MachineTickSystemTest, ProcessesFurnaceRecipeAndPublishesCompletion) {
 
 TEST(MachineTickSystemTest, WorkerPoolAppliesMachineCommandAtBarrier) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"tin_ore", "tin_ingot"}));
     ASSERT_TRUE(content.register_builtin_recipe(
         make_recipe("snt.furnace.worker", "tin_ore", "tin_ingot", 2)));
 
@@ -130,6 +149,7 @@ TEST(MachineTickSystemTest, WorkerPoolAppliesMachineCommandAtBarrier) {
 
 TEST(MachineTickSystemTest, WorkerPoolShardsMachinesAndPublishesGuidOrder) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"lead_ore", "lead_ingot"}));
     ASSERT_TRUE(content.register_builtin_recipe(
         make_recipe("snt.furnace.sharded", "lead_ore", "lead_ingot", 1)));
 
@@ -198,6 +218,7 @@ TEST(MachineTickSystemTest, WorkerPoolShardsMachinesAndPublishesGuidOrder) {
 
 TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"copper_ore", "copper_ingot", "bronze_ingot"}));
     ASSERT_TRUE(content.register_script_recipe(
         7, make_recipe("snt.furnace.snapshot", "copper_ore", "copper_ingot", 2)));
 
@@ -211,11 +232,19 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
     ASSERT_TRUE(tick_machine(world, system));  // Starts the copied copper_ingot snapshot.
     ASSERT_TRUE(machine.active_recipe.has_value());
     EXPECT_EQ(machine.active_recipe->outputs[0].item_id, "copper_ingot");
+    EXPECT_NE(machine.active_recipe->outputs[0].item_runtime_id,
+              snt::core::kInvalidRuntimeKeyId);
+    EXPECT_EQ(machine.active_recipe->item_runtime_index.find_id("copper_ingot"),
+              machine.active_recipe->outputs[0].item_runtime_id);
+    const uint64_t active_item_generation = machine.active_recipe->item_runtime_generation;
 
     ASSERT_TRUE(content.begin_reload(7));
+    ASSERT_TRUE(content.register_script_item(
+        7, {.id = "aaa_runtime_shift", .title_key = "item.runtime_shift", .max_stack = 1}));
     ASSERT_TRUE(content.register_script_recipe(
         7, make_recipe("snt.furnace.snapshot", "copper_ore", "bronze_ingot", 2)));
     ASSERT_TRUE(content.commit_reload(7));
+    EXPECT_GT(content.item_runtime_generation(), active_item_generation);
 
     ASSERT_TRUE(tick_machine(world, system));
     ASSERT_EQ(machine.output_slots.size(), 1U);
@@ -229,6 +258,7 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
 
 TEST(MachineTickSystemTest, ReservesInputAndWaitsForEnergyWithoutProgressing) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"gold_ore", "gold_ingot"}));
     ASSERT_TRUE(content.register_builtin_recipe(
         make_recipe("snt.furnace.powered", "gold_ore", "gold_ingot", 2, 5)));
 
@@ -259,6 +289,7 @@ TEST(MachineTickSystemTest, ReservesInputAndWaitsForEnergyWithoutProgressing) {
 
 TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"iron_crushed", "charcoal", "iron_bloom"}));
     MachineDefinition bloomery;
     bloomery.id = "bloomery";
     bloomery.display_name = "Bloomery";
@@ -332,6 +363,7 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
 
 TEST(MachineTickSystemTest, ChoosesFirstMatchingRecipeInStableIdOrder) {
     GameContentRegistry content;
+    ASSERT_TRUE(register_items(content, {"mixed_ore", "zinc_ingot", "copper_ingot"}));
     ASSERT_TRUE(content.register_builtin_recipe(
         make_recipe("snt.furnace.zinc", "mixed_ore", "zinc_ingot", 5)));
     ASSERT_TRUE(content.register_builtin_recipe(

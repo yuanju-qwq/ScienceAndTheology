@@ -135,13 +135,18 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     }
     quest_book_replication_ = std::move(*quest_book_replication);
     auto player_replication = replication::GameServerPlayerReplication::create(
-        *player_state_,
+        *player_state_, world.world(), world.chunks(), simulation_session_.world_sidecars(),
         {
             .horizontal_aoi_radius_blocks =
                 config_.server_replication.player_horizontal_aoi_radius_blocks,
             .vertical_aoi_radius_blocks =
                 config_.server_replication.player_vertical_aoi_radius_blocks,
             .max_visible_players = config_.server_replication.max_visible_players,
+            .chunk_horizontal_aoi_radius_blocks =
+                config_.server_replication.chunk_horizontal_aoi_radius_blocks,
+            .chunk_vertical_aoi_radius_blocks =
+                config_.server_replication.chunk_vertical_aoi_radius_blocks,
+            .max_visible_chunks = config_.server_replication.max_visible_chunks,
         },
         {quest_book_replication_.get()});
     if (!player_replication) {
@@ -210,7 +215,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         world.world(), world.chunks(), simulation_session_.world_sidecars(), *player_state_,
         *player_beds_, simulation_session_.content(), simulation_session_.machine_interactions(),
         player_lifecycle_.get(),
-        quest_events_.get(),
+        {quest_events_.get(), player_replication_.get()},
         {
             .air_material_id = 0,
             .reserved_grave_material_id = config_.server_player.grave_material_id,

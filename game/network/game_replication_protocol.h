@@ -22,7 +22,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 9;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 10;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -243,6 +243,12 @@ struct GameChunkDelta {
 struct GameDelta {
     uint64_t base_snapshot_id = 0;
     uint64_t sequence = 0;
+    // Newly interested chunks use full authoritative payloads. Chunk removal
+    // explicitly releases the prior snapshot baseline before a later AOI
+    // re-entry receives another full payload; block deltas only target chunks
+    // already present in that baseline.
+    std::vector<GameChunkSnapshot> chunk_snapshots;
+    std::vector<snt::voxel::ChunkKey> removed_chunks;
     std::vector<GameChunkDelta> chunks;
     std::vector<GameEntitySnapshot> entities;
     std::vector<GameReplicationValue> values;

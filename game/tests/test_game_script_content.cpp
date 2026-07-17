@@ -61,6 +61,8 @@ std::string gameplay_source(const std::string& input_item,
                             bool define_callback) {
     std::string source =
         "void snt_register() {\n"
+        "    snt_register_item(\"" + input_item + "\", \"item.test_input\", 64);\n"
+        "    snt_register_item(\"test_ingot\", \"item.test_ingot\", 64);\n"
         "    snt_register_recipe(\"p7.test.recipe\", \"furnace\", \"" + input_item +
         "\", 1, \"test_ingot\", 1, 20, 0, \"p7-test\");\n"
         "    snt_on(\"p7.test.tick\", \"" + callback_id + "\");\n"
@@ -117,6 +119,7 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
     ASSERT_TRUE(scripts.load_source(
         "p7_api",
         "void snt_register() {"
+        "  snt_register_item(\"p7.test.machine_block\", \"item.test_machine_block\", 1);"
         "  snt_register_machine(\"p7.test.machine\", \"Test Machine\", 2, 500, true);"
         "  snt_register_machine_placement(\"p7.test.machine_block\", \"p7.test.machine\", 42);"
         "  snt_set_machine_activation_requirements(\"p7.test.machine\", true, false, true, \"hammer\");"
@@ -186,6 +189,7 @@ TEST(P7ScriptApiTest, RollsBackPlacementThatReferencesAMissingMachine) {
     ASSERT_TRUE(scripts.load_source(
         "p7_machine_placement_validation",
         "void snt_register() {"
+        "  snt_register_item(\"p7.valid.block\", \"item.valid_block\", 1);"
         "  snt_register_machine(\"p7.valid.machine\", \"Valid\", 1, 0, false);"
         "  snt_register_machine_placement(\"p7.valid.block\", \"p7.valid.machine\", 43);"
         "}"));
@@ -213,6 +217,33 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
     const std::string source = read_packaged_p7_bootstrap_script();
     ASSERT_FALSE(source.empty());
     ASSERT_TRUE(scripts.load_source("p7_bootstrap", source));
+
+    const auto assert_item = [&content](std::string_view id, int32_t max_stack) {
+        const auto* item = content.find_item(id);
+        ASSERT_NE(item, nullptr);
+        EXPECT_EQ(item->max_stack, max_stack);
+        ASSERT_TRUE(content.find_item_runtime_id(id));
+    };
+    assert_item("furnace", 1);
+    assert_item("pit_kiln", 1);
+    assert_item("charcoal_pit", 1);
+    assert_item("bloomery", 1);
+    assert_item("anvil", 1);
+    assert_item("iron_ore", 64);
+    assert_item("iron_ingot", 64);
+    assert_item("unfired_bowl", 16);
+    assert_item("fired_bowl", 16);
+    assert_item("unfired_jug", 16);
+    assert_item("fired_jug", 16);
+    assert_item("unfired_crucible", 16);
+    assert_item("fired_crucible", 16);
+    assert_item("unfired_brick", 64);
+    assert_item("refractory_brick", 64);
+    assert_item("wood_dust", 64);
+    assert_item("charcoal", 64);
+    assert_item("iron_crushed", 64);
+    assert_item("iron_bloom", 16);
+    assert_item("wrought_iron_ingot", 64);
 
     const auto assert_machine = [&content](std::string_view id,
                                            std::string_view display_name,

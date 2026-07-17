@@ -102,6 +102,11 @@ void from_json(const json& object, GameServerReplicationConfig& value) {
     read_optional(object, "player_vertical_aoi_radius_blocks",
                   value.player_vertical_aoi_radius_blocks);
     read_optional(object, "max_visible_players", value.max_visible_players);
+    read_optional(object, "chunk_horizontal_aoi_radius_blocks",
+                  value.chunk_horizontal_aoi_radius_blocks);
+    read_optional(object, "chunk_vertical_aoi_radius_blocks",
+                  value.chunk_vertical_aoi_radius_blocks);
+    read_optional(object, "max_visible_chunks", value.max_visible_chunks);
     read_optional(object, "max_reliable_bytes_per_tick", value.max_reliable_bytes_per_tick);
     read_optional(object, "max_chunk_snapshots_per_tick", value.max_chunk_snapshots_per_tick);
     read_optional(object, "max_entity_snapshots_per_tick", value.max_entity_snapshots_per_tick);

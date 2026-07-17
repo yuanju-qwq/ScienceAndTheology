@@ -21,7 +21,7 @@ namespace {
 struct MachineWorkItem {
     snt::ecs::EntityGuid entity_guid;
     MachineRuntimeComponent machine;
-    std::vector<RecipeDefinition> recipes;
+    std::vector<MachineRecipeSnapshot> recipes;
     bool requires_manual_activation = false;
 };
 
@@ -50,7 +50,66 @@ const char* state_name(MachineRunState state) {
     return "unknown";
 }
 
-MachineRecipeSnapshot make_snapshot(const RecipeDefinition& recipe) {
+bool resolve_stack_runtime_id(
+    MachineItemStack& stack,
+    const snt::core::RuntimeKeyIndex::Snapshot& item_index,
+    std::string& unresolved_item_key) {
+    if (stack.count <= 0 || stack.item_id.empty()) {
+        stack.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+        return true;
+    }
+    const auto item_runtime_id = item_index.find_id(stack.item_id);
+    if (!item_runtime_id) {
+        unresolved_item_key = stack.item_id;
+        return false;
+    }
+    stack.item_runtime_id = *item_runtime_id;
+    return true;
+}
+
+bool resolve_recipe_runtime_ids(
+    MachineRecipeSnapshot& recipe,
+    const snt::core::RuntimeKeyIndex::Snapshot& item_index,
+    std::string& unresolved_item_key) {
+    for (MachineItemStack& input : recipe.inputs) {
+        if (!resolve_stack_runtime_id(input, item_index, unresolved_item_key)) return false;
+    }
+    for (MachineItemStack& output : recipe.outputs) {
+        if (!resolve_stack_runtime_id(output, item_index, unresolved_item_key)) return false;
+    }
+    recipe.item_runtime_index = item_index;
+    recipe.item_runtime_generation = item_index.generation();
+    return true;
+}
+
+bool resolve_machine_runtime_ids(
+    MachineRuntimeComponent& machine,
+    const snt::core::RuntimeKeyIndex::Snapshot& current_item_index,
+    std::string& unresolved_item_key) {
+    // An active recipe owns the mapping with which it was started. This keeps
+    // its worker-only IDs coherent when a successful script reload publishes
+    // a different current item table before the job completes.
+    const auto& item_index =
+        machine.active_recipe && !machine.active_recipe->item_runtime_index.empty()
+            ? machine.active_recipe->item_runtime_index
+            : current_item_index;
+    for (MachineItemStack& input : machine.input_slots) {
+        if (!resolve_stack_runtime_id(input, item_index, unresolved_item_key)) return false;
+    }
+    for (MachineItemStack& output : machine.output_slots) {
+        if (!resolve_stack_runtime_id(output, item_index, unresolved_item_key)) return false;
+    }
+    if (machine.active_recipe &&
+        !resolve_recipe_runtime_ids(*machine.active_recipe, item_index, unresolved_item_key)) {
+        return false;
+    }
+    return true;
+}
+
+std::optional<MachineRecipeSnapshot> make_snapshot(
+    const RecipeDefinition& recipe,
+    const snt::core::RuntimeKeyIndex::Snapshot& item_index,
+    std::string& unresolved_item_key) {
     MachineRecipeSnapshot snapshot;
     snapshot.id = recipe.id;
     snapshot.inputs.reserve(recipe.inputs.size());
@@ -63,14 +122,24 @@ MachineRecipeSnapshot make_snapshot(const RecipeDefinition& recipe) {
     for (const auto& output : recipe.outputs) {
         snapshot.outputs.push_back({output.item_id, output.count});
     }
+    if (!resolve_recipe_runtime_ids(snapshot, item_index, unresolved_item_key)) {
+        return std::nullopt;
+    }
     return snapshot;
 }
 
 void normalize_stack(MachineItemStack& stack) {
-    if (stack.count <= 0 || stack.item_id.empty()) {
+    if (stack.count <= 0 || stack.item_id.empty() ||
+        stack.item_runtime_id == snt::core::kInvalidRuntimeKeyId) {
         stack.item_id.clear();
         stack.count = 0;
+        stack.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
     }
+}
+
+bool runtime_empty(const MachineItemStack& stack) {
+    return stack.count <= 0 ||
+           stack.item_runtime_id == snt::core::kInvalidRuntimeKeyId;
 }
 
 void normalize_output_slots(MachineRuntimeComponent& machine) {
@@ -90,10 +159,10 @@ void normalize_input_slots(MachineRuntimeComponent& machine) {
 bool has_required_inputs(const std::vector<MachineItemStack>& slots,
                          const std::vector<MachineItemStack>& requirements) {
     for (const MachineItemStack& requirement : requirements) {
-        if (requirement.empty()) return false;
+        if (runtime_empty(requirement)) return false;
         int64_t available = 0;
         for (const MachineItemStack& slot : slots) {
-            if (slot.item_id == requirement.item_id) available += slot.count;
+            if (slot.item_runtime_id == requirement.item_runtime_id) available += slot.count;
         }
         if (available < requirement.count) return false;
     }
@@ -106,7 +175,7 @@ bool reserve_inputs(MachineRuntimeComponent& machine,
     for (const MachineItemStack& requirement : requirements) {
         int32_t remaining = requirement.count;
         for (MachineItemStack& slot : machine.input_slots) {
-            if (slot.item_id != requirement.item_id || remaining == 0) continue;
+            if (slot.item_runtime_id != requirement.item_runtime_id || remaining == 0) continue;
             const int32_t consumed = std::min(slot.count, remaining);
             slot.count -= consumed;
             remaining -= consumed;
@@ -123,9 +192,9 @@ bool insert_outputs(std::vector<MachineItemStack>& slots,
     if (max_slots <= 0 || max_stack_size <= 0) return false;
 
     for (const auto& output : outputs) {
-        if (output.empty()) return false;
+        if (runtime_empty(output)) return false;
         auto existing = std::find_if(slots.begin(), slots.end(), [&output](const auto& slot) {
-            return slot.item_id == output.item_id;
+            return slot.item_runtime_id == output.item_runtime_id;
         });
         if (existing != slots.end()) {
             if (output.count > max_stack_size - existing->count) return false;
@@ -205,7 +274,7 @@ void publish_completion(MachineTickResult& result,
 }
 
 void tick_machine(MachineTickResult& result,
-                  const std::vector<RecipeDefinition>& recipes,
+                  const std::vector<MachineRecipeSnapshot>& recipes,
                   bool requires_manual_activation,
                   uint64_t tick_index) {
     MachineRuntimeComponent& machine = result.machine;
@@ -221,14 +290,10 @@ void tick_machine(MachineTickResult& result,
             return;
         }
 
-        const auto recipe = std::find_if(recipes.begin(), recipes.end(), [&machine](const auto& value) {
-            std::vector<MachineItemStack> requirements;
-            requirements.reserve(value.inputs.size());
-            for (const RecipeInputDefinition& input : value.inputs) {
-                requirements.push_back({input.item_id, input.count});
-            }
-            return has_required_inputs(machine.input_slots, requirements);
-        });
+        const auto recipe = std::find_if(
+            recipes.begin(), recipes.end(), [&machine](const MachineRecipeSnapshot& value) {
+                return has_required_inputs(machine.input_slots, value.inputs);
+            });
         if (recipe == recipes.end()) {
             machine.activation_requested = false;
             machine.job_owner_account_id.clear();
@@ -236,7 +301,7 @@ void tick_machine(MachineTickResult& result,
             return;
         }
 
-        MachineRecipeSnapshot snapshot = make_snapshot(*recipe);
+        MachineRecipeSnapshot snapshot = *recipe;
         if (requires_manual_activation && !machine.activation_requested) {
             machine.job_owner_account_id.clear();
             transition(result, MachineRunState::WaitingForActivation, snapshot.id, tick_index);
@@ -392,6 +457,18 @@ MachineTickSystem::MachineTickSystem(GameContentRegistry& content_registry,
                                      IMachineTickEventSink* event_sink)
     : content_registry_(content_registry), event_sink_(event_sink) {}
 
+void MachineTickSystem::log_unresolved_item_key(uint64_t generation,
+                                                 std::string_view key) {
+    if (unresolved_item_log_generation_ != generation) {
+        unresolved_item_log_generation_ = generation;
+        unresolved_item_keys_logged_.clear();
+    }
+    if (!unresolved_item_keys_logged_.emplace(key).second) return;
+    SNT_LOG_WARN("Machine worker skipped unresolved item key '%.*s' in runtime generation %llu",
+                 static_cast<int>(key.size()), key.data(),
+                 static_cast<unsigned long long>(generation));
+}
+
 std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
     const snt::ecs::World& world, float /*dt*/) {
     std::vector<entt::entity> entities;
@@ -406,6 +483,8 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
 
     std::vector<MachineWorkItem> work_items;
     work_items.reserve(entities.size());
+    const snt::core::RuntimeKeyIndex::Snapshot current_item_index =
+        content_registry_.item_runtime_index();
     for (const entt::entity entity : entities) {
         const MachineRuntimeComponent& machine =
             world.get_component<MachineRuntimeComponent>(entity);
@@ -415,11 +494,32 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
             {},
             false,
         };
+        std::string unresolved_item_key;
+        if (!resolve_machine_runtime_ids(
+                work_item.machine, current_item_index, unresolved_item_key)) {
+            const uint64_t generation =
+                work_item.machine.active_recipe &&
+                !work_item.machine.active_recipe->item_runtime_index.empty()
+                    ? work_item.machine.active_recipe->item_runtime_generation
+                    : current_item_index.generation();
+            log_unresolved_item_key(generation, unresolved_item_key);
+            continue;
+        }
 
         // GameContentRegistry is main-thread-only. Copy only the candidate
-        // recipes needed by an idle machine; active work already owns its snapshot.
+        // recipes needed by an idle machine. The copied recipe snapshots and
+        // all captured stacks compare only RuntimeIds on workers.
         if (!work_item.machine.active_recipe && !work_item.machine.input_slots.empty()) {
-            work_item.recipes = content_registry_.recipes_for_machine(work_item.machine.machine_id);
+            for (const RecipeDefinition& recipe :
+                 content_registry_.recipes_for_machine(work_item.machine.machine_id)) {
+                const auto snapshot = make_snapshot(
+                    recipe, current_item_index, unresolved_item_key);
+                if (!snapshot) {
+                    log_unresolved_item_key(current_item_index.generation(), unresolved_item_key);
+                    continue;
+                }
+                work_item.recipes.push_back(*snapshot);
+            }
             if (const MachineDefinition* definition =
                     content_registry_.find_machine(work_item.machine.machine_id)) {
                 work_item.requires_manual_activation = definition->requires_manual_activation;

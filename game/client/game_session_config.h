@@ -95,6 +95,9 @@ struct GameServerReplicationConfig {
     uint32_t player_horizontal_aoi_radius_blocks = 96;
     uint32_t player_vertical_aoi_radius_blocks = 48;
     uint32_t max_visible_players = 64;
+    uint32_t chunk_horizontal_aoi_radius_blocks = 64;
+    uint32_t chunk_vertical_aoi_radius_blocks = 64;
+    uint32_t max_visible_chunks = 8;
     uint32_t max_reliable_bytes_per_tick = 256u * 1024u;
     uint32_t max_chunk_snapshots_per_tick = 2;
     uint32_t max_entity_snapshots_per_tick = 128;

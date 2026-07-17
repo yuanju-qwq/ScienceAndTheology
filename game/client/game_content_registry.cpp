@@ -59,6 +59,8 @@ std::optional<QuestObjectiveKind> parse_quest_objective_kind(std::string_view va
 
 constexpr uint64_t kQuestBookFingerprintOffset = 1469598103934665603ull;
 constexpr uint64_t kQuestBookFingerprintPrime = 1099511628211ull;
+constexpr size_t kMaxGameItemKeyBytes = 256;
+constexpr int32_t kMaxGameItemStackSize = 1'000'000;
 
 void hash_byte(uint64_t& hash, uint8_t value) noexcept {
     hash ^= value;
@@ -80,6 +82,22 @@ void hash_u64(uint64_t& hash, uint64_t value) noexcept {
 void hash_string(uint64_t& hash, std::string_view value) noexcept {
     hash_u64(hash, static_cast<uint64_t>(value.size()));
     for (const unsigned char byte : value) hash_byte(hash, byte);
+}
+
+void api_register_item(const std::string& id,
+                       const std::string& title_key,
+                       int max_stack) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    GameItemDefinition definition;
+    definition.id = id;
+    definition.title_key = title_key;
+    definition.max_stack = max_stack;
+    if (auto result = registry->register_script_item(
+            g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
 }
 
 void api_register_recipe(const std::string& id,
@@ -361,6 +379,9 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
     }
 
     if (auto result = register_function(
+            engine, "void snt_register_item(const string &in, const string &in, int)",
+            asFUNCTION(api_register_item)); !result) return result;
+    if (auto result = register_function(
             engine,
             "void snt_register_recipe(const string &in, const string &in, const string &in, int, const string &in, int, int, int, const string &in)",
             asFUNCTION(api_register_recipe)); !result) return result;
@@ -422,6 +443,54 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
 std::unique_ptr<snt::script::IScriptRegistrationScope>
 GameContentRegistry::begin_registration(ScriptId script_id) {
     return std::make_unique<GameContentRegistrationScope>(*this, script_id);
+}
+
+snt::core::Expected<std::string> GameContentRegistry::normalize_item_key(
+    std::string_view key) {
+    if (key.empty() || key.size() > kMaxGameItemKeyBytes) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Game item id must contain 1 to 256 bytes"};
+    }
+
+    std::string normalized;
+    normalized.reserve(key.size());
+    for (const unsigned char byte : key) {
+        if (byte >= 'A' && byte <= 'Z') {
+            normalized.push_back(static_cast<char>(byte - 'A' + 'a'));
+            continue;
+        }
+        const bool allowed =
+            (byte >= 'a' && byte <= 'z') ||
+            (byte >= '0' && byte <= '9') ||
+            byte == '.' || byte == '_' || byte == ':' || byte == '-';
+        if (!allowed) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidArgument,
+                "Game item id must use ASCII letters, digits, '.', '_', ':', or '-'"};
+        }
+        normalized.push_back(static_cast<char>(byte));
+    }
+    return normalized;
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const GameItemDefinition& definition) {
+    if (definition.id.empty() || definition.id.size() > kMaxGameItemKeyBytes) {
+        return invalid_argument("Game item id must contain 1 to 256 bytes");
+    }
+    if (definition.title_key.empty() || definition.title_key.size() > kMaxGameItemKeyBytes ||
+        definition.title_key.find('\0') != std::string::npos) {
+        return invalid_argument("Game item title_key must contain 1 to 256 non-null bytes");
+    }
+    if (definition.max_stack <= 0 || definition.max_stack > kMaxGameItemStackSize) {
+        return invalid_argument("Game item max_stack must be within the supported range");
+    }
+    const auto normalized = normalize_item_key(definition.id);
+    if (!normalized) return normalized.error();
+    if (*normalized != definition.id) {
+        return invalid_argument("Game item id must be normalized before registration");
+    }
+    return {};
 }
 
 snt::core::Expected<void> GameContentRegistry::validate(const RecipeDefinition& definition) {
@@ -575,6 +644,24 @@ snt::core::Expected<void> GameContentRegistry::validate(const EventListener& lis
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_item(
+    GameItemDefinition definition) {
+    if (!reloads_.empty()) {
+        return invalid_state("Built-in item registration is not allowed during a script reload");
+    }
+    ItemMap previous_backup = backup_items_;
+    ItemMap previous_live = live_items_;
+    if (auto result = register_item(kBuiltinScriptId, std::move(definition), true); !result) {
+        return result.error();
+    }
+    if (auto result = publish_item_runtime_index(); !result) {
+        backup_items_ = std::move(previous_backup);
+        live_items_ = std::move(previous_live);
+        return result.error();
+    }
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_recipe(RecipeDefinition definition) {
     return register_recipe(kBuiltinScriptId, std::move(definition), true);
 }
@@ -595,6 +682,28 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_quest_chapter(
 
 snt::core::Expected<void> GameContentRegistry::register_builtin_quest(QuestDefinition definition) {
     return register_quest(kBuiltinScriptId, std::move(definition), true);
+}
+
+snt::core::Expected<void> GameContentRegistry::register_script_item(
+    ScriptId script_id, GameItemDefinition definition) {
+    const bool staged_reload = reloads_.contains(script_id);
+    ItemMap previous_backup;
+    ItemMap previous_live;
+    if (!staged_reload) {
+        previous_backup = backup_items_;
+        previous_live = live_items_;
+    }
+    if (auto result = register_item(script_id, std::move(definition), false); !result) {
+        return result.error();
+    }
+    if (!staged_reload) {
+        if (auto result = publish_item_runtime_index(); !result) {
+            backup_items_ = std::move(previous_backup);
+            live_items_ = std::move(previous_live);
+            return result.error();
+        }
+    }
+    return {};
 }
 
 snt::core::Expected<void> GameContentRegistry::register_script_recipe(
@@ -734,6 +843,41 @@ snt::core::Expected<void> GameContentRegistry::add_script_quest_reward(
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::register_item(
+    ScriptId owner, GameItemDefinition definition, bool builtin) {
+    const auto normalized_id = normalize_item_key(definition.id);
+    if (!normalized_id) return normalized_id.error();
+    definition.id = *normalized_id;
+
+    if (auto valid = validate(definition); !valid) return valid.error();
+    if (builtin != (owner == kBuiltinScriptId)) {
+        return invalid_argument("Built-in registrations must use ScriptId 0");
+    }
+
+    const std::string id = definition.id;
+    const auto existing = live_items_.find(id);
+    if (!builtin && existing != live_items_.end() &&
+        existing->second.owner != kBuiltinScriptId && existing->second.owner != owner) {
+        return invalid_state("Game item id is already owned by another script: " + id);
+    }
+    if (builtin && existing != live_items_.end() &&
+        existing->second.owner != kBuiltinScriptId) {
+        return invalid_state("Cannot replace a live script item with a built-in item: " + id);
+    }
+    for (const auto& [reloading_script_id, snapshot] : reloads_) {
+        if (reloading_script_id == owner) continue;
+        if (snapshot.items.contains(id)) {
+            return invalid_state(
+                "Game item id is reserved by another active script reload: " + id);
+        }
+    }
+
+    OwnedDefinition<GameItemDefinition> entry{owner, std::move(definition)};
+    if (builtin) backup_items_[id] = entry;
+    live_items_[id] = std::move(entry);
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::register_recipe(
     ScriptId owner, RecipeDefinition definition, bool builtin) {
     auto valid = validate(definition);
@@ -836,6 +980,53 @@ snt::core::Expected<void> GameContentRegistry::register_quest(
     return {};
 }
 
+const GameItemDefinition* GameContentRegistry::find_item(std::string_view id) const {
+    const auto it = live_items_.find(id);
+    return it == live_items_.end() ? nullptr : &it->second.definition;
+}
+
+std::optional<GameItemRuntimeId> GameContentRegistry::find_item_runtime_id(
+    std::string_view id) const noexcept {
+    return item_runtime_index_.find_id(id);
+}
+
+std::optional<std::string_view> GameContentRegistry::find_item_key(
+    GameItemRuntimeId id) const noexcept {
+    return item_runtime_index_.find_key(id);
+}
+
+snt::core::RuntimeKeyIndex::Snapshot GameContentRegistry::item_runtime_index() const noexcept {
+    return item_runtime_index_.snapshot();
+}
+
+uint64_t GameContentRegistry::item_runtime_generation() const noexcept {
+    return item_runtime_index_.generation();
+}
+
+std::vector<GameItemDefinition> GameContentRegistry::item_definitions() const {
+    std::vector<GameItemDefinition> definitions;
+    definitions.reserve(live_items_.size());
+    for (const auto& [id, entry] : live_items_) {
+        (void)id;
+        definitions.push_back(entry.definition);
+    }
+    return definitions;
+}
+
+snt::core::Expected<void> GameContentRegistry::publish_item_runtime_index() {
+    std::vector<std::string_view> keys;
+    keys.reserve(live_items_.size());
+    for (const auto& [id, entry] : live_items_) {
+        (void)entry;
+        keys.push_back(id);
+    }
+    if (auto result = item_runtime_index_.rebuild(keys); !result) return result.error();
+    SNT_LOG_INFO("Published %zu game item runtime id(s), generation=%llu",
+                 keys.size(),
+                 static_cast<unsigned long long>(item_runtime_index_.generation()));
+    return {};
+}
+
 const RecipeDefinition* GameContentRegistry::find_recipe(std::string_view id) const {
     auto it = live_recipes_.find(id);
     return it == live_recipes_.end() ? nullptr : &it->second.definition;
@@ -866,6 +1057,28 @@ snt::core::Expected<void> GameContentRegistry::validate_machine_placement_refere
         return invalid_state("Machine placement item '" + placement.item_id +
                              "' refers to a missing machine definition '" +
                              placement.machine_id + "'");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate_machine_item_references() const {
+    for (const auto& [recipe_id, entry] : live_recipes_) {
+        const RecipeDefinition& recipe = entry.definition;
+        for (const RecipeInputDefinition& input : recipe.inputs) {
+            if (find_item(input.item_id) != nullptr) continue;
+            return invalid_state("Recipe '" + recipe_id + "' refers to missing input item '" +
+                                 input.item_id + "'");
+        }
+        for (const RecipeOutputDefinition& output : recipe.outputs) {
+            if (find_item(output.item_id) != nullptr) continue;
+            return invalid_state("Recipe '" + recipe_id + "' refers to missing output item '" +
+                                 output.item_id + "'");
+        }
+    }
+    for (const MachinePlacementDefinition& placement : machine_placements_.definitions()) {
+        if (find_item(placement.item_id) != nullptr) continue;
+        return invalid_state("Machine placement item '" + placement.item_id +
+                             "' has no registered game item definition");
     }
     return {};
 }
@@ -1029,10 +1242,16 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
     if (auto result = validate_machine_placement_references(); !result) return result.error();
-    if (auto result = machine_placements_.commit_reload(script_id); !result) return result.error();
+    if (auto result = validate_machine_item_references(); !result) return result.error();
+    if (auto result = publish_item_runtime_index(); !result) return result.error();
+    if (auto result = machine_placements_.commit_reload(script_id); !result) {
+        item_runtime_index_.restore(it->second.item_runtime_index);
+        return result.error();
+    }
     reloads_.erase(it);
-    SNT_LOG_INFO("Game content committed reload for script %llu",
-                 static_cast<unsigned long long>(script_id));
+    SNT_LOG_INFO("Game content committed reload for script %llu item_generation=%llu",
+                 static_cast<unsigned long long>(script_id),
+                 static_cast<unsigned long long>(item_runtime_index_.generation()));
     return {};
 }
 
@@ -1044,6 +1263,7 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
 
     erase_script_content(script_id);
     restore_script_content(it->second);
+    item_runtime_index_.restore(it->second.item_runtime_index);
     reloads_.erase(it);
     SNT_LOG_WARN("Game content rolled back reload for script %llu",
                  static_cast<unsigned long long>(script_id));
@@ -1082,10 +1302,12 @@ snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id)
 void GameContentRegistry::reset() {
     const bool had_quest_book_content = !backup_quest_chapters_.empty() ||
         !live_quest_chapters_.empty() || !backup_quests_.empty() || !live_quests_.empty();
+    backup_items_.clear();
     backup_recipes_.clear();
     backup_machines_.clear();
     backup_quest_chapters_.clear();
     backup_quests_.clear();
+    live_items_.clear();
     live_recipes_.clear();
     live_machines_.clear();
     live_quest_chapters_.clear();
@@ -1094,12 +1316,21 @@ void GameContentRegistry::reset() {
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();
+    const std::vector<std::string_view> no_item_keys;
+    if (auto result = item_runtime_index_.rebuild(no_item_keys); !result) {
+        SNT_LOG_ERROR("Failed to publish an empty game item runtime index during reset: %s",
+                      result.error().format().c_str());
+    }
     if (had_quest_book_content) ++quest_content_revision_;
 }
 
 GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content(
     ScriptId script_id) const {
     ReloadSnapshot snapshot;
+    snapshot.item_runtime_index = item_runtime_index_.snapshot();
+    for (const auto& [id, entry] : live_items_) {
+        if (entry.owner == script_id) snapshot.items.emplace(id, entry);
+    }
     for (const auto& [id, entry] : live_recipes_) {
         if (entry.owner == script_id) snapshot.recipes.emplace(id, entry);
     }
@@ -1122,6 +1353,18 @@ GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content
 }
 
 void GameContentRegistry::erase_script_content(ScriptId script_id) {
+    for (auto it = live_items_.begin(); it != live_items_.end();) {
+        if (it->second.owner != script_id) {
+            ++it;
+            continue;
+        }
+        auto backup = backup_items_.find(it->first);
+        if (backup == backup_items_.end()) it = live_items_.erase(it);
+        else {
+            it->second = backup->second;
+            ++it;
+        }
+    }
     for (auto it = live_recipes_.begin(); it != live_recipes_.end();) {
         if (it->second.owner != script_id) {
             ++it;
@@ -1185,6 +1428,7 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
 }
 
 void GameContentRegistry::restore_script_content(const ReloadSnapshot& snapshot) {
+    for (const auto& [id, entry] : snapshot.items) live_items_[id] = entry;
     for (const auto& [id, entry] : snapshot.recipes) live_recipes_[id] = entry;
     for (const auto& [id, entry] : snapshot.machines) live_machines_[id] = entry;
     for (const auto& [id, entry] : snapshot.quest_chapters) live_quest_chapters_[id] = entry;

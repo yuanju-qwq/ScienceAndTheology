@@ -101,7 +101,7 @@ public:
            GameServerPlayerBedService& beds, const GameContentRegistry& content,
            MachineInteractionService& machine_interactions,
            IGameServerPlayerStateCheckpointSink* checkpoint_sink = nullptr,
-           IGameServerPlayerInteractionEventSink* event_sink = nullptr,
+           std::vector<IGameServerPlayerInteractionEventSink*> event_sinks = {},
            GameServerPlayerInteractionConfig config = {});
 
     GameServerPlayerInteractionService(const GameServerPlayerInteractionService&) = delete;
@@ -120,7 +120,7 @@ private:
         GameServerPlayerBedService& beds, const GameContentRegistry& content,
         MachineInteractionService& machine_interactions,
         IGameServerPlayerStateCheckpointSink* checkpoint_sink,
-        IGameServerPlayerInteractionEventSink* event_sink,
+        std::vector<IGameServerPlayerInteractionEventSink*> event_sinks,
         GameServerPlayerInteractionConfig config);
 
     [[nodiscard]] snt::core::Expected<void> apply_mine(
@@ -158,7 +158,7 @@ private:
     const GameContentRegistry* content_ = nullptr;
     MachineInteractionService* machine_interactions_ = nullptr;
     IGameServerPlayerStateCheckpointSink* checkpoint_sink_ = nullptr;
-    IGameServerPlayerInteractionEventSink* event_sink_ = nullptr;
+    std::vector<IGameServerPlayerInteractionEventSink*> event_sinks_;
     GameServerPlayerInteractionConfig config_;
 };
 

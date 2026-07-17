@@ -432,6 +432,11 @@ GameDelta make_test_delta(uint64_t snapshot_id, uint64_t sequence) {
     GameDelta delta;
     delta.base_snapshot_id = snapshot_id;
     delta.sequence = sequence;
+    delta.chunk_snapshots.push_back({
+        .chunk = snt::voxel::ChunkKey{"overworld", 5, 0, -1},
+        .payload = bytes_from_text("delta chunk snapshot"),
+    });
+    delta.removed_chunks.push_back(snt::voxel::ChunkKey{"overworld", 4, 0, -1});
     snt::game::replication::GameChunkDelta chunk;
     chunk.chunk = snt::voxel::ChunkKey{"overworld", -2, 3, 7};
     chunk.blocks.push_back({.local_index = 37, .material = 9, .flags = 0x5u});
@@ -510,7 +515,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 9u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 10u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
@@ -544,6 +549,12 @@ TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
     ASSERT_TRUE(parsed_delta) << parsed_delta.error().format();
     EXPECT_EQ(parsed_delta->base_snapshot_id, snapshot.snapshot_id);
     EXPECT_EQ(parsed_delta->sequence, 1u);
+    ASSERT_EQ(parsed_delta->chunk_snapshots.size(), 1u);
+    EXPECT_EQ(parsed_delta->chunk_snapshots.front().chunk.chunk_x, 5);
+    EXPECT_EQ(parsed_delta->chunk_snapshots.front().payload,
+              bytes_from_text("delta chunk snapshot"));
+    ASSERT_EQ(parsed_delta->removed_chunks.size(), 1u);
+    EXPECT_EQ(parsed_delta->removed_chunks.front().chunk_x, 4);
     ASSERT_EQ(parsed_delta->chunks.size(), 1u);
     ASSERT_EQ(parsed_delta->chunks.front().blocks.size(), 1u);
     EXPECT_EQ(parsed_delta->chunks.front().blocks.front().local_index, 37u);

@@ -103,6 +103,7 @@ target_link_libraries(snt_game_localization PRIVATE
 # versions, authenticated command admission, and AOI/snapshot value contracts.
 add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
+    network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
     network/game_quest_book_replication.cpp
     network/game_replication_protocol.cpp
@@ -259,6 +260,28 @@ target_link_libraries(snt_game_world_test PRIVATE
 )
 
 if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
+    # Content registration and worker simulation are intentionally headless.
+    # Keep their tests on the same small closure so script/content reload work
+    # can be validated without the client, transport, or server test sources.
+    add_executable(snt_game_content_tests
+        tests/test_game_content_registry.cpp
+        tests/test_game_script_content.cpp
+        tests/test_machine_tick_system.cpp
+    )
+    target_include_directories(snt_game_content_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        "${CMAKE_CURRENT_SOURCE_DIR}/client"
+    )
+    target_compile_definitions(snt_game_content_tests PRIVATE
+        SNT_ENGINE_TEST_ROOT="${SNT_ENGINE_SOURCE_DIR}"
+        SNT_GAME_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(snt_game_content_tests PRIVATE
+        snt_game_simulation
+        snt_engine_settings
+        GTest::gtest_main
+    )
+
     add_executable(snt_game_tests
         client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
@@ -277,9 +300,6 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
         tests/test_quest_book_ui.cpp
-        tests/test_game_content_registry.cpp
-        tests/test_game_script_content.cpp
-        tests/test_machine_tick_system.cpp
         tests/test_machine_interaction_service.cpp
         tests/test_machine_placement_registry.cpp
         tests/test_machine_structure_validator.cpp
@@ -328,6 +348,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     )
 
     include(GoogleTest)
+    gtest_discover_tests(snt_game_content_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_tests DISCOVERY_MODE PRE_TEST)
 
     add_custom_command(TARGET snt_game_tests POST_BUILD

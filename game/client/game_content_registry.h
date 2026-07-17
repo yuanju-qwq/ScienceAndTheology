@@ -22,6 +22,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/runtime_key_index.h"
 #include "game/simulation/machine_placement_registry.h"
 #include "script/content_host.h"
 
@@ -29,6 +30,18 @@ namespace snt::game {
 
 using ScriptId = snt::script::ScriptId;
 inline constexpr ScriptId kBuiltinScriptId = snt::script::kBuiltinScriptId;
+using GameItemRuntimeId = snt::core::RuntimeKeyId;
+inline constexpr GameItemRuntimeId kInvalidGameItemRuntimeId =
+    snt::core::kInvalidRuntimeKeyId;
+
+// Game item definitions own semantic keys and presentation metadata. Durable
+// game state refers to `id`; worker systems capture the registry's immutable
+// RuntimeKeyIndex snapshot and use GameItemRuntimeId for their hot paths.
+struct GameItemDefinition {
+    std::string id;
+    std::string title_key;
+    int32_t max_stack = 64;
+};
 
 struct RecipeOutputDefinition {
     std::string item_id;
@@ -173,6 +186,7 @@ public:
 
     // Built-in registrations are fallback values restored when a script
     // override unloads. Game bootstrapping code may use them before scripts.
+    snt::core::Expected<void> register_builtin_item(GameItemDefinition definition);
     snt::core::Expected<void> register_builtin_recipe(RecipeDefinition definition);
     snt::core::Expected<void> register_builtin_machine(MachineDefinition definition);
     snt::core::Expected<void> register_builtin_machine_placement(
@@ -183,6 +197,8 @@ public:
 
     // Script definitions may shadow built-ins but cannot race another script
     // for the same id. Values are copied so no AngelScript memory is retained.
+    snt::core::Expected<void> register_script_item(ScriptId script_id,
+                                                   GameItemDefinition definition);
     snt::core::Expected<void> register_script_recipe(ScriptId script_id,
                                                      RecipeDefinition definition);
     snt::core::Expected<void> register_script_machine(ScriptId script_id,
@@ -204,6 +220,15 @@ public:
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
     snt::core::Expected<void> add_script_quest_reward(
         ScriptId script_id, std::string quest_id, QuestRewardDefinition reward);
+
+    const GameItemDefinition* find_item(std::string_view id) const;
+    [[nodiscard]] std::optional<GameItemRuntimeId> find_item_runtime_id(
+        std::string_view id) const noexcept;
+    [[nodiscard]] std::optional<std::string_view> find_item_key(
+        GameItemRuntimeId id) const noexcept;
+    [[nodiscard]] snt::core::RuntimeKeyIndex::Snapshot item_runtime_index() const noexcept;
+    [[nodiscard]] uint64_t item_runtime_generation() const noexcept;
+    [[nodiscard]] std::vector<GameItemDefinition> item_definitions() const;
 
     const RecipeDefinition* find_recipe(std::string_view id) const;
     const MachineDefinition* find_machine(std::string_view id) const;
@@ -246,6 +271,7 @@ private:
         Definition definition;
     };
 
+    using ItemMap = std::map<std::string, OwnedDefinition<GameItemDefinition>, std::less<>>;
     using RecipeMap = std::map<std::string, OwnedDefinition<RecipeDefinition>, std::less<>>;
     using MachineMap = std::map<std::string, OwnedDefinition<MachineDefinition>, std::less<>>;
     using QuestChapterMap = std::map<std::string,
@@ -253,13 +279,18 @@ private:
     using QuestMap = std::map<std::string, OwnedDefinition<QuestDefinition>, std::less<>>;
 
     struct ReloadSnapshot {
+        ItemMap items;
         RecipeMap recipes;
         MachineMap machines;
         QuestChapterMap quest_chapters;
         QuestMap quests;
         std::vector<EventListener> event_listeners;
+        snt::core::RuntimeKeyIndex::Snapshot item_runtime_index;
     };
 
+    snt::core::Expected<void> register_item(ScriptId owner,
+                                            GameItemDefinition definition,
+                                            bool builtin);
     snt::core::Expected<void> register_recipe(ScriptId owner,
                                               RecipeDefinition definition,
                                               bool builtin);
@@ -272,6 +303,7 @@ private:
                                              QuestDefinition definition,
                                              bool builtin);
 
+    static snt::core::Expected<void> validate(const GameItemDefinition& definition);
     static snt::core::Expected<void> validate(const RecipeDefinition& definition);
     static snt::core::Expected<void> validate(const RecipeInputDefinition& input);
     static snt::core::Expected<void> validate(
@@ -282,6 +314,10 @@ private:
     static snt::core::Expected<void> validate(const QuestObjectiveDefinition& objective);
     static snt::core::Expected<void> validate(const QuestRewardDefinition& reward);
     static snt::core::Expected<void> validate(const EventListener& listener);
+    static snt::core::Expected<std::string> normalize_item_key(std::string_view key);
+
+    snt::core::Expected<void> publish_item_runtime_index();
+    snt::core::Expected<void> validate_machine_item_references() const;
 
     void erase_script_content(ScriptId script_id);
     ReloadSnapshot snapshot_script_content(ScriptId script_id) const;
@@ -290,10 +326,12 @@ private:
 
     // `backup_*` stores built-ins. `live_*` is the effective game definition
     // after an optional script override. Ordered maps make iteration stable.
+    ItemMap backup_items_;
     RecipeMap backup_recipes_;
     MachineMap backup_machines_;
     QuestChapterMap backup_quest_chapters_;
     QuestMap backup_quests_;
+    ItemMap live_items_;
     RecipeMap live_recipes_;
     MachineMap live_machines_;
     QuestChapterMap live_quest_chapters_;
@@ -302,6 +340,7 @@ private:
     std::map<std::string, std::vector<EventListener>, std::less<>> event_listeners_;
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;
+    snt::core::RuntimeKeyIndex item_runtime_index_;
     uint64_t quest_content_revision_ = 1;
 };
 
