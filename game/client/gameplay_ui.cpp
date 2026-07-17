@@ -86,7 +86,7 @@ std::unique_ptr<ViewGroup> instantiate_group(UiWidgetTemplate root,
 
 UiWidgetTemplate hotbar_template(const HotbarViewModel& model) {
     UiWidgetTemplate root;
-    root.type = UiWidgetType::Linear;
+    root.type = UiWidgetType::Flex;
     root.id = "hotbar";
     root.layout.orientation = Orientation::Horizontal;
     root.layout.spacing = kSlotGap;
@@ -107,7 +107,7 @@ UiWidgetTemplate hotbar_template(const HotbarViewModel& model) {
 UiWidgetTemplate inventory_template(const InventoryViewModel& model,
                                     const localization::LocalizationService& localization) {
     UiWidgetTemplate panel;
-    panel.type = UiWidgetType::Linear;
+    panel.type = UiWidgetType::Flex;
     panel.id = "inventory_panel";
     panel.layout.orientation = Orientation::Vertical;
     panel.layout.spacing = 8.0f;
@@ -138,7 +138,7 @@ UiWidgetTemplate inventory_template(const InventoryViewModel& model,
 UiWidgetTemplate crafting_template(const CraftingViewModel& model,
                                    const localization::LocalizationService& localization) {
     UiWidgetTemplate panel;
-    panel.type = UiWidgetType::Linear;
+    panel.type = UiWidgetType::Flex;
     panel.id = "crafting_panel";
     panel.layout.orientation = Orientation::Vertical;
     panel.layout.spacing = 8.0f;
@@ -156,14 +156,14 @@ UiWidgetTemplate crafting_template(const CraftingViewModel& model,
     scroll.id = "crafting_recipe_scroll";
     scroll.layout.params = fixed(500.0f, 244.0f);
     UiWidgetTemplate list;
-    list.type = UiWidgetType::Linear;
+    list.type = UiWidgetType::Flex;
     list.id = "crafting_recipe_list";
     list.layout.orientation = Orientation::Vertical;
     list.layout.spacing = 6.0f;
 
     for (const auto& recipe : model.recipes()) {
         UiWidgetTemplate row;
-        row.type = UiWidgetType::Linear;
+        row.type = UiWidgetType::Flex;
         row.id = "recipe_" + recipe.id;
         row.layout.orientation = Orientation::Horizontal;
         row.layout.spacing = 8.0f;
@@ -223,7 +223,7 @@ UiWidgetActionDispatcher crafting_actions(CraftingViewModel& model) {
 UiWidgetTemplate performance_panel_template(const PerformanceViewModel& model,
                                             const localization::LocalizationService& localization) {
     UiWidgetTemplate panel;
-    panel.type = UiWidgetType::Linear;
+    panel.type = UiWidgetType::Flex;
     panel.id = "performance_panel";
     panel.layout.orientation = Orientation::Vertical;
     panel.layout.spacing = 3.0f;

@@ -22,6 +22,7 @@
     "uploads_per_frame": 2
   },
   "ui": {
+    "scale": 1.0,
     "font_paths": [
       "C:\\Windows\\Fonts\\arial.ttf",
       "C:\\Windows\\Fonts\\msyh.ttc",
