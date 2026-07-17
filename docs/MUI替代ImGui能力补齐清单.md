@@ -18,8 +18,9 @@ Dear ImGui 已从本工程的生产源码、CMake 依赖和第三方目录移除
 - Unicode、双向文字、CJK、彩色 Emoji 字形排版，以及图像/字形图集和 Vulkan 绘制。
 - JSON PackedScene 与 C++ `UiWidgetTreeBuilder` 共用同一实例化路径。
 - `FlexLayout`、`GridLayout`、`ScrollView`、`VirtualListView`、`NineSliceView`、用户 UI 缩放和 DPI 逻辑坐标。
-- Button、Checkbox、Slider、Modal、Tooltip、VirtualList、Slot 与 TextEditor 已通过 native、PackedScene v3 和 Mod facade 路径实例化。
+- Button、Checkbox、Slider、Modal、Tooltip、VirtualList、Slot 与 TextEditor 已通过 native、PackedScene v4 和 Mod facade 路径实例化。
 - 背包、合成、快捷栏和性能面板已有 MUI 游戏侧入口。
+- 任务书已作为 retained MUI 模态层接入：章节标签、可平移/缩放的前置任务图、详情与显式领奖均只消费认证账号的只读 `QuestBookSnapshot`；任务在服务器端按前置自动解锁，UI 不提供接取操作。
 
 对应实现主要位于：
 
@@ -85,7 +86,7 @@ Dear ImGui 已从本工程的生产源码、CMake 依赖和第三方目录移除
 
 - `FlexLayout` 的测量、排列、`justify`、`align`、边距和权重已实现并测试；旧 `LinearLayout` 名称不再保留。
 - `NineSliceView` 已从命令缓冲贯通到 `Arc2DRenderer`、`UiDrawData`、Vulkan renderer、图集 UV 和裁剪测试。
-- `UiWidgetType`/JSON PackedScene 使用 `Flex`、`NineSlice` 和 `TextEditor`，并已升级到 v3 以承载当前通用控件声明。
+- `UiWidgetType`/JSON PackedScene 使用 `Flex`、`NineSlice` 和 `TextEditor`，并已升级到 v4，以承载可变高度虚拟列表与自动 Tooltip 声明。
 - 视口接口已在 `UiRuntime`、层栈上下文和客户端宿主实际调用。
 
 ## 按需求补齐的常用控件
@@ -105,7 +106,7 @@ Dear ImGui 已从本工程的生产源码、CMake 依赖和第三方目录移除
 
 触发场景：配方浏览、任务列表、服务器列表、日志查看器、Mod 内容目录。
 
-- 固定高度的 `VirtualListView` 已具备稳定 index 和可见项回收；可变高度网格虚拟化仍待需求驱动。
+- 可变高度的 `VirtualListView` 已具备稳定 index、可见项回收和每项高度 provider；可变高度网格虚拟化仍待需求驱动。
 - 可排序、筛选、搜索、高亮和空状态。
 - 可折叠树与懒加载节点，用于层级设置或内容浏览。
 - UI 帧统计：布局次数、绘制批数、顶点数、图集压力和慢路径告警。

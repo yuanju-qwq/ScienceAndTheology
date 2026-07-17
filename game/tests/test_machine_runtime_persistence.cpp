@@ -193,28 +193,41 @@ TEST(GameMachineRuntimePersistenceTest, CreatesAndRemovesThroughTheAnchorLifecyc
     using namespace snt::game;
 
     const ChunkKey chunk_key{"overworld", -1, 0, 0};
-    GameChunkSidecar sidecar;
-    sidecar.block_entities.push_back(make_machine_anchor());
     GameChunkSidecarRegistry sidecars;
-    sidecars.set(chunk_key, std::move(sidecar));
+    sidecars.set(chunk_key, {});
 
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "furnace";
 
     const auto created = GameMachineRuntimePersistence::create_anchored_machine(
-        world, sidecars, chunk_key, kMachineAnchor, std::move(runtime));
+        world, sidecars, chunk_key, -1, 4, 5, std::move(runtime));
     ASSERT_TRUE(created) << created.error().format();
-    EXPECT_TRUE(world.find_entity_by_guid(*created) != entt::null);
+    EXPECT_TRUE(world.find_entity_by_guid(created->entity_guid) != entt::null);
     const auto* populated = sidecars.get(chunk_key);
     ASSERT_NE(populated, nullptr);
     ASSERT_EQ(populated->machine_runtime_records.size(), 1u);
-    EXPECT_EQ(populated->machine_runtime_records.front().entity_guid, created->value);
+    EXPECT_EQ(populated->machine_runtime_records.front().anchor_entity_id,
+              created->anchor_entity_id);
+    EXPECT_EQ(populated->machine_runtime_records.front().entity_guid,
+              created->entity_guid.value);
+    ASSERT_EQ(populated->block_entities.size(), 1u);
+    EXPECT_EQ(populated->block_entities.front().id, created->anchor_entity_id);
+    EXPECT_EQ(populated->block_entities.front().entity_type, BlockEntityType::MACHINE);
+    EXPECT_EQ(populated->block_entities.front().root_x, -1);
 
     ASSERT_TRUE(GameMachineRuntimePersistence::remove_anchored_machine(
-        world, sidecars, *created));
-    EXPECT_TRUE(world.find_entity_by_guid(*created) == entt::null);
+        world, sidecars, created->entity_guid));
+    EXPECT_TRUE(world.find_entity_by_guid(created->entity_guid) == entt::null);
     const auto* emptied = sidecars.get(chunk_key);
     ASSERT_NE(emptied, nullptr);
     EXPECT_TRUE(emptied->machine_runtime_records.empty());
+    EXPECT_TRUE(emptied->block_entities.empty());
+
+    MachineRuntimeComponent invalid_runtime;
+    const auto rejected = GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, chunk_key, -2, 4, 5, std::move(invalid_runtime));
+    EXPECT_FALSE(rejected);
+    EXPECT_TRUE(emptied->machine_runtime_records.empty());
+    EXPECT_TRUE(emptied->block_entities.empty());
 }

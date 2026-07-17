@@ -7,6 +7,7 @@
 #include "core/log.h"
 #include "game/network/game_quest_book_replication.h"
 #include "ui/mui_gameplay_controls.h"
+#include "ui/retained_mui_controls.h"
 
 #include <algorithm>
 #include <cmath>

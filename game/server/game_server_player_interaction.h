@@ -26,6 +26,7 @@ class ChunkRegistry;
 
 namespace snt::game {
 class GameChunkSidecarRegistry;
+class GameContentRegistry;
 class MachineInteractionService;
 }
 
@@ -53,6 +54,7 @@ struct GameServerPlayerInteractionConfig {
 enum class GameServerPlayerInteractionEventKind : uint8_t {
     kBlockMined,
     kBlockPlaced,
+    kMachinePlaced,
     kBedUsed,
     kMachineActivated,
     kMachineOutputCollected,
@@ -67,6 +69,7 @@ struct GameServerPlayerInteractionEvent {
     uint64_t tick_index = 0;
     GameBlockInteractionCommand command;
     std::string item_id;
+    std::string machine_id;
     uint32_t previous_material = 0;
     uint32_t current_material = 0;
 };
@@ -95,7 +98,8 @@ public:
         std::unique_ptr<GameServerPlayerInteractionService>>
     create(snt::ecs::World& world, snt::voxel::ChunkRegistry& chunks,
            GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
-           GameServerPlayerBedService& beds, MachineInteractionService& machine_interactions,
+           GameServerPlayerBedService& beds, const GameContentRegistry& content,
+           MachineInteractionService& machine_interactions,
            IGameServerPlayerStateCheckpointSink* checkpoint_sink = nullptr,
            IGameServerPlayerInteractionEventSink* event_sink = nullptr,
            GameServerPlayerInteractionConfig config = {});
@@ -113,7 +117,8 @@ private:
     GameServerPlayerInteractionService(
         snt::ecs::World& world, snt::voxel::ChunkRegistry& chunks,
         GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
-        GameServerPlayerBedService& beds, MachineInteractionService& machine_interactions,
+        GameServerPlayerBedService& beds, const GameContentRegistry& content,
+        MachineInteractionService& machine_interactions,
         IGameServerPlayerStateCheckpointSink* checkpoint_sink,
         IGameServerPlayerInteractionEventSink* event_sink,
         GameServerPlayerInteractionConfig config);
@@ -122,6 +127,9 @@ private:
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> apply_place(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_machine_place(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> apply_use(
@@ -147,6 +155,7 @@ private:
     GameChunkSidecarRegistry* sidecars_ = nullptr;
     GameServerPlayerState* player_state_ = nullptr;
     GameServerPlayerBedService* beds_ = nullptr;
+    const GameContentRegistry* content_ = nullptr;
     MachineInteractionService* machine_interactions_ = nullptr;
     IGameServerPlayerStateCheckpointSink* checkpoint_sink_ = nullptr;
     IGameServerPlayerInteractionEventSink* event_sink_ = nullptr;

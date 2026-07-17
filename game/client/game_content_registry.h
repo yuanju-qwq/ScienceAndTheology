@@ -22,6 +22,7 @@
 #include <string_view>
 #include <vector>
 
+#include "game/simulation/machine_placement_registry.h"
 #include "script/content_host.h"
 
 namespace snt::game {
@@ -174,6 +175,8 @@ public:
     // override unloads. Game bootstrapping code may use them before scripts.
     snt::core::Expected<void> register_builtin_recipe(RecipeDefinition definition);
     snt::core::Expected<void> register_builtin_machine(MachineDefinition definition);
+    snt::core::Expected<void> register_builtin_machine_placement(
+        MachinePlacementDefinition definition);
     snt::core::Expected<void> register_builtin_quest_chapter(
         QuestBookChapterDefinition definition);
     snt::core::Expected<void> register_builtin_quest(QuestDefinition definition);
@@ -184,6 +187,8 @@ public:
                                                      RecipeDefinition definition);
     snt::core::Expected<void> register_script_machine(ScriptId script_id,
                                                       MachineDefinition definition);
+    snt::core::Expected<void> register_script_machine_placement(
+        ScriptId script_id, MachinePlacementDefinition definition);
     snt::core::Expected<void> register_script_quest_chapter(
         ScriptId script_id, QuestBookChapterDefinition definition);
     snt::core::Expected<void> register_script_quest(ScriptId script_id,
@@ -202,6 +207,14 @@ public:
 
     const RecipeDefinition* find_recipe(std::string_view id) const;
     const MachineDefinition* find_machine(std::string_view id) const;
+    const MachinePlacementDefinition* find_machine_placement_by_item(
+        std::string_view item_id) const noexcept;
+    const MachinePlacementDefinition* find_machine_placement_by_material(
+        uint32_t material_id) const noexcept;
+    [[nodiscard]] std::vector<MachinePlacementDefinition> machine_placement_definitions() const;
+    // Machine placement data intentionally lives in its own registry. This
+    // validates its references once all current content has been registered.
+    [[nodiscard]] snt::core::Expected<void> validate_machine_placement_references() const;
     const QuestBookChapterDefinition* find_quest_chapter(std::string_view id) const;
     const QuestDefinition* find_quest(std::string_view id) const;
     std::vector<RecipeDefinition> recipes_for_machine(std::string_view machine_id) const;
@@ -285,6 +298,7 @@ private:
     MachineMap live_machines_;
     QuestChapterMap live_quest_chapters_;
     QuestMap live_quests_;
+    MachinePlacementRegistry machine_placements_;
     std::map<std::string, std::vector<EventListener>, std::less<>> event_listeners_;
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;

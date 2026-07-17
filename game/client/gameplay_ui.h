@@ -11,6 +11,8 @@
 #pragma once
 
 #include "ui/ui_packed_scene.h"
+#include "ui/retained_mui_drag.h"
+#include "ui/retained_mui_layout.h"
 #include "core/expected.h"
 #include "inventory_slot_transaction.h"
 

@@ -7,6 +7,7 @@
 #include "core/path_utils.h"
 #include "game/localization/localization.h"
 #include "ui/ui_packed_scene.h"
+#include "ui/retained_mui_controls.h"
 
 #include <algorithm>
 #include <charconv>

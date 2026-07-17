@@ -118,6 +118,7 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
         "p7_api",
         "void snt_register() {"
         "  snt_register_machine(\"p7.test.machine\", \"Test Machine\", 2, 500, true);"
+        "  snt_register_machine_placement(\"p7.test.machine_block\", \"p7.test.machine\", 42);"
         "  snt_set_machine_activation_requirements(\"p7.test.machine\", true, false, true, \"hammer\");"
         "  snt_register_quest_chapter(\"p7.test.chapter\", \"Test Chapter\", \"Chapter description\", \"chapter.test\", 3);"
         "  snt_register_quest(\"p7.test.quest\", \"p7.test.chapter\", \"Test Quest\", \"Description\", 96.0f, 48.0f, \"quest.test\", false, false);"
@@ -134,6 +135,10 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
     EXPECT_FALSE(machine->activation_requirements.requires_ignition);
     EXPECT_TRUE(machine->activation_requirements.requires_valid_structure);
     EXPECT_EQ(machine->activation_requirements.required_tool_tag, "hammer");
+    const auto* placement = content.find_machine_placement_by_item("p7.test.machine_block");
+    ASSERT_NE(placement, nullptr);
+    EXPECT_EQ(placement->machine_id, "p7.test.machine");
+    EXPECT_EQ(placement->material_id, 42u);
     const auto* chapter = content.find_quest_chapter("p7.test.chapter");
     ASSERT_NE(chapter, nullptr);
     EXPECT_EQ(chapter->title, "Test Chapter");
@@ -173,6 +178,32 @@ TEST(P7ScriptApiTest, RejectsLegacyMachineAndRecipeSignatures) {
     scripts.shutdown();
 }
 
+TEST(P7ScriptApiTest, RollsBackPlacementThatReferencesAMissingMachine) {
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+    ASSERT_TRUE(scripts.load_source(
+        "p7_machine_placement_validation",
+        "void snt_register() {"
+        "  snt_register_machine(\"p7.valid.machine\", \"Valid\", 1, 0, false);"
+        "  snt_register_machine_placement(\"p7.valid.block\", \"p7.valid.machine\", 43);"
+        "}"));
+
+    EXPECT_FALSE(scripts.load_source(
+        "p7_machine_placement_validation",
+        "void snt_register() {"
+        "  snt_register_machine_placement(\"p7.valid.block\", \"p7.missing.machine\", 43);"
+        "}"));
+
+    EXPECT_NE(content.find_machine("p7.valid.machine"), nullptr);
+    const auto* placement = content.find_machine_placement_by_item("p7.valid.block");
+    ASSERT_NE(placement, nullptr);
+    EXPECT_EQ(placement->machine_id, "p7.valid.machine");
+    EXPECT_TRUE(content.validate_machine_placement_references());
+    scripts.shutdown();
+}
+
 TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript) {
     GameContentRegistry content;
     ScriptManager scripts;
@@ -198,6 +229,20 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
     assert_machine("charcoal_pit", "Charcoal Pit", true);
     assert_machine("bloomery", "Bloomery", true);
     assert_machine("anvil", "Anvil", true);
+
+    const auto assert_placement = [&content](std::string_view item_id,
+                                             std::string_view machine_id,
+                                             uint32_t material_id) {
+        const auto* placement = content.find_machine_placement_by_item(item_id);
+        ASSERT_NE(placement, nullptr);
+        EXPECT_EQ(placement->machine_id, machine_id);
+        EXPECT_EQ(placement->material_id, material_id);
+    };
+    assert_placement("furnace", "furnace", 7);
+    assert_placement("pit_kiln", "pit_kiln", 8);
+    assert_placement("charcoal_pit", "charcoal_pit", 9);
+    assert_placement("bloomery", "bloomery", 10);
+    assert_placement("anvil", "anvil", 11);
 
     const auto assert_requirements = [&content](std::string_view id,
                                                 bool requires_cover,

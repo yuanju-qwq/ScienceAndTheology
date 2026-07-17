@@ -4,6 +4,9 @@
 
 #include "core/path_utils.h"
 #include "game/localization/localization.h"
+#include "ui/retained_mui_controls.h"
+#include "ui/retained_mui_drag.h"
+#include "ui/retained_mui_layout.h"
 #include "ui/retained_mui_runtime.h"
 
 #include <gtest/gtest.h>

@@ -131,6 +131,7 @@ add_library(snt_game_simulation STATIC
     client/machine_tick_system.cpp
     quest/quest_registry.cpp
     simulation/machine_interaction_service.cpp
+    simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
     simulation/science_and_theology_simulation_session.cpp
 )
@@ -280,6 +281,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
         tests/test_machine_interaction_service.cpp
+        tests/test_machine_placement_registry.cpp
         tests/test_machine_structure_validator.cpp
         tests/test_machine_runtime_persistence.cpp
         tests/test_game_components.cpp

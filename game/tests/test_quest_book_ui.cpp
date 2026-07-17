@@ -8,6 +8,8 @@
 
 #include "core/path_utils.h"
 #include "game/network/game_quest_book_replication.h"
+#include "ui/retained_mui_controls.h"
+#include "ui/retained_mui_layout.h"
 #include "ui/retained_mui_runtime.h"
 
 #include <gtest/gtest.h>

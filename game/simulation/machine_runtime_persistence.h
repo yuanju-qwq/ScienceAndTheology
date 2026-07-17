@@ -17,6 +17,8 @@
 #include "ecs/entity_guid.h"
 #include "game/world/game_chunk.h"
 
+#include <cstdint>
+
 namespace snt::ecs {
 class World;
 }
@@ -25,20 +27,31 @@ namespace snt::game {
 
 struct MachineRuntimeComponent;
 
+// The durable anchor and transient ECS runtime identity created together for
+// one placed machine. Callers keep this value only for the current session;
+// chunk persistence reconstructs the same runtime Guid from the sidecar.
+struct MachineAnchoredRuntime {
+    EntityId anchor_entity_id;
+    snt::ecs::EntityGuid entity_guid;
+};
+
 class GameMachineRuntimePersistence final {
 public:
-    // Adds a runtime component for an existing MACHINE BlockEntityPlacement in
-    // the given chunk sidecar. The returned EntityGuid is saved with the
-    // record and restored exactly on later sessions.
-    [[nodiscard]] static snt::core::Expected<snt::ecs::EntityGuid> create_anchored_machine(
+    // Allocates a MACHINE BlockEntityPlacement and creates its matching ECS
+    // runtime record in one lifecycle operation. The root must be owned by
+    // chunk_key. The returned Guid is saved with the record and restored
+    // exactly on later sessions.
+    [[nodiscard]] static snt::core::Expected<MachineAnchoredRuntime> create_anchored_machine(
         snt::ecs::World& world,
         GameChunkSidecarRegistry& sidecars,
         const ChunkKey& chunk_key,
-        EntityId anchor_entity_id,
+        int32_t root_x,
+        int32_t root_y,
+        int32_t root_z,
         MachineRuntimeComponent runtime);
 
-    // Removes both the ECS component/entity and its anchor record. Callers
-    // must use this lifecycle operation instead of destroying an anchored
+    // Removes the ECS component/entity, runtime record, and MACHINE anchor.
+    // Callers must use this lifecycle operation instead of destroying an anchored
     // machine directly, otherwise capture() deliberately refuses to save.
     [[nodiscard]] static snt::core::Expected<void> remove_anchored_machine(
         snt::ecs::World& world,

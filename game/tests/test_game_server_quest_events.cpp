@@ -167,3 +167,50 @@ TEST(GameServerQuestEventServiceTest,
     events.unbind_player_state();
     (*player_state)->shutdown();
 }
+
+TEST(GameServerQuestEventServiceTest, CommittedMachinePlacementDrivesPlaceMachineObjective) {
+    GameContentRegistry content;
+    QuestDefinition quest;
+    quest.id = "p7.place_bloomery";
+    quest.title = "Place Bloomery";
+    quest.description = "Place the first bloomery";
+    quest.objectives = {
+        {.id = "place.bloomery", .kind = QuestObjectiveKind::kPlaceMachine,
+         .target_id = "bloomery", .required_count = 1},
+    };
+    ASSERT_TRUE(content.register_builtin_quest(std::move(quest)));
+
+    QuestRegistry quests(content);
+    GameServerQuestEventService events(quests);
+    snt::ecs::World world;
+    auto player_state = GameServerPlayerState::create(
+        world,
+        {
+            .spawn = {.dimension_id = "overworld", .position = {}},
+            .inventory_slots = 4,
+            .inventory_max_stack_size = 8,
+            .interaction_reach_blocks = 5,
+        });
+    ASSERT_TRUE(player_state) << player_state.error().format();
+    const GameAuthenticatedPeer peer = make_peer(702, "Machine Quest Player");
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(
+        peer, (*player_state)->default_persistent_state()));
+    CheckpointSink checkpoint;
+    events.bind_player_state(*(*player_state), &checkpoint);
+
+    events.on_player_interaction({
+        .kind = GameServerPlayerInteractionEventKind::kMachinePlaced,
+        .account_id = peer.identity.account_id,
+        .tick_index = 7,
+        .machine_id = "bloomery",
+    });
+
+    const auto* progress = quests.find_progress(peer.identity.account_id, "p7.place_bloomery");
+    ASSERT_NE(progress, nullptr);
+    EXPECT_EQ(progress->state, QuestState::kCompleted);
+    EXPECT_EQ(progress->objective_counts.at("place.bloomery"), 1);
+    EXPECT_EQ(checkpoint.marks, 0);
+
+    events.unbind_player_state();
+    (*player_state)->shutdown();
+}

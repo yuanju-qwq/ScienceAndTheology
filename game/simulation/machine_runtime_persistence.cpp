@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -28,6 +29,8 @@ constexpr size_t kMaxMachineRecipeOutputs = 64;
 constexpr size_t kMaxMachineJobOwnerAccountBytes = 256;
 constexpr int32_t kMaxMachineStackSize = 1'000'000;
 constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
+constexpr uint64_t kMachineAnchorIdFlag = uint64_t{1} << 62u;
+constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
 
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
@@ -59,6 +62,33 @@ constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
         found = &placement;
     }
     return found;
+}
+
+[[nodiscard]] snt::core::Expected<EntityId> allocate_machine_anchor_id(
+    const GameChunkSidecarRegistry& sidecars) {
+    std::unordered_set<uint64_t> occupied_ids;
+    uint64_t greatest_serial = 0;
+    sidecars.for_each([&](const ChunkKey&, const GameChunkSidecar& sidecar) {
+        for (const BlockEntityPlacement& placement : sidecar.block_entities) {
+            occupied_ids.insert(placement.id.id);
+            if ((placement.id.id & kMachineAnchorIdFlag) == 0 ||
+                (placement.id.id & (uint64_t{1} << 63u)) != 0) {
+                continue;
+            }
+            greatest_serial = std::max(greatest_serial,
+                                       placement.id.id & kMachineAnchorSerialMask);
+        }
+    });
+    if (greatest_serial >= kMachineAnchorSerialMask) {
+        return invalid_state("Machine persistence exhausted reserved machine anchor ids");
+    }
+
+    for (uint64_t serial = greatest_serial + 1u; serial <= kMachineAnchorSerialMask;
+         ++serial) {
+        const uint64_t candidate = kMachineAnchorIdFlag | serial;
+        if (!occupied_ids.contains(candidate)) return EntityId{candidate};
+    }
+    return invalid_state("Machine persistence exhausted reserved machine anchor ids");
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_anchor(
@@ -291,45 +321,59 @@ struct RecordLocation {
 
 }  // namespace
 
-snt::core::Expected<snt::ecs::EntityGuid>
+snt::core::Expected<MachineAnchoredRuntime>
 GameMachineRuntimePersistence::create_anchored_machine(
     snt::ecs::World& world,
     GameChunkSidecarRegistry& sidecars,
     const ChunkKey& chunk_key,
-    EntityId anchor_entity_id,
+    int32_t root_x,
+    int32_t root_y,
+    int32_t root_z,
     MachineRuntimeComponent runtime) {
     GameChunkSidecar* sidecar = sidecars.get(chunk_key);
     if (sidecar == nullptr) {
         return invalid_state("Cannot create an anchored machine without its chunk sidecar");
     }
-    if (auto result = validate_anchor(chunk_key, *sidecar, anchor_entity_id); !result) {
+    auto anchor_entity_id = allocate_machine_anchor_id(sidecars);
+    if (!anchor_entity_id) return anchor_entity_id.error();
+
+    sidecar->block_entities.push_back({
+        .id = *anchor_entity_id,
+        .entity_type = BlockEntityType::MACHINE,
+        .root_x = root_x,
+        .root_y = root_y,
+        .root_z = root_z,
+        .owned_cell_count = 1,
+    });
+    if (auto result = validate_anchor(chunk_key, *sidecar, *anchor_entity_id); !result) {
+        sidecar->block_entities.pop_back();
         return result.error();
-    }
-    for (const MachineRuntimePersistenceRecord& existing : sidecar->machine_runtime_records) {
-        if (existing.anchor_entity_id == anchor_entity_id) {
-            return invalid_state("Machine block entity already has a runtime record");
-        }
     }
 
     const entt::entity entity = world.create_entity();
     const snt::ecs::EntityGuid entity_guid = world.guid_of(entity);
-    MachineRuntimePersistenceRecord record = make_record(anchor_entity_id, entity_guid, runtime);
+    MachineRuntimePersistenceRecord record = make_record(*anchor_entity_id, entity_guid, runtime);
     if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
         world.destroy_entity(entity);
+        sidecar->block_entities.pop_back();
         return result.error();
     }
-
     try {
         world.add_component<MachineRuntimeComponent>(entity, std::move(runtime));
         sidecar->machine_runtime_records.push_back(std::move(record));
     } catch (const std::exception& error) {
         world.destroy_entity(entity);
+        sidecar->block_entities.pop_back();
         return invalid_state("Anchored machine creation failed: " + std::string(error.what()));
     } catch (...) {
         world.destroy_entity(entity);
+        sidecar->block_entities.pop_back();
         return invalid_state("Anchored machine creation failed with an unknown error");
     }
-    return entity_guid;
+    return MachineAnchoredRuntime{
+        .anchor_entity_id = *anchor_entity_id,
+        .entity_guid = entity_guid,
+    };
 }
 
 snt::core::Expected<void> GameMachineRuntimePersistence::remove_anchored_machine(
@@ -353,6 +397,20 @@ snt::core::Expected<void> GameMachineRuntimePersistence::remove_anchored_machine
         return invalid_state("Machine EntityGuid does not map to exactly one anchored runtime record");
     }
 
+    const EntityId anchor_entity_id =
+        located.sidecar->machine_runtime_records[located.record_index].anchor_entity_id;
+    if (auto result = validate_anchor(*located.chunk_key, *located.sidecar, anchor_entity_id); !result) {
+        return result.error();
+    }
+    const auto anchor = std::find_if(
+        located.sidecar->block_entities.begin(), located.sidecar->block_entities.end(),
+        [anchor_entity_id](const BlockEntityPlacement& placement) {
+            return placement.id == anchor_entity_id;
+        });
+    if (anchor == located.sidecar->block_entities.end()) {
+        return invalid_state("Anchored machine record has no removable MACHINE block entity");
+    }
+
     const entt::entity entity = world.find_entity_by_guid(entity_guid);
     if (entity == entt::null ||
         !world.registry().all_of<MachineRuntimeComponent>(entity)) {
@@ -362,6 +420,7 @@ snt::core::Expected<void> GameMachineRuntimePersistence::remove_anchored_machine
     world.destroy_entity(entity);
     auto& records = located.sidecar->machine_runtime_records;
     records.erase(records.begin() + static_cast<std::ptrdiff_t>(located.record_index));
+    located.sidecar->block_entities.erase(anchor);
     return {};
 }
 

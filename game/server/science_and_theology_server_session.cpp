@@ -208,7 +208,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     player_death_ = std::move(*player_death);
     auto player_interactions = replication::GameServerPlayerInteractionService::create(
         world.world(), world.chunks(), simulation_session_.world_sidecars(), *player_state_,
-        *player_beds_, simulation_session_.machine_interactions(), player_lifecycle_.get(),
+        *player_beds_, simulation_session_.content(), simulation_session_.machine_interactions(),
+        player_lifecycle_.get(),
         quest_events_.get(),
         {
             .air_material_id = 0,

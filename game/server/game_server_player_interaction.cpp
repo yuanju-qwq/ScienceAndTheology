@@ -4,12 +4,15 @@
 #include "game/server/game_server_player_interaction.h"
 
 #include "core/error.h"
+#include "core/log.h"
 #include "ecs/world.h"
+#include "game/client/game_content_registry.h"
 #include "game/client/machine_tick_system.h"
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/machine_interaction_service.h"
+#include "game/simulation/machine_runtime_persistence.h"
 #include "game/world/game_chunk.h"
 #include "voxel/data/chunk_registry.h"
 #include "voxel/data/terrain_data.h"
@@ -27,6 +30,10 @@ namespace snt::game::replication {
 namespace {
 
 constexpr size_t kMaxCollectedMachineStacks = 64;
+constexpr uint32_t kPlacedMachineTerrainFlags =
+    static_cast<uint32_t>(snt::voxel::TF_SOLID) |
+    static_cast<uint32_t>(snt::voxel::TF_MINEABLE) |
+    static_cast<uint32_t>(snt::voxel::TF_WALKABLE);
 
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
@@ -173,6 +180,33 @@ struct TargetCell {
     return {};
 }
 
+// Content owns machine/item meaning, while this service owns the world-side
+// terrain catalog. Validate their boundary once before accepting commands so
+// an invalid package cannot wait until a player tries to place an item.
+[[nodiscard]] snt::core::Expected<void> validate_machine_placement_catalog(
+    const GameContentRegistry& content,
+    const GameServerPlayerInteractionConfig& config) {
+    if (auto result = content.validate_machine_placement_references(); !result) {
+        return result.error();
+    }
+    for (const MachinePlacementDefinition& placement :
+         content.machine_placement_definitions()) {
+        const bool collides_with_block = std::any_of(
+            config.block_definitions.begin(), config.block_definitions.end(),
+            [&placement](const GameServerBlockDefinition& block) {
+                return block.material_id == placement.material_id;
+            });
+        if (placement.material_id == config.air_material_id ||
+            placement.material_id == config.reserved_grave_material_id ||
+            collides_with_block) {
+            return invalid_argument("Machine placement item '" + placement.item_id +
+                                    "' has a terrain material that conflicts with the "
+                                    "server interaction catalog");
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 std::vector<GameServerBlockDefinition>
@@ -199,7 +233,8 @@ snt::core::Expected<std::unique_ptr<GameServerPlayerInteractionService>>
 GameServerPlayerInteractionService::create(
     snt::ecs::World& world, snt::voxel::ChunkRegistry& chunks,
     GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
-    GameServerPlayerBedService& beds, MachineInteractionService& machine_interactions,
+    GameServerPlayerBedService& beds, const GameContentRegistry& content,
+    MachineInteractionService& machine_interactions,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
     IGameServerPlayerInteractionEventSink* event_sink,
     GameServerPlayerInteractionConfig config) {
@@ -207,28 +242,33 @@ GameServerPlayerInteractionService::create(
         config.block_definitions = default_block_definitions();
     }
     if (auto result = validate_catalog(config); !result) return result.error();
+    if (auto result = validate_machine_placement_catalog(content, config); !result) {
+        return result.error();
+    }
     return std::unique_ptr<GameServerPlayerInteractionService>(
         new GameServerPlayerInteractionService(
-            world, chunks, sidecars, player_state, beds, machine_interactions,
+            world, chunks, sidecars, player_state, beds, content, machine_interactions,
             checkpoint_sink, event_sink, std::move(config)));
 }
 
 GameServerPlayerInteractionService::GameServerPlayerInteractionService(
     snt::ecs::World& world, snt::voxel::ChunkRegistry& chunks,
     GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
-    GameServerPlayerBedService& beds, MachineInteractionService& machine_interactions,
+    GameServerPlayerBedService& beds, const GameContentRegistry& content,
+    MachineInteractionService& machine_interactions,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
     IGameServerPlayerInteractionEventSink* event_sink,
     GameServerPlayerInteractionConfig config)
     : world_(&world), chunks_(&chunks), sidecars_(&sidecars), player_state_(&player_state),
-      beds_(&beds), machine_interactions_(&machine_interactions),
+      beds_(&beds), content_(&content), machine_interactions_(&machine_interactions),
       checkpoint_sink_(checkpoint_sink), event_sink_(event_sink), config_(std::move(config)) {}
 
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_block_interaction(
     const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
     uint64_t tick_index) {
     if (world_ == nullptr || chunks_ == nullptr || sidecars_ == nullptr ||
-        player_state_ == nullptr || beds_ == nullptr || machine_interactions_ == nullptr) {
+        player_state_ == nullptr || beds_ == nullptr || content_ == nullptr ||
+        machine_interactions_ == nullptr) {
         return invalid_state("Game server player interaction service is unavailable");
     }
     if (auto result = validate_game_block_interaction_command(command); !result) {
@@ -314,6 +354,9 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
     const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
     uint64_t tick_index) {
+    if (content_->find_machine_placement_by_item(command.selected_item_id) != nullptr) {
+        return apply_machine_place(peer, command, tick_index);
+    }
     auto target = resolve_target(*player_state_, *chunks_, peer, command);
     if (!target) return target.error();
     if (static_cast<uint32_t>(target->cell->material) != config_.air_material_id ||
@@ -371,6 +414,108 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
         .item_id = definition->item_id,
         .previous_material = config_.air_material_id,
         .current_material = definition->material_id,
+    });
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_place(
+    const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    if (static_cast<uint32_t>(target->cell->material) != config_.air_material_id ||
+        target->cell->has_fluid()) {
+        return invalid_state("Client machine placement target is not an empty host terrain cell");
+    }
+
+    const MachinePlacementDefinition* placement =
+        content_->find_machine_placement_by_item(command.selected_item_id);
+    if (placement == nullptr) {
+        return invalid_state("Client machine placement item is not in the host placement registry");
+    }
+    const MachineDefinition* machine = content_->find_machine(placement->machine_id);
+    if (machine == nullptr) {
+        return invalid_state("Machine placement refers to a missing current machine definition");
+    }
+    if (placement->material_id == config_.air_material_id ||
+        placement->material_id == config_.reserved_grave_material_id ||
+        find_block_by_material(placement->material_id) != nullptr) {
+        return invalid_state("Machine placement material conflicts with a host terrain material");
+    }
+
+    GameChunkSidecar* sidecar = sidecars_->get(target->chunk_key);
+    if (sidecar != nullptr && has_non_bed_sidecar_claim(*sidecar, target->position)) {
+        return invalid_state("Client machine placement target owns a protected game sidecar anchor");
+    }
+    auto bed_present = beds_->has_bed_at(target->position);
+    if (!bed_present) return bed_present.error();
+    if (*bed_present) {
+        return invalid_state("Client machine placement target already owns a player bed anchor");
+    }
+
+    const GamePlayerInventoryTransaction transaction{
+        .removals = {{.item_id = placement->item_id, .count = 1}},
+    };
+    auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
+    if (!can_apply) return can_apply.error();
+    if (!*can_apply) {
+        return invalid_state("Client machine placement item is absent from the host inventory");
+    }
+    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+
+    const bool created_sidecar = sidecar == nullptr;
+    if (created_sidecar) {
+        sidecars_->set(target->chunk_key, {});
+    }
+
+    MachineRuntimeComponent runtime;
+    runtime.machine_id = machine->id;
+    runtime.energy_capacity = machine->power_capacity;
+    auto anchored = GameMachineRuntimePersistence::create_anchored_machine(
+        *world_, *sidecars_, target->chunk_key, target->position.position.x,
+        target->position.position.y, target->position.position.z, std::move(runtime));
+    if (!anchored) {
+        if (created_sidecar) sidecars_->remove(target->chunk_key);
+        return anchored.error();
+    }
+
+    const snt::voxel::TerrainCell previous = *target->cell;
+    *target->cell = {
+        .material = static_cast<snt::voxel::TerrainMaterial>(placement->material_id),
+        .flags = kPlacedMachineTerrainFlags,
+    };
+    if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+        *target->cell = previous;
+        if (auto rollback = GameMachineRuntimePersistence::remove_anchored_machine(
+                *world_, *sidecars_, anchored->entity_guid);
+            !rollback) {
+            SNT_LOG_ERROR(
+                "Machine placement rollback left an anchor for machine '%s' at (%d,%d,%d): %s",
+                machine->id.c_str(), target->position.position.x, target->position.position.y,
+                target->position.position.z, rollback.error().format().c_str());
+        } else if (created_sidecar) {
+            sidecars_->remove(target->chunk_key);
+        }
+        auto error = result.error();
+        error.with_context("GameServerPlayerInteractionService::apply_machine_place(inventory commit)");
+        return error;
+    }
+
+    SNT_LOG_INFO("Placed machine '%s' for account '%s' at (%d,%d,%d) anchor=%llu runtime=%llu",
+                 machine->id.c_str(), peer.identity.account_id.c_str(),
+                 target->position.position.x, target->position.position.y,
+                 target->position.position.z,
+                 static_cast<unsigned long long>(anchored->anchor_entity_id.id),
+                 static_cast<unsigned long long>(anchored->entity_guid.value));
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kMachinePlaced,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = placement->item_id,
+        .machine_id = machine->id,
+        .previous_material = config_.air_material_id,
+        .current_material = placement->material_id,
     });
     return {};
 }

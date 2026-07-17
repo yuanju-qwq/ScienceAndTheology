@@ -11,6 +11,8 @@ namespace {
 
 using snt::game::EventListener;
 using snt::game::GameContentRegistry;
+using snt::game::MachineDefinition;
+using snt::game::MachinePlacementDefinition;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
@@ -23,6 +25,13 @@ RecipeDefinition make_recipe(std::string id, std::string input) {
     recipe.outputs = {RecipeOutputDefinition{"iron_ingot", 1}};
     recipe.duration_ticks = 100;
     return recipe;
+}
+
+MachineDefinition make_machine(std::string id) {
+    return {
+        .id = std::move(id),
+        .display_name = "Test Machine",
+    };
 }
 
 }  // namespace
@@ -74,6 +83,23 @@ TEST(GameContentRegistryTest, CommitKeepsReplacementAndRejectsDefinitionCollisio
 
     ASSERT_NE(content.find_recipe("bronze"), nullptr);
     EXPECT_EQ(content.find_recipe("bronze")->inputs.front().item_id, "copper_dust");
+}
+
+TEST(GameContentRegistryTest, RejectsUnloadThatWouldLeaveMachinePlacementDangling) {
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_script_machine(10, make_machine("p7.unload.machine")));
+    ASSERT_TRUE(content.register_script_machine_placement(
+        11,
+        MachinePlacementDefinition{
+            .item_id = "p7.unload.machine_block",
+            .machine_id = "p7.unload.machine",
+            .material_id = 42,
+        }));
+    ASSERT_TRUE(content.validate_machine_placement_references());
+
+    EXPECT_FALSE(content.unload_script(10));
+    EXPECT_NE(content.find_machine("p7.unload.machine"), nullptr);
+    EXPECT_NE(content.find_machine_placement_by_item("p7.unload.machine_block"), nullptr);
 }
 
 TEST(GameContentRegistryTest, EventListenersAreStableAndStateIsIsolatedByScript) {

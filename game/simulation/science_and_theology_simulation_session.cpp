@@ -83,6 +83,12 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Game session services are unavailable"};
     }
+    if (auto result = content_registry_.validate_machine_placement_references(); !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(machine placements)");
+        return error;
+    }
 
     if (scripts_started_) {
         machine_tick_system_ = std::make_shared<MachineTickSystem>(

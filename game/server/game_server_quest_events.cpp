@@ -70,6 +70,13 @@ void GameServerQuestEventService::on_player_interaction(
                 record_error(event.tick_index, "interaction inventory", result.error());
             }
             break;
+        case GameServerPlayerInteractionEventKind::kMachinePlaced:
+            if (auto result = update_inventory_objectives(event.account_id, event.tick_index); !result) {
+                record_error(event.tick_index, "machine placement inventory", result.error());
+            }
+            record_progress(event.account_id, QuestObjectiveKind::kPlaceMachine, event.machine_id, 1,
+                            event.tick_index);
+            break;
         case GameServerPlayerInteractionEventKind::kBedUsed:
         case GameServerPlayerInteractionEventKind::kMachineActivated:
             break;

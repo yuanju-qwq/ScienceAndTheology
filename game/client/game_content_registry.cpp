@@ -7,6 +7,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -134,6 +135,27 @@ void api_register_machine(const std::string& id,
     definition.power_capacity = power_capacity;
     definition.requires_manual_activation = requires_manual_activation;
     if (auto result = registry->register_script_machine(g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_register_machine_placement(const std::string& item_id,
+                                    const std::string& machine_id,
+                                    int material_id) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (material_id <= 0 || material_id > std::numeric_limits<uint8_t>::max()) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Machine placement material id must be a non-air terrain material"});
+        return;
+    }
+    if (auto result = registry->register_script_machine_placement(
+            g_active_script_id,
+            {.item_id = item_id,
+             .machine_id = machine_id,
+             .material_id = static_cast<uint32_t>(material_id)});
+        !result) {
         report_binding_error(result.error());
     }
 }
@@ -352,6 +374,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             asFUNCTION(api_register_machine)); !result) return result;
     if (auto result = register_function(
             engine,
+            "void snt_register_machine_placement(const string &in, const string &in, int)",
+            asFUNCTION(api_register_machine_placement)); !result) return result;
+    if (auto result = register_function(
+            engine,
             "void snt_set_machine_activation_requirements(const string &in, bool, bool, bool, const string &in)",
             asFUNCTION(api_set_machine_activation_requirements)); !result) return result;
     if (auto result = register_function(
@@ -557,6 +583,11 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_machine(MachineD
     return register_machine(kBuiltinScriptId, std::move(definition), true);
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_machine_placement(
+    MachinePlacementDefinition definition) {
+    return machine_placements_.register_builtin(std::move(definition));
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_quest_chapter(
     QuestBookChapterDefinition definition) {
     return register_quest_chapter(kBuiltinScriptId, std::move(definition), true);
@@ -574,6 +605,11 @@ snt::core::Expected<void> GameContentRegistry::register_script_recipe(
 snt::core::Expected<void> GameContentRegistry::register_script_machine(
     ScriptId script_id, MachineDefinition definition) {
     return register_machine(script_id, std::move(definition), false);
+}
+
+snt::core::Expected<void> GameContentRegistry::register_script_machine_placement(
+    ScriptId script_id, MachinePlacementDefinition definition) {
+    return machine_placements_.register_script(script_id, std::move(definition));
 }
 
 snt::core::Expected<void> GameContentRegistry::register_script_quest_chapter(
@@ -810,6 +846,30 @@ const MachineDefinition* GameContentRegistry::find_machine(std::string_view id) 
     return it == live_machines_.end() ? nullptr : &it->second.definition;
 }
 
+const MachinePlacementDefinition* GameContentRegistry::find_machine_placement_by_item(
+    std::string_view item_id) const noexcept {
+    return machine_placements_.find_by_item(item_id);
+}
+
+const MachinePlacementDefinition* GameContentRegistry::find_machine_placement_by_material(
+    uint32_t material_id) const noexcept {
+    return machine_placements_.find_by_material(material_id);
+}
+
+std::vector<MachinePlacementDefinition> GameContentRegistry::machine_placement_definitions() const {
+    return machine_placements_.definitions();
+}
+
+snt::core::Expected<void> GameContentRegistry::validate_machine_placement_references() const {
+    for (const MachinePlacementDefinition& placement : machine_placements_.definitions()) {
+        if (find_machine(placement.machine_id) != nullptr) continue;
+        return invalid_state("Machine placement item '" + placement.item_id +
+                             "' refers to a missing machine definition '" +
+                             placement.machine_id + "'");
+    }
+    return {};
+}
+
 const QuestBookChapterDefinition* GameContentRegistry::find_quest_chapter(
     std::string_view id) const {
     auto it = live_quest_chapters_.find(id);
@@ -956,6 +1016,8 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
     if (script_id == kBuiltinScriptId) return invalid_argument("Built-in content cannot be reloaded as a script");
     if (reloads_.contains(script_id)) return invalid_state("Reload is already active for script");
 
+    if (auto result = machine_placements_.begin_reload(script_id); !result) return result.error();
+
     reloads_.emplace(script_id, snapshot_script_content(script_id));
     erase_script_content(script_id);
     SNT_LOG_DEBUG("Game content began transactional reload for script %llu",
@@ -966,6 +1028,8 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
 snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id) {
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
+    if (auto result = validate_machine_placement_references(); !result) return result.error();
+    if (auto result = machine_placements_.commit_reload(script_id); !result) return result.error();
     reloads_.erase(it);
     SNT_LOG_INFO("Game content committed reload for script %llu",
                  static_cast<unsigned long long>(script_id));
@@ -975,6 +1039,8 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
 snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_id) {
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
+
+    if (auto result = machine_placements_.rollback_reload(script_id); !result) return result.error();
 
     erase_script_content(script_id);
     restore_script_content(it->second);
@@ -987,7 +1053,27 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
 snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id) {
     if (script_id == kBuiltinScriptId) return invalid_argument("Built-in content cannot be unloaded as a script");
     if (reloads_.contains(script_id)) return invalid_state("Cannot unload a script during its active reload");
-    erase_script_content(script_id);
+
+    // Unload is a content transition too. Reuse the transaction path so an
+    // unload cannot strand another script's placement pointing at a machine
+    // that only this script supplied.
+    if (auto result = begin_reload(script_id); !result) return result.error();
+    if (auto result = validate_machine_placement_references(); !result) {
+        auto error = result.error();
+        if (auto rollback = rollback_reload(script_id); !rollback) {
+            error.with_context("Game content unload rollback failed: " +
+                               rollback.error().format());
+        }
+        return error;
+    }
+    if (auto result = commit_reload(script_id); !result) {
+        auto error = result.error();
+        if (auto rollback = rollback_reload(script_id); !rollback) {
+            error.with_context("Game content unload rollback failed: " +
+                               rollback.error().format());
+        }
+        return error;
+    }
     SNT_LOG_INFO("Game content unloaded script %llu",
                  static_cast<unsigned long long>(script_id));
     return {};
@@ -1004,6 +1090,7 @@ void GameContentRegistry::reset() {
     live_machines_.clear();
     live_quest_chapters_.clear();
     live_quests_.clear();
+    machine_placements_.reset();
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();
