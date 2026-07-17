@@ -50,6 +50,9 @@ public:
     snt::core::Expected<void> after_fixed_tick(snt::engine::FixedTickContext& context) override;
     void shutdown() noexcept override;
 
+    // Client presentation may read immutable game definitions through this
+    // narrow accessor. It never receives mutable QuestRegistry progress.
+    const GameContentRegistry& content() const noexcept { return content_registry_; }
     QuestRegistry& quests() noexcept { return quest_registry_; }
     MachineInteractionService& machine_interactions() noexcept {
         return machine_interactions_;

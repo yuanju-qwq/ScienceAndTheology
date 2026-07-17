@@ -108,6 +108,7 @@ struct GameReplicationBudget {
     uint32_t max_reliable_bytes_per_tick = 256u * 1024u;
     uint32_t max_chunk_snapshots_per_tick = 2;
     uint32_t max_entity_snapshots_per_tick = 128;
+    uint32_t max_value_snapshots_per_tick = 32;
     uint32_t max_block_deltas_per_tick = 1024;
 };
 
@@ -142,6 +143,26 @@ public:
     // session ends or is superseded. The default preserves stateless source
     // implementations without forcing unrelated gameplay providers to carry
     // peer lifecycle state.
+    virtual void on_peer_disconnected(const GameAuthenticatedPeer& peer,
+                                      std::string_view reason) noexcept {
+        static_cast<void>(peer);
+        static_cast<void>(reason);
+    }
+};
+
+// Produces current, server-owned presentation values for the authenticated
+// observer. The snapshot source that owns outer snapshot ids compares these
+// values against its per-peer baseline and emits upsert/remove records only
+// after a complete outbound message fits the configured budget.
+class IGameReplicationValueSource {
+public:
+    virtual ~IGameReplicationValueSource() = default;
+
+    virtual snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
+        const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
+        const GameReplicationBudget& budget,
+        const snt::network::ReplicationTickContext& context) = 0;
+
     virtual void on_peer_disconnected(const GameAuthenticatedPeer& peer,
                                       std::string_view reason) noexcept {
         static_cast<void>(peer);

@@ -12,13 +12,14 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
+#include "game/network/game_quest_book_replication.h"
 #include "game/player/player_replication.h"
 #include "network/tcp_udp_transport.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
 #include "scene/scene.h"
 #include "script/script_manager.h"
-#include "ui/retained_mui.h"
+#include "ui/retained_mui_arc.h"
 #include "voxel/chunk_render_system.h"
 
 #include <SDL3/SDL_scancode.h>
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -126,10 +128,12 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_world(
     replication_session_ = std::move(*connection);
     remote_player_world_ = std::make_unique<replication::GameRemotePlayerWorld>(
         local_player_identity_ ? local_player_identity_->account_id : std::string{});
+    quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(
+        local_player_identity_ ? local_player_identity_->account_id : std::string{});
     SNT_LOG_INFO("Client replication connection requested (host=%s tcp=%u udp=%u)",
                  config_.client_network.host.c_str(), config_.client_network.tcp_port,
                  config_.client_network.udp_port);
-    SNT_LOG_INFO("Client is awaiting the authoritative player AOI snapshot");
+    SNT_LOG_INFO("Client is awaiting authoritative player AOI and task-book snapshots");
     return {};
 }
 
@@ -240,10 +244,23 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         return error;
     }
 
+    InventoryState initial_inventory = make_starting_inventory();
+    std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink;
+    if (!replication_session_) {
+        local_inventory_authority_ = std::make_shared<LocalInventorySlotTransferAuthority>(
+            initial_inventory);
+        slot_transfer_sink = local_inventory_authority_;
+        SNT_LOG_INFO("Inventory UI uses the offline authoritative slot-transaction simulator");
+    } else {
+        SNT_LOG_INFO("Inventory UI is awaiting a network slot-transaction adapter");
+    }
     gameplay_ui_ = std::make_unique<GameplayUiController>(
-        InventoryViewModel{make_starting_inventory()},
-        make_starting_crafting_recipes());
+        InventoryViewModel{std::move(initial_inventory)},
+        make_starting_crafting_recipes(), std::move(slot_transfer_sink));
     performance_ui_ = std::make_unique<PerformanceViewModel>();
+    quest_book_ui_ = std::make_unique<QuestBookViewModel>(
+        simulation_session_.content(), quest_book_state_.get(), this);
+    static_cast<void>(quest_book_ui_->refresh());
     auto& layers = world_session.ui_layers();
     if (auto result = layers.register_screen({
             .owner_id = "science_and_theology",
@@ -254,10 +271,35 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
             .dispatch_action = [this](std::string_view action_id) {
                 if (!gameplay_ui_) return;
                 dispatch_gameplay_ui_action(*gameplay_ui_, action_id);
+                if (local_inventory_authority_) {
+                    auto synced = local_inventory_authority_->synchronize_offline_snapshot(
+                        gameplay_ui_->inventory().state(),
+                        gameplay_ui_->inventory_authority_revision());
+                    if (!synced) {
+                        SNT_LOG_ERROR("Offline inventory authority synchronization failed after UI action '%.*s': %s",
+                                      static_cast<int>(action_id.size()), action_id.data(),
+                                      synced.error().format().c_str());
+                    }
+                }
             },
         }); !result) {
         auto error = result.error();
         error.with_context("ScienceAndTheologyClientSession::create_client_world(register gameplay UI)");
+        return error;
+    }
+    if (auto result = layers.register_screen({
+            .owner_id = "science_and_theology",
+            .screen_id = "quest_book",
+            .layer = snt::ui::UiLayer::Modal,
+            .initially_visible = false,
+            .factory = make_quest_book_ui_factory(*quest_book_ui_, [this] {
+                set_quest_book_visible(false);
+            }),
+        }); !result) {
+        const size_t removed = layers.unregister_owner("science_and_theology");
+        SNT_LOG_WARN("Task-book UI registration failed; removed %zu partial UI screen(s)", removed);
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::create_client_world(register task book UI)");
         return error;
     }
     if (auto result = layers.register_screen({
@@ -279,7 +321,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
                      local_player_identity_->account_id.c_str(),
                      player_identity_provider_name(local_player_identity_->provider));
     }
-    SNT_LOG_INFO("ScienceAndTheology client world and gameplay UI initialized");
+    SNT_LOG_INFO("ScienceAndTheology client world, gameplay UI, and task-book UI initialized");
     return {};
 }
 
@@ -295,31 +337,54 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
             error.with_context("ScienceAndTheologyClientSession::fixed_tick(replication inbound)");
             return error;
         }
-        if (remote_player_world_ &&
-            replication_session_->status().state ==
-                replication::GameClientConnectionState::kDisconnected) {
-            remote_player_world_->clear();
-        } else if (remote_player_world_) {
+        if (replication_session_->status().state ==
+            replication::GameClientConnectionState::kDisconnected) {
+            if (remote_player_world_) remote_player_world_->clear();
+            if (quest_book_state_) quest_book_state_->clear();
+        } else {
             for (const replication::GameClientReplicationUpdate& update :
                  replication_session_->drain_replication_updates()) {
-                const bool first_snapshot = remote_player_world_->active_snapshot_id() == 0;
-                auto applied = std::visit(
-                    [this](const auto& value) { return remote_player_world_->apply(value); }, update);
-                if (!applied) {
-                    auto error = applied.error();
-                    error.with_context(
-                        "ScienceAndTheologyClientSession::fixed_tick(remote player replication)");
-                    return error;
+                const bool first_player_snapshot =
+                    remote_player_world_ && remote_player_world_->active_snapshot_id() == 0;
+                const bool first_quest_book_snapshot =
+                    quest_book_state_ && quest_book_state_->active_snapshot_id() == 0;
+                if (quest_book_state_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return quest_book_state_->apply(value); }, update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(task-book replication)");
+                        return error;
+                    }
                 }
-                if (first_snapshot &&
+                if (remote_player_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_player_world_->apply(value); }, update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(remote player replication)");
+                        return error;
+                    }
+                }
+                if (first_player_snapshot && remote_player_world_ &&
                     std::holds_alternative<replication::GameSnapshot>(update)) {
                     SNT_LOG_INFO("Applied authoritative player snapshot %llu with %zu player value(s)",
                                  static_cast<unsigned long long>(
                                      remote_player_world_->active_snapshot_id()),
                                  remote_player_world_->player_count());
                 }
+                if (first_quest_book_snapshot && quest_book_state_ &&
+                    quest_book_state_->snapshot() != nullptr &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative task-book snapshot %llu with %zu quest record(s)",
+                                 static_cast<unsigned long long>(
+                                     quest_book_state_->active_snapshot_id()),
+                                 quest_book_state_->snapshot()->progress.size());
+                }
             }
-            apply_authoritative_local_player();
+            if (remote_player_world_) apply_authoritative_local_player();
         }
         if (replication_session_->status().state ==
             replication::GameClientConnectionState::kAuthenticated) {
@@ -364,6 +429,13 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::after_fixed_tick(
 }
 
 void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& context) {
+    if (gameplay_ui_ && local_inventory_authority_) {
+        for (InventorySlotTransferConfirmation confirmation :
+             local_inventory_authority_->drain_slot_transfer_confirmations()) {
+            static_cast<void>(
+                gameplay_ui_->apply_inventory_slot_transfer_confirmation(std::move(confirmation)));
+        }
+    }
     handle_gameplay_input(context);
     sample_network_movement_input(context);
 
@@ -396,17 +468,20 @@ void ScienceAndTheologyClientSession::build_ui(snt::engine::ClientUiContext& con
 void ScienceAndTheologyClientSession::shutdown() noexcept {
     if (ui_layers_) {
         const size_t removed = ui_layers_->unregister_owner("science_and_theology");
-        if (removed != 2u) {
-            SNT_LOG_WARN("Gameplay UI layer cleanup removed %zu screen(s), expected 2", removed);
+        if (removed != 3u) {
+            SNT_LOG_WARN("Gameplay UI layer cleanup removed %zu screen(s), expected 3", removed);
         }
         ui_layers_ = nullptr;
     }
     presentation_world_ = nullptr;
     remote_player_world_.reset();
+    quest_book_ui_.reset();
+    quest_book_state_.reset();
     if (replication_session_) replication_session_->shutdown();
     replication_session_.reset();
     connection_authentication_.reset();
     gameplay_ui_.reset();
+    local_inventory_authority_.reset();
     performance_ui_.reset();
     localization_.reset();
     simulation_session_.shutdown();
@@ -468,15 +543,60 @@ void ScienceAndTheologyClientSession::apply_authoritative_local_player() {
     transform.position[2] = static_cast<float>(player->player.position.position.z);
 }
 
+void ScienceAndTheologyClientSession::set_quest_book_visible(bool visible) {
+    if (!ui_layers_ || !quest_book_ui_) return;
+    if (visible) static_cast<void>(quest_book_ui_->refresh());
+    if (auto result = ui_layers_->set_visible("science_and_theology", "quest_book", visible);
+        !result) {
+        SNT_LOG_WARN("Task-book UI layer visibility update failed: %s",
+                     result.error().format().c_str());
+        return;
+    }
+    SNT_LOG_INFO("Task-book UI %s", visible ? "opened" : "closed");
+}
+
+snt::core::Expected<void> ScienceAndTheologyClientSession::submit_quest_reward_claim(
+    std::string_view quest_id) {
+    if (quest_id.empty()) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Task-book reward claim has an empty quest id"};
+    }
+    if (!replication_session_ || replication_session_->status().state !=
+                                     replication::GameClientConnectionState::kAuthenticated) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Task-book reward claim requires an authenticated server session"};
+    }
+    if (next_movement_sequence_ == 0 ||
+        next_movement_sequence_ == std::numeric_limits<uint64_t>::max()) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Client command sequence is exhausted"};
+    }
+    auto submitted = replication_session_->enqueue_quest_claim_reward(
+        next_movement_sequence_, {.quest_id = std::string(quest_id)});
+    if (!submitted) return submitted.error();
+    SNT_LOG_INFO("Queued task-book reward claim sequence=%llu quest='%.*s'",
+                 static_cast<unsigned long long>(next_movement_sequence_),
+                 static_cast<int>(quest_id.size()), quest_id.data());
+    ++next_movement_sequence_;
+    return {};
+}
+
 void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientFrameContext& context) {
-    if (!gameplay_ui_) return;
+    if (!gameplay_ui_ && !quest_book_ui_) return;
     const auto& input = context.input();
 
-    if (input.key_pressed[SDL_SCANCODE_E]) {
+    bool quest_book_open = ui_layers_ &&
+        ui_layers_->is_visible("science_and_theology", "quest_book");
+    if (quest_book_ui_ && input.key_pressed[SDL_SCANCODE_J]) {
+        if (!quest_book_open && gameplay_ui_) gameplay_ui_->close();
+        set_quest_book_visible(!quest_book_open);
+        quest_book_open = !quest_book_open;
+    }
+    if (!quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_E]) {
         gameplay_ui_->toggle_inventory();
         SNT_LOG_INFO("Inventory UI %s", gameplay_ui_->inventory_open() ? "opened" : "closed");
     }
-    if (input.key_pressed[SDL_SCANCODE_C]) {
+    if (!quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_C]) {
         gameplay_ui_->toggle_crafting();
         SNT_LOG_INFO("Crafting UI %s", gameplay_ui_->crafting_open() ? "opened" : "closed");
     }
@@ -493,15 +613,20 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         SNT_LOG_INFO("Performance UI %s", performance_ui_->visible() ? "opened" : "closed");
     }
 
-    bool gameplay_ui_open = gameplay_ui_->inventory_open() || gameplay_ui_->crafting_open();
-    if (input.esc_pressed && gameplay_ui_open) {
+    bool gameplay_ui_open = gameplay_ui_ &&
+        (gameplay_ui_->inventory_open() || gameplay_ui_->crafting_open());
+    if (input.esc_pressed && quest_book_open) {
+        set_quest_book_visible(false);
+        quest_book_open = false;
+    } else if (input.esc_pressed && gameplay_ui_open) {
         gameplay_ui_->close();
         gameplay_ui_open = false;
         SNT_LOG_INFO("Gameplay UI closed");
     }
-    if ((input.esc_pressed || gameplay_ui_open) && context.mouse_locked()) {
+    const bool ui_open = gameplay_ui_open || quest_book_open;
+    if ((input.esc_pressed || ui_open) && context.mouse_locked()) {
         context.set_mouse_locked(false);
-    } else if (input.wants_mouse_lock && !context.mouse_locked() && !gameplay_ui_open) {
+    } else if (input.wants_mouse_lock && !context.mouse_locked() && !ui_open) {
         context.set_mouse_locked(true);
     }
 }

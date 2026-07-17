@@ -104,6 +104,7 @@ target_link_libraries(snt_game_localization PRIVATE
 add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
     network/game_client_replication_session.cpp
+    network/game_quest_book_replication.cpp
     network/game_replication_protocol.cpp
     network/game_server_replication_handler.cpp
     player/player_replication.cpp
@@ -155,7 +156,9 @@ add_executable(snt_game_client
     client/main.cpp
     runtime/local_player_name_prompt.cpp
     runtime/runtime_package.cpp
+    client/inventory_slot_transaction.cpp
     client/gameplay_ui.cpp
+    client/quest_book_ui.cpp
     client/science_and_theology_session.cpp
 )
 target_include_directories(snt_game_client PRIVATE
@@ -187,6 +190,7 @@ add_executable(snt_game_server
     server/game_server_command_sink.cpp
     server/game_server_player_death.cpp
     server/game_server_player_interaction.cpp
+    server/game_server_quest_book_replication.cpp
     server/game_server_quest_events.cpp
     server/game_server_player_lifecycle.cpp
     server/game_server_player_movement.cpp
@@ -255,10 +259,13 @@ target_link_libraries(snt_game_world_test PRIVATE
 
 if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     add_executable(snt_game_tests
+        client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
+        client/quest_book_ui.cpp
         server/game_server_command_sink.cpp
         server/game_server_player_death.cpp
         server/game_server_player_interaction.cpp
+        server/game_server_quest_book_replication.cpp
         server/game_server_quest_events.cpp
         server/game_server_player_lifecycle.cpp
         server/game_server_player_movement.cpp
@@ -268,6 +275,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_world.cpp
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
+        tests/test_quest_book_ui.cpp
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
@@ -283,6 +291,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_server_quest_events.cpp
         tests/test_game_server_player_movement.cpp
         tests/test_game_server_player_state.cpp
+        tests/test_game_quest_book_replication.cpp
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp

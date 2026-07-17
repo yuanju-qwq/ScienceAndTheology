@@ -98,6 +98,7 @@ struct GameServerReplicationConfig {
     uint32_t max_reliable_bytes_per_tick = 256u * 1024u;
     uint32_t max_chunk_snapshots_per_tick = 2;
     uint32_t max_entity_snapshots_per_tick = 128;
+    uint32_t max_value_snapshots_per_tick = 32;
     uint32_t max_block_deltas_per_tick = 1024;
 };
 

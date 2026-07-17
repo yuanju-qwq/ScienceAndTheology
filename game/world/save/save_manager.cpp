@@ -118,7 +118,6 @@ snt::core::Error persistence_error(snt::core::ErrorCode code, std::string messag
 bool is_valid_quest_state(QuestState state) noexcept {
     switch (state) {
         case QuestState::kLocked:
-        case QuestState::kAvailable:
         case QuestState::kInProgress:
         case QuestState::kCompleted:
             return true;

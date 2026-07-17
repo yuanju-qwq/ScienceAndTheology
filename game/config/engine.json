@@ -93,6 +93,7 @@
     "max_reliable_bytes_per_tick": 262144,
     "max_chunk_snapshots_per_tick": 2,
     "max_entity_snapshots_per_tick": 128,
+    "max_value_snapshots_per_tick": 32,
     "max_block_deltas_per_tick": 1024
   },
   "client_network": {

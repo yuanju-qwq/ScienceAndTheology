@@ -29,7 +29,8 @@ class GameServerPlayerReplication final : public IGameReplicationInterestProvide
 public:
     [[nodiscard]] static snt::core::Expected<std::unique_ptr<GameServerPlayerReplication>> create(
         GameServerPlayerState& player_state,
-        GameServerPlayerReplicationConfig config = {});
+        GameServerPlayerReplicationConfig config = {},
+        std::vector<IGameReplicationValueSource*> value_sources = {});
 
     GameServerPlayerReplication(const GameServerPlayerReplication&) = delete;
     GameServerPlayerReplication& operator=(const GameServerPlayerReplication&) = delete;
@@ -58,20 +59,29 @@ private:
         uint64_t snapshot_id = 0;
         uint64_t next_delta_sequence = 1;
         std::map<uint64_t, GameReplicatedPlayerState> players;
+        std::map<uint8_t, GameReplicationValue> values;
     };
 
     GameServerPlayerReplication(GameServerPlayerState& player_state,
-                                GameServerPlayerReplicationConfig config);
+                                GameServerPlayerReplicationConfig config,
+                                std::vector<IGameReplicationValueSource*> value_sources);
 
     [[nodiscard]] snt::core::Expected<std::vector<VisiblePlayer>> visible_players(
         const GameReplicationInterest& interest, const GameReplicationBudget& budget) const;
+    [[nodiscard]] snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
+        const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
+        const GameReplicationBudget& budget,
+        const snt::network::ReplicationTickContext& context) const;
     [[nodiscard]] static snt::core::Expected<GameReplicatedPlayerState> make_player_state(
         const GameServerPlayerSnapshot& snapshot);
     [[nodiscard]] static bool same_player_state(const GameReplicatedPlayerState& left,
                                                 const GameReplicatedPlayerState& right) noexcept;
+    [[nodiscard]] static bool same_replication_value(const GameReplicationValue& left,
+                                                      const GameReplicationValue& right) noexcept;
 
     GameServerPlayerState* player_state_ = nullptr;
     GameServerPlayerReplicationConfig config_;
+    std::vector<IGameReplicationValueSource*> value_sources_;
     uint64_t next_snapshot_id_ = 1;
     std::map<snt::network::PeerId, PeerBaseline> peer_baselines_;
 };

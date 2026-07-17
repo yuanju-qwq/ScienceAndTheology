@@ -9,8 +9,11 @@
 #include "ui/ui_packed_scene.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <iterator>
+#include <limits>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -45,17 +48,55 @@ UiWidgetTemplate text_widget(std::string id, std::string text, float size = 16.0
     return widget;
 }
 
-UiWidgetTemplate slot_widget(std::string id, const ItemStackState& stack, bool selected) {
+UiWidgetTemplate slot_widget(std::string id, const ItemStackState& stack, bool selected,
+                             bool interactive = true) {
     UiWidgetTemplate widget;
     widget.type = UiWidgetType::Slot;
     widget.id = std::move(id);
     widget.layout.params = fixed(kSlotSize, kSlotSize);
+    widget.enabled = interactive;
     widget.slot = {
         .item_key = stack.item_key,
         .count = stack.count,
         .selected = selected,
     };
     return widget;
+}
+
+std::optional<uint32_t> inventory_slot_index(std::string_view id) {
+    constexpr std::string_view kPrefixes[] = {
+        "inventory_slot_",
+        "hotbar_slot_",
+    };
+    for (const std::string_view prefix : kPrefixes) {
+        if (!id.starts_with(prefix)) continue;
+        const char* const first = id.data() + prefix.size();
+        const char* const last = id.data() + id.size();
+        uint32_t index = 0;
+        const auto [next, error] = std::from_chars(first, last, index);
+        if (error == std::errc{} && next == last) return index;
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+void bind_inventory_slot_drag_handlers(View& view, GameplayUiController& controller) {
+    if (auto* slot = dynamic_cast<SlotView*>(&view)) {
+        if (inventory_slot_index(slot->id())) {
+            const std::string source_id = slot->id();
+            slot->set_drag_handler([&controller, source_id](const UiDragEvent& event) {
+                // Both source and target receive Drop. Only the source emits
+                // the transaction, so one retained drag yields one command.
+                if (event.source_id != source_id) return;
+                controller.handle_inventory_slot_drag(event);
+            });
+        }
+    }
+    if (auto* group = dynamic_cast<ViewGroup*>(&view)) {
+        for (const std::unique_ptr<View>& child : group->children()) {
+            bind_inventory_slot_drag_handlers(*child, controller);
+        }
+    }
 }
 
 UiWidgetTemplate& append_child(UiWidgetTemplate& parent, UiWidgetTemplate child) {
@@ -168,7 +209,7 @@ UiWidgetTemplate crafting_template(const CraftingViewModel& model,
         row.layout.orientation = Orientation::Horizontal;
         row.layout.spacing = 8.0f;
         row.layout.params = fixed(480.0f, 48.0f);
-        append_child(row, slot_widget("recipe_output_" + recipe.id, recipe.output, false));
+        append_child(row, slot_widget("recipe_output_" + recipe.id, recipe.output, false, false));
 
         const std::string output_name = localization.translate(recipe.output.item_key);
         const std::string output_count = std::to_string(recipe.output.count);
@@ -358,29 +399,77 @@ bool InventoryViewModel::remove_item(std::string_view item_key, int32_t count) {
 
 bool InventoryViewModel::add_item(ItemStackState stack) {
     if (stack.empty()) return true;
+    if (state_.max_stack_size <= 0 || (!stack.instance_data.empty() && stack.count != 1)) {
+        SNT_LOG_WARN("Inventory rejected an invalid stack for '%s'", stack.item_key.c_str());
+        return false;
+    }
 
-    for (auto& slot : state_.slots) {
-        if (slot.item_key == stack.item_key) {
-            slot.count += stack.count;
-            publish();
-            return true;
+    InventoryState candidate = state_;
+    if (stack.instance_data.empty()) {
+        for (auto& slot : candidate.slots) {
+            if (slot.item_key != stack.item_key || !slot.instance_data.empty() ||
+                slot.count >= candidate.max_stack_size) {
+                continue;
+            }
+            const int32_t capacity = candidate.max_stack_size - slot.count;
+            const int32_t merged = std::min(capacity, stack.count);
+            slot.count += merged;
+            stack.count -= merged;
         }
     }
-    for (auto& slot : state_.slots) {
+    for (auto& slot : candidate.slots) {
+        if (stack.count == 0) break;
         if (slot.empty()) {
-            slot = std::move(stack);
-            publish();
-            return true;
+            const int32_t placed = std::min(candidate.max_stack_size, stack.count);
+            slot = stack;
+            slot.count = placed;
+            stack.count -= placed;
         }
     }
-    SNT_LOG_WARN("Inventory is full; could not add item '%s'", stack.item_key.c_str());
-    return false;
+    if (stack.count != 0) {
+        SNT_LOG_WARN("Inventory is full; could not add item '%s'", stack.item_key.c_str());
+        return false;
+    }
+    state_ = std::move(candidate);
+    publish();
+    return true;
+}
+
+bool InventoryViewModel::apply_authoritative_slots(std::vector<ItemStackState> slots,
+                                                    int32_t max_stack_size) {
+    if (max_stack_size <= 0) {
+        SNT_LOG_ERROR("Inventory authority supplied an invalid stack limit %d", max_stack_size);
+        return false;
+    }
+    for (const ItemStackState& stack : slots) {
+        const bool empty = stack.item_key.empty() && stack.count == 0 &&
+            stack.instance_data.empty();
+        if (empty) continue;
+        if (stack.item_key.empty() || stack.count <= 0 || stack.count > max_stack_size ||
+            (!stack.instance_data.empty() && stack.count != 1)) {
+            SNT_LOG_ERROR("Inventory authority supplied an invalid slot snapshot");
+            return false;
+        }
+    }
+
+    state_.slots = std::move(slots);
+    state_.max_stack_size = max_stack_size;
+    if (state_.slots.empty()) {
+        state_.selected_hotbar = 0;
+    } else {
+        state_.selected_hotbar = std::clamp(
+            state_.selected_hotbar, 0,
+            std::min(8, static_cast<int32_t>(state_.slots.size()) - 1));
+    }
+    publish();
+    return true;
 }
 
 void InventoryViewModel::publish() {
     ++revision_;
     bindings_.set("inventory.slot_count", static_cast<int64_t>(state_.slots.size()));
     bindings_.set("inventory.selected_hotbar", static_cast<int64_t>(state_.selected_hotbar));
+    bindings_.set("inventory.max_stack_size", static_cast<int64_t>(state_.max_stack_size));
 }
 
 HotbarViewModel::HotbarViewModel(InventoryViewModel& inventory)
@@ -448,10 +537,13 @@ CraftedItemResult CraftingViewModel::craft(std::string_view recipe_id) {
 }
 
 GameplayUiController::GameplayUiController(InventoryViewModel inventory,
-                                           std::vector<CraftingRecipeState> recipes)
+                                           std::vector<CraftingRecipeState> recipes,
+                                           std::shared_ptr<IInventorySlotTransferCommandSink>
+                                               slot_transfer_sink)
     : inventory_(std::move(inventory)),
       hotbar_(inventory_),
-      crafting_(inventory_, std::move(recipes)) {}
+      crafting_(inventory_, std::move(recipes)),
+      slot_transfer_sink_(std::move(slot_transfer_sink)) {}
 
 void GameplayUiController::open_inventory() {
     set_open_screen(GameplayUiScreen::Inventory);
@@ -471,6 +563,107 @@ void GameplayUiController::toggle_inventory() {
 
 void GameplayUiController::toggle_crafting() {
     set_open_screen(crafting_open() ? GameplayUiScreen::None : GameplayUiScreen::Crafting);
+}
+
+void GameplayUiController::handle_inventory_slot_drag(const UiDragEvent& event) {
+    if (event.type != UiDragEventType::Drop) return;
+    if (pending_slot_transfer_) {
+        SNT_LOG_WARN("Inventory slot transfer ignored while request %llu is awaiting confirmation",
+                     static_cast<unsigned long long>(pending_slot_transfer_->request_id));
+        return;
+    }
+    if (!slot_transfer_sink_) {
+        SNT_LOG_WARN("Inventory slot transfer has no authority command sink: source='%s' target='%s'",
+                     event.source_id.c_str(), event.target_id.c_str());
+        return;
+    }
+
+    const std::optional<uint32_t> source_slot = inventory_slot_index(event.source_id);
+    const std::optional<uint32_t> target_slot = inventory_slot_index(event.target_id);
+    if (!source_slot || !target_slot || *source_slot == *target_slot) {
+        SNT_LOG_WARN("Inventory slot transfer has invalid stable slot IDs: source='%s' target='%s'",
+                     event.source_id.c_str(), event.target_id.c_str());
+        return;
+    }
+    const InventoryState& state = inventory_.state();
+    if (*source_slot >= state.slots.size() || *target_slot >= state.slots.size()) {
+        SNT_LOG_WARN("Inventory slot transfer references unavailable slots: source=%u target=%u count=%zu",
+                     *source_slot, *target_slot, state.slots.size());
+        return;
+    }
+    const ItemStackState& source = state.slots[*source_slot];
+    if (source.empty() || event.payload.type != "snt.item" ||
+        event.payload.resource_key != source.item_key || event.payload.count <= 0 ||
+        event.payload.count > source.count) {
+        SNT_LOG_WARN("Inventory slot transfer payload no longer matches source slot %u", *source_slot);
+        return;
+    }
+    if (next_inventory_transfer_request_id_ == 0 ||
+        next_inventory_transfer_request_id_ == std::numeric_limits<uint64_t>::max()) {
+        SNT_LOG_ERROR("Inventory slot transfer request IDs are exhausted");
+        return;
+    }
+
+    InventorySlotTransferRequest request{
+        .request_id = next_inventory_transfer_request_id_,
+        .expected_revision = inventory_authority_revision_,
+        .source_slot = *source_slot,
+        .target_slot = *target_slot,
+        .count = event.payload.count,
+        .expected_source = source,
+        .expected_target = state.slots[*target_slot],
+    };
+    if (auto submitted = slot_transfer_sink_->submit_slot_transfer(request); !submitted) {
+        SNT_LOG_WARN("Inventory slot transfer request %llu was not submitted: %s",
+                     static_cast<unsigned long long>(request.request_id),
+                     submitted.error().format().c_str());
+        return;
+    }
+
+    pending_slot_transfer_ = request;
+    ++next_inventory_transfer_request_id_;
+    SNT_LOG_INFO("Inventory slot transfer requested id=%llu source=%u target=%u count=%d",
+                 static_cast<unsigned long long>(request.request_id), request.source_slot,
+                 request.target_slot, request.count);
+}
+
+bool GameplayUiController::apply_inventory_slot_transfer_confirmation(
+    InventorySlotTransferConfirmation confirmation) {
+    if (!pending_slot_transfer_ || confirmation.request_id != pending_slot_transfer_->request_id) {
+        SNT_LOG_WARN("Inventory authority returned an unknown slot transfer confirmation id=%llu",
+                     static_cast<unsigned long long>(confirmation.request_id));
+        return false;
+    }
+
+    const InventorySlotTransferRequest request = *pending_slot_transfer_;
+    pending_slot_transfer_.reset();
+    const bool accepted = confirmation.outcome == InventorySlotTransferOutcome::Accepted;
+    if ((accepted && confirmation.authoritative_revision <= request.expected_revision) ||
+        (!accepted && confirmation.authoritative_revision < request.expected_revision)) {
+        SNT_LOG_ERROR("Inventory authority returned a stale confirmation id=%llu revision=%llu",
+                      static_cast<unsigned long long>(confirmation.request_id),
+                      static_cast<unsigned long long>(confirmation.authoritative_revision));
+        return false;
+    }
+    if (!inventory_.apply_authoritative_slots(std::move(confirmation.slots),
+                                               confirmation.max_stack_size)) {
+        SNT_LOG_ERROR("Inventory authority confirmation id=%llu has an invalid snapshot",
+                      static_cast<unsigned long long>(confirmation.request_id));
+        return false;
+    }
+
+    inventory_authority_revision_ = confirmation.authoritative_revision;
+    if (accepted) {
+        SNT_LOG_INFO("Inventory slot transfer confirmed id=%llu revision=%llu",
+                     static_cast<unsigned long long>(confirmation.request_id),
+                     static_cast<unsigned long long>(inventory_authority_revision_));
+        return true;
+    }
+    SNT_LOG_WARN("Inventory slot transfer rejected id=%llu: %s",
+                 static_cast<unsigned long long>(confirmation.request_id),
+                 confirmation.rejection_reason.empty() ? "authority rejected request"
+                                                      : confirmation.rejection_reason.c_str());
+    return false;
 }
 
 void GameplayUiController::set_open_screen(GameplayUiScreen screen) {
@@ -590,6 +783,7 @@ snt::core::Expected<void> replace_gameplay_ui_children(
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Gameplay UI WidgetTree root is not a ViewGroup"};
     }
+    bind_inventory_slot_drag_handlers(*candidate_root, controller);
 
     target_root->set_layout_params(candidate_root->layout_params());
     std::vector<std::unique_ptr<View>> children = std::move(candidate_root->children());
@@ -674,6 +868,7 @@ UiScreenFactory make_gameplay_ui_factory(
             return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                     "Gameplay UI WidgetTree root is not a ViewGroup"};
         }
+        bind_inventory_slot_drag_handlers(**root, controller);
 
         auto state = std::make_shared<GameplayUiMountState>();
         state->tree_state = gameplay_ui_tree_state(controller, viewport);
@@ -732,7 +927,9 @@ std::unique_ptr<ViewGroup> build_gameplay_ui_root(GameplayUiController& controll
                                                   Vec2 viewport,
                                                   const localization::LocalizationService& localization) {
     UiWidgetTree tree = build_gameplay_ui_widget_tree(controller, viewport, localization);
-    return instantiate_group(std::move(tree.root), crafting_actions(controller.crafting()));
+    auto root = instantiate_group(std::move(tree.root), crafting_actions(controller.crafting()));
+    if (root) bind_inventory_slot_drag_handlers(*root, controller);
+    return root;
 }
 
 snt::core::Expected<void> register_gameplay_ui_images(

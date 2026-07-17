@@ -92,12 +92,10 @@ public:
         const snt::network::ReplicationTickContext& context);
 
     // Command semantics remain game-owned. Callers use typed APIs such as
-    // enqueue_quest_accept() and enqueue_quest_claim_reward() for implemented
-    // commands; this generic boundary remains available for a future typed
-    // command codec without exposing the transport or handler state.
+    // enqueue_quest_claim_reward() for implemented commands; this generic
+    // boundary remains available for a future typed command codec without
+    // exposing the transport or handler state.
     [[nodiscard]] snt::core::Expected<void> enqueue_command(GameClientCommand command);
-    [[nodiscard]] snt::core::Expected<void> enqueue_quest_accept(
-        uint64_t client_sequence, GameQuestAcceptCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_quest_claim_reward(
         uint64_t client_sequence, GameQuestClaimRewardCommand command);
     // The caller has already performed local raycast/prediction and supplies

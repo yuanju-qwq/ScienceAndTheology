@@ -4,6 +4,7 @@
 
 #include "core/path_utils.h"
 #include "game/localization/localization.h"
+#include "ui/retained_mui_runtime.h"
 
 #include <gtest/gtest.h>
 
@@ -133,7 +134,221 @@ void click_primary(UiRuntime& runtime, View& root, Vec2 point) {
     runtime.synchronize_interaction_state(root);
 }
 
+void drag_primary(UiRuntime& runtime, View& root, Vec2 source, Vec2 target) {
+    runtime.begin_input_frame({
+        .pointer_position = source,
+        .pointer_held = {true, false, false},
+        .pointer_pressed = {true, false, false},
+    });
+    ASSERT_TRUE(runtime.dispatch_pointer_input(root));
+
+    runtime.begin_input_frame({
+        .pointer_position = target,
+        .pointer_held = {true, false, false},
+    });
+    ASSERT_TRUE(runtime.dispatch_pointer_input(root));
+
+    runtime.begin_input_frame({
+        .pointer_position = target,
+        .pointer_released = {true, false, false},
+    });
+    ASSERT_TRUE(runtime.dispatch_pointer_input(root));
+    runtime.synchronize_interaction_state(root);
+}
+
+void drag_secondary(UiRuntime& runtime, View& root, Vec2 source, Vec2 target) {
+    runtime.begin_input_frame({
+        .pointer_position = source,
+        .pointer_held = {false, false, true},
+        .pointer_pressed = {false, false, true},
+    });
+    ASSERT_TRUE(runtime.dispatch_pointer_input(root));
+
+    runtime.begin_input_frame({
+        .pointer_position = target,
+        .pointer_held = {false, false, true},
+    });
+    ASSERT_TRUE(runtime.dispatch_pointer_input(root));
+
+    runtime.begin_input_frame({
+        .pointer_position = target,
+        .pointer_released = {false, false, true},
+    });
+    ASSERT_TRUE(runtime.dispatch_pointer_input(root));
+    runtime.synchronize_interaction_state(root);
+}
+
 }  // namespace
+
+TEST(GameplayUi, LocalSlotAuthoritySplitsMergesSwapsAndRejectsStaleSnapshots) {
+    InventoryState state;
+    state.columns = 4;
+    state.max_stack_size = 64;
+    state.slots = {
+        {"plank.oak", 8},
+        {},
+        {"plank.oak", 60},
+        {"material.coal", 2},
+    };
+    LocalInventorySlotTransferAuthority authority(state);
+
+    ASSERT_TRUE(authority.submit_slot_transfer({
+        .request_id = 1,
+        .expected_revision = 0,
+        .source_slot = 0,
+        .target_slot = 1,
+        .count = 3,
+        .expected_source = state.slots[0],
+        .expected_target = state.slots[1],
+    }));
+    auto confirmations = authority.drain_slot_transfer_confirmations();
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations.front().outcome, InventorySlotTransferOutcome::Accepted);
+    EXPECT_EQ(confirmations.front().authoritative_revision, 1u);
+    EXPECT_EQ(confirmations.front().slots[0], (ItemStackState{"plank.oak", 5}));
+    EXPECT_EQ(confirmations.front().slots[1], (ItemStackState{"plank.oak", 3}));
+
+    state.slots = confirmations.front().slots;
+    ASSERT_TRUE(authority.submit_slot_transfer({
+        .request_id = 2,
+        .expected_revision = 1,
+        .source_slot = 0,
+        .target_slot = 2,
+        .count = 4,
+        .expected_source = state.slots[0],
+        .expected_target = state.slots[2],
+    }));
+    confirmations = authority.drain_slot_transfer_confirmations();
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations.front().outcome, InventorySlotTransferOutcome::Accepted);
+    EXPECT_EQ(confirmations.front().slots[0], (ItemStackState{"plank.oak", 1}));
+    EXPECT_EQ(confirmations.front().slots[2], (ItemStackState{"plank.oak", 64}));
+
+    state.slots = confirmations.front().slots;
+    ASSERT_TRUE(authority.submit_slot_transfer({
+        .request_id = 3,
+        .expected_revision = 2,
+        .source_slot = 1,
+        .target_slot = 3,
+        .count = 3,
+        .expected_source = state.slots[1],
+        .expected_target = state.slots[3],
+    }));
+    confirmations = authority.drain_slot_transfer_confirmations();
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations.front().outcome, InventorySlotTransferOutcome::Accepted);
+    EXPECT_EQ(confirmations.front().slots[1], (ItemStackState{"material.coal", 2}));
+    EXPECT_EQ(confirmations.front().slots[3], (ItemStackState{"plank.oak", 3}));
+
+    ASSERT_TRUE(authority.submit_slot_transfer({
+        .request_id = 4,
+        .expected_revision = 0,
+        .source_slot = 1,
+        .target_slot = 3,
+        .count = 2,
+        .expected_source = {"material.coal", 2},
+        .expected_target = {"plank.oak", 3},
+    }));
+    confirmations = authority.drain_slot_transfer_confirmations();
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations.front().outcome, InventorySlotTransferOutcome::Rejected);
+    EXPECT_EQ(confirmations.front().authoritative_revision, 3u);
+    EXPECT_EQ(confirmations.front().slots[1], (ItemStackState{"material.coal", 2}));
+    EXPECT_EQ(confirmations.front().slots[3], (ItemStackState{"plank.oak", 3}));
+}
+
+TEST(GameplayUi, SlotDragChangesPresentationOnlyAfterAuthorityConfirmation) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+
+    InventoryState inventory;
+    inventory.columns = 3;
+    inventory.slots = {
+        {"plank.oak", 8},
+        {"material.coal", 2},
+        {},
+    };
+    auto authority = std::make_shared<LocalInventorySlotTransferAuthority>(inventory);
+    GameplayUiController controller{
+        InventoryViewModel{inventory}, {}, authority,
+    };
+    controller.open_inventory();
+    auto root = build_gameplay_ui_root(controller, {800.0f, 600.0f}, **localization);
+    ASSERT_NE(root, nullptr);
+
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    UiRuntime runtime(*paths);
+    runtime.layout(*root, {800.0f, 600.0f});
+    auto* source = dynamic_cast<SlotView*>(root->find("inventory_slot_0"));
+    auto* target = dynamic_cast<SlotView*>(root->find("inventory_slot_1"));
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(target, nullptr);
+
+    const Rect source_bounds = source->bounds();
+    const Rect target_bounds = target->bounds();
+    drag_primary(runtime, *root,
+                 {source_bounds.pos.x + source_bounds.size.x * 0.5f,
+                  source_bounds.pos.y + source_bounds.size.y * 0.5f},
+                 {target_bounds.pos.x + target_bounds.size.x * 0.5f,
+                  target_bounds.pos.y + target_bounds.size.y * 0.5f});
+
+    EXPECT_TRUE(controller.inventory_slot_transfer_pending());
+    EXPECT_EQ(controller.inventory().state().slots[0], (ItemStackState{"plank.oak", 8}));
+    EXPECT_EQ(controller.inventory().state().slots[1], (ItemStackState{"material.coal", 2}));
+
+    auto confirmations = authority->drain_slot_transfer_confirmations();
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_TRUE(controller.apply_inventory_slot_transfer_confirmation(
+        std::move(confirmations.front())));
+    EXPECT_FALSE(controller.inventory_slot_transfer_pending());
+    EXPECT_EQ(controller.inventory_authority_revision(), 1u);
+    EXPECT_EQ(controller.inventory().state().slots[0], (ItemStackState{"material.coal", 2}));
+    EXPECT_EQ(controller.inventory().state().slots[1], (ItemStackState{"plank.oak", 8}));
+}
+
+TEST(GameplayUi, SecondarySlotDragRequestsHalfStackSplit) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+
+    InventoryState inventory;
+    inventory.columns = 3;
+    inventory.slots = {
+        {"plank.oak", 7},
+        {},
+        {},
+    };
+    auto authority = std::make_shared<LocalInventorySlotTransferAuthority>(inventory);
+    GameplayUiController controller{
+        InventoryViewModel{inventory}, {}, authority,
+    };
+    controller.open_inventory();
+    auto root = build_gameplay_ui_root(controller, {800.0f, 600.0f}, **localization);
+    ASSERT_NE(root, nullptr);
+
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    UiRuntime runtime(*paths);
+    runtime.layout(*root, {800.0f, 600.0f});
+    auto* source = dynamic_cast<SlotView*>(root->find("inventory_slot_0"));
+    auto* target = dynamic_cast<SlotView*>(root->find("inventory_slot_1"));
+    ASSERT_NE(source, nullptr);
+    ASSERT_NE(target, nullptr);
+    const Rect source_bounds = source->bounds();
+    const Rect target_bounds = target->bounds();
+    drag_secondary(runtime, *root,
+                   {source_bounds.pos.x + source_bounds.size.x * 0.5f,
+                    source_bounds.pos.y + source_bounds.size.y * 0.5f},
+                   {target_bounds.pos.x + target_bounds.size.x * 0.5f,
+                    target_bounds.pos.y + target_bounds.size.y * 0.5f});
+
+    auto confirmations = authority->drain_slot_transfer_confirmations();
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_TRUE(controller.apply_inventory_slot_transfer_confirmation(
+        std::move(confirmations.front())));
+    EXPECT_EQ(controller.inventory().state().slots[0], (ItemStackState{"plank.oak", 3}));
+    EXPECT_EQ(controller.inventory().state().slots[1], (ItemStackState{"plank.oak", 4}));
+}
 
 TEST(GameplayUi, InventoryScreenOpensAndRendersThroughArc2D) {
     const auto localization = make_test_localization();

@@ -64,8 +64,7 @@ private:
     struct PendingCommand {
         GameAuthenticatedPeer peer;
         uint64_t client_sequence = 0;
-        GameClientCommandType type = GameClientCommandType::kQuestAccept;
-        GameQuestAcceptCommand quest_accept;
+        GameClientCommandType type = GameClientCommandType::kQuestClaimReward;
         GameQuestClaimRewardCommand quest_claim_reward;
         GameBlockInteractionCommand block_interaction;
     };

@@ -222,11 +222,54 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     return {};
 }
 
+[[nodiscard]] snt::core::Expected<void> validate_replication_value(
+    const GameReplicationValue& value, bool is_snapshot) {
+    if (!is_known_game_replication_value_kind(value.kind)) {
+        return protocol_error("Game replication value kind is unknown");
+    }
+    if (value.operation != GameReplicationValueOperation::kUpsert &&
+        value.operation != GameReplicationValueOperation::kRemove) {
+        return protocol_error("Game replication value operation is invalid");
+    }
+    if (is_snapshot && value.operation != GameReplicationValueOperation::kUpsert) {
+        return protocol_error("Game replication snapshot value must be an upsert");
+    }
+    if (value.operation == GameReplicationValueOperation::kRemove) {
+        if (!value.payload.empty()) {
+            return protocol_error("Game replication removed value carries a payload");
+        }
+        return {};
+    }
+    if (value.payload.empty() || value.payload.size() > kMaxGameReplicationValuePayloadBytes) {
+        return protocol_error("Game replication value payload is invalid");
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_replication_values(
+    const std::vector<GameReplicationValue>& values, bool is_snapshot) {
+    if (values.size() > kMaxGameSnapshotValues) {
+        return protocol_error("Game replication has too many values");
+    }
+    std::unordered_set<uint8_t> kinds;
+    kinds.reserve(values.size());
+    for (const GameReplicationValue& value : values) {
+        if (auto result = validate_replication_value(value, is_snapshot); !result) {
+            return result.error();
+        }
+        if (!kinds.insert(static_cast<uint8_t>(value.kind)).second) {
+            return protocol_error("Game replication contains duplicate value kinds");
+        }
+    }
+    return {};
+}
+
 [[nodiscard]] snt::core::Expected<void> validate_snapshot(
     const GameSnapshot& snapshot) {
     if (snapshot.snapshot_id == 0 ||
         snapshot.chunks.size() > kMaxGameSnapshotChunks ||
-        snapshot.entities.size() > kMaxGameSnapshotEntities) {
+        snapshot.entities.size() > kMaxGameSnapshotEntities ||
+        snapshot.values.size() > kMaxGameSnapshotValues) {
         return protocol_error("Game replication snapshot is invalid");
     }
 
@@ -251,13 +294,17 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
             return protocol_error("Game replication snapshot contains a duplicate entity");
         }
     }
+    if (auto result = validate_replication_values(snapshot.values, true); !result) {
+        return result.error();
+    }
     return {};
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_delta(const GameDelta& delta) {
     if (delta.base_snapshot_id == 0 || delta.sequence == 0 ||
         delta.chunks.size() > kMaxGameDeltaChunks ||
-        delta.entities.size() > kMaxGameSnapshotEntities) {
+        delta.entities.size() > kMaxGameSnapshotEntities ||
+        delta.values.size() > kMaxGameSnapshotValues) {
         return protocol_error("Game replication delta is invalid");
     }
 
@@ -294,6 +341,9 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
             return protocol_error("Game replication delta contains a duplicate entity");
         }
     }
+    if (auto result = validate_replication_values(delta.values, false); !result) {
+        return result.error();
+    }
     return {};
 }
 
@@ -310,6 +360,14 @@ bool is_known_game_replication_message_kind(GameReplicationMessageKind kind) noe
         case GameReplicationMessageKind::kServerSnapshot:
         case GameReplicationMessageKind::kServerDelta:
         case GameReplicationMessageKind::kServerNotice:
+            return true;
+    }
+    return false;
+}
+
+bool is_known_game_replication_value_kind(GameReplicationValueKind kind) noexcept {
+    switch (kind) {
+        case GameReplicationValueKind::kQuestBook:
             return true;
     }
     return false;
@@ -635,34 +693,6 @@ snt::core::Expected<GamePlayerMovementInput> parse_game_player_movement_input(
     return input;
 }
 
-snt::core::Expected<GameClientCommand> make_game_quest_accept_command(
-    uint64_t client_sequence, const GameQuestAcceptCommand& command) {
-    GameClientCommand encoded;
-    encoded.client_sequence = client_sequence;
-    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kQuestAccept);
-    if (auto result = append_short_string(encoded.payload, command.quest_id,
-                                          kMaxGameQuestIdBytes, "quest accept id", true);
-        !result) {
-        return result.error();
-    }
-    return encoded;
-}
-
-snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
-    const GameClientCommand& command) {
-    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kQuestAccept)) {
-        return protocol_error("Game client command type is not QuestAccept");
-    }
-
-    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
-    size_t offset = 0;
-    auto quest_id = read_short_string(bytes, offset, kMaxGameQuestIdBytes,
-                                      "quest accept id", true);
-    if (!quest_id) return quest_id.error();
-    if (offset != bytes.size()) return protocol_error("Quest accept command has trailing bytes");
-    return GameQuestAcceptCommand{.quest_id = std::move(*quest_id)};
-}
-
 snt::core::Expected<GameClientCommand> make_game_quest_claim_reward_command(
     uint64_t client_sequence, const GameQuestClaimRewardCommand& command) {
     GameClientCommand encoded;
@@ -819,6 +849,13 @@ snt::core::Expected<GameReplicationMessage> make_game_snapshot(
         append_u32(message.payload, static_cast<uint32_t>(entity.payload.size()));
         message.payload.insert(message.payload.end(), entity.payload.begin(), entity.payload.end());
     }
+    append_u16(message.payload, static_cast<uint16_t>(snapshot.values.size()));
+    for (const GameReplicationValue& value : snapshot.values) {
+        message.payload.push_back(static_cast<std::byte>(value.kind));
+        message.payload.push_back(static_cast<std::byte>(value.operation));
+        append_u32(message.payload, static_cast<uint32_t>(value.payload.size()));
+        message.payload.insert(message.payload.end(), value.payload.begin(), value.payload.end());
+    }
     if (auto result = validate_message_shape(message); !result) return result.error();
     return message;
 }
@@ -877,6 +914,31 @@ snt::core::Expected<GameSnapshot> parse_game_snapshot(
         snapshot.entities.push_back(std::move(entity));
     }
 
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("Game replication snapshot value count is truncated");
+    }
+    const size_t value_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (value_count > kMaxGameSnapshotValues) {
+        return protocol_error("Game replication snapshot has too many values");
+    }
+    snapshot.values.reserve(value_count);
+    for (size_t index = 0; index < value_count; ++index) {
+        if (bytes.size() - offset < sizeof(uint8_t) * 2) {
+            return protocol_error("Game replication snapshot value header is truncated");
+        }
+        GameReplicationValue value;
+        value.kind = static_cast<GameReplicationValueKind>(
+            std::to_integer<uint8_t>(bytes[offset++]));
+        value.operation = static_cast<GameReplicationValueOperation>(
+            std::to_integer<uint8_t>(bytes[offset++]));
+        auto payload = read_byte_vector(bytes, offset, kMaxGameReplicationValuePayloadBytes,
+                                        "snapshot value payload");
+        if (!payload) return payload.error();
+        value.payload = std::move(*payload);
+        snapshot.values.push_back(std::move(value));
+    }
+
     if (offset != bytes.size()) return protocol_error("Game replication snapshot has trailing bytes");
     if (auto result = validate_snapshot(snapshot); !result) return result.error();
     return snapshot;
@@ -904,6 +966,13 @@ snt::core::Expected<GameReplicationMessage> make_game_delta(const GameDelta& del
         append_u64(message.payload, entity.entity_guid.value);
         append_u32(message.payload, static_cast<uint32_t>(entity.payload.size()));
         message.payload.insert(message.payload.end(), entity.payload.begin(), entity.payload.end());
+    }
+    append_u16(message.payload, static_cast<uint16_t>(delta.values.size()));
+    for (const GameReplicationValue& value : delta.values) {
+        message.payload.push_back(static_cast<std::byte>(value.kind));
+        message.payload.push_back(static_cast<std::byte>(value.operation));
+        append_u32(message.payload, static_cast<uint32_t>(value.payload.size()));
+        message.payload.insert(message.payload.end(), value.payload.begin(), value.payload.end());
     }
     if (auto result = validate_message_shape(message); !result) return result.error();
     return message;
@@ -988,6 +1057,31 @@ snt::core::Expected<GameDelta> parse_game_delta(const GameReplicationMessage& me
         if (!payload) return payload.error();
         entity.payload = std::move(*payload);
         delta.entities.push_back(std::move(entity));
+    }
+
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("Game replication delta value count is truncated");
+    }
+    const size_t value_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (value_count > kMaxGameSnapshotValues) {
+        return protocol_error("Game replication delta has too many values");
+    }
+    delta.values.reserve(value_count);
+    for (size_t index = 0; index < value_count; ++index) {
+        if (bytes.size() - offset < sizeof(uint8_t) * 2) {
+            return protocol_error("Game replication delta value header is truncated");
+        }
+        GameReplicationValue value;
+        value.kind = static_cast<GameReplicationValueKind>(
+            std::to_integer<uint8_t>(bytes[offset++]));
+        value.operation = static_cast<GameReplicationValueOperation>(
+            std::to_integer<uint8_t>(bytes[offset++]));
+        auto payload = read_byte_vector(bytes, offset, kMaxGameReplicationValuePayloadBytes,
+                                        "delta value payload");
+        if (!payload) return payload.error();
+        value.payload = std::move(*payload);
+        delta.values.push_back(std::move(value));
     }
 
     if (offset != bytes.size()) return protocol_error("Game replication delta has trailing bytes");

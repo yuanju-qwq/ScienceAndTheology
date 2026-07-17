@@ -77,7 +77,8 @@ struct EntityChange {
 
 snt::core::Expected<std::unique_ptr<GameServerPlayerReplication>>
 GameServerPlayerReplication::create(GameServerPlayerState& player_state,
-                                    GameServerPlayerReplicationConfig config) {
+                                    GameServerPlayerReplicationConfig config,
+                                    std::vector<IGameReplicationValueSource*> value_sources) {
     if (config.horizontal_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
         config.vertical_aoi_radius_blocks > kMaxAoiRadiusBlocks) {
         return invalid_argument("Dedicated server player AOI radius exceeds the configured limit");
@@ -86,13 +87,20 @@ GameServerPlayerReplication::create(GameServerPlayerState& player_state,
         config.max_visible_players > kMaxGameSnapshotEntities) {
         return invalid_argument("Dedicated server player AOI visible-player limit is invalid");
     }
+    for (const IGameReplicationValueSource* source : value_sources) {
+        if (source == nullptr) {
+            return invalid_argument("Dedicated server player replication has a null value source");
+        }
+    }
     return std::unique_ptr<GameServerPlayerReplication>(
-        new GameServerPlayerReplication(player_state, std::move(config)));
+        new GameServerPlayerReplication(player_state, std::move(config), std::move(value_sources)));
 }
 
 GameServerPlayerReplication::GameServerPlayerReplication(
-    GameServerPlayerState& player_state, GameServerPlayerReplicationConfig config)
-    : player_state_(&player_state), config_(std::move(config)) {}
+    GameServerPlayerState& player_state, GameServerPlayerReplicationConfig config,
+    std::vector<IGameReplicationValueSource*> value_sources)
+    : player_state_(&player_state), config_(std::move(config)),
+      value_sources_(std::move(value_sources)) {}
 
 snt::core::Expected<GameReplicationInterest> GameServerPlayerReplication::compute_interest(
     const GameAuthenticatedPeer& peer, const snt::network::ReplicationTickContext&) {
@@ -154,7 +162,7 @@ snt::core::Expected<GameReplicationInterest> GameServerPlayerReplication::comput
 snt::core::Expected<std::vector<GameReplicationMessage>>
 GameServerPlayerReplication::build_initial_snapshot(
     const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
-    const GameReplicationBudget& budget, const snt::network::ReplicationTickContext&) {
+    const GameReplicationBudget& budget, const snt::network::ReplicationTickContext& context) {
     if (player_state_ == nullptr) {
         return invalid_state("Dedicated server player replication has no player state");
     }
@@ -174,7 +182,14 @@ GameServerPlayerReplication::build_initial_snapshot(
     GameSnapshot snapshot{.snapshot_id = next_snapshot_id_};
     std::vector<VisiblePlayer> accepted_players;
     accepted_players.reserve(visible->size());
-    for (const VisiblePlayer& player : *visible) {
+    std::vector<GameReplicationValue> accepted_values;
+
+    // The observer's player value is mandatory for authoritative local
+    // presentation. Account-owned values follow it, ahead of remote AOI
+    // entities, so a full observer list cannot starve the task book.
+    const auto append_player = [&snapshot, &accepted_players, &budget](
+                                   const VisiblePlayer& player)
+        -> snt::core::Expected<bool> {
         auto encoded_entity = encode_entity_change({
             .entity_guid = player.entity_guid,
             .entity = {
@@ -190,13 +205,42 @@ GameServerPlayerReplication::build_initial_snapshot(
         if (!size) return size.error();
         if (*size > budget.max_reliable_bytes_per_tick) {
             snapshot.entities.pop_back();
-            break;
+            return false;
         }
         accepted_players.push_back(player);
-    }
-    if (snapshot.entities.empty()) {
+        return true;
+    };
+
+    auto observer_accepted = append_player(visible->front());
+    if (!observer_accepted) return observer_accepted.error();
+    if (!*observer_accepted) {
         return invalid_argument(
-            "Dedicated server player snapshot cannot fit one player within the reliable budget");
+            "Dedicated server player snapshot cannot fit the observing player within the reliable budget");
+    }
+
+    auto values = collect_values(peer, interest, budget, context);
+    if (!values) return values.error();
+    const size_t value_limit = std::min<size_t>(budget.max_value_snapshots_per_tick,
+                                                kMaxGameSnapshotValues);
+    accepted_values.reserve(std::min(values->size(), value_limit));
+    for (const GameReplicationValue& value : *values) {
+        if (snapshot.values.size() >= value_limit) break;
+        snapshot.values.push_back(value);
+        auto candidate = make_game_snapshot(snapshot);
+        if (!candidate) return candidate.error();
+        auto size = encoded_message_size(*candidate);
+        if (!size) return size.error();
+        if (*size > budget.max_reliable_bytes_per_tick) {
+            snapshot.values.pop_back();
+            continue;
+        }
+        accepted_values.push_back(value);
+    }
+
+    for (size_t index = 1; index < visible->size(); ++index) {
+        auto accepted = append_player((*visible)[index]);
+        if (!accepted) return accepted.error();
+        if (!*accepted) break;
     }
     auto message = make_game_snapshot(snapshot);
     if (!message) return message.error();
@@ -205,6 +249,9 @@ GameServerPlayerReplication::build_initial_snapshot(
     for (const VisiblePlayer& player : accepted_players) {
         baseline.players.emplace(player.entity_guid.value, player.state);
     }
+    for (const GameReplicationValue& value : accepted_values) {
+        baseline.values.emplace(static_cast<uint8_t>(value.kind), value);
+    }
     peer_baselines_.insert_or_assign(peer.peer, std::move(baseline));
     ++next_snapshot_id_;
     return std::vector<GameReplicationMessage>{std::move(*message)};
@@ -212,12 +259,12 @@ GameServerPlayerReplication::build_initial_snapshot(
 
 snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplication::build_deltas(
     const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
-    const GameReplicationBudget& budget, const snt::network::ReplicationTickContext&) {
+    const GameReplicationBudget& budget, const snt::network::ReplicationTickContext& context) {
     const auto baseline = peer_baselines_.find(peer.peer);
     if (baseline == peer_baselines_.end()) {
         return invalid_state("Dedicated server player delta has no observer snapshot baseline");
     }
-    if (budget.max_entity_snapshots_per_tick == 0 || budget.max_reliable_bytes_per_tick == 0) {
+    if (budget.max_reliable_bytes_per_tick == 0) {
         return std::vector<GameReplicationMessage>{};
     }
     if (baseline->second.next_delta_sequence == 0) {
@@ -255,14 +302,60 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
             });
         }
     }
-    if (changes.empty()) return std::vector<GameReplicationMessage>{};
+
+    auto desired_values = collect_values(peer, interest, budget, context);
+    if (!desired_values) return desired_values.error();
+    std::map<uint8_t, GameReplicationValue> desired_values_by_kind;
+    for (GameReplicationValue& value : *desired_values) {
+        desired_values_by_kind.emplace(static_cast<uint8_t>(value.kind), std::move(value));
+    }
+
+    std::vector<GameReplicationValue> value_changes;
+    value_changes.reserve(baseline->second.values.size() + desired_values_by_kind.size());
+    for (const auto& [kind, value] : baseline->second.values) {
+        static_cast<void>(value);
+        if (!desired_values_by_kind.contains(kind)) {
+            value_changes.push_back({
+                .kind = static_cast<GameReplicationValueKind>(kind),
+                .operation = GameReplicationValueOperation::kRemove,
+            });
+        }
+    }
+    for (const auto& [kind, value] : desired_values_by_kind) {
+        const auto known = baseline->second.values.find(kind);
+        if (known == baseline->second.values.end() ||
+            !same_replication_value(known->second, value)) {
+            value_changes.push_back(value);
+        }
+    }
+    if (changes.empty() && value_changes.empty()) return std::vector<GameReplicationMessage>{};
 
     GameDelta delta{
         .base_snapshot_id = baseline->second.snapshot_id,
         .sequence = baseline->second.next_delta_sequence,
     };
     std::vector<EntityChange> accepted_changes;
-    const size_t entity_limit = budget.max_entity_snapshots_per_tick;
+    std::vector<GameReplicationValue> accepted_value_changes;
+    const size_t value_limit = std::min<size_t>(budget.max_value_snapshots_per_tick,
+                                                kMaxGameSnapshotValues);
+    accepted_value_changes.reserve(std::min(value_changes.size(), value_limit));
+    for (const GameReplicationValue& value : value_changes) {
+        if (delta.values.size() >= value_limit) break;
+        delta.values.push_back(value);
+        auto candidate = make_game_delta(delta);
+        if (!candidate) return candidate.error();
+        auto size = encoded_message_size(*candidate);
+        if (!size) return size.error();
+        if (*size > budget.max_reliable_bytes_per_tick) {
+            delta.values.pop_back();
+            continue;
+        }
+        accepted_value_changes.push_back(value);
+    }
+
+    const size_t entity_limit = std::min<size_t>(budget.max_entity_snapshots_per_tick,
+                                                 kMaxGameSnapshotEntities);
+    accepted_changes.reserve(std::min(changes.size(), entity_limit));
     for (const EntityChange& change : changes) {
         if (delta.entities.size() >= entity_limit) break;
         auto encoded_entity = encode_entity_change(change);
@@ -278,13 +371,28 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
         }
         accepted_changes.push_back(change);
     }
-    if (delta.entities.empty()) {
-        return invalid_argument(
-            "Dedicated server player delta cannot fit one entity within the reliable budget");
+    if (delta.entities.empty() && delta.values.empty()) {
+        if (!value_changes.empty() && value_limit != 0) {
+            return invalid_argument(
+                "Dedicated server player delta cannot fit one value within the reliable budget");
+        }
+        if (!changes.empty() && entity_limit != 0) {
+            return invalid_argument(
+                "Dedicated server player delta cannot fit one entity within the reliable budget");
+        }
+        return std::vector<GameReplicationMessage>{};
     }
     auto message = make_game_delta(delta);
     if (!message) return message.error();
 
+    for (const GameReplicationValue& value : accepted_value_changes) {
+        const uint8_t kind = static_cast<uint8_t>(value.kind);
+        if (value.operation == GameReplicationValueOperation::kRemove) {
+            baseline->second.values.erase(kind);
+        } else {
+            baseline->second.values.insert_or_assign(kind, value);
+        }
+    }
     for (const EntityChange& change : accepted_changes) {
         if (change.entity.operation == GamePlayerReplicationOperation::kRemove) {
             baseline->second.players.erase(change.entity_guid.value);
@@ -298,8 +406,11 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
 }
 
 void GameServerPlayerReplication::on_peer_disconnected(const GameAuthenticatedPeer& peer,
-                                                        std::string_view) noexcept {
+                                                        std::string_view reason) noexcept {
     peer_baselines_.erase(peer.peer);
+    for (IGameReplicationValueSource* source : value_sources_) {
+        source->on_peer_disconnected(peer, reason);
+    }
 }
 
 snt::core::Expected<std::vector<GameServerPlayerReplication::VisiblePlayer>>
@@ -339,6 +450,60 @@ GameServerPlayerReplication::visible_players(const GameReplicationInterest& inte
     return visible;
 }
 
+snt::core::Expected<std::vector<GameReplicationValue>>
+GameServerPlayerReplication::collect_values(
+    const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
+    const GameReplicationBudget& budget,
+    const snt::network::ReplicationTickContext& context) const {
+    if (budget.max_reliable_bytes_per_tick == 0 || budget.max_value_snapshots_per_tick == 0 ||
+        value_sources_.empty()) {
+        return std::vector<GameReplicationValue>{};
+    }
+
+    const size_t value_limit = std::min<size_t>(budget.max_value_snapshots_per_tick,
+                                                kMaxGameSnapshotValues);
+    std::set<uint8_t> kinds;
+    std::vector<GameReplicationValue> values;
+    values.reserve(value_limit);
+    for (IGameReplicationValueSource* source : value_sources_) {
+        auto source_values = source->collect_values(peer, interest, budget, context);
+        if (!source_values) {
+            auto error = source_values.error();
+            error.with_context("GameServerPlayerReplication::collect_values(source)");
+            return error;
+        }
+        for (GameReplicationValue& value : *source_values) {
+            if (value.operation != GameReplicationValueOperation::kUpsert) {
+                return invalid_state(
+                    "Dedicated server value source returned a non-upsert current value");
+            }
+            if (values.size() >= value_limit) {
+                return invalid_argument(
+                    "Dedicated server value sources exceeded the configured value budget");
+            }
+            if (!kinds.insert(static_cast<uint8_t>(value.kind)).second) {
+                return invalid_state(
+                    "Dedicated server value sources returned duplicate value kinds");
+            }
+            values.push_back(std::move(value));
+        }
+    }
+
+    std::sort(values.begin(), values.end(), [](const GameReplicationValue& left,
+                                               const GameReplicationValue& right) {
+        return static_cast<uint8_t>(left.kind) < static_cast<uint8_t>(right.kind);
+    });
+    // Reuse the public snapshot codec as the single authoritative validation
+    // of kind, payload size, and duplicate-free value shape.
+    auto validation = make_game_snapshot({.snapshot_id = 1, .values = values});
+    if (!validation) {
+        auto error = validation.error();
+        error.with_context("GameServerPlayerReplication::collect_values(validate)");
+        return error;
+    }
+    return values;
+}
+
 snt::core::Expected<GameReplicatedPlayerState> GameServerPlayerReplication::make_player_state(
     const GameServerPlayerSnapshot& snapshot) {
     GameReplicatedPlayerState state{
@@ -366,6 +531,12 @@ bool GameServerPlayerReplication::same_player_state(const GameReplicatedPlayerSt
            left.position.position.y == right.position.position.y &&
            left.position.position.z == right.position.position.z &&
            left.equipment_item_ids == right.equipment_item_ids;
+}
+
+bool GameServerPlayerReplication::same_replication_value(const GameReplicationValue& left,
+                                                          const GameReplicationValue& right) noexcept {
+    return left.kind == right.kind && left.operation == right.operation &&
+           left.payload == right.payload;
 }
 
 }  // namespace snt::game::replication

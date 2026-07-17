@@ -82,9 +82,6 @@ public:
     [[nodiscard]] snt::core::Expected<void> refresh_definitions();
     [[nodiscard]] snt::core::Expected<void> tick(uint64_t tick_index);
 
-    [[nodiscard]] snt::core::Expected<void> accept(QuestPlayerId player_id,
-                                                    std::string_view quest_id,
-                                                    uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> record_progress(
         QuestPlayerId player_id, const QuestProgressEvent& event, uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> update_inventory(
@@ -93,7 +90,7 @@ public:
         QuestPlayerId player_id, std::string_view quest_id, uint64_t tick_index);
     // Reward delivery is an explicit host-side transaction. A task-book UI
     // will invoke this through its dedicated command path; it is deliberately
-    // not folded into QuestAccept or a generic world-interaction payload.
+    // not folded into task progression or a generic world-interaction payload.
     [[nodiscard]] snt::core::Expected<void> claim_reward(
         QuestPlayerId player_id, std::string_view quest_id, uint64_t tick_index);
 
@@ -115,6 +112,12 @@ public:
     // changes only when the persisted value snapshot changes; querying it
     // never synchronizes definitions or performs I/O.
     [[nodiscard]] uint64_t progress_revision(std::string_view player_id) const noexcept;
+    // The server includes this semantic content fingerprint with task-book
+    // progress so a graphical client can refuse to present a mismatched task
+    // graph. It is a read-only view of GameContentRegistry data.
+    [[nodiscard]] uint64_t content_fingerprint() const noexcept {
+        return definitions_source_ ? definitions_source_->quest_content_fingerprint() : 0;
+    }
     [[nodiscard]] snt::core::Expected<void> restore_progress(
         QuestPlayerId player_id, std::vector<QuestProgressRecord> progress);
     [[nodiscard]] snt::core::Expected<void> load_player_progress(

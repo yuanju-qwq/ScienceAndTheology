@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -23,10 +24,15 @@ using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GamePlayerReplicationEntity;
 using snt::game::replication::GamePlayerReplicationOperation;
 using snt::game::replication::GameRemotePlayerWorld;
+using snt::game::replication::GameReplicationInterest;
+using snt::game::replication::GameReplicationValue;
+using snt::game::replication::GameReplicationValueKind;
+using snt::game::replication::GameReplicationValueOperation;
 using snt::game::replication::GameReplicatedPlayerState;
 using snt::game::replication::GameServerPlayerReplication;
 using snt::game::replication::GameServerPlayerReplicationConfig;
 using snt::game::replication::GameServerPlayerState;
+using snt::game::replication::IGameReplicationValueSource;
 
 PlayerIdentity make_local_identity(std::string name) {
     auto identity = make_local_name_player_identity(std::move(name));
@@ -53,6 +59,39 @@ const snt::game::replication::GameEntitySnapshot* find_entity(
                                      });
     return result == snapshot.entities.end() ? nullptr : &*result;
 }
+
+class MutableQuestBookValueSource final : public IGameReplicationValueSource {
+public:
+    snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
+        const GameAuthenticatedPeer&, const GameReplicationInterest&,
+        const snt::game::replication::GameReplicationBudget&,
+        const snt::network::ReplicationTickContext&) override {
+        ++collect_call_count;
+        if (!present) return std::vector<GameReplicationValue>{};
+        std::vector<std::byte> bytes;
+        bytes.reserve(payload.size());
+        for (const char value : payload) {
+            bytes.push_back(static_cast<std::byte>(static_cast<unsigned char>(value)));
+        }
+        return std::vector<GameReplicationValue>{
+            {
+                .kind = GameReplicationValueKind::kQuestBook,
+                .operation = GameReplicationValueOperation::kUpsert,
+                .payload = std::move(bytes),
+            },
+        };
+    }
+
+    void on_peer_disconnected(const GameAuthenticatedPeer&,
+                              std::string_view) noexcept override {
+        ++disconnect_call_count;
+    }
+
+    bool present = true;
+    std::string payload = "task-book-revision-1";
+    int collect_call_count = 0;
+    int disconnect_call_count = 0;
+};
 
 TEST(GamePlayerReplicationCodecTest, RoundTripsPresentationOnlyPlayerValues) {
     const PlayerIdentity identity = make_local_identity("VisiblePlayer");
@@ -229,6 +268,75 @@ TEST(GameServerPlayerReplicationTest, LimitsInitialPlayerSnapshotToObserverBudge
     auto observer_snapshot = (*players)->snapshot_for_peer(observer);
     ASSERT_TRUE(observer_snapshot) << observer_snapshot.error().format();
     EXPECT_EQ(snapshot->entities.front().entity_guid, observer_snapshot->entity_guid);
+    (*players)->shutdown();
+}
+
+TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUnchangedValues) {
+    snt::ecs::World world;
+    auto players = GameServerPlayerState::create(world);
+    ASSERT_TRUE(players) << players.error().format();
+
+    const GameAuthenticatedPeer observer = make_peer(301, "QuestObserver");
+    ASSERT_TRUE((*players)->on_peer_authenticated(
+        observer, state_at(**players, "overworld", 0, 64, 0)));
+    MutableQuestBookValueSource task_book_source;
+    auto replication = GameServerPlayerReplication::create(
+        **players,
+        {
+            .horizontal_aoi_radius_blocks = 16,
+            .vertical_aoi_radius_blocks = 8,
+            .max_visible_players = 8,
+        },
+        {&task_book_source});
+    ASSERT_TRUE(replication) << replication.error().format();
+
+    const snt::network::ReplicationTickContext context{.tick_index = 12, .delta_seconds = 0.05f};
+    const snt::game::replication::GameReplicationBudget budget{
+        .max_reliable_bytes_per_tick = 4096,
+        .max_entity_snapshots_per_tick = 8,
+        .max_value_snapshots_per_tick = 1,
+    };
+    auto interest = (*replication)->compute_interest(observer, context);
+    ASSERT_TRUE(interest) << interest.error().format();
+    auto initial_messages = (*replication)->build_initial_snapshot(observer, *interest, budget, context);
+    ASSERT_TRUE(initial_messages) << initial_messages.error().format();
+    ASSERT_EQ(initial_messages->size(), 1u);
+    auto initial = snt::game::replication::parse_game_snapshot(initial_messages->front());
+    ASSERT_TRUE(initial) << initial.error().format();
+    ASSERT_EQ(initial->values.size(), 1u);
+    EXPECT_EQ(initial->values.front().kind, GameReplicationValueKind::kQuestBook);
+
+    auto unchanged = (*replication)->build_deltas(observer, *interest, budget, context);
+    ASSERT_TRUE(unchanged) << unchanged.error().format();
+    EXPECT_TRUE(unchanged->empty());
+
+    task_book_source.payload = "task-book-revision-2";
+    auto changed = (*replication)->build_deltas(observer, *interest, budget, context);
+    ASSERT_TRUE(changed) << changed.error().format();
+    ASSERT_EQ(changed->size(), 1u);
+    auto delta = snt::game::replication::parse_game_delta(changed->front());
+    ASSERT_TRUE(delta) << delta.error().format();
+    EXPECT_EQ(delta->sequence, 1u);
+    ASSERT_EQ(delta->values.size(), 1u);
+    EXPECT_EQ(delta->values.front().operation, GameReplicationValueOperation::kUpsert);
+
+    auto unchanged_after_delta = (*replication)->build_deltas(observer, *interest, budget, context);
+    ASSERT_TRUE(unchanged_after_delta) << unchanged_after_delta.error().format();
+    EXPECT_TRUE(unchanged_after_delta->empty());
+
+    task_book_source.present = false;
+    auto removal = (*replication)->build_deltas(observer, *interest, budget, context);
+    ASSERT_TRUE(removal) << removal.error().format();
+    ASSERT_EQ(removal->size(), 1u);
+    auto removal_delta = snt::game::replication::parse_game_delta(removal->front());
+    ASSERT_TRUE(removal_delta) << removal_delta.error().format();
+    EXPECT_EQ(removal_delta->sequence, 2u);
+    ASSERT_EQ(removal_delta->values.size(), 1u);
+    EXPECT_EQ(removal_delta->values.front().operation, GameReplicationValueOperation::kRemove);
+    EXPECT_TRUE(removal_delta->values.front().payload.empty());
+
+    (*replication)->on_peer_disconnected(observer, "test completed");
+    EXPECT_EQ(task_book_source.disconnect_call_count, 1);
     (*players)->shutdown();
 }
 

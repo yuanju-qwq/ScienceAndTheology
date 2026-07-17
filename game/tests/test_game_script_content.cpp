@@ -119,7 +119,8 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
         "void snt_register() {"
         "  snt_register_machine(\"p7.test.machine\", \"Test Machine\", 2, 500, true);"
         "  snt_set_machine_activation_requirements(\"p7.test.machine\", true, false, true, \"hammer\");"
-        "  snt_register_quest(\"p7.test.quest\", \"Test Quest\", \"Description\");"
+        "  snt_register_quest_chapter(\"p7.test.chapter\", \"Test Chapter\", \"Chapter description\", \"chapter.test\", 3);"
+        "  snt_register_quest(\"p7.test.quest\", \"p7.test.chapter\", \"Test Quest\", \"Description\", 96.0f, 48.0f, \"quest.test\", false, false);"
         "  snt_add_quest_objective(\"p7.test.quest\", \"craft.test\", \"craft_item\", \"test_ingot\", 2);"
         "}"));
 
@@ -133,8 +134,15 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
     EXPECT_FALSE(machine->activation_requirements.requires_ignition);
     EXPECT_TRUE(machine->activation_requirements.requires_valid_structure);
     EXPECT_EQ(machine->activation_requirements.required_tool_tag, "hammer");
+    const auto* chapter = content.find_quest_chapter("p7.test.chapter");
+    ASSERT_NE(chapter, nullptr);
+    EXPECT_EQ(chapter->title, "Test Chapter");
+    EXPECT_EQ(chapter->sort_order, 3);
     const auto* quest = content.find_quest("p7.test.quest");
     ASSERT_NE(quest, nullptr);
+    EXPECT_EQ(quest->chapter_id, "p7.test.chapter");
+    EXPECT_FLOAT_EQ(quest->node_position.x, 96.0f);
+    EXPECT_FLOAT_EQ(quest->node_position.y, 48.0f);
     ASSERT_EQ(quest->objectives.size(), 1u);
     EXPECT_EQ(quest->objectives.front().id, "craft.test");
     EXPECT_EQ(quest->objectives.front().kind, snt::game::QuestObjectiveKind::kCraftItem);
@@ -156,9 +164,11 @@ TEST(P7ScriptApiTest, RejectsLegacyMachineAndRecipeSignatures) {
         "  snt_register_machine(\"legacy.machine\", \"Legacy\", 1, 0);"
         "  snt_register_recipe(\"legacy.recipe\", \"legacy.machine\", \"ore\", "
         "\"ingot\", 1, 20, 0, \"legacy\");"
+        "  snt_register_quest(\"legacy.quest\", \"Legacy\", \"Description\");"
         "}"));
     EXPECT_EQ(content.find_machine("legacy.machine"), nullptr);
     EXPECT_EQ(content.find_recipe("legacy.recipe"), nullptr);
+    EXPECT_EQ(content.find_quest("legacy.quest"), nullptr);
 
     scripts.shutdown();
 }

@@ -105,6 +105,7 @@ void from_json(const json& object, GameServerReplicationConfig& value) {
     read_optional(object, "max_reliable_bytes_per_tick", value.max_reliable_bytes_per_tick);
     read_optional(object, "max_chunk_snapshots_per_tick", value.max_chunk_snapshots_per_tick);
     read_optional(object, "max_entity_snapshots_per_tick", value.max_entity_snapshots_per_tick);
+    read_optional(object, "max_value_snapshots_per_tick", value.max_value_snapshots_per_tick);
     read_optional(object, "max_block_deltas_per_tick", value.max_block_deltas_per_tick);
 }
 

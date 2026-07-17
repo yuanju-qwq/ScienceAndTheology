@@ -17,6 +17,10 @@ namespace snt::game {
 
 struct QuestBookSnapshot {
     std::string account_id;
+    // Semantic content fingerprint supplied by the authoritative registry.
+    // It lets the client reject progress values that belong to a different
+    // chapter graph or objective/reward definition package.
+    uint64_t content_fingerprint = 0;
     uint64_t progress_revision = 0;
     std::vector<QuestProgressRecord> progress;
 };

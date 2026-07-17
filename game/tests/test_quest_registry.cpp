@@ -77,7 +77,7 @@ std::filesystem::path find_quest_progress_file(const std::filesystem::path& save
 
 }  // namespace
 
-TEST(QuestRegistryTest, AcceptsProgressesCompletesAndUnlocksPrerequisites) {
+TEST(QuestRegistryTest, AutomaticallyActivatesProgressesCompletesAndUnlocksPrerequisites) {
     GameContentRegistry content;
     QuestDefinition smelt = make_craft_quest("stone_age.smelt_iron", 2);
     QuestDefinition forge = make_craft_quest("stone_age.forge_tool", 1);
@@ -89,11 +89,6 @@ TEST(QuestRegistryTest, AcceptsProgressesCompletesAndUnlocksPrerequisites) {
     ASSERT_TRUE(quests.tick(1));
     const auto* smelt_progress = quests.find_progress("local", "stone_age.smelt_iron");
     ASSERT_EQ(smelt_progress, nullptr);
-
-    ASSERT_TRUE(quests.accept("local", "stone_age.smelt_iron", 2));
-    smelt_progress = quests.find_progress("local", "stone_age.smelt_iron");
-    ASSERT_NE(smelt_progress, nullptr);
-    EXPECT_EQ(smelt_progress->state, QuestState::kInProgress);
 
     ASSERT_TRUE(quests.record_progress(
         "local", {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1}, 3));
@@ -112,7 +107,7 @@ TEST(QuestRegistryTest, AcceptsProgressesCompletesAndUnlocksPrerequisites) {
 
     const auto* forge_progress = quests.find_progress("local", "stone_age.forge_tool");
     ASSERT_NE(forge_progress, nullptr);
-    EXPECT_EQ(forge_progress->state, QuestState::kAvailable);
+    EXPECT_EQ(forge_progress->state, QuestState::kInProgress);
 }
 
 TEST(QuestRegistryTest, KeepsProgressAcrossDefinitionReload) {
@@ -121,7 +116,6 @@ TEST(QuestRegistryTest, KeepsProgressAcrossDefinitionReload) {
     ASSERT_TRUE(content.register_script_quest(kScript, make_craft_quest("p7.reload.quest", 4)));
 
     QuestRegistry quests(content);
-    ASSERT_TRUE(quests.accept("local", "p7.reload.quest", 1));
     ASSERT_TRUE(quests.record_progress(
         "local", {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 2}, 2));
 
@@ -144,13 +138,12 @@ TEST(QuestRegistryTest, KeepsProgressAcrossDefinitionReload) {
     EXPECT_EQ(progress->state, QuestState::kCompleted);
 }
 
-TEST(QuestRegistryTest, AutoStartsInventoryAndReachTickObjectives) {
+TEST(QuestRegistryTest, AutomaticallyActivatesInventoryAndReachTickObjectives) {
     GameContentRegistry content;
     QuestDefinition definition;
     definition.id = "p7.auto.inventory";
     definition.title = "Prepare supplies";
     definition.description = "Carry wood until the first day passes";
-    definition.auto_start = true;
     definition.objectives = {
         {
             .id = "inventory.wood",
@@ -202,7 +195,6 @@ TEST(QuestRegistryTest, ResetsRepeatableQuestWithoutLosingCompletionHistory) {
     ASSERT_TRUE(content.register_builtin_quest(std::move(definition)));
 
     QuestRegistry quests(content);
-    ASSERT_TRUE(quests.accept("local", "p7.repeatable.quest", 1));
     ASSERT_TRUE(quests.record_progress(
         "local", {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1}, 2));
     auto* progress = quests.find_progress("local", "p7.repeatable.quest");
@@ -213,11 +205,10 @@ TEST(QuestRegistryTest, ResetsRepeatableQuestWithoutLosingCompletionHistory) {
     ASSERT_TRUE(quests.reset_repeatable("local", "p7.repeatable.quest", 3));
     progress = quests.find_progress("local", "p7.repeatable.quest");
     ASSERT_NE(progress, nullptr);
-    EXPECT_EQ(progress->state, QuestState::kAvailable);
+    EXPECT_EQ(progress->state, QuestState::kInProgress);
     EXPECT_EQ(progress->completion_count, 1u);
     EXPECT_EQ(progress->objective_counts.at("craft.iron"), 0);
 
-    ASSERT_TRUE(quests.accept("local", "p7.repeatable.quest", 4));
     ASSERT_TRUE(quests.record_progress(
         "local", {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1}, 5));
     progress = quests.find_progress("local", "p7.repeatable.quest");
@@ -241,7 +232,6 @@ TEST(QuestRegistryTest, RequiresRewardSinkBeforeClaimingItemRewardsAndUnlocksQue
     ASSERT_TRUE(content.register_builtin_quest(std::move(rewarded)));
 
     QuestRegistry quests(content);
-    ASSERT_TRUE(quests.accept("player:reward", "p7.reward.source", 1));
     ASSERT_TRUE(quests.record_progress(
         "player:reward",
         {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 1}, 2));
@@ -269,7 +259,7 @@ TEST(QuestRegistryTest, RequiresRewardSinkBeforeClaimingItemRewardsAndUnlocksQue
     EXPECT_TRUE(source->reward_claimed);
     const auto* unlocked_progress = quests.find_progress("player:reward", "p7.reward.unlocked");
     ASSERT_NE(unlocked_progress, nullptr);
-    EXPECT_EQ(unlocked_progress->state, QuestState::kAvailable);
+    EXPECT_EQ(unlocked_progress->state, QuestState::kInProgress);
     ASSERT_EQ(reward_sink.player_ids.size(), 1u);
     EXPECT_EQ(reward_sink.player_ids.front(), "player:reward");
     ASSERT_EQ(reward_sink.quest_ids.size(), 1u);
@@ -286,7 +276,6 @@ TEST(QuestRegistryTest, RestoresStableProgressSnapshotWithoutDefinitionsOwningSt
     ASSERT_TRUE(content.register_builtin_quest(make_craft_quest("p7.snapshot.quest", 3)));
 
     QuestRegistry source(content);
-    ASSERT_TRUE(source.accept("player:42", "p7.snapshot.quest", 1));
     ASSERT_TRUE(source.record_progress(
         "player:42", {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 2}, 2));
     const auto snapshot = source.snapshot_progress("player:42");
@@ -314,7 +303,6 @@ TEST(QuestRegistryTest, PersistsPlayerProgressAcrossFileBackedRestart) {
     GameSaveQuestProgressPersistence persistence(save_dir.string());
 
     QuestRegistry source(content);
-    ASSERT_TRUE(source.accept("player:42", "p7.file.quest", 1));
     ASSERT_TRUE(source.record_progress(
         "player:42", {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 2}, 2));
     ASSERT_TRUE(source.save_player_progress("player:42", persistence));

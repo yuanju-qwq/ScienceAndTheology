@@ -122,7 +122,6 @@ TEST(GameServerQuestEventServiceTest,
     CheckpointSink checkpoint;
     events.bind_player_state(*(*player_state), &checkpoint);
 
-    ASSERT_TRUE(quests.accept(peer.identity.account_id, "p7.event_flow", 1));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
         peer, GamePlayerInventoryTransaction{.additions = {{.item_id = "charcoal", .count = 2}}}));
     events.on_player_interaction({
@@ -157,7 +156,7 @@ TEST(GameServerQuestEventServiceTest,
     EXPECT_TRUE(progress->reward_claimed);
     const auto* unlocked_progress = quests.find_progress(peer.identity.account_id, "p7.unlocked");
     ASSERT_NE(unlocked_progress, nullptr);
-    EXPECT_EQ(unlocked_progress->state, QuestState::kAvailable);
+    EXPECT_EQ(unlocked_progress->state, QuestState::kInProgress);
 
     auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();

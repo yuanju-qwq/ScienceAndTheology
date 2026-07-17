@@ -55,17 +55,6 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
         .client_sequence = command.client_sequence,
     };
     switch (static_cast<GameClientCommandType>(command.command_type)) {
-        case GameClientCommandType::kQuestAccept: {
-            auto parsed = parse_game_quest_accept_command(command);
-            if (!parsed) {
-                auto error = parsed.error();
-                error.with_context("GameServerCommandSink::enqueue_client_command(QuestAccept)");
-                return error;
-            }
-            pending.type = GameClientCommandType::kQuestAccept;
-            pending.quest_accept = std::move(*parsed);
-            break;
-        }
         case GameClientCommandType::kQuestClaimReward: {
             auto parsed = parse_game_quest_claim_reward_command(command);
             if (!parsed) {
@@ -165,13 +154,6 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
 
     for (const PendingCommand& command : pending_) {
         switch (command.type) {
-            case GameClientCommandType::kQuestAccept:
-                if (auto result = quests_->accept(command.peer.identity.account_id,
-                                                   command.quest_accept.quest_id, tick_index);
-                    !result) {
-                    record_gameplay_rejection(tick_index, command, result.error());
-                }
-                break;
             case GameClientCommandType::kQuestClaimReward:
                 if (auto result = quests_->claim_reward(
                         command.peer.identity.account_id,
@@ -252,9 +234,6 @@ void GameServerCommandSink::record_gameplay_rejection(
 
     const char* command_name = "unknown";
     switch (command.type) {
-        case GameClientCommandType::kQuestAccept:
-            command_name = "quest_accept";
-            break;
         case GameClientCommandType::kQuestClaimReward:
             command_name = "quest_claim_reward";
             break;

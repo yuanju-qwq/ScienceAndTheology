@@ -262,6 +262,7 @@ snt::core::Expected<void> GameServerReplicationHandler::queue_replication_messag
     uint64_t total_bytes = 0;
     uint64_t total_chunks = 0;
     uint64_t total_entities = 0;
+    uint64_t total_values = 0;
     uint64_t total_block_deltas = 0;
     std::vector<PendingOutboundFrame> frames;
     frames.reserve(messages.size());
@@ -276,10 +277,12 @@ snt::core::Expected<void> GameServerReplicationHandler::queue_replication_messag
             if (!snapshot) return snapshot.error();
             total_chunks += snapshot->chunks.size();
             total_entities += snapshot->entities.size();
+            total_values += snapshot->values.size();
         } else {
             auto delta = parse_game_delta(message);
             if (!delta) return delta.error();
             total_entities += delta->entities.size();
+            total_values += delta->values.size();
             for (const GameChunkDelta& chunk : delta->chunks) {
                 total_block_deltas += chunk.blocks.size();
             }
@@ -291,6 +294,7 @@ snt::core::Expected<void> GameServerReplicationHandler::queue_replication_messag
         if (total_bytes > replication_budget_.max_reliable_bytes_per_tick ||
             total_chunks > replication_budget_.max_chunk_snapshots_per_tick ||
             total_entities > replication_budget_.max_entity_snapshots_per_tick ||
+            total_values > replication_budget_.max_value_snapshots_per_tick ||
             total_block_deltas > replication_budget_.max_block_deltas_per_tick) {
             return protocol_error("Game replication source exceeded the configured peer budget");
         }

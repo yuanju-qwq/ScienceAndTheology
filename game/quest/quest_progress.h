@@ -25,10 +25,11 @@ namespace snt::game {
 using QuestPlayerId = std::string;
 
 enum class QuestState : uint8_t {
-    kLocked,
-    kAvailable,
-    kInProgress,
-    kCompleted,
+    kLocked = 0,
+    // Better Questing-style tasks become active as soon as their prerequisite
+    // graph is satisfied. There is deliberately no player acceptance state.
+    kInProgress = 1,
+    kCompleted = 2,
 };
 
 // Complete per-player value record. It carries no script objects, ECS handles,

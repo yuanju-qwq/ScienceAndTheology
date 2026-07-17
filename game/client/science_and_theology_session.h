@@ -10,14 +10,17 @@
 #include "game/network/game_client_replication_session.h"
 #include "game/localization/localization.h"
 #include "gameplay_ui.h"
+#include "quest_book_ui.h"
 #include "game_session_config.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
 
 #include <memory>
 #include <optional>
 #include <cstdint>
+#include <string_view>
 
 namespace snt::game::replication {
+class GameClientQuestBookState;
 class GameRemotePlayerWorld;
 }
 
@@ -27,7 +30,8 @@ class World;
 
 namespace snt::game {
 
-class ScienceAndTheologyClientSession final : public snt::engine::IClientSession {
+class ScienceAndTheologyClientSession final : public snt::engine::IClientSession,
+                                              public IQuestBookCommandSink {
 public:
     explicit ScienceAndTheologyClientSession(
         GameSessionConfig config,
@@ -47,9 +51,15 @@ public:
     [[nodiscard]] const PlayerIdentity* local_player_identity() const noexcept {
         return local_player_identity_ ? &*local_player_identity_ : nullptr;
     }
+    [[nodiscard]] const replication::GameClientQuestBookState* quest_book_state() const noexcept {
+        return quest_book_state_.get();
+    }
 
 private:
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
+    void set_quest_book_visible(bool visible);
+    [[nodiscard]] snt::core::Expected<void> submit_quest_reward_claim(
+        std::string_view quest_id) override;
     void sample_network_movement_input(snt::engine::ClientFrameContext& context);
     void apply_authoritative_local_player();
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
@@ -61,6 +71,8 @@ private:
     std::optional<replication::GameClientAuthentication> connection_authentication_;
     std::unique_ptr<replication::GameClientReplicationSession> replication_session_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
+    std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
+    std::unique_ptr<QuestBookViewModel> quest_book_ui_;
     snt::ecs::World* presentation_world_ = nullptr;
     replication::GamePlayerMovementInput sampled_movement_input_;
     replication::GamePlayerMovementInput last_sent_movement_input_;
@@ -69,6 +81,7 @@ private:
     bool has_last_sent_movement_input_ = false;
     snt::engine::SimulationServices* services_ = nullptr;
     snt::ui::UiLayerStack* ui_layers_ = nullptr;
+    std::shared_ptr<LocalInventorySlotTransferAuthority> local_inventory_authority_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;
 };

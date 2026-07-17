@@ -25,7 +25,6 @@ namespace {
 [[nodiscard]] bool is_valid_state(QuestState state) noexcept {
     switch (state) {
         case QuestState::kLocked:
-        case QuestState::kAvailable:
         case QuestState::kInProgress:
         case QuestState::kCompleted:
             return true;
@@ -36,7 +35,6 @@ namespace {
 [[nodiscard]] const char* state_name(QuestState state) noexcept {
     switch (state) {
         case QuestState::kLocked: return "locked";
-        case QuestState::kAvailable: return "available";
         case QuestState::kInProgress: return "in_progress";
         case QuestState::kCompleted: return "completed";
     }
@@ -77,25 +75,6 @@ snt::core::Expected<void> QuestRegistry::tick(uint64_t tick_index) {
             mark_progress_changed(player_id);
         }
     }
-    return {};
-}
-
-snt::core::Expected<void> QuestRegistry::accept(QuestPlayerId player_id,
-                                                 std::string_view quest_id,
-                                                 uint64_t tick_index) {
-    if (auto result = validate_player_id(player_id); !result) return result.error();
-    if (quest_id.empty()) return invalid_argument("Quest id must not be empty");
-    if (auto result = synchronize_player(player_id, tick_index); !result) return result.error();
-
-    auto definition = definitions_.find(quest_id);
-    if (definition == definitions_.end()) return invalid_argument("Quest definition is not registered");
-    auto& progress = players_.at(player_id).at(std::string(quest_id));
-    if (progress.state != QuestState::kAvailable) {
-        return invalid_state("Quest can only be accepted while available");
-    }
-    bool changed = transition(player_id, progress, QuestState::kInProgress, tick_index);
-    changed |= reconcile_player(player_id, players_.at(player_id), tick_index);
-    if (changed) mark_progress_changed(player_id);
     return {};
 }
 
@@ -193,7 +172,7 @@ snt::core::Expected<void> QuestRegistry::reset_repeatable(
         progress.completed_tick = 0;
         changed = true;
     }
-    changed |= transition(player_id, progress, QuestState::kAvailable, tick_index);
+    changed |= transition(player_id, progress, QuestState::kLocked, tick_index);
     changed |= reconcile_player(player_id, players_.at(player_id), tick_index);
     if (changed) mark_progress_changed(player_id);
     return {};
@@ -250,7 +229,7 @@ snt::core::Expected<void> QuestRegistry::claim_reward(
     for (const std::string& unlocked_quest_id : unlock_quests) {
         QuestProgressRecord& unlocked = player_progress.at(unlocked_quest_id);
         if (unlocked.state == QuestState::kLocked) {
-            changed |= transition(player_id, unlocked, QuestState::kAvailable, tick_index);
+            changed |= transition(player_id, unlocked, QuestState::kInProgress, tick_index);
         }
     }
     progress.reward_claimed = true;
@@ -406,9 +385,6 @@ bool QuestRegistry::reconcile_player(std::string_view player_id, PlayerProgressM
         for (const auto& [quest_id, definition] : definitions_) {
             QuestProgressRecord& record = progress.at(quest_id);
             if (record.state == QuestState::kLocked && prerequisites_met(progress, definition)) {
-                pass_changed |= transition(player_id, record, QuestState::kAvailable, tick_index);
-            }
-            if (record.state == QuestState::kAvailable && definition.auto_start) {
                 pass_changed |= transition(player_id, record, QuestState::kInProgress, tick_index);
             }
             if (record.state != QuestState::kInProgress) continue;

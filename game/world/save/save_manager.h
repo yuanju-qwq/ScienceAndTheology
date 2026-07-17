@@ -119,7 +119,7 @@ public:
     // Current per-player quest progress format version. Player progress is a
     // universe-level value and deliberately does not live in a spatial region
     // or one dimension's planet_data.bin.
-    static constexpr uint8_t kQuestProgressVersion = 1;
+    static constexpr uint8_t kQuestProgressVersion = 2;
 
     // Current per-player authoritative state format. Position, fixed-slot
     // inventory, equipment, bed respawn point, and opaque organ state are

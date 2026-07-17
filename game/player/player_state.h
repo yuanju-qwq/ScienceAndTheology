@@ -110,6 +110,19 @@ struct GamePlayerInventoryTransaction {
     std::vector<GamePlayerItemStack> additions;
 };
 
+// A stable-slot transfer is the authority boundary for retained inventory UI.
+// Expected stack values make the operation conditional: a delayed client drag
+// cannot silently move a different item after the authoritative inventory has
+// changed. A full source may swap, while a partial normal stack may move or
+// merge into an empty/matching target.
+struct GamePlayerInventorySlotTransfer {
+    uint32_t source_slot = 0;
+    uint32_t target_slot = 0;
+    int32_t count = 0;
+    GamePlayerItemStack expected_source;
+    GamePlayerItemStack expected_target;
+};
+
 // ECS components attached only to server-owned player entities. Peer ids stay
 // in the dedicated-server service so gameplay ECS data remains transport-free.
 struct GamePlayerIdentityComponent {

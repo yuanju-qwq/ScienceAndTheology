@@ -4,6 +4,9 @@
 #include "game_content_registry.h"
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
+#include <cstdint>
 #include <set>
 #include <utility>
 
@@ -51,6 +54,31 @@ std::optional<QuestObjectiveKind> parse_quest_objective_kind(std::string_view va
     if (value == "reach_tick") return QuestObjectiveKind::kReachTick;
     if (value == "custom") return QuestObjectiveKind::kCustomEvent;
     return std::nullopt;
+}
+
+constexpr uint64_t kQuestBookFingerprintOffset = 1469598103934665603ull;
+constexpr uint64_t kQuestBookFingerprintPrime = 1099511628211ull;
+
+void hash_byte(uint64_t& hash, uint8_t value) noexcept {
+    hash ^= value;
+    hash *= kQuestBookFingerprintPrime;
+}
+
+void hash_u32(uint64_t& hash, uint32_t value) noexcept {
+    for (uint32_t shift = 0; shift < 32; shift += 8) {
+        hash_byte(hash, static_cast<uint8_t>((value >> shift) & 0xffu));
+    }
+}
+
+void hash_u64(uint64_t& hash, uint64_t value) noexcept {
+    for (uint32_t shift = 0; shift < 64; shift += 8) {
+        hash_byte(hash, static_cast<uint8_t>((value >> shift) & 0xffu));
+    }
+}
+
+void hash_string(uint64_t& hash, std::string_view value) noexcept {
+    hash_u64(hash, static_cast<uint64_t>(value.size()));
+    for (const unsigned char byte : value) hash_byte(hash, byte);
 }
 
 void api_register_recipe(const std::string& id,
@@ -130,16 +158,47 @@ void api_set_machine_activation_requirements(
     }
 }
 
+void api_register_quest_chapter(const std::string& id,
+                                const std::string& title,
+                                const std::string& description,
+                                const std::string& icon_key,
+                                int sort_order) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    QuestBookChapterDefinition definition;
+    definition.id = id;
+    definition.title = title;
+    definition.description = description;
+    definition.icon_key = icon_key;
+    definition.sort_order = sort_order;
+    if (auto result = registry->register_script_quest_chapter(
+            g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_quest(const std::string& id,
+                        const std::string& chapter_id,
                         const std::string& title,
-                        const std::string& description) {
+                        const std::string& description,
+                        float node_x,
+                        float node_y,
+                        const std::string& icon_key,
+                        bool hidden,
+                        bool repeatable) {
     GameContentRegistry* registry = active_registry();
     if (!registry) return;
 
     QuestDefinition definition;
     definition.id = id;
+    definition.chapter_id = chapter_id;
     definition.title = title;
     definition.description = description;
+    definition.icon_key = icon_key;
+    definition.node_position = {node_x, node_y};
+    definition.hidden = hidden;
+    definition.repeatable = repeatable;
     if (auto result = registry->register_script_quest(g_active_script_id, std::move(definition)); !result) {
         report_binding_error(result.error());
     }
@@ -297,7 +356,11 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             asFUNCTION(api_set_machine_activation_requirements)); !result) return result;
     if (auto result = register_function(
             engine,
-            "void snt_register_quest(const string &in, const string &in, const string &in)",
+            "void snt_register_quest_chapter(const string &in, const string &in, const string &in, const string &in, int)",
+            asFUNCTION(api_register_quest_chapter)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_register_quest(const string &in, const string &in, const string &in, const string &in, float, float, const string &in, bool, bool)",
             asFUNCTION(api_register_quest)); !result) return result;
     if (auto result = register_function(
             engine, "void snt_add_quest_prerequisite(const string &in, const string &in)",
@@ -385,9 +448,30 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::validate(
+    const QuestBookChapterDefinition& definition) {
+    if (definition.id.empty()) return invalid_argument("Quest chapter id must not be empty");
+    if (definition.title.empty()) return invalid_argument("Quest chapter title must not be empty");
+    if (definition.id.find('\0') != std::string::npos ||
+        definition.icon_key.find('\0') != std::string::npos) {
+        return invalid_argument("Quest chapter identifiers must not contain a null character");
+    }
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::validate(const QuestDefinition& definition) {
     if (definition.id.empty()) return invalid_argument("Quest id must not be empty");
+    if (definition.chapter_id.empty()) return invalid_argument("Quest chapter_id must not be empty");
     if (definition.title.empty()) return invalid_argument("Quest title must not be empty");
+    if (!std::isfinite(definition.node_position.x) ||
+        !std::isfinite(definition.node_position.y)) {
+        return invalid_argument("Quest node position must be finite");
+    }
+    if (definition.id.find('\0') != std::string::npos ||
+        definition.chapter_id.find('\0') != std::string::npos ||
+        definition.icon_key.find('\0') != std::string::npos) {
+        return invalid_argument("Quest identifiers must not contain a null character");
+    }
     for (const std::string& prerequisite : definition.prerequisites) {
         if (prerequisite.empty()) return invalid_argument("Quest prerequisite id must not be empty");
         if (prerequisite == definition.id) {
@@ -473,6 +557,11 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_machine(MachineD
     return register_machine(kBuiltinScriptId, std::move(definition), true);
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_quest_chapter(
+    QuestBookChapterDefinition definition) {
+    return register_quest_chapter(kBuiltinScriptId, std::move(definition), true);
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_quest(QuestDefinition definition) {
     return register_quest(kBuiltinScriptId, std::move(definition), true);
 }
@@ -485,6 +574,11 @@ snt::core::Expected<void> GameContentRegistry::register_script_recipe(
 snt::core::Expected<void> GameContentRegistry::register_script_machine(
     ScriptId script_id, MachineDefinition definition) {
     return register_machine(script_id, std::move(definition), false);
+}
+
+snt::core::Expected<void> GameContentRegistry::register_script_quest_chapter(
+    ScriptId script_id, QuestBookChapterDefinition definition) {
+    return register_quest_chapter(script_id, std::move(definition), false);
 }
 
 snt::core::Expected<void> GameContentRegistry::register_script_quest(
@@ -654,6 +748,32 @@ snt::core::Expected<void> GameContentRegistry::register_machine(
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::register_quest_chapter(
+    ScriptId owner, QuestBookChapterDefinition definition, bool builtin) {
+    auto valid = validate(definition);
+    if (!valid) return valid.error();
+    if (builtin != (owner == kBuiltinScriptId)) {
+        return invalid_argument("Built-in registrations must use ScriptId 0");
+    }
+
+    const std::string id = definition.id;
+    auto existing = live_quest_chapters_.find(id);
+    if (!builtin && existing != live_quest_chapters_.end() &&
+        existing->second.owner != kBuiltinScriptId && existing->second.owner != owner) {
+        return invalid_state("Quest chapter id is already owned by another script: " + id);
+    }
+    if (builtin && existing != live_quest_chapters_.end() &&
+        existing->second.owner != kBuiltinScriptId) {
+        return invalid_state("Cannot replace a live script quest chapter with a built-in chapter: " + id);
+    }
+
+    OwnedDefinition<QuestBookChapterDefinition> entry{owner, std::move(definition)};
+    if (builtin) backup_quest_chapters_[id] = entry;
+    live_quest_chapters_[id] = std::move(entry);
+    ++quest_content_revision_;
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::register_quest(
     ScriptId owner, QuestDefinition definition, bool builtin) {
     auto valid = validate(definition);
@@ -690,9 +810,25 @@ const MachineDefinition* GameContentRegistry::find_machine(std::string_view id) 
     return it == live_machines_.end() ? nullptr : &it->second.definition;
 }
 
+const QuestBookChapterDefinition* GameContentRegistry::find_quest_chapter(
+    std::string_view id) const {
+    auto it = live_quest_chapters_.find(id);
+    return it == live_quest_chapters_.end() ? nullptr : &it->second.definition;
+}
+
 const QuestDefinition* GameContentRegistry::find_quest(std::string_view id) const {
     auto it = live_quests_.find(id);
     return it == live_quests_.end() ? nullptr : &it->second.definition;
+}
+
+std::vector<QuestBookChapterDefinition> GameContentRegistry::quest_chapter_definitions() const {
+    std::vector<QuestBookChapterDefinition> definitions;
+    definitions.reserve(live_quest_chapters_.size());
+    for (const auto& [id, entry] : live_quest_chapters_) {
+        (void)id;
+        definitions.push_back(entry.definition);
+    }
+    return definitions;
 }
 
 std::vector<QuestDefinition> GameContentRegistry::quest_definitions() const {
@@ -703,6 +839,51 @@ std::vector<QuestDefinition> GameContentRegistry::quest_definitions() const {
         definitions.push_back(entry.definition);
     }
     return definitions;
+}
+
+uint64_t GameContentRegistry::quest_content_fingerprint() const noexcept {
+    uint64_t hash = kQuestBookFingerprintOffset;
+    hash_string(hash, "snt.quest_book.content.v1");
+    hash_u64(hash, static_cast<uint64_t>(live_quest_chapters_.size()));
+    for (const auto& [id, entry] : live_quest_chapters_) {
+        const QuestBookChapterDefinition& chapter = entry.definition;
+        hash_string(hash, id);
+        hash_string(hash, chapter.title);
+        hash_string(hash, chapter.description);
+        hash_string(hash, chapter.icon_key);
+        hash_u32(hash, static_cast<uint32_t>(chapter.sort_order));
+    }
+
+    hash_u64(hash, static_cast<uint64_t>(live_quests_.size()));
+    for (const auto& [id, entry] : live_quests_) {
+        const QuestDefinition& quest = entry.definition;
+        hash_string(hash, id);
+        hash_string(hash, quest.chapter_id);
+        hash_string(hash, quest.title);
+        hash_string(hash, quest.description);
+        hash_string(hash, quest.icon_key);
+        hash_u32(hash, std::bit_cast<uint32_t>(quest.node_position.x));
+        hash_u32(hash, std::bit_cast<uint32_t>(quest.node_position.y));
+        hash_byte(hash, quest.hidden ? 1u : 0u);
+        hash_byte(hash, quest.repeatable ? 1u : 0u);
+
+        hash_u64(hash, static_cast<uint64_t>(quest.prerequisites.size()));
+        for (const std::string& prerequisite : quest.prerequisites) hash_string(hash, prerequisite);
+        hash_u64(hash, static_cast<uint64_t>(quest.objectives.size()));
+        for (const QuestObjectiveDefinition& objective : quest.objectives) {
+            hash_string(hash, objective.id);
+            hash_byte(hash, static_cast<uint8_t>(objective.kind));
+            hash_string(hash, objective.target_id);
+            hash_u32(hash, static_cast<uint32_t>(objective.required_count));
+        }
+        hash_u64(hash, static_cast<uint64_t>(quest.rewards.size()));
+        for (const QuestRewardDefinition& reward : quest.rewards) {
+            hash_byte(hash, static_cast<uint8_t>(reward.kind));
+            hash_string(hash, reward.target_id);
+            hash_u32(hash, static_cast<uint32_t>(reward.count));
+        }
+    }
+    return hash;
 }
 
 std::vector<RecipeDefinition> GameContentRegistry::recipes_for_machine(
@@ -813,17 +994,20 @@ snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id)
 }
 
 void GameContentRegistry::reset() {
-    const bool had_quests = !backup_quests_.empty() || !live_quests_.empty();
+    const bool had_quest_book_content = !backup_quest_chapters_.empty() ||
+        !live_quest_chapters_.empty() || !backup_quests_.empty() || !live_quests_.empty();
     backup_recipes_.clear();
     backup_machines_.clear();
+    backup_quest_chapters_.clear();
     backup_quests_.clear();
     live_recipes_.clear();
     live_machines_.clear();
+    live_quest_chapters_.clear();
     live_quests_.clear();
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();
-    if (had_quests) ++quest_content_revision_;
+    if (had_quest_book_content) ++quest_content_revision_;
 }
 
 GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content(
@@ -834,6 +1018,9 @@ GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content
     }
     for (const auto& [id, entry] : live_machines_) {
         if (entry.owner == script_id) snapshot.machines.emplace(id, entry);
+    }
+    for (const auto& [id, entry] : live_quest_chapters_) {
+        if (entry.owner == script_id) snapshot.quest_chapters.emplace(id, entry);
     }
     for (const auto& [id, entry] : live_quests_) {
         if (entry.owner == script_id) snapshot.quests.emplace(id, entry);
@@ -872,13 +1059,26 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
             ++it;
         }
     }
-    bool quests_changed = false;
+    bool quest_book_changed = false;
+    for (auto it = live_quest_chapters_.begin(); it != live_quest_chapters_.end();) {
+        if (it->second.owner != script_id) {
+            ++it;
+            continue;
+        }
+        quest_book_changed = true;
+        auto backup = backup_quest_chapters_.find(it->first);
+        if (backup == backup_quest_chapters_.end()) it = live_quest_chapters_.erase(it);
+        else {
+            it->second = backup->second;
+            ++it;
+        }
+    }
     for (auto it = live_quests_.begin(); it != live_quests_.end();) {
         if (it->second.owner != script_id) {
             ++it;
             continue;
         }
-        quests_changed = true;
+        quest_book_changed = true;
         auto backup = backup_quests_.find(it->first);
         if (backup == backup_quests_.end()) it = live_quests_.erase(it);
         else {
@@ -886,7 +1086,7 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
             ++it;
         }
     }
-    if (quests_changed) ++quest_content_revision_;
+    if (quest_book_changed) ++quest_content_revision_;
     for (auto events = event_listeners_.begin(); events != event_listeners_.end();) {
         auto& listeners = events->second;
         std::erase_if(listeners, [script_id](const EventListener& listener) {
@@ -900,8 +1100,9 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
 void GameContentRegistry::restore_script_content(const ReloadSnapshot& snapshot) {
     for (const auto& [id, entry] : snapshot.recipes) live_recipes_[id] = entry;
     for (const auto& [id, entry] : snapshot.machines) live_machines_[id] = entry;
+    for (const auto& [id, entry] : snapshot.quest_chapters) live_quest_chapters_[id] = entry;
     for (const auto& [id, entry] : snapshot.quests) live_quests_[id] = entry;
-    if (!snapshot.quests.empty()) ++quest_content_revision_;
+    if (!snapshot.quest_chapters.empty() || !snapshot.quests.empty()) ++quest_content_revision_;
     for (const auto& listener : snapshot.event_listeners) {
         event_listeners_[listener.event_name].push_back(listener);
         sort_event_listeners(listener.event_name);

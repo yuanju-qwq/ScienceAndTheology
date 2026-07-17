@@ -419,13 +419,6 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_command(GameClie
     return impl_->handler->enqueue_command(std::move(command));
 }
 
-snt::core::Expected<void> GameClientReplicationSession::enqueue_quest_accept(
-    uint64_t client_sequence, GameQuestAcceptCommand command) {
-    auto encoded = make_game_quest_accept_command(client_sequence, command);
-    if (!encoded) return encoded.error();
-    return enqueue_command(std::move(*encoded));
-}
-
 snt::core::Expected<void> GameClientReplicationSession::enqueue_quest_claim_reward(
     uint64_t client_sequence, GameQuestClaimRewardCommand command) {
     auto encoded = make_game_quest_claim_reward_command(client_sequence, command);

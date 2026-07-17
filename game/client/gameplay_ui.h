@@ -12,9 +12,11 @@
 
 #include "ui/ui_packed_scene.h"
 #include "core/expected.h"
+#include "inventory_slot_transaction.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,19 +28,6 @@ class LocalizationService;
 namespace snt::core { class RuntimePathResolver; }
 
 namespace snt::game {
-
-struct ItemStackState {
-    std::string item_key;
-    int32_t count = 0;
-
-    bool empty() const { return item_key.empty() || count <= 0; }
-};
-
-struct InventoryState {
-    std::vector<ItemStackState> slots;
-    int32_t columns = 9;
-    int32_t selected_hotbar = 0;
-};
 
 struct RecipeIngredientState {
     std::string item_key;
@@ -98,6 +87,11 @@ public:
     int32_t count_item(std::string_view item_key) const;
     bool remove_item(std::string_view item_key, int32_t count);
     bool add_item(ItemStackState stack);
+    // Only an inventory transaction confirmation may replace slots used by
+    // retained SlotViews. Layout-only state such as the selected hotbar slot
+    // remains local presentation state.
+    [[nodiscard]] bool apply_authoritative_slots(std::vector<ItemStackState> slots,
+                                                 int32_t max_stack_size);
 
     snt::ui::ViewModel& bindings() { return bindings_; }
     const snt::ui::ViewModel& bindings() const { return bindings_; }
@@ -152,7 +146,9 @@ enum class GameplayUiScreen : uint8_t {
 class GameplayUiController {
 public:
     GameplayUiController(InventoryViewModel inventory,
-                         std::vector<CraftingRecipeState> recipes);
+                         std::vector<CraftingRecipeState> recipes,
+                         std::shared_ptr<IInventorySlotTransferCommandSink>
+                             slot_transfer_sink = {});
 
     InventoryViewModel& inventory() { return inventory_; }
     HotbarViewModel& hotbar() { return hotbar_; }
@@ -169,6 +165,19 @@ public:
     void toggle_inventory();
     void toggle_crafting();
 
+    // SlotView drag callbacks submit value-only requests. They do not mutate
+    // InventoryViewModel; the owning game session later supplies a matching
+    // authority confirmation from its simulator or network adapter.
+    void handle_inventory_slot_drag(const snt::ui::UiDragEvent& event);
+    [[nodiscard]] bool apply_inventory_slot_transfer_confirmation(
+        InventorySlotTransferConfirmation confirmation);
+    [[nodiscard]] bool inventory_slot_transfer_pending() const noexcept {
+        return pending_slot_transfer_.has_value();
+    }
+    [[nodiscard]] uint64_t inventory_authority_revision() const noexcept {
+        return inventory_authority_revision_;
+    }
+
 private:
     void set_open_screen(GameplayUiScreen screen);
 
@@ -176,6 +185,10 @@ private:
     HotbarViewModel hotbar_;
     CraftingViewModel crafting_;
     GameplayUiScreen open_screen_ = GameplayUiScreen::None;
+    std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink_;
+    std::optional<InventorySlotTransferRequest> pending_slot_transfer_;
+    uint64_t inventory_authority_revision_ = 0;
+    uint64_t next_inventory_transfer_request_id_ = 1;
     uint64_t revision_ = 0;
 };
 

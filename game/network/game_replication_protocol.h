@@ -22,7 +22,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 7;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 9;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -36,12 +36,14 @@ inline constexpr size_t kMaxGameChunkSnapshotPayloadBytes = 512u * 1024u;
 inline constexpr size_t kMaxGameEntitySnapshotPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameSnapshotChunks = 128;
 inline constexpr size_t kMaxGameSnapshotEntities = 4096;
+inline constexpr size_t kMaxGameSnapshotValues = 64;
 inline constexpr size_t kMaxGameDeltaChunks = 128;
 inline constexpr size_t kMaxGameBlockDeltasPerChunk =
     static_cast<size_t>(snt::voxel::VoxelChunk::kChunkSize) *
     static_cast<size_t>(snt::voxel::VoxelChunk::kChunkSize) *
     static_cast<size_t>(snt::voxel::VoxelChunk::kChunkSize);
 inline constexpr size_t kMaxGameBlockDeltas = 16384;
+inline constexpr size_t kMaxGameReplicationValuePayloadBytes = 512u * 1024u;
 
 // Client and server message ranges are intentionally distinct. New message
 // kinds must be added here before a handler accepts them, so an unrecognized
@@ -109,9 +111,8 @@ struct GameLoginAccepted {
 // presentation/gameplay hints so a co-op session does not spend server time
 // replaying raycasts or other anti-cheat checks.
 enum class GameClientCommandType : uint16_t {
-    kQuestAccept = 1,
-    kBlockInteraction = 2,
-    kQuestClaimReward = 3,
+    kBlockInteraction = 1,
+    kQuestClaimReward = 2,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -138,10 +139,6 @@ struct GamePlayerMovementInput {
     uint8_t flags = 0;
     int16_t yaw_centidegrees = 0;
     int16_t pitch_centidegrees = 0;
-};
-
-struct GameQuestAcceptCommand {
-    std::string quest_id;
 };
 
 // A claim contains only the completed quest identifier. The authenticated
@@ -204,10 +201,32 @@ struct GameEntitySnapshot {
     std::vector<std::byte> payload;
 };
 
+// Values are authenticated-player presentation state which is neither terrain
+// nor an ECS entity. A value kind appears at most once in one snapshot or
+// delta, so each consumer has one deterministic latest value boundary.
+enum class GameReplicationValueKind : uint8_t {
+    kQuestBook = 1,
+};
+
+enum class GameReplicationValueOperation : uint8_t {
+    kUpsert = 1,
+    kRemove = 2,
+};
+
+struct GameReplicationValue {
+    GameReplicationValueKind kind = GameReplicationValueKind::kQuestBook;
+    GameReplicationValueOperation operation = GameReplicationValueOperation::kUpsert;
+    std::vector<std::byte> payload;
+};
+
+[[nodiscard]] bool is_known_game_replication_value_kind(
+    GameReplicationValueKind kind) noexcept;
+
 struct GameSnapshot {
     uint64_t snapshot_id = 0;
     std::vector<GameChunkSnapshot> chunks;
     std::vector<GameEntitySnapshot> entities;
+    std::vector<GameReplicationValue> values;
 };
 
 struct GameBlockDelta {
@@ -226,6 +245,7 @@ struct GameDelta {
     uint64_t sequence = 0;
     std::vector<GameChunkDelta> chunks;
     std::vector<GameEntitySnapshot> entities;
+    std::vector<GameReplicationValue> values;
 };
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_login_request(
@@ -249,11 +269,6 @@ struct GameDelta {
     const GamePlayerMovementInput& input);
 [[nodiscard]] snt::core::Expected<GamePlayerMovementInput> parse_game_player_movement_input(
     const GameReplicationMessage& message);
-
-[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_quest_accept_command(
-    uint64_t client_sequence, const GameQuestAcceptCommand& command);
-[[nodiscard]] snt::core::Expected<GameQuestAcceptCommand> parse_game_quest_accept_command(
-    const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<GameClientCommand> make_game_quest_claim_reward_command(
     uint64_t client_sequence, const GameQuestClaimRewardCommand& command);

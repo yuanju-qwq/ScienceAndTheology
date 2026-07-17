@@ -105,6 +105,15 @@ public:
     [[nodiscard]] snt::core::Expected<bool> can_apply_inventory_transaction(
         const GameAuthenticatedPeer& peer,
         const GamePlayerInventoryTransaction& transaction) const;
+    // Applies a conditional stable-slot transfer and returns the committed
+    // inventory snapshot for a client confirmation adapter. The server alone
+    // chooses whether a delayed UI request still matches its expected slots.
+    [[nodiscard]] snt::core::Expected<GamePlayerInventory> apply_inventory_slot_transfer(
+        const GameAuthenticatedPeer& peer,
+        const GamePlayerInventorySlotTransfer& transfer);
+    [[nodiscard]] snt::core::Expected<bool> can_apply_inventory_slot_transfer(
+        const GameAuthenticatedPeer& peer,
+        const GamePlayerInventorySlotTransfer& transfer) const;
     [[nodiscard]] snt::core::Expected<void> replace_trusted_held_tool_tags(
         const GameAuthenticatedPeer& peer, std::vector<std::string> tags);
 
@@ -143,6 +152,8 @@ private:
         const GamePlayerPersistentState& state) const;
     [[nodiscard]] snt::core::Expected<void> validate_inventory_transaction(
         const GamePlayerInventoryTransaction& transaction) const;
+    [[nodiscard]] snt::core::Expected<void> validate_inventory_slot_transfer(
+        const GamePlayerInventorySlotTransfer& transfer) const;
     [[nodiscard]] snt::core::Expected<void> validate_tool_tags(
         const std::vector<std::string>& tags) const;
     [[nodiscard]] snt::core::Expected<PlayerRecord*> find_active_record(
@@ -164,6 +175,8 @@ private:
                              const GamePlayerItemStack& stack) noexcept;
     static bool add_items(GamePlayerInventory& inventory,
                           const GamePlayerItemStack& stack) noexcept;
+    static bool apply_slot_transfer(GamePlayerInventory& inventory,
+                                    const GamePlayerInventorySlotTransfer& transfer) noexcept;
 
     snt::ecs::World* world_ = nullptr;
     GameServerPlayerStateConfig config_;

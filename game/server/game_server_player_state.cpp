@@ -368,6 +368,42 @@ snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_transaction
     return true;
 }
 
+snt::core::Expected<GamePlayerInventory> GameServerPlayerState::apply_inventory_slot_transfer(
+    const GameAuthenticatedPeer& peer,
+    const GamePlayerInventorySlotTransfer& transfer) {
+    auto applicable = can_apply_inventory_slot_transfer(peer, transfer);
+    if (!applicable) return applicable.error();
+    if (!*applicable) {
+        return invalid_state("Authoritative player inventory rejected the requested slot transfer");
+    }
+
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+
+    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
+    if (!apply_slot_transfer(candidate, transfer)) {
+        return invalid_state("Authoritative player inventory changed during slot transfer apply");
+    }
+    world_->get_component<GamePlayerInventory>(*entity) = candidate;
+    return candidate;
+}
+
+snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_transfer(
+    const GameAuthenticatedPeer& peer,
+    const GamePlayerInventorySlotTransfer& transfer) const {
+    if (auto result = validate_inventory_slot_transfer(transfer); !result) return result.error();
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+
+    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
+    if (auto result = validate_inventory(candidate); !result) return result.error();
+    return apply_slot_transfer(candidate, transfer);
+}
+
 snt::core::Expected<void> GameServerPlayerState::replace_trusted_held_tool_tags(
     const GameAuthenticatedPeer& peer, std::vector<std::string> tags) {
     if (auto result = validate_tool_tags(tags); !result) return result.error();
@@ -495,6 +531,21 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_transaction(
         if (!validate_stack(stack)) {
             return invalid_argument("Authoritative player inventory transaction has an invalid addition");
         }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_transfer(
+    const GamePlayerInventorySlotTransfer& transfer) const {
+    if (transfer.source_slot == transfer.target_slot || transfer.count <= 0) {
+        return invalid_argument("Authoritative player slot transfer has an invalid source, target, or count");
+    }
+    if (!has_valid_nonempty_stack_shape(transfer.expected_source)) {
+        return invalid_argument("Authoritative player slot transfer has an invalid expected source");
+    }
+    if (!is_empty_stack_value(transfer.expected_target) &&
+        !has_valid_nonempty_stack_shape(transfer.expected_target)) {
+        return invalid_argument("Authoritative player slot transfer has an invalid expected target");
     }
     return {};
 }
@@ -677,6 +728,40 @@ bool GameServerPlayerState::add_items(GamePlayerInventory& inventory,
         if (remaining == 0) return true;
     }
     return false;
+}
+
+bool GameServerPlayerState::apply_slot_transfer(
+    GamePlayerInventory& inventory,
+    const GamePlayerInventorySlotTransfer& transfer) noexcept {
+    if (transfer.source_slot >= inventory.slots.size() ||
+        transfer.target_slot >= inventory.slots.size()) {
+        return false;
+    }
+
+    GamePlayerItemStack& source = inventory.slots[transfer.source_slot];
+    GamePlayerItemStack& target = inventory.slots[transfer.target_slot];
+    if (source != transfer.expected_source || target != transfer.expected_target ||
+        transfer.count > source.count) {
+        return false;
+    }
+
+    if (is_empty_stack(target)) {
+        target = source;
+        target.count = transfer.count;
+        source.count -= transfer.count;
+        if (source.count == 0) clear_stack(source);
+        return true;
+    }
+    if (stacks_can_merge(source, target)) {
+        if (target.count > inventory.max_stack_size - transfer.count) return false;
+        target.count += transfer.count;
+        source.count -= transfer.count;
+        if (source.count == 0) clear_stack(source);
+        return true;
+    }
+    if (transfer.count != source.count) return false;
+    std::swap(source, target);
+    return true;
 }
 
 }  // namespace snt::game::replication

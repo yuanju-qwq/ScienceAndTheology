@@ -34,6 +34,7 @@ class GameServerPlayerInteractionService;
 class GameServerPlayerLifecycle;
 class GameServerPlayerMovement;
 class GameServerQuestEventService;
+class GameServerQuestBookReplication;
 class GameServerPlayerReplication;
 class GameServerPlayerRespawnResolver;
 class GameServerPlayerState;
@@ -65,6 +66,7 @@ private:
     std::unique_ptr<replication::GameServerPlayerDeathService> player_death_;
     std::unique_ptr<replication::GameServerPlayerInteractionService> player_interactions_;
     std::unique_ptr<replication::GameServerQuestEventService> quest_events_;
+    std::unique_ptr<replication::GameServerQuestBookReplication> quest_book_replication_;
     std::unique_ptr<replication::GameServerPlayerReplication> player_replication_;
     std::unique_ptr<replication::GameServerPlayerLifecycle> player_lifecycle_;
     std::unique_ptr<replication::IGamePeerAuthenticator> peer_authenticator_;
