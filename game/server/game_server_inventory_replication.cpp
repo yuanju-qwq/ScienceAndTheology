@@ -65,9 +65,7 @@ snt::core::Expected<void> GameServerInventoryReplication::submit_slot_transfer(
     };
     auto applicable = player_state_->can_apply_inventory_slot_transfer(peer, transfer);
     if (!applicable) {
-        return record_response(**account, command.request_id,
-                               GameInventorySlotTransferOutcome::kRejected,
-                               applicable.error().message());
+        return applicable.error();
     }
     if (!*applicable) {
         return record_response(**account, command.request_id,
@@ -80,9 +78,7 @@ snt::core::Expected<void> GameServerInventoryReplication::submit_slot_transfer(
         }
     }
     if (auto result = player_state_->apply_inventory_slot_transfer(peer, transfer); !result) {
-        return record_response(**account, command.request_id,
-                               GameInventorySlotTransferOutcome::kRejected,
-                               result.error().message());
+        return result.error();
     }
     account = synchronize_account(peer);
     if (!account) return account.error();

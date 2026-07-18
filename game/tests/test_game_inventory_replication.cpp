@@ -185,9 +185,30 @@ TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
     EXPECT_EQ(state.snapshot()->inventory.slots[7], initial.inventory.slots[7]);
     EXPECT_EQ(state.snapshot()->response.request_id, 7u);
 
+    GameInventoryDelta revision_only{
+        .account_id = initial.account_id,
+        .inventory_revision = 3,
+        .response_revision = 1,
+    };
+    auto encoded_revision_only = encode_game_inventory_delta(revision_only);
+    ASSERT_TRUE(encoded_revision_only) << encoded_revision_only.error().format();
+    GameDelta revision_only_delta{
+        .base_snapshot_id = 55,
+        .sequence = 2,
+        .values = {{
+            .kind = GameReplicationValueKind::kPlayerInventory,
+            .operation = GameReplicationValueOperation::kUpsert,
+            .payload = std::move(*encoded_revision_only),
+        }},
+    };
+    ASSERT_TRUE(state.apply(revision_only_delta));
+    ASSERT_NE(state.snapshot(), nullptr);
+    EXPECT_EQ(state.snapshot()->inventory_revision, 3u);
+    EXPECT_EQ(state.snapshot()->inventory.slots[0], (GamePlayerItemStack{"iron", 7}));
+
     GameInventoryDelta wrong_account = changed;
     wrong_account.account_id = "local-name:SomeoneElse";
-    wrong_account.inventory_revision = 3;
+    wrong_account.inventory_revision = 4;
     wrong_account.response_revision = 1;
     wrong_account.response = {};
     wrong_account.changed_slots = {{.slot_index = 2, .stack = {.item_id = "coal", .count = 1}}};
@@ -195,7 +216,7 @@ TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
     ASSERT_TRUE(encoded_wrong_account) << encoded_wrong_account.error().format();
     GameDelta rejected{
         .base_snapshot_id = 55,
-        .sequence = 2,
+        .sequence = 3,
         .values = {{
             .kind = GameReplicationValueKind::kPlayerInventory,
             .operation = GameReplicationValueOperation::kUpsert,

@@ -1221,8 +1221,15 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         SNT_LOG_INFO("Inventory UI %s", gameplay_ui_->inventory_open() ? "opened" : "closed");
     }
     if (!lan_browser_open && !quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_C]) {
-        gameplay_ui_->toggle_crafting();
-        SNT_LOG_INFO("Crafting UI %s", gameplay_ui_->crafting_open() ? "opened" : "closed");
+        if (uses_network_presentation()) {
+            if (!network_crafting_unavailable_reported_) {
+                SNT_LOG_WARN("Network crafting UI is unavailable until it has an authoritative command path");
+                network_crafting_unavailable_reported_ = true;
+            }
+        } else {
+            gameplay_ui_->toggle_crafting();
+            SNT_LOG_INFO("Crafting UI %s", gameplay_ui_->crafting_open() ? "opened" : "closed");
+        }
     }
     if (input.key_pressed[SDL_SCANCODE_F3] && performance_ui_) {
         performance_ui_->toggle_visible();
