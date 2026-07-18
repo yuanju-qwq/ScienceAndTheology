@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 #include <variant>
 
@@ -37,10 +38,12 @@ enum class GameClientConnectionState : uint8_t {
 
 // This is an immutable input at session creation. The account id is used only
 // to verify the server's accepted identity; it is never encoded into the
-// login request. credential remains opaque and is not logged.
+// login request. credential and server_password remain opaque and are never
+// logged. A blank server_password requests an open server.
 struct GameClientAuthentication {
     PlayerIdentity local_identity;
     std::vector<std::byte> credential;
+    std::string server_password;
 };
 
 // A value snapshot avoids exposing the handler's mutable state to the client

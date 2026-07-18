@@ -107,34 +107,128 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_world(
         error.with_context("ScienceAndTheologyClientSession::create_world");
         return error;
     }
+    if (config_.client_network.lan_discovery_enabled) {
+        if (!connection_authentication_) {
+            return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                    "LAN browsing is enabled without injected player authentication"};
+        }
+        LanServerBrowserConfig browser_config;
+        browser_config.discovery.target_address = config_.client_network.lan_discovery_address;
+        browser_config.discovery.port = config_.client_network.lan_discovery_port;
+        auto browser = LanServerBrowserModel::create(std::move(browser_config));
+        if (!browser) {
+            auto error = browser.error();
+            error.with_context("ScienceAndTheologyClientSession::create_world(LAN browser)");
+            return error;
+        }
+        (*browser)->set_server_password(connection_authentication_->server_password);
+        lan_server_browser_ = std::move(*browser);
+        SNT_LOG_INFO("LAN server browser initialized (address=%s port=%u)",
+                     config_.client_network.lan_discovery_address.c_str(),
+                     config_.client_network.lan_discovery_port);
+    }
+
     if (!config_.client_network.enabled) return {};
     if (!connection_authentication_) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Client networking is enabled without injected player authentication"};
     }
-
-    snt::network::TcpUdpConnectConfig connection_config;
-    connection_config.host = config_.client_network.host;
-    connection_config.tcp_port = config_.client_network.tcp_port;
-    connection_config.udp_port = config_.client_network.udp_port;
-    auto connection = replication::GameClientReplicationSession::connect_tcp_udp(
-        std::move(connection_config), std::move(*connection_authentication_));
-    if (!connection) {
-        auto error = connection.error();
+    auto connected = connect_tcp_udp(config_.client_network.host, config_.client_network.tcp_port,
+                                     config_.client_network.udp_port,
+                                     connection_authentication_->server_password);
+    if (!connected) {
+        auto error = connected.error();
         error.with_context("ScienceAndTheologyClientSession::create_world(client replication)");
         return error;
     }
-    connection_authentication_.reset();
+    return {};
+}
+
+bool ScienceAndTheologyClientSession::uses_network_presentation() const noexcept {
+    return config_.client_network.enabled || lan_server_browser_ != nullptr;
+}
+
+snt::core::Expected<void> ScienceAndTheologyClientSession::connect_tcp_udp(
+    std::string host, uint16_t tcp_port, uint16_t udp_port, std::string server_password) {
+    if (!connection_authentication_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Client replication requires injected player authentication"};
+    }
+    if (host.empty() || tcp_port == 0 || udp_port == 0) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Client replication requires a non-empty host and non-zero ports"};
+    }
+
+    if (replication_session_) {
+        replication_session_->shutdown();
+        replication_session_.reset();
+        clear_remote_replication_state();
+    }
+
+    snt::network::TcpUdpConnectConfig connection_config;
+    connection_config.host = host;
+    connection_config.tcp_port = tcp_port;
+    connection_config.udp_port = udp_port;
+    replication::GameClientAuthentication authentication = *connection_authentication_;
+    authentication.server_password = std::move(server_password);
+    auto connection = replication::GameClientReplicationSession::connect_tcp_udp(
+        std::move(connection_config), std::move(authentication));
+    if (!connection) {
+        auto error = connection.error();
+        error.with_context("ScienceAndTheologyClientSession::connect_tcp_udp");
+        return error;
+    }
+
     replication_session_ = std::move(*connection);
-    remote_player_world_ = std::make_unique<replication::GameRemotePlayerWorld>(
-        local_player_identity_ ? local_player_identity_->account_id : std::string{});
-    quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(
-        local_player_identity_ ? local_player_identity_->account_id : std::string{});
+    replication_disconnect_reported_ = false;
+    ensure_remote_replication_state();
     SNT_LOG_INFO("Client replication connection requested (host=%s tcp=%u udp=%u)",
-                 config_.client_network.host.c_str(), config_.client_network.tcp_port,
-                 config_.client_network.udp_port);
+                 host.c_str(), tcp_port, udp_port);
     SNT_LOG_INFO("Client is awaiting authoritative player AOI and task-book snapshots");
     return {};
+}
+
+void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
+    const std::string account_id = local_player_identity_ ? local_player_identity_->account_id : std::string{};
+    if (!remote_player_world_) {
+        remote_player_world_ = std::make_unique<replication::GameRemotePlayerWorld>(account_id);
+    }
+    if (!quest_book_state_) {
+        quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(account_id);
+    }
+}
+
+void ScienceAndTheologyClientSession::clear_remote_replication_state() {
+    if (remote_chunk_world_) {
+        remote_chunk_world_->clear();
+        if (chunk_render_system_) {
+            for (const snt::voxel::ChunkKey& key : remote_chunk_world_->drain_dirty_chunks()) {
+                chunk_render_system_->mark_dirty(key);
+            }
+        }
+    }
+    if (remote_machine_world_) remote_machine_world_->clear();
+    if (remote_player_world_) remote_player_world_->clear();
+    if (quest_book_state_) quest_book_state_->clear();
+}
+
+void ScienceAndTheologyClientSession::process_lan_join_request() {
+    if (!lan_server_browser_) return;
+    std::optional<LanServerJoinRequest> request = lan_server_browser_->take_join_request();
+    if (!request) return;
+
+    auto connected = connect_tcp_udp(request->server.host, request->server.tcp_port,
+                                     request->server.udp_port, std::move(request->server_password));
+    if (!connected) {
+        lan_server_browser_->report_connection_failure(
+            "Unable to establish the TCP/UDP connection.");
+        SNT_LOG_WARN("LAN server connection setup failed (host=%s tcp=%u udp=%u): %s",
+                     request->server.host.c_str(), request->server.tcp_port, request->server.udp_port,
+                     connected.error().format().c_str());
+        set_lan_server_browser_visible(true);
+        return;
+    }
+    set_lan_server_browser_visible(false);
 }
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
@@ -189,7 +283,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
     tuning.move_speed = config_.camera.move_speed;
     tuning.look_speed = config_.camera.look_speed;
     auto& simulation = world_session.simulation();
-    const bool has_authoritative_network_player = replication_session_ != nullptr;
+    const bool has_authoritative_network_player = uses_network_presentation();
     if (!has_authoritative_network_player) {
         auto player = std::make_shared<snt::player::PlayerControllerSystem>();
         player->set_input(&world_session.input());
@@ -223,8 +317,13 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
             world_session.chunks());
         remote_machine_world_ = std::make_unique<replication::GameRemoteMachineWorld>();
-        SNT_LOG_INFO("Client movement uses server-authoritative input and position updates");
-        SNT_LOG_INFO("Client terrain and machine presentation await authoritative replication");
+        ensure_remote_replication_state();
+        if (replication_session_) {
+            SNT_LOG_INFO("Client movement uses server-authoritative input and position updates");
+            SNT_LOG_INFO("Client terrain and machine presentation await authoritative replication");
+        } else {
+            SNT_LOG_INFO("Client presentation is waiting for a LAN server selection");
+        }
     }
 
     // Match PlayerPhysicsSystem::sync_camera_transform before the first
@@ -251,7 +350,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
 
     InventoryState initial_inventory = make_starting_inventory();
     std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink;
-    if (!replication_session_) {
+    if (!uses_network_presentation()) {
         local_inventory_authority_ = std::make_shared<LocalInventorySlotTransferAuthority>(
             initial_inventory);
         slot_transfer_sink = local_inventory_authority_;
@@ -320,7 +419,26 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         error.with_context("ScienceAndTheologyClientSession::create_client_world(register performance UI)");
         return error;
     }
+    if (lan_server_browser_) {
+        if (auto result = layers.register_screen({
+                .owner_id = "science_and_theology",
+                .screen_id = "lan_server_browser",
+                .layer = snt::ui::UiLayer::Modal,
+                .initially_visible = replication_session_ == nullptr,
+                .factory = make_lan_server_browser_ui_factory(*lan_server_browser_, [this] {
+                    set_lan_server_browser_visible(false);
+                }),
+            }); !result) {
+            const size_t removed = layers.unregister_owner("science_and_theology");
+            SNT_LOG_WARN("LAN browser UI registration failed; removed %zu partial UI screen(s)", removed);
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologyClientSession::create_client_world(register LAN browser UI)");
+            return error;
+        }
+    }
     ui_layers_ = &layers;
+    expected_ui_screen_count_ = lan_server_browser_ ? 4u : 3u;
     if (local_player_identity_) {
         SNT_LOG_INFO("Client local player identity is '%s' (%s)",
                      local_player_identity_->account_id.c_str(),
@@ -332,6 +450,10 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
     snt::engine::FixedTickContext& context) {
+    if (lan_server_browser_) {
+        lan_server_browser_->fixed_tick(context.tick_index());
+        process_lan_join_request();
+    }
     if (replication_session_) {
         const snt::network::ReplicationTickContext replication_context{
             .tick_index = context.tick_index(),
@@ -344,18 +466,18 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
         }
         if (replication_session_->status().state ==
             replication::GameClientConnectionState::kDisconnected) {
-            if (remote_chunk_world_) {
-                remote_chunk_world_->clear();
-                if (chunk_render_system_) {
-                    for (const snt::voxel::ChunkKey& key : remote_chunk_world_->drain_dirty_chunks()) {
-                        chunk_render_system_->mark_dirty(key);
-                    }
+            if (!replication_disconnect_reported_) {
+                clear_remote_replication_state();
+                replication_disconnect_reported_ = true;
+                if (lan_server_browser_) {
+                    lan_server_browser_->report_connection_failure(
+                        "Server disconnected before or during authentication.");
+                    set_lan_server_browser_visible(true);
                 }
+                SNT_LOG_WARN("Client replication session disconnected");
             }
-            if (remote_machine_world_) remote_machine_world_->clear();
-            if (remote_player_world_) remote_player_world_->clear();
-            if (quest_book_state_) quest_book_state_->clear();
         } else {
+            replication_disconnect_reported_ = false;
             for (const replication::GameClientReplicationUpdate& update :
                  replication_session_->drain_replication_updates()) {
                 const bool first_player_snapshot =
@@ -446,6 +568,11 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
         }
         if (replication_session_->status().state ==
             replication::GameClientConnectionState::kAuthenticated) {
+            if (lan_server_browser_ && ui_layers_ &&
+                ui_layers_->is_visible("science_and_theology", "lan_server_browser")) {
+                lan_server_browser_->report_connection_established();
+                set_lan_server_browser_visible(false);
+            }
             const bool input_changed = !has_last_sent_movement_input_ ||
                 !same_movement_intent(sampled_movement_input_, last_sent_movement_input_);
             const bool heartbeat_due = !has_last_sent_movement_input_ ||
@@ -526,13 +653,15 @@ void ScienceAndTheologyClientSession::build_ui(snt::engine::ClientUiContext& con
 void ScienceAndTheologyClientSession::shutdown() noexcept {
     if (ui_layers_) {
         const size_t removed = ui_layers_->unregister_owner("science_and_theology");
-        if (removed != 3u) {
-            SNT_LOG_WARN("Gameplay UI layer cleanup removed %zu screen(s), expected 3", removed);
+        if (removed != expected_ui_screen_count_) {
+            SNT_LOG_WARN("Gameplay UI layer cleanup removed %zu screen(s), expected %zu", removed,
+                         expected_ui_screen_count_);
         }
         ui_layers_ = nullptr;
     }
+    expected_ui_screen_count_ = 0;
     presentation_world_ = nullptr;
-    if (remote_chunk_world_) remote_chunk_world_->clear();
+    clear_remote_replication_state();
     remote_chunk_world_.reset();
     remote_machine_world_.reset();
     chunk_render_system_ = nullptr;
@@ -541,6 +670,7 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     quest_book_state_.reset();
     if (replication_session_) replication_session_->shutdown();
     replication_session_.reset();
+    lan_server_browser_.reset();
     connection_authentication_.reset();
     gameplay_ui_.reset();
     local_inventory_authority_.reset();
@@ -548,6 +678,17 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     localization_.reset();
     simulation_session_.shutdown();
     services_ = nullptr;
+}
+
+void ScienceAndTheologyClientSession::set_lan_server_browser_visible(bool visible) {
+    if (!ui_layers_ || !lan_server_browser_) return;
+    if (auto result = ui_layers_->set_visible(
+            "science_and_theology", "lan_server_browser", visible); !result) {
+        SNT_LOG_WARN("LAN browser UI layer visibility update failed: %s",
+                     result.error().format().c_str());
+        return;
+    }
+    SNT_LOG_INFO("LAN server browser %s", visible ? "opened" : "closed");
 }
 
 void ScienceAndTheologyClientSession::sample_network_movement_input(
@@ -644,21 +785,29 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::submit_quest_reward_c
 }
 
 void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientFrameContext& context) {
-    if (!gameplay_ui_ && !quest_book_ui_) return;
+    if (!gameplay_ui_ && !quest_book_ui_ && !lan_server_browser_) return;
     const auto& input = context.input();
+
+    bool lan_browser_open = ui_layers_ &&
+        ui_layers_->is_visible("science_and_theology", "lan_server_browser");
+    if (lan_server_browser_ && input.key_pressed[SDL_SCANCODE_L]) {
+        if (!lan_browser_open) lan_server_browser_->request_refresh();
+        set_lan_server_browser_visible(!lan_browser_open);
+        lan_browser_open = !lan_browser_open;
+    }
 
     bool quest_book_open = ui_layers_ &&
         ui_layers_->is_visible("science_and_theology", "quest_book");
-    if (quest_book_ui_ && input.key_pressed[SDL_SCANCODE_J]) {
+    if (!lan_browser_open && quest_book_ui_ && input.key_pressed[SDL_SCANCODE_J]) {
         if (!quest_book_open && gameplay_ui_) gameplay_ui_->close();
         set_quest_book_visible(!quest_book_open);
         quest_book_open = !quest_book_open;
     }
-    if (!quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_E]) {
+    if (!lan_browser_open && !quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_E]) {
         gameplay_ui_->toggle_inventory();
         SNT_LOG_INFO("Inventory UI %s", gameplay_ui_->inventory_open() ? "opened" : "closed");
     }
-    if (!quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_C]) {
+    if (!lan_browser_open && !quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_C]) {
         gameplay_ui_->toggle_crafting();
         SNT_LOG_INFO("Crafting UI %s", gameplay_ui_->crafting_open() ? "opened" : "closed");
     }
@@ -677,7 +826,10 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
 
     bool gameplay_ui_open = gameplay_ui_ &&
         (gameplay_ui_->inventory_open() || gameplay_ui_->crafting_open());
-    if (input.esc_pressed && quest_book_open) {
+    if (input.esc_pressed && lan_browser_open) {
+        set_lan_server_browser_visible(false);
+        lan_browser_open = false;
+    } else if (input.esc_pressed && quest_book_open) {
         set_quest_book_visible(false);
         quest_book_open = false;
     } else if (input.esc_pressed && gameplay_ui_open) {
@@ -685,7 +837,7 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         gameplay_ui_open = false;
         SNT_LOG_INFO("Gameplay UI closed");
     }
-    const bool ui_open = gameplay_ui_open || quest_book_open;
+    const bool ui_open = gameplay_ui_open || quest_book_open || lan_browser_open;
     if ((input.esc_pressed || ui_open) && context.mouse_locked()) {
         context.set_mouse_locked(false);
     } else if (input.wants_mouse_lock && !context.mouse_locked() && !ui_open) {

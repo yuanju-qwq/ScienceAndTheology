@@ -11,6 +11,7 @@
 #include "game/network/game_client_replication_session.h"
 #include "game/localization/localization.h"
 #include "gameplay_ui.h"
+#include "lan_server_browser.h"
 #include "quest_book_ui.h"
 #include "game_session_config.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
@@ -18,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace snt::game::replication {
@@ -61,6 +63,15 @@ public:
     }
 
 private:
+    [[nodiscard]] bool uses_network_presentation() const noexcept;
+    [[nodiscard]] snt::core::Expected<void> connect_tcp_udp(std::string host,
+                                                             uint16_t tcp_port,
+                                                             uint16_t udp_port,
+                                                             std::string server_password);
+    void ensure_remote_replication_state();
+    void clear_remote_replication_state();
+    void process_lan_join_request();
+    void set_lan_server_browser_visible(bool visible);
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
     void set_quest_book_visible(bool visible);
     [[nodiscard]] snt::core::Expected<void> submit_quest_reward_claim(
@@ -75,6 +86,7 @@ private:
     std::optional<PlayerIdentity> local_player_identity_;
     std::optional<replication::GameClientAuthentication> connection_authentication_;
     std::unique_ptr<replication::GameClientReplicationSession> replication_session_;
+    std::unique_ptr<LanServerBrowserModel> lan_server_browser_;
     std::unique_ptr<replication::GameClientRemoteChunkWorld> remote_chunk_world_;
     std::unique_ptr<replication::GameRemoteMachineWorld> remote_machine_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
@@ -89,6 +101,8 @@ private:
     bool has_last_sent_movement_input_ = false;
     snt::engine::SimulationServices* services_ = nullptr;
     snt::ui::UiLayerStack* ui_layers_ = nullptr;
+    size_t expected_ui_screen_count_ = 0;
+    bool replication_disconnect_reported_ = false;
     std::shared_ptr<LocalInventorySlotTransferAuthority> local_inventory_authority_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;

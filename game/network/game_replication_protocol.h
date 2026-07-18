@@ -22,12 +22,13 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 10;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 11;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
 inline constexpr size_t kMaxGamePlayerIdBytes = kMaxPlayerAccountIdBytes;
 inline constexpr size_t kMaxGameCredentialBytes = 1024;
+inline constexpr size_t kMaxGameServerPasswordBytes = 256;
 inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameQuestIdBytes = 512;
 inline constexpr size_t kMaxGameDimensionIdBytes = 128;
@@ -93,13 +94,17 @@ struct GameReplicationMessage {
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> decode_game_replication_message(
     std::span<const std::byte> bytes);
 
-// Credentials are opaque to the codec and must never be logged. The identity
-// provider tells the server whether it should validate a Steam ticket or map a
-// deliberate local-name account. A client-supplied Steam id is never encoded.
+// Credentials are opaque Steam authentication evidence and must never be
+// logged. server_password is a separate optional server access gate; it is
+// never interpreted as identity evidence and must not be logged either. The
+// identity provider tells the server whether it should validate a Steam ticket
+// or map a deliberate local-name account. A client-supplied Steam id is never
+// encoded.
 struct GameLoginRequest {
     PlayerIdentityProvider identity_provider = PlayerIdentityProvider::kLocalName;
     std::string display_name;
     std::vector<std::byte> credential;
+    std::string server_password;
 };
 
 struct GameLoginAccepted {

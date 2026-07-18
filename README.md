@@ -78,9 +78,10 @@ Visual Studio 的 Release 可执行程序位于 `build/bin/Release/science_and_t
 cmake --build build --target snt_game_server --config Debug
 & .\build\bin\Debug\science_and_theology_server.exe --ticks 3
 & .\build\bin\Debug\science_and_theology_server.exe --ticks 3 --network --bind 127.0.0.1 --tcp-port 8910 --udp-port 8911
+& .\build\bin\Debug\science_and_theology_server.exe --network --server-name "My LAN Server" --server-password "shared-password"
 ```
 
-不带 `--ticks` 时服务端进入固定 20 TPS 模拟循环。`--ticks` 默认不监听端口；添加 `--network`（或在 `server_network` 配置中启用）后启动 TCP reliable + UDP unreliable transport。服务端已解析版本化 `SNTG` 登录/命令 envelope，但默认安装关闭式认证器，因此不会意外开放匿名玩家准入；具体认证、gameplay command、AOI 和 snapshot/delta 尚未接入。详见 [游戏网络协议设计](docs/游戏网络协议设计.md)。
+不带 `--ticks` 时服务端进入固定 20 TPS 模拟循环。`--ticks` 默认不监听端口；添加 `--network`（或在 `server_network` 配置中启用）后启动 TCP reliable + UDP unreliable transport、主机权威登录/命令/AOI/snapshot/delta 和 IPv4 UDP LAN discovery。默认 discovery 端口为 `23587`，可由 `lan_discovery_port`、`lan_server_name`、`--lan-discovery-port`、`--server-name` 或 `--no-lan-discovery` 配置。`--server-password <password>` 是可选共享服务器口令；它只在运行时注入，不写入随客户端分发的 `game/config/engine.json`，但当前直连 transport 不使用 TLS，因此它是 LAN 访问门槛而不是传输加密。客户端可用 `science_and_theology --server-password <password>` 将同一口令放入已配置的直连登录请求，或用 `science_and_theology --lan [--server-password <password>]` 打开 MUI 局域网服务器列表；后者只在选择服务器后建立连接，密码输入不会写入配置或日志。详见 [游戏网络协议设计](docs/游戏网络协议设计.md)。
 
 ## 运行引擎测试
 

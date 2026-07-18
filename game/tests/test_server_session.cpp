@@ -41,7 +41,8 @@ TEST(GameServerSessionTest, TicksWithoutOpeningNetworkPortsWhenDisabled) {
             .game_root = (root / "game").string(),
             .user_root = (root / "user").string(),
         },
-        std::make_unique<snt::game::ScienceAndTheologyServerSession>(std::move(session_config)));
+        std::make_unique<snt::game::ScienceAndTheologyServerSession>(
+            snt::game::GameServerSessionOptions{.config = std::move(session_config)}));
     ASSERT_TRUE(init) << init.error().format();
     auto ticks = runtime.run_fixed_ticks(2);
     EXPECT_TRUE(ticks) << ticks.error().format();

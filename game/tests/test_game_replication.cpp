@@ -1,14 +1,17 @@
 // Game-owned replication protocol and authoritative admission tests.
 
 #include "game/network/game_replication_protocol.h"
+#include "game/client/lan_server_browser.h"
 #include "game/network/game_account_peer_authenticator.h"
 #include "game/network/game_client_replication_session.h"
+#include "game/network/game_lan_discovery.h"
 #include "game/network/game_server_replication_handler.h"
 #include "game/server/game_server_command_sink.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_movement.h"
 #include "game/world/save/player_state_persistence.h"
 #include "network/tcp_udp_transport.h"
+#include "network/lan_discovery.h"
 #include "ecs/world.h"
 
 #include <gtest/gtest.h>
@@ -457,6 +460,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
         .identity_provider = PlayerIdentityProvider::kSteam,
         .display_name = "Alice",
         .credential = bytes_from_text("opaque-token"),
+        .server_password = "shared-server-password",
     };
     auto login_message = snt::game::replication::make_game_login_request(request);
     ASSERT_TRUE(login_message) << login_message.error().format();
@@ -469,6 +473,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
     EXPECT_EQ(parsed_request->identity_provider, request.identity_provider);
     EXPECT_EQ(parsed_request->display_name, request.display_name);
     EXPECT_EQ(parsed_request->credential, request.credential);
+    EXPECT_EQ(parsed_request->server_password, request.server_password);
 
     const GameClientCommand command{
         .client_sequence = 91,
@@ -515,7 +520,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 10u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 11u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
@@ -1283,7 +1288,9 @@ TEST(GameAccountPeerAuthenticatorTest, MapsLocalNamesAndUsesOnlyVerifiedSteamIds
     EXPECT_EQ(missing_steam.error().code(), snt::core::ErrorCode::kNotImplemented);
 
     RecordingSteamTicketVerifier verifier;
-    snt::game::replication::GameAccountPeerAuthenticator with_steam(&verifier);
+    snt::game::replication::GameAccountPeerAuthenticator with_steam({
+        .steam_ticket_verifier = &verifier,
+    });
     auto steam = with_steam.authenticate(
         43, {.identity_provider = PlayerIdentityProvider::kSteam,
              .display_name = "Untrusted client label",
@@ -1293,6 +1300,53 @@ TEST(GameAccountPeerAuthenticatorTest, MapsLocalNamesAndUsesOnlyVerifiedSteamIds
     EXPECT_EQ(steam->identity.display_name, verifier.display_name);
     EXPECT_EQ(verifier.last_peer, 43u);
     EXPECT_EQ(verifier.last_ticket, bytes_from_text("ticket"));
+}
+
+TEST(GameAccountPeerAuthenticatorTest, MakesServerPasswordOptionalAndKeepsCredentialsSeparate) {
+    const snt::network::ReplicationTickContext context{.tick_index = 9, .delta_seconds = 0.05f};
+    const GameLoginRequest local_login{
+        .identity_provider = PlayerIdentityProvider::kLocalName,
+        .display_name = "PasswordClient",
+    };
+
+    snt::game::replication::GameAccountPeerAuthenticator open_server;
+    EXPECT_FALSE(open_server.requires_server_password());
+    auto open = open_server.authenticate(
+        61, GameLoginRequest{.identity_provider = local_login.identity_provider,
+                              .display_name = local_login.display_name,
+                              .server_password = "unused-client-value"}, context);
+    ASSERT_TRUE(open) << open.error().format();
+
+    snt::game::replication::GameAccountPeerAuthenticator protected_server({
+        .server_password = "shared-server-password",
+    });
+    EXPECT_TRUE(protected_server.requires_server_password());
+
+    auto missing = protected_server.authenticate(62, local_login, context);
+    ASSERT_FALSE(missing);
+    EXPECT_EQ(missing.error().code(), snt::core::ErrorCode::kProtocolError);
+
+    auto wrong = protected_server.authenticate(
+        63, GameLoginRequest{.identity_provider = local_login.identity_provider,
+                              .display_name = local_login.display_name,
+                              .server_password = "wrong-password"}, context);
+    ASSERT_FALSE(wrong);
+    EXPECT_EQ(wrong.error().code(), snt::core::ErrorCode::kProtocolError);
+
+    auto local_credential = protected_server.authenticate(
+        64, GameLoginRequest{.identity_provider = local_login.identity_provider,
+                              .display_name = local_login.display_name,
+                              .credential = bytes_from_text("not-a-server-password"),
+                              .server_password = "shared-server-password"}, context);
+    ASSERT_FALSE(local_credential);
+    EXPECT_EQ(local_credential.error().code(), snt::core::ErrorCode::kProtocolError);
+
+    auto accepted = protected_server.authenticate(
+        65, GameLoginRequest{.identity_provider = local_login.identity_provider,
+                              .display_name = local_login.display_name,
+                              .server_password = "shared-server-password"}, context);
+    ASSERT_TRUE(accepted) << accepted.error().format();
+    EXPECT_EQ(accepted->identity.account_id, "local-name:PasswordClient");
 }
 
 TEST(GameAccountPeerAuthenticatorTest, NewerDuplicateLocalNameLoginTakesOverTheAccountSession) {
@@ -1384,6 +1438,36 @@ TEST(GameClientReplicationSessionTest, RejectsLoginAcceptedForADifferentLocalAcc
 
     (*session)->shutdown();
     EXPECT_TRUE(transport_view->shutdown_called);
+}
+
+TEST(GameClientReplicationSessionTest, SendsConfiguredServerPasswordInItsLoginRequest) {
+    auto transport = std::make_unique<ControlledReplicationTransport>();
+    ControlledReplicationTransport* const transport_view = transport.get();
+    transport_view->peers = {snt::network::kServerPeerId};
+    transport_view->events.push_back({
+        .kind = snt::network::ReplicationEventKind::PeerConnected,
+        .peer = snt::network::kServerPeerId,
+    });
+
+    auto session = snt::game::replication::GameClientReplicationSession::create(
+        std::move(transport),
+        {.local_identity = make_local_identity("PasswordClient"),
+         .server_password = "shared-server-password"});
+    ASSERT_TRUE(session) << session.error().format();
+    const snt::network::ReplicationTickContext context{.tick_index = 18, .delta_seconds = 0.05f};
+    ASSERT_TRUE((*session)->poll_inbound(context));
+    ASSERT_TRUE((*session)->emit_outbound(context));
+    ASSERT_EQ(transport_view->sent.size(), 1u);
+
+    auto envelope = snt::game::replication::decode_game_replication_message(
+        transport_view->sent.front().second.payload);
+    ASSERT_TRUE(envelope) << envelope.error().format();
+    auto login = snt::game::replication::parse_game_login_request(*envelope);
+    ASSERT_TRUE(login) << login.error().format();
+    EXPECT_TRUE(login->credential.empty());
+    EXPECT_EQ(login->server_password, "shared-server-password");
+
+    (*session)->shutdown();
 }
 
 TEST(GameClientReplicationSessionTest, DrainsAuthenticatedSnapshotAndDeltaValueUpdates) {
@@ -1531,6 +1615,145 @@ TEST(GameClientReplicationSessionTest, RejectsDeltaThatDoesNotMatchAnAcceptedSna
     EXPECT_TRUE((*session)->drain_replication_updates().empty());
     ASSERT_EQ(transport_view->disconnected.size(), 1u);
     EXPECT_EQ(transport_view->disconnected.front().first, snt::network::kServerPeerId);
+}
+
+TEST(GameLanDiscoveryClientTest, ReturnsOnlyServersWithTheCurrentGameProtocol) {
+    auto responder_result = snt::network::LanDiscoveryResponder::listen({
+        .bind_address = "127.0.0.1",
+        .port = 0,
+    });
+    ASSERT_TRUE(responder_result) << responder_result.error().format();
+    auto responder = std::move(*responder_result);
+
+    auto browser_result = snt::game::replication::GameLanDiscoveryClient::create({
+        .target_address = "127.0.0.1",
+        .port = responder->port(),
+    });
+    ASSERT_TRUE(browser_result) << browser_result.error().format();
+    auto browser = std::move(*browser_result);
+
+    snt::network::LanDiscoveryAdvertisement advertisement{
+        .application_protocol_version = static_cast<uint16_t>(
+            snt::game::replication::kCurrentGameReplicationProtocolVersion + 1),
+        .server_name = "Incompatible loopback server",
+        .tcp_port = 24585,
+        .udp_port = 24586,
+        .current_players = 1,
+        .max_players = 8,
+        .password_required = true,
+    };
+    auto query = browser->query();
+    ASSERT_TRUE(query) << query.error().format();
+
+    bool incompatible_reply_sent = false;
+    for (int attempt = 0; attempt < 100 && !incompatible_reply_sent; ++attempt) {
+        auto responded = responder->poll(advertisement);
+        ASSERT_TRUE(responded) << responded.error().format();
+        incompatible_reply_sent = *responded > 0;
+        auto discovered = browser->poll();
+        ASSERT_TRUE(discovered) << discovered.error().format();
+        EXPECT_TRUE(discovered->empty());
+        if (!incompatible_reply_sent) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(incompatible_reply_sent) << "Timed out waiting for incompatible discovery query";
+
+    advertisement.application_protocol_version =
+        snt::game::replication::kCurrentGameReplicationProtocolVersion;
+    advertisement.server_name = "Compatible loopback server";
+    query = browser->query();
+    ASSERT_TRUE(query) << query.error().format();
+
+    std::vector<snt::game::replication::GameLanDiscoveredServer> discovered;
+    for (int attempt = 0; attempt < 100 && discovered.empty(); ++attempt) {
+        auto responded = responder->poll(advertisement);
+        ASSERT_TRUE(responded) << responded.error().format();
+        auto replies = browser->poll();
+        ASSERT_TRUE(replies) << replies.error().format();
+        discovered = std::move(*replies);
+        if (discovered.empty()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    ASSERT_EQ(discovered.size(), 1u);
+    EXPECT_EQ(discovered[0].host, "127.0.0.1");
+    EXPECT_EQ(discovered[0].server_name, "Compatible loopback server");
+    EXPECT_EQ(discovered[0].tcp_port, 24585);
+    EXPECT_EQ(discovered[0].udp_port, 24586);
+    EXPECT_EQ(discovered[0].current_players, 1);
+    EXPECT_EQ(discovered[0].max_players, 8);
+    EXPECT_TRUE(discovered[0].password_required);
+
+    browser->shutdown();
+    auto stopped = browser->query();
+    ASSERT_FALSE(stopped);
+    EXPECT_EQ(stopped.error().code(), snt::core::ErrorCode::kInvalidState);
+}
+
+TEST(LanServerBrowserModelTest, DiscoversProtectedServersAndKeepsPasswordsOptional) {
+    auto responder_result = snt::network::LanDiscoveryResponder::listen({
+        .bind_address = "127.0.0.1",
+        .port = 0,
+    });
+    ASSERT_TRUE(responder_result) << responder_result.error().format();
+    auto responder = std::move(*responder_result);
+
+    auto browser_result = snt::game::LanServerBrowserModel::create({
+        .discovery = {
+            .target_address = "127.0.0.1",
+            .port = responder->port(),
+        },
+        .query_interval_ticks = 100,
+        .stale_after_ticks = 3,
+    });
+    ASSERT_TRUE(browser_result) << browser_result.error().format();
+    auto browser = std::move(*browser_result);
+
+    const snt::network::LanDiscoveryAdvertisement advertisement{
+        .application_protocol_version = snt::game::replication::kCurrentGameReplicationProtocolVersion,
+        .server_name = "Protected loopback server",
+        .tcp_port = 24585,
+        .udp_port = 24586,
+        .current_players = 2,
+        .max_players = 8,
+        .password_required = true,
+    };
+    browser->fixed_tick(1);
+
+    bool replied = false;
+    for (uint64_t tick = 2; tick < 102 && browser->entries().empty(); ++tick) {
+        auto responded = responder->poll(advertisement);
+        ASSERT_TRUE(responded) << responded.error().format();
+        replied = replied || *responded > 0;
+        browser->fixed_tick(tick);
+        if (browser->entries().empty()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ASSERT_TRUE(replied) << "Timed out waiting for LAN browser query";
+    ASSERT_EQ(browser->entries().size(), 1u);
+    const auto protected_server = browser->entries().front().server;
+    EXPECT_TRUE(protected_server.password_required);
+    EXPECT_EQ(protected_server.server_name, "Protected loopback server");
+
+    auto missing_password = browser->request_join(protected_server);
+    ASSERT_FALSE(missing_password);
+    EXPECT_EQ(missing_password.error().code(), snt::core::ErrorCode::kInvalidArgument);
+
+    browser->set_server_password("loopback-password");
+    ASSERT_TRUE(browser->request_join(protected_server));
+    auto protected_join = browser->take_join_request();
+    ASSERT_TRUE(protected_join.has_value());
+    EXPECT_EQ(protected_join->server.host, "127.0.0.1");
+    EXPECT_EQ(protected_join->server_password, "loopback-password");
+    EXPECT_FALSE(browser->take_join_request().has_value());
+
+    auto open_server = protected_server;
+    open_server.password_required = false;
+    ASSERT_TRUE(browser->request_join(open_server));
+    auto open_join = browser->take_join_request();
+    ASSERT_TRUE(open_join.has_value());
+    EXPECT_TRUE(open_join->server_password.empty());
+
+    const uint64_t expiry_tick = browser->entries().front().last_seen_tick + 4;
+    browser->fixed_tick(expiry_tick);
+    EXPECT_TRUE(browser->entries().empty());
 }
 
 TEST(GameClientReplicationSessionTest, CompletesLocalLoginAndClaimsAutomaticallyProgressedRewardsOverTcpUdp) {

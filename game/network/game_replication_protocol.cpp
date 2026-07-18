@@ -165,6 +165,13 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     return value.find('\0') != std::string_view::npos;
 }
 
+[[nodiscard]] snt::core::Expected<void> validate_server_password(std::string_view password) {
+    if (password.size() > kMaxGameServerPasswordBytes || has_embedded_nul(password)) {
+        return protocol_error("Game login server password is invalid");
+    }
+    return {};
+}
+
 [[nodiscard]] bool is_known_block_interaction_action(
     GameBlockInteractionAction action) noexcept {
     switch (action) {
@@ -498,6 +505,9 @@ snt::core::Expected<GameReplicationMessage> make_game_login_request(
     if (request.identity_provider == PlayerIdentityProvider::kSteam && request.credential.empty()) {
         return protocol_error("Steam game login requires an authentication credential");
     }
+    if (auto result = validate_server_password(request.server_password); !result) {
+        return result.error();
+    }
 
     GameReplicationMessage message;
     message.kind = GameReplicationMessageKind::kClientLoginRequest;
@@ -509,6 +519,11 @@ snt::core::Expected<GameReplicationMessage> make_game_login_request(
     }
     append_u32(message.payload, static_cast<uint32_t>(request.credential.size()));
     message.payload.insert(message.payload.end(), request.credential.begin(), request.credential.end());
+    if (auto result = append_short_string(message.payload, request.server_password,
+                                          kMaxGameServerPasswordBytes, "server password", false);
+        !result) {
+        return result.error();
+    }
     return message;
 }
 
@@ -541,11 +556,16 @@ snt::core::Expected<GameLoginRequest> parse_game_login_request(
     if (identity_provider == PlayerIdentityProvider::kSteam && credential->empty()) {
         return protocol_error("Steam game login requires an authentication credential");
     }
+    auto server_password = read_short_string(bytes, offset, kMaxGameServerPasswordBytes,
+                                             "server password", false);
+    if (!server_password) return server_password.error();
+    if (auto result = validate_server_password(*server_password); !result) return result.error();
     if (offset != bytes.size()) return protocol_error("Game login request has trailing bytes");
 
     return GameLoginRequest{.identity_provider = identity_provider,
                             .display_name = std::move(*display_name),
-                            .credential = std::move(*credential)};
+                            .credential = std::move(*credential),
+                            .server_password = std::move(*server_password)};
 }
 
 snt::core::Expected<GameReplicationMessage> make_game_login_accepted(

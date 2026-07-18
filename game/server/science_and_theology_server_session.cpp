@@ -13,6 +13,7 @@
 #include "game/server/game_server_quest_events.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
+#include "network/lan_discovery.h"
 #include "network/replication.h"
 #include "network/tcp_udp_transport.h"
 
@@ -20,13 +21,17 @@
 #include "core/log.h"
 #include "engine/simulation_services.h"
 
+#include <limits>
 #include <string>
 #include <utility>
 
 namespace snt::game {
 
-ScienceAndTheologyServerSession::ScienceAndTheologyServerSession(GameSessionConfig config)
-    : config_(std::move(config)), simulation_session_(config_) {}
+ScienceAndTheologyServerSession::ScienceAndTheologyServerSession(GameServerSessionOptions options)
+    : config_(std::move(options.config)),
+      server_password_(std::move(options.server_password)),
+      server_password_required_(!server_password_.empty()),
+      simulation_session_(config_) {}
 
 ScienceAndTheologyServerSession::~ScienceAndTheologyServerSession() { shutdown(); }
 
@@ -42,6 +47,22 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::register_content(
 
 snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     snt::engine::SimulationWorldSession& world) {
+    if (config_.server_network.enabled &&
+        (server_password_.size() > replication::kMaxGameServerPasswordBytes ||
+         server_password_.find('\0') != std::string::npos)) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Dedicated server password is invalid"};
+    }
+    if (config_.server_network.enabled && config_.server_network.lan_discovery_enabled &&
+        (config_.server_network.lan_discovery_port == 0 ||
+         config_.server_network.lan_server_name.empty() ||
+         config_.server_network.lan_server_name.size() >
+             snt::network::kMaxLanDiscoveryServerNameBytes ||
+         config_.server_network.max_peers == 0 ||
+         config_.server_network.max_peers > std::numeric_limits<uint16_t>::max())) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Dedicated server LAN discovery configuration is invalid"};
+    }
     if (config_.server_network.enabled) {
         quest_events_ = std::make_unique<replication::GameServerQuestEventService>(
             simulation_session_.quests());
@@ -81,7 +102,10 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     // Local names intentionally provide LAN-style account identity. A future
     // Steamworks package injects a verifier here; Steam login stays rejected
     // until then instead of trusting a client-supplied SteamID.
-    peer_authenticator_ = std::make_unique<replication::GameAccountPeerAuthenticator>();
+    peer_authenticator_ = std::make_unique<replication::GameAccountPeerAuthenticator>(
+        replication::GameAccountPeerAuthenticatorConfig{
+            .server_password = std::move(server_password_),
+        });
     auto player_state = replication::GameServerPlayerState::create(
         world.world(),
         {
@@ -241,8 +265,26 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     transport_ = std::move(*transport);
     replication_service_ = std::make_unique<snt::network::ReplicationService>(
         *transport_, *replication_handler_);
+    if (config_.server_network.lan_discovery_enabled) {
+        auto discovery = snt::network::LanDiscoveryResponder::listen({
+            .bind_address = config_.server_network.bind_address,
+            .port = config_.server_network.lan_discovery_port,
+        });
+        if (!discovery) {
+            auto error = discovery.error();
+            error.with_context("ScienceAndTheologyServerSession::create_world(LAN discovery)");
+            return error;
+        }
+        lan_discovery_responder_ = std::move(*discovery);
+    }
     SNT_LOG_INFO("Dedicated server replication enabled (tcp=%u udp=%u max_peers=%u)",
                  transport_->tcp_port(), transport_->udp_port(), config_.server_network.max_peers);
+    if (lan_discovery_responder_) {
+        SNT_LOG_INFO("LAN discovery enabled (udp=%u name='%s' password=%s)",
+                     lan_discovery_responder_->port(),
+                     config_.server_network.lan_server_name.c_str(),
+                     server_password_required_ ? "required" : "open");
+    }
     SNT_LOG_INFO("Gameplay local-name admission is enabled; duplicate local names take over one account session");
     SNT_LOG_INFO("Authenticated player quest state persists below '%s'",
                  player_lifecycle_->universe_save_dir().c_str());
@@ -323,10 +365,28 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::after_fixed_tick(
         error.with_context("ScienceAndTheologyServerSession::after_fixed_tick(replication outbound)");
         return error;
     }
+    if (lan_discovery_responder_) {
+        const size_t active_players = player_state_ ? player_state_->active_player_count() : 0;
+        const snt::network::LanDiscoveryAdvertisement advertisement{
+            .application_protocol_version = replication::kCurrentGameReplicationProtocolVersion,
+            .server_name = config_.server_network.lan_server_name,
+            .tcp_port = transport_->tcp_port(),
+            .udp_port = transport_->udp_port(),
+            .current_players = static_cast<uint16_t>(active_players),
+            .max_players = static_cast<uint16_t>(config_.server_network.max_peers),
+            .password_required = server_password_required_,
+        };
+        if (auto result = lan_discovery_responder_->poll(advertisement); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologyServerSession::after_fixed_tick(LAN discovery)");
+            return error;
+        }
+    }
     return {};
 }
 
 void ScienceAndTheologyServerSession::shutdown() noexcept {
+    lan_discovery_responder_.reset();
     if (player_lifecycle_) player_lifecycle_->shutdown();
     if (replication_service_) replication_service_->shutdown();
     replication_service_.reset();
@@ -345,6 +405,7 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     player_graves_.reset();
     player_beds_.reset();
     peer_authenticator_.reset();
+    server_password_.clear();
     player_movement_.reset();
     player_lifecycle_.reset();
     if (player_state_) player_state_->shutdown();

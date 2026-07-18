@@ -13,6 +13,7 @@
 #include "game/simulation/science_and_theology_simulation_session.h"
 
 #include <memory>
+#include <string>
 
 namespace snt::engine {
 class FixedTickContext;
@@ -21,6 +22,7 @@ class SimulationWorldSession;
 }
 
 namespace snt::network {
+class LanDiscoveryResponder;
 class ReplicationService;
 class TcpUdpReplicationTransport;
 }
@@ -42,9 +44,17 @@ class GameServerPlayerState;
 
 namespace snt::game {
 
+// Server-only startup inputs. The password is deliberately outside
+// GameSessionConfig because the latter is loaded from a package also shipped
+// to clients. An empty password leaves the server open.
+struct GameServerSessionOptions {
+    GameSessionConfig config;
+    std::string server_password;
+};
+
 class ScienceAndTheologyServerSession final : public snt::engine::ISimulationSession {
 public:
-    explicit ScienceAndTheologyServerSession(GameSessionConfig config);
+    explicit ScienceAndTheologyServerSession(GameServerSessionOptions options);
     ~ScienceAndTheologyServerSession() override;
 
     snt::core::Expected<void> register_content(snt::engine::SimulationServices& services) override;
@@ -55,6 +65,8 @@ public:
 
 private:
     GameSessionConfig config_;
+    std::string server_password_;
+    bool server_password_required_ = false;
     ScienceAndTheologySimulationSession simulation_session_;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<replication::GameServerCommandSink> command_sink_;
@@ -73,6 +85,7 @@ private:
     std::unique_ptr<replication::GameServerReplicationHandler> replication_handler_;
     std::unique_ptr<snt::network::TcpUdpReplicationTransport> transport_;
     std::unique_ptr<snt::network::ReplicationService> replication_service_;
+    std::unique_ptr<snt::network::LanDiscoveryResponder> lan_discovery_responder_;
 };
 
 }  // namespace snt::game

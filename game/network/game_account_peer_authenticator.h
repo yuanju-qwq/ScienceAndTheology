@@ -34,10 +34,22 @@ public:
         const snt::network::ReplicationTickContext& context) = 0;
 };
 
+// Dedicated servers inject this at startup. server_password is intentionally
+// runtime-only and must never be loaded from a client-distributed package or
+// emitted in logs. An empty value leaves the server open.
+struct GameAccountPeerAuthenticatorConfig {
+    ISteamSessionTicketVerifier* steam_ticket_verifier = nullptr;
+    bool allow_local_name_accounts = true;
+    std::string server_password;
+};
+
 class GameAccountPeerAuthenticator final : public IGamePeerAuthenticator {
 public:
-    explicit GameAccountPeerAuthenticator(ISteamSessionTicketVerifier* steam_ticket_verifier = nullptr,
-                                          bool allow_local_name_accounts = true);
+    explicit GameAccountPeerAuthenticator(GameAccountPeerAuthenticatorConfig config = {});
+
+    [[nodiscard]] bool requires_server_password() const noexcept {
+        return !server_password_.empty();
+    }
 
     snt::core::Expected<GameAuthenticatedPeer> authenticate(
         snt::network::PeerId peer, const GameLoginRequest& request,
@@ -48,6 +60,7 @@ public:
 private:
     ISteamSessionTicketVerifier* steam_ticket_verifier_ = nullptr;
     bool allow_local_name_accounts_ = true;
+    std::string server_password_;
 };
 
 }  // namespace snt::game::replication

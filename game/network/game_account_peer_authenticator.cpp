@@ -17,14 +17,20 @@ namespace {
 
 }  // namespace
 
-GameAccountPeerAuthenticator::GameAccountPeerAuthenticator(
-    ISteamSessionTicketVerifier* steam_ticket_verifier, bool allow_local_name_accounts)
-    : steam_ticket_verifier_(steam_ticket_verifier),
-      allow_local_name_accounts_(allow_local_name_accounts) {}
+GameAccountPeerAuthenticator::GameAccountPeerAuthenticator(GameAccountPeerAuthenticatorConfig config)
+    : steam_ticket_verifier_(config.steam_ticket_verifier),
+      allow_local_name_accounts_(config.allow_local_name_accounts),
+      server_password_(std::move(config.server_password)) {}
 
 snt::core::Expected<GameAuthenticatedPeer> GameAccountPeerAuthenticator::authenticate(
     snt::network::PeerId peer, const GameLoginRequest& request,
     const snt::network::ReplicationTickContext& context) {
+    // Password admission is independent of account identity. Validate it
+    // before local-name mapping or Steam ticket verification, and never emit
+    // supplied or configured password bytes in a diagnostic.
+    if (!server_password_.empty() && request.server_password != server_password_) {
+        return protocol_error("Server password is invalid");
+    }
     switch (request.identity_provider) {
         case PlayerIdentityProvider::kLocalName: {
             if (!allow_local_name_accounts_) {

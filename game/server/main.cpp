@@ -6,6 +6,7 @@
 // contend for developer ports.
 
 #define SNT_LOG_CHANNEL "game.server_host"
+#include "game/network/game_replication_protocol.h"
 #include "game/runtime/runtime_package.h"
 #include "game/server/science_and_theology_server_session.h"
 
@@ -21,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
 
@@ -31,6 +33,10 @@ struct ServerOptions {
     std::optional<std::string> bind_address;
     std::optional<uint16_t> tcp_port;
     std::optional<uint16_t> udp_port;
+    std::optional<uint16_t> lan_discovery_port;
+    std::optional<std::string> lan_server_name;
+    std::optional<std::string> server_password;
+    bool lan_discovery_disabled = false;
 };
 
 snt::core::Expected<uint16_t> parse_port(std::string_view option, std::string_view value) {
@@ -56,6 +62,39 @@ snt::core::Expected<ServerOptions> parse_server_options(int argc, char* argv[]) 
             options.network_requested = true;
             continue;
         }
+        if (argument == "--no-lan-discovery") {
+            options.lan_discovery_disabled = true;
+            continue;
+        }
+        if (argument == "--server-password") {
+            if (index + 1 >= argc) {
+                return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                        "--server-password requires a non-empty value"};
+            }
+            std::string password = argv[++index];
+            if (password.empty() || password.size() >
+                                        snt::game::replication::kMaxGameServerPasswordBytes) {
+                return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                        "--server-password must contain 1-256 bytes"};
+            }
+            options.network_requested = true;
+            options.server_password = std::move(password);
+            continue;
+        }
+        if (argument == "--server-name") {
+            if (index + 1 >= argc) {
+                return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                        "--server-name requires a non-empty value"};
+            }
+            std::string server_name = argv[++index];
+            if (server_name.empty()) {
+                return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                        "--server-name requires a non-empty value"};
+            }
+            options.network_requested = true;
+            options.lan_server_name = std::move(server_name);
+            continue;
+        }
         if (argument == "--bind") {
             if (index + 1 >= argc) {
                 return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
@@ -65,7 +104,8 @@ snt::core::Expected<ServerOptions> parse_server_options(int argc, char* argv[]) 
             options.bind_address = argv[++index];
             continue;
         }
-        if (argument == "--tcp-port" || argument == "--udp-port") {
+        if (argument == "--tcp-port" || argument == "--udp-port" ||
+            argument == "--lan-discovery-port") {
             if (index + 1 >= argc) {
                 return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
                                         std::string(argument) + " requires a port"};
@@ -74,7 +114,14 @@ snt::core::Expected<ServerOptions> parse_server_options(int argc, char* argv[]) 
             if (!port) return port.error();
             options.network_requested = true;
             if (argument == "--tcp-port") options.tcp_port = *port;
-            else options.udp_port = *port;
+            else if (argument == "--udp-port") options.udp_port = *port;
+            else {
+                if (*port == 0) {
+                    return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                            "--lan-discovery-port must not be zero"};
+                }
+                options.lan_discovery_port = *port;
+            }
             continue;
         }
         if (argument != "--ticks") {
@@ -102,6 +149,8 @@ snt::core::Expected<ServerOptions> parse_server_options(int argc, char* argv[]) 
 void print_usage() {
     std::puts("Usage: science_and_theology_server [--ticks <count>] [--network]");
     std::puts("       [--bind <ipv4>] [--tcp-port <port>] [--udp-port <port>]");
+    std::puts("       [--server-name <name>] [--lan-discovery-port <port>] [--no-lan-discovery]");
+    std::puts("       [--server-password <password>]");
     std::puts("Bounded --ticks runs open no ports unless --network or a network override is supplied.");
 }
 
@@ -134,9 +183,24 @@ int main(int argc, char* argv[]) {
     if (options->bind_address) session_config.server_network.bind_address = *options->bind_address;
     if (options->tcp_port) session_config.server_network.tcp_port = *options->tcp_port;
     if (options->udp_port) session_config.server_network.udp_port = *options->udp_port;
+    if (options->lan_discovery_port) {
+        session_config.server_network.lan_discovery_port = *options->lan_discovery_port;
+    }
+    if (options->lan_server_name) {
+        session_config.server_network.lan_server_name = *options->lan_server_name;
+    }
+    if (options->lan_discovery_disabled) {
+        session_config.server_network.lan_discovery_enabled = false;
+    }
+
+    std::string server_password;
+    if (options->server_password) server_password = std::move(*options->server_password);
 
     auto session = std::make_unique<snt::game::ScienceAndTheologyServerSession>(
-        std::move(session_config));
+        snt::game::GameServerSessionOptions{
+            .config = std::move(session_config),
+            .server_password = std::move(server_password),
+        });
     if (auto result = runtime.init(package->runtime_config, package->paths, std::move(session)); !result) {
         SNT_LOG_ERROR("Dedicated server startup failed: %s", result.error().format().c_str());
         return 1;

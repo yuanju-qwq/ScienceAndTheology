@@ -105,6 +105,7 @@ add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
     network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
+    network/game_lan_discovery.cpp
     network/game_quest_book_replication.cpp
     network/game_replication_protocol.cpp
     network/game_server_replication_handler.cpp
@@ -160,6 +161,7 @@ add_executable(snt_game_client
     runtime/runtime_package.cpp
     client/inventory_slot_transaction.cpp
     client/gameplay_ui.cpp
+    client/lan_server_browser.cpp
     client/quest_book_ui.cpp
     client/science_and_theology_session.cpp
 )
@@ -285,6 +287,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     add_executable(snt_game_tests
         client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
+        client/lan_server_browser.cpp
         client/quest_book_ui.cpp
         server/game_server_command_sink.cpp
         server/game_server_player_death.cpp

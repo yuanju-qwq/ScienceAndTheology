@@ -50,6 +50,7 @@ constexpr size_t kMaxQueuedClientReplicationBytes =
         .identity_provider = authentication.local_identity.provider,
         .display_name = authentication.local_identity.display_name,
         .credential = authentication.credential,
+        .server_password = authentication.server_password,
     };
     // Reuse the public codec's validation rules so both transport factories
     // reject malformed local and future Steam credentials identically.

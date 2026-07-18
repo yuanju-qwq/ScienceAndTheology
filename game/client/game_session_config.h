@@ -59,6 +59,12 @@ struct GameServerNetworkConfig {
     uint16_t tcp_port = 23585;
     uint16_t udp_port = 23586;
     uint32_t max_peers = 64;
+    // LAN discovery is a separate IPv4 UDP query/reply socket. Its public
+    // fields are safe to distribute with the game package; server passwords
+    // remain runtime-only startup data and never appear in this config.
+    bool lan_discovery_enabled = true;
+    uint16_t lan_discovery_port = 23587;
+    std::string lan_server_name = "ScienceAndTheology Server";
 };
 
 // Server-owned player state stays separate from camera/presentation settings.
@@ -113,6 +119,12 @@ struct GameClientNetworkConfig {
     std::string host = "127.0.0.1";
     uint16_t tcp_port = 23585;
     uint16_t udp_port = 23586;
+    // LAN browsing is opt-in so the graphical client keeps its current
+    // offline startup path. When enabled, the client opens the native server
+    // browser and creates TCP+UDP transport only after a server is selected.
+    bool lan_discovery_enabled = false;
+    std::string lan_discovery_address = "255.255.255.255";
+    uint16_t lan_discovery_port = 23587;
 };
 
 struct GameSessionConfig {

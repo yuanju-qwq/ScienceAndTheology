@@ -64,7 +64,10 @@
     "bind_address": "0.0.0.0",
     "tcp_port": 23585,
     "udp_port": 23586,
-    "max_peers": 64
+    "max_peers": 64,
+    "lan_discovery_enabled": true,
+    "lan_discovery_port": 23587,
+    "lan_server_name": "ScienceAndTheology Server"
   },
   "server_player": {
     "spawn_block_x": 4,
@@ -103,6 +106,9 @@
     "enabled": false,
     "host": "127.0.0.1",
     "tcp_port": 23585,
-    "udp_port": 23586
+    "udp_port": 23586,
+    "lan_discovery_enabled": false,
+    "lan_discovery_address": "255.255.255.255",
+    "lan_discovery_port": 23587
   }
 }
