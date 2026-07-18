@@ -105,6 +105,11 @@ public:
     // a trusted co-op hint. The host remains the final world/inventory writer.
     [[nodiscard]] snt::core::Expected<void> enqueue_block_interaction(
         uint64_t client_sequence, GameBlockInteractionCommand command);
+    // Inventory drag operations remain typed and reliable. The caller carries
+    // only its observed slot values; the authoritative server returns the
+    // compact changed-slot result through GameClientInventoryState.
+    [[nodiscard]] snt::core::Expected<void> enqueue_inventory_slot_transfer(
+        uint64_t client_sequence, GameInventorySlotTransferCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
         GamePlayerMovementInput input);
 

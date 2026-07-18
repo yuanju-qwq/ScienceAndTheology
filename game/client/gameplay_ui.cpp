@@ -628,6 +628,28 @@ void GameplayUiController::handle_inventory_slot_drag(const UiDragEvent& event) 
                  request.target_slot, request.count);
 }
 
+bool GameplayUiController::apply_inventory_authoritative_snapshot(
+    std::vector<ItemStackState> slots, int32_t max_stack_size,
+    uint64_t authoritative_revision) {
+    if (authoritative_revision == 0) {
+        SNT_LOG_ERROR("Inventory authority supplied revision zero");
+        return false;
+    }
+    if (authoritative_revision < inventory_authority_revision_) {
+        SNT_LOG_ERROR("Inventory authority regressed from revision=%llu to revision=%llu",
+                      static_cast<unsigned long long>(inventory_authority_revision_),
+                      static_cast<unsigned long long>(authoritative_revision));
+        return false;
+    }
+    if (!inventory_.apply_authoritative_slots(std::move(slots), max_stack_size)) {
+        SNT_LOG_ERROR("Inventory authority snapshot revision=%llu is invalid",
+                      static_cast<unsigned long long>(authoritative_revision));
+        return false;
+    }
+    inventory_authority_revision_ = authoritative_revision;
+    return true;
+}
+
 bool GameplayUiController::apply_inventory_slot_transfer_confirmation(
     InventorySlotTransferConfirmation confirmation) {
     if (!pending_slot_transfer_ || confirmation.request_id != pending_slot_transfer_->request_id) {
@@ -646,14 +668,14 @@ bool GameplayUiController::apply_inventory_slot_transfer_confirmation(
                       static_cast<unsigned long long>(confirmation.authoritative_revision));
         return false;
     }
-    if (!inventory_.apply_authoritative_slots(std::move(confirmation.slots),
-                                               confirmation.max_stack_size)) {
+    if (!apply_inventory_authoritative_snapshot(std::move(confirmation.slots),
+                                                confirmation.max_stack_size,
+                                                confirmation.authoritative_revision)) {
         SNT_LOG_ERROR("Inventory authority confirmation id=%llu has an invalid snapshot",
                       static_cast<unsigned long long>(confirmation.request_id));
         return false;
     }
 
-    inventory_authority_revision_ = confirmation.authoritative_revision;
     if (accepted) {
         SNT_LOG_INFO("Inventory slot transfer confirmed id=%llu revision=%llu",
                      static_cast<unsigned long long>(confirmation.request_id),
@@ -665,6 +687,11 @@ bool GameplayUiController::apply_inventory_slot_transfer_confirmation(
                  confirmation.rejection_reason.empty() ? "authority rejected request"
                                                       : confirmation.rejection_reason.c_str());
     return false;
+}
+
+void GameplayUiController::clear_inventory_authority() noexcept {
+    pending_slot_transfer_.reset();
+    inventory_authority_revision_ = 0;
 }
 
 void GameplayUiController::set_open_screen(GameplayUiScreen screen) {

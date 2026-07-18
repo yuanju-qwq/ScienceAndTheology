@@ -25,6 +25,8 @@ void snt_register() {
     snt_register_item("iron_crushed", "item.iron_crushed", 64);
     snt_register_item("iron_bloom", "item.iron_bloom", 16);
     snt_register_item("wrought_iron_ingot", "item.wrought_iron_ingot", 64);
+    snt_register_item("flint_and_steel", "item.flint_and_steel", 1);
+    snt_register_item("hammer", "item.hammer", 1);
 
     snt_register_machine("furnace", "Furnace", 1, 0, false);
     snt_register_machine_placement("furnace", "furnace", 7);

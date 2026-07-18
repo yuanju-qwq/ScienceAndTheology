@@ -127,6 +127,15 @@ struct GameClientNetworkConfig {
     uint16_t lan_discovery_port = 23587;
 };
 
+// Client-side presentation inputs are intentionally separate from the host's
+// authoritative reach and mutation checks. They only bound local DDA picking
+// and translate the selected ignition item into a trusted co-op hint.
+struct GameClientInteractionConfig {
+    float raycast_reach_blocks = 5.0f;
+    uint16_t bed_material_id = 5;
+    std::string ignition_item_id = "flint_and_steel";
+};
+
 struct GameSessionConfig {
     GameCameraConfig camera;
     GameSceneConfig scene;
@@ -137,6 +146,7 @@ struct GameSessionConfig {
     GameServerPlayerConfig server_player;
     GameServerReplicationConfig server_replication;
     GameClientNetworkConfig client_network;
+    GameClientInteractionConfig client_interaction;
 };
 
 // Reads the game-owned subset from the same package JSON consumed by the

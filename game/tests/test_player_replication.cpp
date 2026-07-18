@@ -67,7 +67,8 @@ public:
     snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
         const GameAuthenticatedPeer&, const GameReplicationInterest&,
         const snt::game::replication::GameReplicationBudget&,
-        const snt::network::ReplicationTickContext&) override {
+        const snt::network::ReplicationTickContext&,
+        snt::game::replication::GameReplicationValueCollectionPhase) override {
         ++collect_call_count;
         if (!present) return std::vector<GameReplicationValue>{};
         std::vector<std::byte> bytes;
@@ -89,10 +90,23 @@ public:
         ++disconnect_call_count;
     }
 
+    void on_values_committed(
+        const GameAuthenticatedPeer&,
+        snt::game::replication::GameReplicationValueCollectionPhase phase,
+        std::span<const GameReplicationValue> values) noexcept override {
+        ++commit_call_count;
+        last_commit_phase = phase;
+        last_committed_values.assign(values.begin(), values.end());
+    }
+
     bool present = true;
     std::string payload = "task-book-revision-1";
     int collect_call_count = 0;
     int disconnect_call_count = 0;
+    int commit_call_count = 0;
+    snt::game::replication::GameReplicationValueCollectionPhase last_commit_phase =
+        snt::game::replication::GameReplicationValueCollectionPhase::kInitialSnapshot;
+    std::vector<GameReplicationValue> last_committed_values;
 };
 
 TEST(GamePlayerReplicationCodecTest, RoundTripsPresentationOnlyPlayerValues) {
@@ -314,10 +328,15 @@ TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUn
     ASSERT_TRUE(initial) << initial.error().format();
     ASSERT_EQ(initial->values.size(), 1u);
     EXPECT_EQ(initial->values.front().kind, GameReplicationValueKind::kQuestBook);
+    EXPECT_EQ(task_book_source.commit_call_count, 1);
+    EXPECT_EQ(task_book_source.last_commit_phase,
+              snt::game::replication::GameReplicationValueCollectionPhase::kInitialSnapshot);
+    ASSERT_EQ(task_book_source.last_committed_values.size(), 1u);
 
     auto unchanged = (*replication)->build_deltas(observer, *interest, budget, context);
     ASSERT_TRUE(unchanged) << unchanged.error().format();
     EXPECT_TRUE(unchanged->empty());
+    EXPECT_EQ(task_book_source.commit_call_count, 1);
 
     task_book_source.payload = "task-book-revision-2";
     auto changed = (*replication)->build_deltas(observer, *interest, budget, context);
@@ -328,6 +347,9 @@ TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUn
     EXPECT_EQ(delta->sequence, 1u);
     ASSERT_EQ(delta->values.size(), 1u);
     EXPECT_EQ(delta->values.front().operation, GameReplicationValueOperation::kUpsert);
+    EXPECT_EQ(task_book_source.commit_call_count, 2);
+    EXPECT_EQ(task_book_source.last_commit_phase,
+              snt::game::replication::GameReplicationValueCollectionPhase::kDelta);
 
     auto unchanged_after_delta = (*replication)->build_deltas(observer, *interest, budget, context);
     ASSERT_TRUE(unchanged_after_delta) << unchanged_after_delta.error().format();
@@ -343,6 +365,10 @@ TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUn
     ASSERT_EQ(removal_delta->values.size(), 1u);
     EXPECT_EQ(removal_delta->values.front().operation, GameReplicationValueOperation::kRemove);
     EXPECT_TRUE(removal_delta->values.front().payload.empty());
+    EXPECT_EQ(task_book_source.commit_call_count, 3);
+    ASSERT_EQ(task_book_source.last_committed_values.size(), 1u);
+    EXPECT_EQ(task_book_source.last_committed_values.front().operation,
+              GameReplicationValueOperation::kRemove);
 
     (*replication)->on_peer_disconnected(observer, "test completed");
     EXPECT_EQ(task_book_source.disconnect_call_count, 1);
@@ -438,6 +464,11 @@ TEST(GameMachineReplicationTest, RoundTripsPresentationStateAndAppliesOrderedRem
         .entities = {{.entity_guid = {.value = 9001}, .payload = *payload}},
     }));
     ASSERT_EQ(machines.machine_count(), 1u);
+    const auto found = machines.find_machine_at("overworld", 4, 8, -2);
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->entity_guid.value, 9001u);
+    EXPECT_EQ(found->machine.machine_id, "primitive_furnace");
+    EXPECT_FALSE(machines.find_machine_at("overworld", 4, 8, -1).has_value());
     auto remove_payload = snt::game::replication::encode_game_machine_replication_entity({
         .operation = snt::game::replication::GameMachineReplicationOperation::kRemove,
     });
@@ -448,6 +479,7 @@ TEST(GameMachineReplicationTest, RoundTripsPresentationStateAndAppliesOrderedRem
         .entities = {{.entity_guid = {.value = 9001}, .payload = *remove_payload}},
     }));
     EXPECT_EQ(machines.machine_count(), 0u);
+    EXPECT_FALSE(machines.find_machine_at("overworld", 4, 8, -2).has_value());
 }
 
 TEST(GameServerPlayerReplicationTest, EmitsCommittedBlockDeltaForVisibleAuthoritativeChunk) {

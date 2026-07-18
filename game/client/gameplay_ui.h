@@ -171,10 +171,23 @@ public:
     // InventoryViewModel; the owning game session later supplies a matching
     // authority confirmation from its simulator or network adapter.
     void handle_inventory_slot_drag(const snt::ui::UiDragEvent& event);
+    // Applies a complete client-side reconstruction of the authoritative
+    // inventory. Network replication may contain only changed slots on the
+    // wire, but the UI always receives one validated full slot view.
+    [[nodiscard]] bool apply_inventory_authoritative_snapshot(
+        std::vector<ItemStackState> slots, int32_t max_stack_size,
+        uint64_t authoritative_revision);
     [[nodiscard]] bool apply_inventory_slot_transfer_confirmation(
         InventorySlotTransferConfirmation confirmation);
+    // A reconnect invalidates presentation authority until the next full
+    // server snapshot. Existing local slots remain visible but cannot be
+    // safely used by a network command adapter with revision zero.
+    void clear_inventory_authority() noexcept;
     [[nodiscard]] bool inventory_slot_transfer_pending() const noexcept {
         return pending_slot_transfer_.has_value();
+    }
+    [[nodiscard]] uint64_t pending_inventory_slot_transfer_request_id() const noexcept {
+        return pending_slot_transfer_ ? pending_slot_transfer_->request_id : 0;
     }
     [[nodiscard]] uint64_t inventory_authority_revision() const noexcept {
         return inventory_authority_revision_;

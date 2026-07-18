@@ -110,5 +110,10 @@
     "lan_discovery_enabled": false,
     "lan_discovery_address": "255.255.255.255",
     "lan_discovery_port": 23587
+  },
+  "client_interaction": {
+    "raycast_reach_blocks": 5.0,
+    "bed_material_id": 5,
+    "ignition_item_id": "flint_and_steel"
   }
 }

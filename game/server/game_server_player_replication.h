@@ -122,7 +122,11 @@ private:
     [[nodiscard]] snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
         const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
         const GameReplicationBudget& budget,
-        const snt::network::ReplicationTickContext& context) const;
+        const snt::network::ReplicationTickContext& context,
+        GameReplicationValueCollectionPhase phase) const;
+    void notify_values_committed(const GameAuthenticatedPeer& peer,
+                                 GameReplicationValueCollectionPhase phase,
+                                 std::span<const GameReplicationValue> values) noexcept;
     [[nodiscard]] static snt::core::Expected<GameReplicatedPlayerState> make_player_state(
         const GameServerPlayerSnapshot& snapshot);
     [[nodiscard]] static bool same_player_state(const GameReplicatedPlayerState& left,

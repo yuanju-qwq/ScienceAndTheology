@@ -18,6 +18,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace snt::game::replication {
@@ -153,6 +154,10 @@ public:
     [[nodiscard]] uint64_t active_snapshot_id() const noexcept { return active_snapshot_id_; }
     [[nodiscard]] size_t machine_count() const noexcept { return machines_.size(); }
     [[nodiscard]] std::vector<GameRemoteMachineState> machines() const;
+    // Returns a value copy so presentation callers never retain cache-backed
+    // references across a later replication update.
+    [[nodiscard]] std::optional<GameRemoteMachineState> find_machine_at(
+        std::string_view dimension_id, int32_t root_x, int32_t root_y, int32_t root_z) const;
     void clear() noexcept;
 
 private:

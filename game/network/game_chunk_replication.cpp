@@ -762,6 +762,20 @@ std::vector<GameRemoteMachineState> GameRemoteMachineWorld::machines() const {
     return result;
 }
 
+std::optional<GameRemoteMachineState> GameRemoteMachineWorld::find_machine_at(
+    std::string_view dimension_id, int32_t root_x, int32_t root_y, int32_t root_z) const {
+    const auto found = std::find_if(
+        machines_.begin(), machines_.end(),
+        [dimension_id, root_x, root_y, root_z](const auto& entry) {
+            const GameReplicatedMachineState& machine = entry.second.machine;
+            return machine.anchor_chunk.dimension_id == dimension_id &&
+                   machine.root_x == root_x && machine.root_y == root_y &&
+                   machine.root_z == root_z;
+        });
+    if (found == machines_.end()) return std::nullopt;
+    return found->second;
+}
+
 void GameRemoteMachineWorld::clear() noexcept {
     machines_.clear();
     active_snapshot_id_ = 0;

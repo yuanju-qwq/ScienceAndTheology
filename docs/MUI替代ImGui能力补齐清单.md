@@ -66,11 +66,11 @@ Dear ImGui 已从本工程的生产源码、CMake 依赖和第三方目录移除
 - `game/client/inventory_slot_transaction.h` 定义值对象 `InventorySlotTransferRequest` / `InventorySlotTransferConfirmation`，以及 `IInventorySlotTransferCommandSink` / `IInventorySlotTransferConfirmationSource`。接口不包含 `View`、ECS、网络或原始指针。
 - `GameplayUiController` 在 `Drop` 时只提交稳定槽位索引、观察到的栈快照和修订号；只有匹配确认才替换 `InventoryViewModel`。主键拖放发送整组，次键拖放发送向上取整的一半。
 - 离线会话使用 `LocalInventorySlotTransferAuthority`，但仍通过排队确认返回，覆盖交换、合并、拆分、容量不足和陈旧修订拒绝。
-- 服务端 `GamePlayerInventorySlotTransfer` / `GameServerPlayerState::apply_inventory_slot_transfer()` 使用同构条件槽位规则，并返回已提交的库存快照，供未来网络确认适配器使用。
+- 服务端 `GamePlayerInventorySlotTransfer` / `GameServerPlayerState::apply_inventory_slot_transfer()` 使用同构条件槽位规则；`GameServerInventoryReplication` 以当前 `SNTG` v12 typed command 接收请求、标记 `SNTP` dirty checkpoint，并为认证账号维护库存修订与紧凑回执。
 
-已验收：通用源/目标协商、悬停、无效放置和中断取消；离线确认后的交换、合并和次键拆分；服务端条件槽位转移的原子提交和陈旧栈拒绝。
+已验收：通用源/目标协商、悬停、无效放置和中断取消；离线确认后的交换、合并和次键拆分；服务端条件槽位转移的原子提交和陈旧栈拒绝；`GameInventorySnapshot` 全量编解码、`GameInventoryDelta` 两槽位增量重建、错误账号拒绝、可靠 batch 未提交时重试同一 payload，以及命令路由到权威库存。
 
-仍待网络流程接入：为 `GamePlayerInventorySlotTransfer` 增加客户端命令编解码、服务端确认/库存快照消息，以及连接模式下的 `IInventorySlotTransferCommandSink` 适配器。在这之前，联网客户端不会回退到本地模拟，而是拒绝该请求并记录一次结构化警告。
+联网流程已接入：首次认证或重连发送完整 `GameInventorySnapshot`；之后 `GameInventoryDelta` 只携带变更槽位和最新一次请求回执。`GameClientInventoryState` 在客户端重建完整 UI 快照，连接模式的 `IInventorySlotTransferCommandSink` 使用 shared command sequence 提交请求，匹配回执才确认拖放；预算拒绝的 batch 不推进库存观察者基线，因此会在下一次 outbound 重试。联网客户端不会回退到本地模拟。
 
 ### P0：窗口缩放、DPI 与布局契约闭环
 

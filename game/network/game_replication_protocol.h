@@ -10,6 +10,7 @@
 #include "core/expected.h"
 #include "ecs/entity_guid.h"
 #include "game/player/player_identity.h"
+#include "game/player/player_state.h"
 #include "network/replication.h"
 #include "voxel/data/voxel_chunk.h"
 
@@ -22,7 +23,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 11;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 12;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -33,6 +34,11 @@ inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameQuestIdBytes = 512;
 inline constexpr size_t kMaxGameDimensionIdBytes = 128;
 inline constexpr size_t kMaxGameItemIdBytes = 256;
+inline constexpr size_t kMaxGameInventorySlots = 256;
+inline constexpr int32_t kMaxGameInventoryStackSize = 65536;
+// Inventory replication must fit one bounded SNTG value even at maximum slot
+// count. Larger custom item data needs a future item-state blob protocol.
+inline constexpr size_t kMaxGameInventoryItemInstanceBytes = 1024;
 inline constexpr size_t kMaxGameChunkSnapshotPayloadBytes = 512u * 1024u;
 inline constexpr size_t kMaxGameEntitySnapshotPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameSnapshotChunks = 128;
@@ -118,6 +124,7 @@ struct GameLoginAccepted {
 enum class GameClientCommandType : uint16_t {
     kBlockInteraction = 1,
     kQuestClaimReward = 2,
+    kInventorySlotTransfer = 3,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -189,6 +196,21 @@ struct GameBlockInteractionCommand {
     uint8_t client_hints = 0;
 };
 
+// A fixed-slot player inventory transfer is conditional on the exact source
+// and target values observed by the client. The server never trusts a client
+// inventory mutation; it resolves this command against its authenticated
+// player state and sends an incremental inventory result back through the
+// player-only replication value.
+struct GameInventorySlotTransferCommand {
+    uint64_t request_id = 0;
+    uint64_t expected_inventory_revision = 0;
+    uint32_t source_slot = 0;
+    uint32_t target_slot = 0;
+    int32_t count = 0;
+    GamePlayerItemStack expected_source;
+    GamePlayerItemStack expected_target;
+};
+
 // Snapshot and delta payloads deliberately keep world/actor semantics opaque.
 // Snapshot is snapshot_id plus chunk/entity blob lists; Delta is a snapshot
 // base id, monotonic sequence, block changes, and entity blobs. The game
@@ -211,6 +233,7 @@ struct GameEntitySnapshot {
 // delta, so each consumer has one deterministic latest value boundary.
 enum class GameReplicationValueKind : uint8_t {
     kQuestBook = 1,
+    kPlayerInventory = 2,
 };
 
 enum class GameReplicationValueOperation : uint8_t {
@@ -292,6 +315,13 @@ parse_game_quest_claim_reward_command(const GameClientCommand& command);
     uint64_t client_sequence, const GameBlockInteractionCommand& command);
 [[nodiscard]] snt::core::Expected<GameBlockInteractionCommand>
 parse_game_block_interaction_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_inventory_slot_transfer_command(
+    const GameInventorySlotTransferCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_inventory_slot_transfer_command(
+    uint64_t client_sequence, const GameInventorySlotTransferCommand& command);
+[[nodiscard]] snt::core::Expected<GameInventorySlotTransferCommand>
+parse_game_inventory_slot_transfer_command(const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_snapshot(
     const GameSnapshot& snapshot);

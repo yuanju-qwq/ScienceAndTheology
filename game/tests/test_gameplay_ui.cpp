@@ -353,6 +353,27 @@ TEST(GameplayUi, SecondarySlotDragRequestsHalfStackSplit) {
     EXPECT_EQ(controller.inventory().state().slots[1], (ItemStackState{"plank.oak", 4}));
 }
 
+TEST(GameplayUi, ReplacesPresentationFromAuthoritativeNetworkSnapshot) {
+    InventoryState initial;
+    initial.columns = 3;
+    initial.slots = {
+        {"plank.oak", 8},
+        {},
+        {},
+    };
+    GameplayUiController controller{InventoryViewModel{initial}, {}};
+
+    ASSERT_TRUE(controller.apply_inventory_authoritative_snapshot(
+        {{"material.coal", 3}, {}, {"hammer", 1, "durability=97"}}, 64, 6));
+    EXPECT_EQ(controller.inventory_authority_revision(), 6u);
+    EXPECT_EQ(controller.inventory().state().slots[0], (ItemStackState{"material.coal", 3}));
+    EXPECT_EQ(controller.inventory().state().slots[2],
+              (ItemStackState{"hammer", 1, "durability=97"}));
+
+    controller.clear_inventory_authority();
+    EXPECT_EQ(controller.inventory_authority_revision(), 0u);
+}
+
 TEST(GameplayUi, InventoryScreenOpensAndRendersThroughArc2D) {
     const auto localization = make_test_localization();
     ASSERT_TRUE(localization) << localization.error().format();

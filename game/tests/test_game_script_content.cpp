@@ -244,6 +244,8 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
     assert_item("iron_crushed", 64);
     assert_item("iron_bloom", 16);
     assert_item("wrought_iron_ingot", 64);
+    assert_item("flint_and_steel", 1);
+    assert_item("hammer", 1);
 
     const auto assert_machine = [&content](std::string_view id,
                                            std::string_view display_name,

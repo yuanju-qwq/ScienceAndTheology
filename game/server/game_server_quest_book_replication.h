@@ -29,7 +29,8 @@ public:
     [[nodiscard]] snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
         const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
         const GameReplicationBudget& budget,
-        const snt::network::ReplicationTickContext& context) override;
+        const snt::network::ReplicationTickContext& context,
+        GameReplicationValueCollectionPhase phase) override;
 
 private:
     explicit GameServerQuestBookReplication(const QuestRegistry& quests) noexcept;

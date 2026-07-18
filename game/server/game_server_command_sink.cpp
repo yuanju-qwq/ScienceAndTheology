@@ -3,6 +3,7 @@
 #define SNT_LOG_CHANNEL "game.server_commands"
 #include "game/server/game_server_command_sink.h"
 
+#include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_movement.h"
 #include "game/server/game_server_player_interaction.h"
 
@@ -31,9 +32,10 @@ constexpr uint64_t kRejectionLogIntervalTicks = 20;
 
 GameServerCommandSink::GameServerCommandSink(
     QuestRegistry& quests, IGameServerPlayerMovementInputSink* player_movement,
-    IGameServerPlayerInteractionService* player_interactions)
+    IGameServerPlayerInteractionService* player_interactions,
+    GameServerInventoryReplication* inventory_replication)
     : quests_(&quests), player_movement_(player_movement),
-      player_interactions_(player_interactions) {}
+      player_interactions_(player_interactions), inventory_replication_(inventory_replication) {}
 
 snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
     const GameAuthenticatedPeer& peer, GameClientCommand command,
@@ -82,6 +84,23 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
             }
             pending.type = GameClientCommandType::kBlockInteraction;
             pending.block_interaction = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kInventorySlotTransfer: {
+            if (inventory_replication_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no authoritative inventory replication service"};
+            }
+            auto parsed = parse_game_inventory_slot_transfer_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(InventorySlotTransfer)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kInventorySlotTransfer;
+            pending.inventory_slot_transfer = std::move(*parsed);
             break;
         }
         default:
@@ -175,6 +194,19 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
                     record_gameplay_rejection(tick_index, command, result.error());
                 }
                 break;
+            case GameClientCommandType::kInventorySlotTransfer:
+                if (inventory_replication_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its inventory replication service"));
+                    break;
+                }
+                if (auto result = inventory_replication_->submit_slot_transfer(
+                        command.peer, command.inventory_slot_transfer);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
         }
     }
     pending_.clear();
@@ -239,6 +271,9 @@ void GameServerCommandSink::record_gameplay_rejection(
             break;
         case GameClientCommandType::kBlockInteraction:
             command_name = "block_interaction";
+            break;
+        case GameClientCommandType::kInventorySlotTransfer:
+            command_name = "inventory_slot_transfer";
             break;
     }
     SNT_LOG_WARN("Rejected %u host game command(s); latest peer=%llu player='%s' command=%s: %s",

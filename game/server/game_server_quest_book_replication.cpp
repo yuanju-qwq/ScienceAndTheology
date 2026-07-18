@@ -33,7 +33,8 @@ GameServerQuestBookReplication::GameServerQuestBookReplication(
 snt::core::Expected<std::vector<GameReplicationValue>>
 GameServerQuestBookReplication::collect_values(
     const GameAuthenticatedPeer& peer, const GameReplicationInterest&,
-    const GameReplicationBudget& budget, const snt::network::ReplicationTickContext&) {
+    const GameReplicationBudget& budget, const snt::network::ReplicationTickContext&,
+    GameReplicationValueCollectionPhase) {
     if (quests_ == nullptr) {
         return invalid_state("Task-book replication has no quest registry");
     }

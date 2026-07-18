@@ -138,6 +138,13 @@ void from_json(const json& object, GameClientNetworkConfig& value) {
     read_optional(object, "lan_discovery_port", value.lan_discovery_port);
 }
 
+void from_json(const json& object, GameClientInteractionConfig& value) {
+    value = GameClientInteractionConfig{};
+    read_optional(object, "raycast_reach_blocks", value.raycast_reach_blocks);
+    read_optional(object, "bed_material_id", value.bed_material_id);
+    read_optional(object, "ignition_item_id", value.ignition_item_id);
+}
+
 void from_json(const json& object, GameSessionConfig& value) {
     value = GameSessionConfig{};
     if (object.contains("camera")) value.camera = object["camera"].get<GameCameraConfig>();
@@ -158,6 +165,9 @@ void from_json(const json& object, GameSessionConfig& value) {
     }
     if (object.contains("client_network")) {
         value.client_network = object["client_network"].get<GameClientNetworkConfig>();
+    }
+    if (object.contains("client_interaction")) {
+        value.client_interaction = object["client_interaction"].get<GameClientInteractionConfig>();
     }
 }
 

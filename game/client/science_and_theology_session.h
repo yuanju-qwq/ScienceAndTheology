@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "client_block_interaction.h"
 #include "engine/client_session.h"
 #include "game/network/game_chunk_replication.h"
 #include "game/network/game_client_replication_session.h"
@@ -23,6 +24,7 @@
 #include <string_view>
 
 namespace snt::game::replication {
+class GameClientInventoryState;
 class GameClientQuestBookState;
 class GameRemotePlayerWorld;
 }
@@ -32,6 +34,7 @@ class World;
 }
 
 namespace snt::voxel {
+class ChunkRegistry;
 class ChunkRenderSystem;
 }
 
@@ -70,9 +73,12 @@ private:
                                                              std::string server_password);
     void ensure_remote_replication_state();
     void clear_remote_replication_state();
+    [[nodiscard]] snt::core::Expected<void> apply_remote_inventory_to_ui(
+        uint64_t previous_inventory_revision, uint64_t previous_response_revision);
     void process_lan_join_request();
     void set_lan_server_browser_visible(bool visible);
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
+    void handle_network_block_interaction_input(snt::engine::ClientFrameContext& context);
     void set_quest_book_visible(bool visible);
     [[nodiscard]] snt::core::Expected<void> submit_quest_reward_claim(
         std::string_view quest_id) override;
@@ -81,6 +87,7 @@ private:
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
+    GameClientBlockInteractionController block_interaction_controller_;
     std::shared_ptr<localization::LocalizationService> localization_;
     ScienceAndTheologySimulationSession simulation_session_;
     std::optional<PlayerIdentity> local_player_identity_;
@@ -90,9 +97,11 @@ private:
     std::unique_ptr<replication::GameClientRemoteChunkWorld> remote_chunk_world_;
     std::unique_ptr<replication::GameRemoteMachineWorld> remote_machine_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
+    std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
     std::unique_ptr<QuestBookViewModel> quest_book_ui_;
     snt::ecs::World* presentation_world_ = nullptr;
+    snt::voxel::ChunkRegistry* presentation_chunks_ = nullptr;
     snt::voxel::ChunkRenderSystem* chunk_render_system_ = nullptr;
     replication::GamePlayerMovementInput sampled_movement_input_;
     replication::GamePlayerMovementInput last_sent_movement_input_;
@@ -103,6 +112,9 @@ private:
     snt::ui::UiLayerStack* ui_layers_ = nullptr;
     size_t expected_ui_screen_count_ = 0;
     bool replication_disconnect_reported_ = false;
+    bool block_interaction_bindings_reported_ = false;
+    bool block_interaction_submission_error_reported_ = false;
+    bool network_crafting_unavailable_reported_ = false;
     std::shared_ptr<LocalInventorySlotTransferAuthority> local_inventory_authority_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;
     std::unique_ptr<PerformanceViewModel> performance_ui_;

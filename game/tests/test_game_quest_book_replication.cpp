@@ -133,7 +133,9 @@ TEST(GameServerQuestBookReplicationTest, EmitsOnlyTheAuthenticatedAccountsSnapsh
         .max_value_snapshots_per_tick = 1,
     };
     const snt::network::ReplicationTickContext context{.tick_index = 8, .delta_seconds = 0.05f};
-    auto values = (*source)->collect_values(peer, GameReplicationInterest{}, budget, context);
+    auto values = (*source)->collect_values(
+        peer, GameReplicationInterest{}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kInitialSnapshot);
     ASSERT_TRUE(values) << values.error().format();
     ASSERT_EQ(values->size(), 1u);
     EXPECT_EQ(values->front().kind, GameReplicationValueKind::kQuestBook);
@@ -146,7 +148,9 @@ TEST(GameServerQuestBookReplicationTest, EmitsOnlyTheAuthenticatedAccountsSnapsh
 
     GameAuthenticatedPeer unauthenticated = peer;
     unauthenticated.peer = snt::network::kInvalidPeerId;
-    EXPECT_FALSE((*source)->collect_values(unauthenticated, GameReplicationInterest{}, budget, context));
+    EXPECT_FALSE((*source)->collect_values(
+        unauthenticated, GameReplicationInterest{}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kInitialSnapshot));
 }
 
 }  // namespace

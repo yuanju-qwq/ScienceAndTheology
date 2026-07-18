@@ -5,6 +5,7 @@
 
 #include "game/network/game_account_peer_authenticator.h"
 #include "game/server/game_server_command_sink.h"
+#include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_interaction.h"
 #include "game/server/game_server_player_lifecycle.h"
@@ -150,6 +151,18 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_movement_ = std::move(*player_movement);
+    player_lifecycle_ = std::make_unique<replication::GameServerPlayerLifecycle>(
+        simulation_session_.quests(), *player_state_,
+        services_->paths().resolve_user(config_.persistence.universe_save_dir),
+        config_.persistence.player_progress_autosave_interval_ticks);
+    auto inventory_replication = replication::GameServerInventoryReplication::create(
+        *player_state_, player_lifecycle_.get());
+    if (!inventory_replication) {
+        auto error = inventory_replication.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(inventory replication)");
+        return error;
+    }
+    inventory_replication_ = std::move(*inventory_replication);
     auto quest_book_replication = replication::GameServerQuestBookReplication::create(
         simulation_session_.quests());
     if (!quest_book_replication) {
@@ -172,17 +185,13 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                 config_.server_replication.chunk_vertical_aoi_radius_blocks,
             .max_visible_chunks = config_.server_replication.max_visible_chunks,
         },
-        {quest_book_replication_.get()});
+        {quest_book_replication_.get(), inventory_replication_.get()});
     if (!player_replication) {
         auto error = player_replication.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(player AOI)");
         return error;
     }
     player_replication_ = std::move(*player_replication);
-    player_lifecycle_ = std::make_unique<replication::GameServerPlayerLifecycle>(
-        simulation_session_.quests(), *player_state_,
-        services_->paths().resolve_user(config_.persistence.universe_save_dir),
-        config_.persistence.player_progress_autosave_interval_ticks);
     quest_events_->bind_player_state(*player_state_, player_lifecycle_.get());
     auto player_beds = replication::GameServerPlayerBedService::create(
         *player_state_, world.chunks(), simulation_session_.world_sidecars(),
@@ -251,7 +260,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     }
     player_interactions_ = std::move(*player_interactions);
     command_sink_ = std::make_unique<replication::GameServerCommandSink>(
-        simulation_session_.quests(), player_movement_.get(), player_interactions_.get());
+        simulation_session_.quests(), player_movement_.get(), player_interactions_.get(),
+        inventory_replication_.get());
     const replication::GameReplicationBudget replication_budget{
         .max_reliable_bytes_per_tick = config_.server_replication.max_reliable_bytes_per_tick,
         .max_chunk_snapshots_per_tick = config_.server_replication.max_chunk_snapshots_per_tick,
@@ -295,6 +305,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                  config_.server_replication.max_entity_snapshots_per_tick);
     SNT_LOG_INFO("Task-book value replication enabled (value_budget=%u)",
                  config_.server_replication.max_value_snapshots_per_tick);
+    SNT_LOG_INFO("Player inventory replication uses full initial snapshots and changed-slot deltas");
     SNT_LOG_INFO("Authoritative player movement enabled (walk=%.2f sprint=%.2f input_timeout=%llu ticks)",
                  config_.server_player.movement_walk_speed_blocks_per_second,
                  config_.server_player.movement_sprint_multiplier,
@@ -394,6 +405,7 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     replication_handler_.reset();
     command_sink_.reset();
     player_replication_.reset();
+    inventory_replication_.reset();
     quest_book_replication_.reset();
     player_interactions_.reset();
     simulation_session_.set_machine_tick_event_sink(nullptr);

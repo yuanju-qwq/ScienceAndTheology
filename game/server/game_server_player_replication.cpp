@@ -424,7 +424,8 @@ GameServerPlayerReplication::build_initial_snapshot(
         }
     }
 
-    auto values = collect_values(peer, interest, budget, context);
+    auto values = collect_values(peer, interest, budget, context,
+                                 GameReplicationValueCollectionPhase::kInitialSnapshot);
     if (!values) return values.error();
     const size_t value_limit = std::min<size_t>(budget.max_value_snapshots_per_tick,
                                                 kMaxGameSnapshotValues);
@@ -480,6 +481,8 @@ GameServerPlayerReplication::build_initial_snapshot(
         baseline.values.emplace(static_cast<uint8_t>(value.kind), value);
     }
     peer_baselines_.insert_or_assign(peer.peer, std::move(baseline));
+    notify_values_committed(peer, GameReplicationValueCollectionPhase::kInitialSnapshot,
+                            accepted_values);
     ++next_snapshot_id_;
     return std::vector<GameReplicationMessage>{std::move(*message)};
 }
@@ -601,7 +604,8 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
         }
     }
 
-    auto desired_values = collect_values(peer, interest, budget, context);
+    auto desired_values = collect_values(peer, interest, budget, context,
+                                         GameReplicationValueCollectionPhase::kDelta);
     if (!desired_values) return desired_values.error();
     std::map<uint8_t, GameReplicationValue> desired_values_by_kind;
     for (GameReplicationValue& value : *desired_values) {
@@ -837,6 +841,8 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
             };
         }
     }
+    notify_values_committed(peer, GameReplicationValueCollectionPhase::kDelta,
+                            accepted_value_changes);
     ++baseline->second.next_delta_sequence;
     prune_dirty_blocks();
     return std::vector<GameReplicationMessage>{std::move(*message)};
@@ -1054,7 +1060,8 @@ snt::core::Expected<std::vector<GameReplicationValue>>
 GameServerPlayerReplication::collect_values(
     const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
     const GameReplicationBudget& budget,
-    const snt::network::ReplicationTickContext& context) const {
+    const snt::network::ReplicationTickContext& context,
+    GameReplicationValueCollectionPhase phase) const {
     if (budget.max_reliable_bytes_per_tick == 0 || budget.max_value_snapshots_per_tick == 0 ||
         value_sources_.empty()) {
         return std::vector<GameReplicationValue>{};
@@ -1066,7 +1073,7 @@ GameServerPlayerReplication::collect_values(
     std::vector<GameReplicationValue> values;
     values.reserve(value_limit);
     for (IGameReplicationValueSource* source : value_sources_) {
-        auto source_values = source->collect_values(peer, interest, budget, context);
+        auto source_values = source->collect_values(peer, interest, budget, context, phase);
         if (!source_values) {
             auto error = source_values.error();
             error.with_context("GameServerPlayerReplication::collect_values(source)");
@@ -1102,6 +1109,14 @@ GameServerPlayerReplication::collect_values(
         return error;
     }
     return values;
+}
+
+void GameServerPlayerReplication::notify_values_committed(
+    const GameAuthenticatedPeer& peer, GameReplicationValueCollectionPhase phase,
+    std::span<const GameReplicationValue> values) noexcept {
+    for (IGameReplicationValueSource* source : value_sources_) {
+        source->on_values_committed(peer, phase, values);
+    }
 }
 
 snt::core::Expected<GameReplicatedPlayerState> GameServerPlayerReplication::make_player_state(

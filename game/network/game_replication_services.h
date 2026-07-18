@@ -12,6 +12,7 @@
 #include "voxel/data/voxel_chunk.h"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -154,6 +155,11 @@ public:
 // observer. The snapshot source that owns outer snapshot ids compares these
 // values against its per-peer baseline and emits upsert/remove records only
 // after a complete outbound message fits the configured budget.
+enum class GameReplicationValueCollectionPhase : uint8_t {
+    kInitialSnapshot,
+    kDelta,
+};
+
 class IGameReplicationValueSource {
 public:
     virtual ~IGameReplicationValueSource() = default;
@@ -161,7 +167,20 @@ public:
     virtual snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
         const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
         const GameReplicationBudget& budget,
-        const snt::network::ReplicationTickContext& context) = 0;
+        const snt::network::ReplicationTickContext& context,
+        GameReplicationValueCollectionPhase phase) = 0;
+
+    // The outer source calls this only after the complete snapshot or delta
+    // batch has entered its reliable baseline. Delta producers use it to
+    // commit their own compact changed-slot baseline without assuming that a
+    // value rejected by the outbound budget was delivered.
+    virtual void on_values_committed(const GameAuthenticatedPeer& peer,
+                                     GameReplicationValueCollectionPhase phase,
+                                     std::span<const GameReplicationValue> values) noexcept {
+        static_cast<void>(peer);
+        static_cast<void>(phase);
+        static_cast<void>(values);
+    }
 
     virtual void on_peer_disconnected(const GameAuthenticatedPeer& peer,
                                       std::string_view reason) noexcept {

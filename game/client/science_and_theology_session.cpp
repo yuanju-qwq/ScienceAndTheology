@@ -4,6 +4,7 @@
 #include "science_and_theology_session.h"
 
 #include "assets/asset_manager.h"
+#include "core/error.h"
 #include "core/events.h"
 #include "core/log.h"
 #include "render/render_components.h"
@@ -12,15 +13,21 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
+#include "game/network/game_inventory_replication.h"
 #include "game/network/game_quest_book_replication.h"
 #include "game/player/player_replication.h"
+#include "game/world/defs/machine_structure_validator.h"
 #include "network/tcp_udp_transport.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
+#include "player/ray_cast.h"
+#include "player/voxel_collision.h"
 #include "scene/scene.h"
 #include "script/script_manager.h"
 #include "ui/retained_mui_arc.h"
 #include "voxel/chunk_render_system.h"
+#include "voxel/data/chunk_registry.h"
+#include "voxel/data/voxel_chunk.h"
 
 #include <SDL3/SDL_scancode.h>
 
@@ -32,11 +39,200 @@
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace snt::game {
 namespace {
 
 constexpr uint64_t kMovementInputHeartbeatTicks = 4;
+constexpr float kPi = 3.14159265358979323846f;
+
+struct LocalTerrainCell {
+    uint16_t material = 0;
+    bool solid = false;
+};
+
+[[nodiscard]] std::optional<LocalTerrainCell> find_local_terrain_cell(
+    const snt::voxel::ChunkRegistry& chunks, const std::string& dimension_id,
+    int32_t block_x, int32_t block_y, int32_t block_z) {
+    constexpr int32_t kChunkSize = snt::voxel::VoxelChunk::kChunkSize;
+    const int32_t chunk_x = snt::player::floor_div_i32(block_x, kChunkSize);
+    const int32_t chunk_y = snt::player::floor_div_i32(block_y, kChunkSize);
+    const int32_t chunk_z = snt::player::floor_div_i32(block_z, kChunkSize);
+    const snt::voxel::VoxelChunk* chunk = chunks.get_chunk(
+        dimension_id, chunk_x, chunk_y, chunk_z);
+    if (chunk == nullptr) return std::nullopt;
+
+    const int32_t local_x = snt::player::positive_mod_i32(block_x, kChunkSize);
+    const int32_t local_y = snt::player::positive_mod_i32(block_y, kChunkSize);
+    const int32_t local_z = snt::player::positive_mod_i32(block_z, kChunkSize);
+    if (!chunk->terrain.is_valid_cell(local_x, local_y, local_z)) return std::nullopt;
+    const snt::voxel::TerrainCell& cell = chunk->terrain.cell_at(local_x, local_y, local_z);
+    return LocalTerrainCell{
+        .material = static_cast<uint16_t>(cell.material),
+        .solid = cell.is_solid(),
+    };
+}
+
+[[nodiscard]] snt::player::Vec3 camera_look_direction(
+    const snt::render::Transform& transform) noexcept {
+    const float yaw = transform.rotation[1] * kPi / 180.0f;
+    const float pitch = transform.rotation[0] * kPi / 180.0f;
+    const float cos_pitch = std::cos(pitch);
+    return {
+        .x = std::cos(yaw) * cos_pitch,
+        .y = std::sin(pitch),
+        .z = std::sin(yaw) * cos_pitch,
+    };
+}
+
+[[nodiscard]] bool has_collectible_machine_output(
+    const replication::GameRemoteMachineState& machine) noexcept {
+    return std::any_of(machine.machine.output_slots.begin(), machine.machine.output_slots.end(),
+                       [](const replication::GameReplicatedMachineItemStack& output) {
+                           return !output.item_id.empty() && output.count > 0;
+                       });
+}
+
+[[nodiscard]] uint8_t make_machine_activation_hints(
+    const GameContentRegistry& content, const GameClientInteractionConfig& config,
+    const snt::voxel::ChunkRegistry& chunks,
+    const GameClientBlockInteractionTarget& target,
+    const replication::GameRemoteMachineState& machine,
+    const std::string& selected_item_id) {
+    const MachineDefinition* definition = content.find_machine(machine.machine.machine_id);
+    if (definition == nullptr) return 0;
+
+    const MachineActivationRequirements& requirements = definition->activation_requirements;
+    uint8_t hints = 0;
+    if (requirements.requires_cover) {
+        const auto cover = find_local_terrain_cell(
+            chunks, target.dimension_id, target.hit_x, target.hit_y + 1, target.hit_z);
+        if (cover.has_value() && cover->solid) {
+            hints |= replication::kGameBlockInteractionHintCover;
+        }
+    }
+    if (requirements.requires_ignition && !config.ignition_item_id.empty() &&
+        selected_item_id == config.ignition_item_id) {
+        hints |= replication::kGameBlockInteractionHintIgnition;
+    }
+    if (requirements.requires_valid_structure && machine.machine.machine_id == "bloomery") {
+        const MachinePlacementDefinition* placement =
+            content.find_machine_placement_by_material(target.hit_material);
+        if (placement != nullptr && placement->machine_id == machine.machine.machine_id &&
+            MachineStructureValidator::validate_bloomery(
+                chunks, target.dimension_id, target.hit_x, target.hit_y, target.hit_z,
+                static_cast<TerrainMaterialId>(placement->material_id)).valid()) {
+            hints |= replication::kGameBlockInteractionHintStructure;
+        }
+    }
+    return hints;
+}
+
+class ReplicationBlockInteractionCommandSink final
+    : public IGameClientBlockInteractionCommandSink {
+public:
+    ReplicationBlockInteractionCommandSink(replication::GameClientReplicationSession& session,
+                                           uint64_t& next_sequence) noexcept
+        : session_(&session), next_sequence_(&next_sequence) {}
+
+    [[nodiscard]] snt::core::Expected<void> submit_block_interaction(
+        replication::GameBlockInteractionCommand command) override {
+        if (session_ == nullptr || next_sequence_ == nullptr || *next_sequence_ == 0 ||
+            *next_sequence_ == std::numeric_limits<uint64_t>::max()) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidState,
+                "Client block interaction command sequence is unavailable"};
+        }
+        if (auto result = session_->enqueue_block_interaction(*next_sequence_, std::move(command));
+            !result) {
+            return result.error();
+        }
+        ++*next_sequence_;
+        return {};
+    }
+
+private:
+    replication::GameClientReplicationSession* session_ = nullptr;
+    uint64_t* next_sequence_ = nullptr;
+};
+
+[[nodiscard]] GamePlayerItemStack to_replication_inventory_stack(
+    const ItemStackState& stack) {
+    return {
+        .item_id = stack.item_key,
+        .count = stack.count,
+        .instance_data = stack.instance_data,
+    };
+}
+
+[[nodiscard]] ItemStackState from_replication_inventory_stack(
+    const GamePlayerItemStack& stack) {
+    return {
+        .item_key = stack.item_id,
+        .count = stack.count,
+        .instance_data = stack.instance_data,
+    };
+}
+
+[[nodiscard]] std::vector<ItemStackState> from_replication_inventory_slots(
+    const GamePlayerInventory& inventory) {
+    std::vector<ItemStackState> slots;
+    slots.reserve(inventory.slots.size());
+    for (const GamePlayerItemStack& stack : inventory.slots) {
+        slots.push_back(from_replication_inventory_stack(stack));
+    }
+    return slots;
+}
+
+// The retained UI can outlive a reconnect. It therefore follows the owning
+// unique_ptr instead of retaining a raw session pointer that would dangle
+// between LAN joins. It never predicts an inventory mutation locally.
+class ReplicationInventorySlotTransferCommandSink final
+    : public IInventorySlotTransferCommandSink {
+public:
+    ReplicationInventorySlotTransferCommandSink(
+        std::unique_ptr<replication::GameClientReplicationSession>& session,
+        uint64_t& next_sequence) noexcept
+        : session_owner_(&session), next_sequence_(&next_sequence) {}
+
+    [[nodiscard]] snt::core::Expected<void> submit_slot_transfer(
+        InventorySlotTransferRequest request) override {
+        replication::GameClientReplicationSession* const session =
+            session_owner_ != nullptr ? session_owner_->get() : nullptr;
+        if (session == nullptr || next_sequence_ == nullptr || *next_sequence_ == 0 ||
+            *next_sequence_ == std::numeric_limits<uint64_t>::max()) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidState,
+                "Client inventory slot transfer command sequence is unavailable"};
+        }
+        if (request.expected_revision == 0) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidState,
+                "Client inventory is awaiting an authoritative snapshot"};
+        }
+        replication::GameInventorySlotTransferCommand command{
+            .request_id = request.request_id,
+            .expected_inventory_revision = request.expected_revision,
+            .source_slot = request.source_slot,
+            .target_slot = request.target_slot,
+            .count = request.count,
+            .expected_source = to_replication_inventory_stack(request.expected_source),
+            .expected_target = to_replication_inventory_stack(request.expected_target),
+        };
+        if (auto result = session->enqueue_inventory_slot_transfer(
+                *next_sequence_, std::move(command));
+            !result) {
+            return result.error();
+        }
+        ++*next_sequence_;
+        return {};
+    }
+
+private:
+    std::unique_ptr<replication::GameClientReplicationSession>* session_owner_ = nullptr;
+    uint64_t* next_sequence_ = nullptr;
+};
 
 [[nodiscard]] bool same_movement_intent(
     const replication::GamePlayerMovementInput& left,
@@ -79,7 +275,8 @@ ScienceAndTheologyClientSession::ScienceAndTheologyClientSession(
     GameSessionConfig config,
     std::shared_ptr<localization::LocalizationService> localization,
     std::optional<replication::GameClientAuthentication> connection_authentication)
-    : config_(std::move(config)), simulation_session_(config_),
+    : config_(std::move(config)), block_interaction_controller_(config_.client_interaction),
+      simulation_session_(config_),
       localization_(std::move(localization)),
       connection_authentication_(std::move(connection_authentication)) {
     if (connection_authentication_) {
@@ -184,7 +381,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::connect_tcp_udp(
     ensure_remote_replication_state();
     SNT_LOG_INFO("Client replication connection requested (host=%s tcp=%u udp=%u)",
                  host.c_str(), tcp_port, udp_port);
-    SNT_LOG_INFO("Client is awaiting authoritative player AOI and task-book snapshots");
+    SNT_LOG_INFO("Client is awaiting authoritative player, inventory, and task-book snapshots");
     return {};
 }
 
@@ -192,6 +389,9 @@ void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
     const std::string account_id = local_player_identity_ ? local_player_identity_->account_id : std::string{};
     if (!remote_player_world_) {
         remote_player_world_ = std::make_unique<replication::GameRemotePlayerWorld>(account_id);
+    }
+    if (!remote_inventory_state_) {
+        remote_inventory_state_ = std::make_unique<replication::GameClientInventoryState>(account_id);
     }
     if (!quest_book_state_) {
         quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(account_id);
@@ -209,7 +409,58 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
     }
     if (remote_machine_world_) remote_machine_world_->clear();
     if (remote_player_world_) remote_player_world_->clear();
+    if (remote_inventory_state_) {
+        remote_inventory_state_->clear();
+        if (gameplay_ui_) gameplay_ui_->clear_inventory_authority();
+    }
     if (quest_book_state_) quest_book_state_->clear();
+    block_interaction_bindings_reported_ = false;
+    block_interaction_submission_error_reported_ = false;
+    network_crafting_unavailable_reported_ = false;
+}
+
+snt::core::Expected<void> ScienceAndTheologyClientSession::apply_remote_inventory_to_ui(
+    uint64_t previous_inventory_revision, uint64_t previous_response_revision) {
+    if (!remote_inventory_state_ || !gameplay_ui_) return {};
+    const replication::GameInventorySnapshot* const snapshot = remote_inventory_state_->snapshot();
+    if (snapshot == nullptr) return {};
+
+    const bool inventory_changed = snapshot->inventory_revision != previous_inventory_revision;
+    const bool response_changed = snapshot->response_revision != previous_response_revision;
+    if (!inventory_changed && !response_changed) return {};
+
+    const bool matching_pending_response = response_changed &&
+        snapshot->response.request_id != 0 &&
+        snapshot->response.request_id ==
+            gameplay_ui_->pending_inventory_slot_transfer_request_id();
+    if (matching_pending_response) {
+        InventorySlotTransferConfirmation confirmation{
+            .request_id = snapshot->response.request_id,
+            .outcome = snapshot->response.outcome ==
+                    replication::GameInventorySlotTransferOutcome::kAccepted
+                ? InventorySlotTransferOutcome::Accepted
+                : InventorySlotTransferOutcome::Rejected,
+            .authoritative_revision = snapshot->inventory_revision,
+            .slots = from_replication_inventory_slots(snapshot->inventory),
+            .max_stack_size = snapshot->inventory.max_stack_size,
+            .rejection_reason = snapshot->response.rejection_reason,
+        };
+        static_cast<void>(
+            gameplay_ui_->apply_inventory_slot_transfer_confirmation(std::move(confirmation)));
+        return {};
+    }
+
+    if (inventory_changed ||
+        gameplay_ui_->inventory_authority_revision() != snapshot->inventory_revision) {
+        if (!gameplay_ui_->apply_inventory_authoritative_snapshot(
+                from_replication_inventory_slots(snapshot->inventory),
+                snapshot->inventory.max_stack_size, snapshot->inventory_revision)) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidState,
+                "Client inventory UI rejected an authoritative replication snapshot"};
+        }
+    }
+    return {};
 }
 
 void ScienceAndTheologyClientSession::process_lan_join_request() {
@@ -313,6 +564,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
             .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
     } else {
         presentation_world_ = &world;
+        presentation_chunks_ = &world_session.chunks();
         chunk_render_system_ = &world_session.chunk_render_system();
         remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
             world_session.chunks());
@@ -348,7 +600,14 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         return error;
     }
 
-    InventoryState initial_inventory = make_starting_inventory();
+    InventoryState initial_inventory;
+    if (uses_network_presentation()) {
+        initial_inventory.slots.resize(config_.server_player.inventory_slots);
+        initial_inventory.columns = 9;
+        initial_inventory.max_stack_size = config_.server_player.inventory_max_stack_size;
+    } else {
+        initial_inventory = make_starting_inventory();
+    }
     std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink;
     if (!uses_network_presentation()) {
         local_inventory_authority_ = std::make_shared<LocalInventorySlotTransferAuthority>(
@@ -356,7 +615,9 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         slot_transfer_sink = local_inventory_authority_;
         SNT_LOG_INFO("Inventory UI uses the offline authoritative slot-transaction simulator");
     } else {
-        SNT_LOG_INFO("Inventory UI is awaiting a network slot-transaction adapter");
+        slot_transfer_sink = std::make_shared<ReplicationInventorySlotTransferCommandSink>(
+            replication_session_, next_movement_sequence_);
+        SNT_LOG_INFO("Inventory UI uses authoritative full snapshots and changed-slot network deltas");
     }
     gameplay_ui_ = std::make_unique<GameplayUiController>(
         InventoryViewModel{std::move(initial_inventory)},
@@ -374,6 +635,13 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
             .factory = make_gameplay_ui_factory(*gameplay_ui_, *localization_),
             .dispatch_action = [this](std::string_view action_id) {
                 if (!gameplay_ui_) return;
+                if (uses_network_presentation() && action_id.starts_with("craft:")) {
+                    if (!network_crafting_unavailable_reported_) {
+                        SNT_LOG_WARN("Network crafting is unavailable until it has an authoritative command path");
+                        network_crafting_unavailable_reported_ = true;
+                    }
+                    return;
+                }
                 dispatch_gameplay_ui_action(*gameplay_ui_, action_id);
                 if (local_inventory_authority_) {
                     auto synced = local_inventory_authority_->synchronize_offline_snapshot(
@@ -484,10 +752,18 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                     remote_player_world_ && remote_player_world_->active_snapshot_id() == 0;
                 const bool first_quest_book_snapshot =
                     quest_book_state_ && quest_book_state_->active_snapshot_id() == 0;
+                const bool first_inventory_snapshot =
+                    remote_inventory_state_ && remote_inventory_state_->active_snapshot_id() == 0;
                 const bool first_chunk_snapshot =
                     remote_chunk_world_ && remote_chunk_world_->active_snapshot_id() == 0;
                 const bool first_machine_snapshot =
                     remote_machine_world_ && remote_machine_world_->active_snapshot_id() == 0;
+                const replication::GameInventorySnapshot* const prior_inventory =
+                    remote_inventory_state_ ? remote_inventory_state_->snapshot() : nullptr;
+                const uint64_t prior_inventory_revision =
+                    prior_inventory != nullptr ? prior_inventory->inventory_revision : 0;
+                const uint64_t prior_inventory_response_revision =
+                    prior_inventory != nullptr ? prior_inventory->response_revision : 0;
                 if (remote_chunk_world_) {
                     auto applied = std::visit(
                         [this](const auto& value) { return remote_chunk_world_->apply(value); }, update);
@@ -524,6 +800,25 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                         return error;
                     }
                 }
+                if (remote_inventory_state_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_inventory_state_->apply(value); },
+                        update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(inventory replication)");
+                        return error;
+                    }
+                    if (auto synchronized = apply_remote_inventory_to_ui(
+                            prior_inventory_revision, prior_inventory_response_revision);
+                        !synchronized) {
+                        auto error = synchronized.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(inventory UI synchronization)");
+                        return error;
+                    }
+                }
                 if (remote_player_world_) {
                     auto applied = std::visit(
                         [this](const auto& value) { return remote_player_world_->apply(value); }, update);
@@ -548,6 +843,14 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                                  static_cast<unsigned long long>(
                                      quest_book_state_->active_snapshot_id()),
                                  quest_book_state_->snapshot()->progress.size());
+                }
+                if (first_inventory_snapshot && remote_inventory_state_ &&
+                    remote_inventory_state_->snapshot() != nullptr &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative inventory snapshot %llu with %zu slot(s)",
+                                 static_cast<unsigned long long>(
+                                     remote_inventory_state_->active_snapshot_id()),
+                                 remote_inventory_state_->snapshot()->inventory.slots.size());
                 }
                 if (first_chunk_snapshot && remote_chunk_world_ &&
                     std::holds_alternative<replication::GameSnapshot>(update)) {
@@ -661,11 +964,13 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     }
     expected_ui_screen_count_ = 0;
     presentation_world_ = nullptr;
+    presentation_chunks_ = nullptr;
     clear_remote_replication_state();
     remote_chunk_world_.reset();
     remote_machine_world_.reset();
     chunk_render_system_ = nullptr;
     remote_player_world_.reset();
+    remote_inventory_state_.reset();
     quest_book_ui_.reset();
     quest_book_state_.reset();
     if (replication_session_) replication_session_->shutdown();
@@ -730,6 +1035,113 @@ void ScienceAndTheologyClientSession::sample_network_movement_input(
         std::clamp(transform.rotation[0], -89.0f, 89.0f) * 100.0f));
 }
 
+void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
+    snt::engine::ClientFrameContext& context) {
+    if (!replication_session_ || presentation_world_ == nullptr || presentation_chunks_ == nullptr ||
+        !remote_player_world_ || replication_session_->status().state !=
+            replication::GameClientConnectionState::kAuthenticated) {
+        return;
+    }
+
+    const auto& input = context.input();
+    const GameClientBlockInteractionInput interaction_input{
+        .mine_pressed = input.mouse_pressed[0],
+        .context_pressed = input.mouse_pressed[2],
+    };
+    if (!interaction_input.mine_pressed && !interaction_input.context_pressed) return;
+
+    const auto local_player = remote_player_world_->authoritative_local_player();
+    if (!local_player.has_value() || local_player->player.position.dimension_id.empty()) return;
+    const entt::entity camera_entity = presentation_world_->find_entity_by_guid(
+        snt::ecs::EntityGuid{config_.scene.active_camera_guid});
+    if (camera_entity == entt::null ||
+        !presentation_world_->registry().all_of<snt::render::Transform>(camera_entity)) {
+        return;
+    }
+
+    const snt::render::Transform& transform =
+        presentation_world_->registry().get<snt::render::Transform>(camera_entity);
+    const std::string& dimension_id = local_player->player.position.dimension_id;
+    const snt::player::CollisionWorldView collision_world(
+        presentation_chunks_, dimension_id, false);
+    const snt::player::RayCastResult hit = snt::player::ray_cast_voxels_dda(
+        collision_world,
+        {.x = transform.position[0], .y = transform.position[1], .z = transform.position[2]},
+        camera_look_direction(transform), config_.client_interaction.raycast_reach_blocks);
+    if (!hit.hit) return;
+
+    const auto hit_cell = find_local_terrain_cell(
+        *presentation_chunks_, dimension_id, hit.block.x, hit.block.y, hit.block.z);
+    if (!hit_cell.has_value()) return;
+    GameClientBlockInteractionTarget target{
+        .dimension_id = dimension_id,
+        .hit_x = hit.block.x,
+        .hit_y = hit.block.y,
+        .hit_z = hit.block.z,
+        .hit_material = hit_cell->material,
+    };
+    if (hit.previous.x != hit.block.x || hit.previous.y != hit.block.y ||
+        hit.previous.z != hit.block.z) {
+        const auto placement_cell = find_local_terrain_cell(
+            *presentation_chunks_, dimension_id, hit.previous.x, hit.previous.y, hit.previous.z);
+        if (placement_cell.has_value()) {
+            target.placement = GameClientBlockInteractionTarget::PlacementCell{
+                .x = hit.previous.x,
+                .y = hit.previous.y,
+                .z = hit.previous.z,
+                .expected_material = placement_cell->material,
+            };
+        }
+    }
+
+    std::string selected_item_id;
+    if (gameplay_ui_) {
+        const InventoryState& inventory = gameplay_ui_->inventory().state();
+        const int32_t selected_index = gameplay_ui_->hotbar().selected_index();
+        if (selected_index >= 0 &&
+            selected_index < static_cast<int32_t>(inventory.slots.size()) &&
+            !inventory.slots[selected_index].empty()) {
+            selected_item_id = inventory.slots[selected_index].item_key;
+        }
+    }
+
+    std::optional<GameClientMachineInteractionTarget> machine_target;
+    if (remote_machine_world_) {
+        const auto remote_machine = remote_machine_world_->find_machine_at(
+            dimension_id, target.hit_x, target.hit_y, target.hit_z);
+        if (remote_machine.has_value()) {
+            const MachineDefinition* definition = simulation_session_.content().find_machine(
+                remote_machine->machine.machine_id);
+            machine_target = GameClientMachineInteractionTarget{
+                .machine_id = remote_machine->machine.machine_id,
+                .has_collectible_output = has_collectible_machine_output(*remote_machine),
+                .requires_manual_activation = definition != nullptr &&
+                    definition->requires_manual_activation,
+                .activation_hints = make_machine_activation_hints(
+                    simulation_session_.content(), config_.client_interaction,
+                    *presentation_chunks_, target, *remote_machine, selected_item_id),
+            };
+        }
+    }
+
+    ReplicationBlockInteractionCommandSink sink(*replication_session_, next_movement_sequence_);
+    if (auto result = block_interaction_controller_.handle_input(
+            interaction_input, target, std::move(selected_item_id), machine_target, sink);
+        !result) {
+        if (!block_interaction_submission_error_reported_) {
+            SNT_LOG_WARN("Client block interaction command was not queued: %s",
+                         result.error().format().c_str());
+            block_interaction_submission_error_reported_ = true;
+        }
+        return;
+    }
+    block_interaction_submission_error_reported_ = false;
+    if (!block_interaction_bindings_reported_) {
+        SNT_LOG_INFO("Graphical client block interactions use local DDA targets and host-authoritative commits");
+        block_interaction_bindings_reported_ = true;
+    }
+}
+
 void ScienceAndTheologyClientSession::apply_authoritative_local_player() {
     if (presentation_world_ == nullptr || !remote_player_world_) return;
     const auto player = remote_player_world_->authoritative_local_player();
@@ -787,6 +1199,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::submit_quest_reward_c
 void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientFrameContext& context) {
     if (!gameplay_ui_ && !quest_book_ui_ && !lan_server_browser_) return;
     const auto& input = context.input();
+    const bool mouse_was_locked = context.mouse_locked();
 
     bool lan_browser_open = ui_layers_ &&
         ui_layers_->is_visible("science_and_theology", "lan_server_browser");
@@ -837,11 +1250,29 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         gameplay_ui_open = false;
         SNT_LOG_INFO("Gameplay UI closed");
     }
+
+    if (!lan_browser_open && !quest_book_open && !gameplay_ui_open && gameplay_ui_) {
+        for (int32_t index = 0; index < 9; ++index) {
+            if (input.key_pressed[SDL_SCANCODE_1 + index]) {
+                gameplay_ui_->hotbar().select(index);
+                break;
+            }
+        }
+        if (input.mouse_wheel_y > 0.0f) {
+            gameplay_ui_->hotbar().select((gameplay_ui_->hotbar().selected_index() + 8) % 9);
+        } else if (input.mouse_wheel_y < 0.0f) {
+            gameplay_ui_->hotbar().select((gameplay_ui_->hotbar().selected_index() + 1) % 9);
+        }
+    }
+
     const bool ui_open = gameplay_ui_open || quest_book_open || lan_browser_open;
     if ((input.esc_pressed || ui_open) && context.mouse_locked()) {
         context.set_mouse_locked(false);
     } else if (input.wants_mouse_lock && !context.mouse_locked() && !ui_open) {
         context.set_mouse_locked(true);
+    }
+    if (mouse_was_locked && !ui_open) {
+        handle_network_block_interaction_input(context);
     }
 }
 

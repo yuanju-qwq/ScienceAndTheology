@@ -105,6 +105,7 @@ add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
     network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
+    network/game_inventory_replication.cpp
     network/game_lan_discovery.cpp
     network/game_quest_book_replication.cpp
     network/game_replication_protocol.cpp
@@ -159,6 +160,7 @@ add_executable(snt_game_client
     client/main.cpp
     runtime/local_player_name_prompt.cpp
     runtime/runtime_package.cpp
+    client/client_block_interaction.cpp
     client/inventory_slot_transaction.cpp
     client/gameplay_ui.cpp
     client/lan_server_browser.cpp
@@ -192,6 +194,7 @@ set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theolog
 add_executable(snt_game_server
     server/main.cpp
     server/game_server_command_sink.cpp
+    server/game_server_inventory_replication.cpp
     server/game_server_player_death.cpp
     server/game_server_player_interaction.cpp
     server/game_server_quest_book_replication.cpp
@@ -285,11 +288,13 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     )
 
     add_executable(snt_game_tests
+        client/client_block_interaction.cpp
         client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
         client/lan_server_browser.cpp
         client/quest_book_ui.cpp
         server/game_server_command_sink.cpp
+        server/game_server_inventory_replication.cpp
         server/game_server_player_death.cpp
         server/game_server_player_interaction.cpp
         server/game_server_quest_book_replication.cpp
@@ -302,6 +307,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_world.cpp
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
+        tests/test_client_block_interaction.cpp
         tests/test_quest_book_ui.cpp
         tests/test_machine_interaction_service.cpp
         tests/test_machine_placement_registry.cpp
@@ -317,6 +323,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_server_player_movement.cpp
         tests/test_game_server_player_state.cpp
         tests/test_game_quest_book_replication.cpp
+        tests/test_game_inventory_replication.cpp
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
