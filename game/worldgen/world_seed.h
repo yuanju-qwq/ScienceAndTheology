@@ -1,7 +1,6 @@
 // WorldSeed — world generation seed and derived sub-seed derivation.
 //
-// Ported from src/core/world_gen/world_seed.hpp.
-// Namespace: science_and_theology -> snt::game.
+// This is a game-owned world-generation value.
 //
 // All generators should derive their seeds from the world seed to ensure
 // deterministic reproduction of the entire world from a single uint64_t.

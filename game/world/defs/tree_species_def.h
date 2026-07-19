@@ -1,7 +1,6 @@
 // TreeSpeciesDef — defines a tree species for world generation.
 //
-// Ported from src/core/world_gen/tree_species_def.hpp.
-// Namespace: science_and_theology -> snt::game.
+// This definition belongs to game-owned world content.
 
 #pragma once
 

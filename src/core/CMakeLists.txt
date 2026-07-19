@@ -102,29 +102,6 @@ target_sources(snt_core PRIVATE
     multiblock/multiblock_machine_service.cpp
 )
 
-# Dynamic mobile structure system (Create-style static blocks → moving entity → write-back)
-target_sources(snt_core PRIVATE
-    mobile_structure/dynamic_structure.hpp
-    mobile_structure/dynamic_structure.cpp
-    mobile_structure/ship_structure.hpp
-    mobile_structure/ship_structure.cpp
-    mobile_structure/ship_local_grid.hpp
-    mobile_structure/ship_local_grid.cpp
-)
-
-# World generation system
-target_sources(snt_core PRIVATE
-    world_gen/world_seed.hpp
-    world_gen/noise_generator.hpp
-    world_gen/noise_generator.cpp
-    world_gen/world_gen_config.hpp
-    world_gen/world_gen_config.cpp
-    world_gen/terrain_generator.hpp
-    world_gen/terrain_generator.cpp
-    world_gen/tree_species_def.hpp
-    world_gen/crop_species_def.hpp
-)
-
 # Simulation system (tick orchestration, event bus, state sync)
 target_sources(snt_core PRIVATE
     simulation/event_types.hpp
@@ -169,18 +146,6 @@ target_sources(snt_core PRIVATE
     simulation/state_sync_client.cpp
     simulation/prediction_buffer.hpp
     simulation/prediction_buffer.cpp
-)
-
-# Save / load system
-target_sources(snt_core PRIVATE
-    save/chunk_serializer.hpp
-    save/chunk_serializer.cpp
-    save/region_file.hpp
-    save/region_file.cpp
-    save/region_compactor.hpp
-    save/region_compactor.cpp
-    save/save_manager.hpp
-    save/save_manager.cpp
 )
 
 # Future modules:

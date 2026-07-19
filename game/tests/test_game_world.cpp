@@ -13,6 +13,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -47,6 +50,54 @@ std::shared_ptr<const snt::game::WorldGenConfigSnapshot> make_test_worldgen_conf
     rule.default_material = stone.id;
     config->base_terrain_rules.push_back(rule);
     config->content_hash = hash_world_gen_config(*config);
+    return config;
+}
+
+std::shared_ptr<const snt::game::WorldGenConfigSnapshot> make_polar_worldgen_config() {
+    using namespace snt::game;
+
+    auto config = std::make_shared<WorldGenConfigSnapshot>();
+    const auto add_material = [&config](TerrainMaterialId id, const char* key,
+                                        uint32_t flags) {
+        TerrainMaterialDef material;
+        material.id = id;
+        material.key = key;
+        material.flags = flags;
+        config->materials.push_back(material);
+        config->material_ids_by_key[material.key] = id;
+        config->material_keys_by_id[id] = material.key;
+    };
+
+    add_material(0, "snt:air", 0);
+    add_material(1, "snt:stone", TF_SOLID | TF_MINEABLE);
+    add_material(2, "snt:dirt", TF_WALKABLE | TF_MINEABLE);
+    add_material(3, "snt:sand", TF_WALKABLE | TF_MINEABLE);
+    add_material(4, "snt:water", TF_LIQUID);
+    add_material(5, "snt:lava", TF_LIQUID);
+    add_material(6, "snt:deepstone", TF_SOLID | TF_MINEABLE);
+    add_material(7, "snt:core_barrier", TF_SOLID | TF_INDESTRUCTIBLE);
+    add_material(103, "snt:snow", TF_WALKABLE | TF_MINEABLE);
+    add_material(104, "snt:ice", TF_SOLID | TF_WALKABLE | TF_MINEABLE);
+
+    config->roles.air = 0;
+    config->roles.stone = 1;
+    config->roles.dirt = 2;
+    config->roles.sand = 3;
+    config->roles.water = 4;
+    config->roles.lava = 5;
+    config->roles.deepstone = 6;
+    config->roles.core_barrier = 7;
+    config->roles.snow = 103;
+    config->roles.ice = 104;
+
+    PlanetConfig planet;
+    planet.dimension_id = "polar_test";
+    planet.planet_radius = 512.0f;
+    planet.center_y = -512.0f;
+    planet.terrain_height_scale = 16.0f;
+    planet.sea_level_fraction = 0.3f;
+    planet.atmosphere_type = ATMO_BREATHABLE;
+    config->planet_configs.push_back(planet);
     return config;
 }
 
@@ -355,4 +406,138 @@ TEST(GameTerrainGeneratorTest, ProducesVoxelChunkAndSidecar) {
 
     EXPECT_EQ(chunk.terrain.size_x, snt::voxel::VoxelChunk::kChunkSize);
     EXPECT_EQ(chunk.state, snt::game::ChunkState::Generated);
+}
+
+TEST(GameTerrainGeneratorTest, PreservesPolarSurfaceLandformsAndChunkSeams) {
+    using namespace snt::game;
+
+    const auto config = make_polar_worldgen_config();
+    TerrainGenerator generator(WorldSeed(20260619), config);
+    const GameChunk chunk = generator.generate_chunk("polar_test", 0, 0, 0);
+
+    int snow_count = 0;
+    for (const TerrainCell& cell : chunk.terrain.cells) {
+        if (cell.material == 103) {
+            ++snow_count;
+        }
+    }
+    EXPECT_GT(snow_count, 0);
+    EXPECT_EQ(chunk.terrain.cell_at(0, 6, 0).material, 103u);
+    EXPECT_EQ(chunk.terrain.cell_at(16, 6, 16).material, 103u);
+    EXPECT_EQ(chunk.terrain.cell_at(31, 6, 0).material, 103u);
+    EXPECT_EQ(chunk.terrain.cell_at(16, 7, 16).material, 0u);
+
+    auto dry_config = std::make_shared<WorldGenConfigSnapshot>(*config);
+    dry_config->planet_configs[0].dimension_id = "landform_test";
+    dry_config->planet_configs[0].sea_level_fraction = 0.0f;
+    dry_config->planet_configs[0].atmosphere_type = ATMO_NONE;
+    TerrainGenerator landform_generator(WorldSeed(20260619), dry_config);
+    std::array<bool, static_cast<size_t>(TerrainGenerator::LandformZone::COUNT)>
+        found_zones{};
+    constexpr float kPi = 3.14159265358979323846f;
+    for (int latitude = -85; latitude <= 85; latitude += 5) {
+        const float lat = static_cast<float>(latitude) * kPi / 180.0f;
+        for (int longitude = 0; longitude < 360; longitude += 5) {
+            const float lon = static_cast<float>(longitude) * kPi / 180.0f;
+            const float cos_lat = std::cos(lat);
+            const auto zone = landform_generator.landform_zone_at_direction(
+                "landform_test",
+                cos_lat * std::cos(lon), std::sin(lat), cos_lat * std::sin(lon));
+            found_zones[static_cast<size_t>(zone)] = true;
+        }
+    }
+    for (size_t zone = 0; zone < found_zones.size(); ++zone) {
+        EXPECT_TRUE(found_zones[zone]) << "missing landform zone " << zone;
+    }
+
+    const GameChunk left_low = generator.generate_chunk("polar_test", 2, -1, 0);
+    const GameChunk left_high = generator.generate_chunk("polar_test", 2, 0, 0);
+    const GameChunk right_low = generator.generate_chunk("polar_test", 3, -1, 0);
+    const GameChunk right_high = generator.generate_chunk("polar_test", 3, 0, 0);
+    const auto surface_height = [](const GameChunk& low, const GameChunk& high,
+                                   int local_x, int local_z) {
+        for (int y = VoxelChunk::kChunkSize - 1; y >= 0; --y) {
+            const TerrainMaterialId material = high.terrain.cell_at(local_x, y, local_z).material;
+            if (material != 0 && material != 4) {
+                return y;
+            }
+        }
+        for (int y = VoxelChunk::kChunkSize - 1; y >= 0; --y) {
+            const TerrainMaterialId material = low.terrain.cell_at(local_x, y, local_z).material;
+            if (material != 0 && material != 4) {
+                return y - VoxelChunk::kChunkSize;
+            }
+        }
+        return -1000;
+    };
+
+    int max_boundary_step = 0;
+    for (int z = 0; z < VoxelChunk::kChunkSize; ++z) {
+        const int left_y = surface_height(left_low, left_high, VoxelChunk::kChunkSize - 1, z);
+        const int right_y = surface_height(right_low, right_high, 0, z);
+        if (left_y > -1000 && right_y > -1000) {
+            max_boundary_step = std::max(max_boundary_step, std::abs(left_y - right_y));
+        }
+    }
+    EXPECT_LE(max_boundary_step, 6);
+}
+
+TEST(GameSaveManagerTest, PreservesNegativeCoordinatesFlagsAndBlockEntities) {
+    using namespace snt::game;
+
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto save_dir = std::filesystem::temp_directory_path() /
+        ("snt_game_migrated_world_save_" + std::to_string(nonce));
+    std::filesystem::remove_all(save_dir);
+
+    constexpr const char* kDimension = "migrated_world_save";
+    ChunkRegistry source_voxels;
+    GameChunkSidecarRegistry source_sidecars;
+    VoxelChunk chunk;
+    chunk.state = ChunkState::Active;
+    chunk.terrain.resize(VoxelChunk::kChunkSize, VoxelChunk::kChunkSize, VoxelChunk::kChunkSize);
+    chunk.terrain.set_cell(1, 2, 3, 17, TF_SOLID | TF_MINEABLE);
+    chunk.terrain.set_cell(31, 0, 31, 23, TF_SOLID | TF_WALKABLE);
+    source_voxels.set_chunk(kDimension, -1, 0, 2, std::move(chunk));
+
+    GameChunkSidecar sidecar;
+    BlockEntityPlacement machine;
+    machine.id.id = 42;
+    machine.entity_type = BlockEntityType::MACHINE;
+    machine.root_x = -31;
+    machine.root_y = 2;
+    machine.root_z = 67;
+    machine.type_data_json = R"({"machine_type":"furnace","facing":4})";
+    sidecar.block_entities.push_back(std::move(machine));
+    source_sidecars.set({kDimension, -1, 0, 2}, std::move(sidecar));
+
+    ASSERT_EQ(GameSaveManager::save_dimension(
+                  save_dir.string(), 20260619, kDimension, source_voxels, source_sidecars),
+              1);
+
+    ChunkRegistry restored_voxels;
+    GameChunkSidecarRegistry restored_sidecars;
+    ASSERT_EQ(GameSaveManager::load_dimension(
+                  save_dir.string(), kDimension, restored_voxels, restored_sidecars),
+              1);
+
+    const VoxelChunk* restored = restored_voxels.get_chunk(kDimension, -1, 0, 2);
+    ASSERT_NE(restored, nullptr);
+    const TerrainCell& placed = restored->terrain.cell_at(1, 2, 3);
+    EXPECT_EQ(placed.material, 17u);
+    EXPECT_TRUE(placed.is_solid());
+    EXPECT_TRUE(placed.is_mineable());
+
+    const GameChunkSidecar* restored_sidecar =
+        restored_sidecars.get({kDimension, -1, 0, 2});
+    ASSERT_NE(restored_sidecar, nullptr);
+    ASSERT_EQ(restored_sidecar->block_entities.size(), 1u);
+    EXPECT_EQ(restored_sidecar->block_entities.front().id.id, 42u);
+    EXPECT_EQ(restored_sidecar->block_entities.front().root_x, -31);
+    EXPECT_EQ(restored_sidecar->block_entities.front().root_y, 2);
+    EXPECT_EQ(restored_sidecar->block_entities.front().root_z, 67);
+
+    std::error_code error;
+    std::filesystem::remove_all(save_dir, error);
+    EXPECT_FALSE(error) << error.message();
 }

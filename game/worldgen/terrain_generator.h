@@ -184,4 +184,4 @@ private:
     std::shared_ptr<const WorldGenConfigSnapshot> config_;
 };
 
-} // namespace science_and_theology
+}  // namespace snt::game

@@ -239,4 +239,4 @@ private:
     static bool read_string(std::ifstream& file, std::string& out, uint32_t max_len = 256);
 };
 
-} // namespace science_and_theology
+}  // namespace snt::game

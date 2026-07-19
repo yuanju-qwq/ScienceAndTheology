@@ -313,6 +313,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_machine_placement_registry.cpp
         tests/test_machine_structure_validator.cpp
         tests/test_machine_runtime_persistence.cpp
+        tests/test_mobile_structure.cpp
         tests/test_game_components.cpp
         tests/test_player_identity.cpp
         tests/test_player_state_persistence.cpp
@@ -349,6 +350,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_world_data
         snt_game_worldgen
         snt_game_world_save
+        snt_game_world_mobile
         snt_game_identity
         snt_game_localization
         snt_game_network

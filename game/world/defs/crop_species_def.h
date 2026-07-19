@@ -1,7 +1,6 @@
 // CropSpeciesDef — defines a crop species for farming.
 //
-// Ported from src/core/world_gen/crop_species_def.hpp.
-// Namespace: science_and_theology -> snt::game.
+// This definition belongs to game-owned world content.
 
 #pragma once
 

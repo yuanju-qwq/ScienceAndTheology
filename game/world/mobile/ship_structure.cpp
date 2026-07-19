@@ -1,9 +1,7 @@
 // ShipStructureService implementation.
 //
-// Ported from src/core/mobile_structure/ship_structure.cpp.
-// P2 task 4 refactor: WorldData god-object replaced with explicit
+// P2 task 4 refactor: the WorldData god-object is replaced with explicit
 // ChunkRegistry + DynamicStructureRegistry + tick parameters.
-// Namespace: science_and_theology::mobile_structure -> snt::game.
 
 #include "ship_structure.h"
 
