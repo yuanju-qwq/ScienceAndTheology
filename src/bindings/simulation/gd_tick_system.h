@@ -39,18 +39,6 @@ public:
     // Attach a GDWorldData (which owns the C++ WorldData).
     void set_world_data(godot::Resource* gd_world);
 
-    // Register the tree growth simulation subsystem.
-    // Must be called after set_world_data(). Handles tree growth
-    // from sapling → young → mature based on tick timing and conditions.
-    void register_tree_growth_system();
-
-    // Register the crop growth simulation subsystem.
-    // Must be called after set_world_data(). Handles crop growth
-    // from seed → sprout → growing → mature based on tick timing,
-    // farmland moisture/fertility, season, and rotation history.
-    // Runs at priority 9 (after TreeGrowth at 8).
-    void register_crop_growth_system();
-
     // Register the season simulation subsystem.
     // Must be called after set_world_data(). Computes current season
     // from tick counter and exposes it to other systems.
@@ -71,8 +59,7 @@ public:
     // Register the ecosystem simulation subsystem.
     // Must be called after set_world_data(). Manages population
     // dynamics (vegetation, herbivores, predators) and proxy
-    // creature entities. Runs at priority 7 (after Season, before
-    // TreeGrowth). Should be registered after register_season_system().
+    // creature entities. Should be registered after register_season_system().
     void register_ecosystem_system();
 
     // --- Day/Night query ---

@@ -36,8 +36,7 @@ namespace science_and_theology {
 //
 // Priority: 7 (runs after Season at 6, before TreeGrowth at 8).
 // This ensures the current season is up-to-date when ecosystem
-// equations run, and vegetation_density is available for
-// TreeGrowthSystem to query.
+// equations run, and vegetation_density is available for legacy consumers.
 //
 // Thread safety: main thread only. Not thread-safe.
 

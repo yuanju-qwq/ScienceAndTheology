@@ -844,12 +844,9 @@ func _find_item_inv(item_id: int) -> int:
 
 
 # --- Farming interactions (Tier 1 planting system) ---
-# Three tick strategies are used for different plant types:
-#   - Normal plants: random ticks (not implemented yet)
-#   - Crops / industrial plants: scheduled ticks via CropGrowthSystem (priority 9)
-#   - Special plants: entity ticks (Tier 5, future)
-# Tier 1 only uses the scheduled-tick crop path. Player interactions here
-# cover tilling, planting, fertilizing, and harvesting.
+# Legacy Godot plant interaction and tick notes. Current crop growth runs in
+# GameCropGrowthSystem inside ScienceAndTheologySimulationSession; this script
+# remains a migration reference until typed player farming commands replace it.
 
 # Till a dirt block into farmland using a shovel.
 @warning_ignore("unsafe_call_argument")

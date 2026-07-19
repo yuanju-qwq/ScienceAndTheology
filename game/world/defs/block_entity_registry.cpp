@@ -22,49 +22,6 @@ EntityId BlockEntityRegistry::next_id() {
 
 // --- Registration ---
 
-EntityId BlockEntityRegistry::register_tree_entity(
-    const std::string& dimension_id,
-    int32_t root_x, int32_t root_y, int32_t root_z,
-    const std::string& species_key,
-    TreeGrowthStage growth_stage,
-    int64_t planted_tick,
-    const std::vector<OwnedCell>& owned_cells) {
-    EntityId id = next_id();
-
-    BlockEntityEntry entry;
-    entry.dimension_id = dimension_id;
-    entry.placement.id = id;
-    entry.placement.entity_type = BlockEntityType::TREE;
-    entry.placement.root_x = root_x;
-    entry.placement.root_y = root_y;
-    entry.placement.root_z = root_z;
-    entry.placement.owned_cell_count =
-        static_cast<uint32_t>(owned_cells.size());
-
-    // Encode type-specific data as a simple structured string.
-    // Format: "species_key|growth_stage|planted_tick"
-    entry.placement.type_data_json =
-        species_key + "|" +
-        std::to_string(static_cast<int>(growth_stage)) + "|" +
-        std::to_string(planted_tick);
-
-    entry.tree_state.species_key = species_key;
-    entry.tree_state.growth_stage = growth_stage;
-    entry.tree_state.planted_tick = planted_tick;
-    entry.tree_state.last_growth_tick = planted_tick;
-    entry.tree_state.owned_cells = owned_cells;
-
-    // Index the owned cells for spatial lookup.
-    index_owned_cells(id, owned_cells);
-
-    // Index by chunk.
-    ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
-    chunk_entities_[ck].push_back(id);
-
-    entities_[id] = std::move(entry);
-    return id;
-}
-
 EntityId BlockEntityRegistry::register_creature_entity(
     const std::string& dimension_id,
     int32_t root_x, int32_t root_y, int32_t root_z,
@@ -193,84 +150,6 @@ EntityId BlockEntityRegistry::register_cable_entity(
     return id;
 }
 
-EntityId BlockEntityRegistry::register_farmland_entity(
-    const std::string& dimension_id,
-    int32_t root_x, int32_t root_y, int32_t root_z,
-    float initial_moisture, float initial_fertility,
-    int64_t current_tick) {
-    EntityId id = next_id();
-
-    BlockEntityEntry entry;
-    entry.dimension_id = dimension_id;
-    entry.placement.id = id;
-    entry.placement.entity_type = BlockEntityType::FARMLAND;
-    entry.placement.root_x = root_x;
-    entry.placement.root_y = root_y;
-    entry.placement.root_z = root_z;
-    entry.placement.owned_cell_count = 0;
-
-    // Encode type-specific data: "moisture|fertility|last_crop_key|consecutive"
-    entry.placement.type_data_json =
-        std::to_string(initial_moisture) + "|" +
-        std::to_string(initial_fertility) + "||0";
-
-    entry.farmland_state.moisture = initial_moisture;
-    entry.farmland_state.fertility = initial_fertility;
-    entry.farmland_state.last_crop_key = "";
-    entry.farmland_state.consecutive_same_crop = 0;
-    entry.farmland_state.last_moisture_tick = current_tick;
-
-    // Index by chunk.
-    ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
-    chunk_entities_[ck].push_back(id);
-
-    entities_[id] = std::move(entry);
-    return id;
-}
-
-EntityId BlockEntityRegistry::register_crop_entity(
-    const std::string& dimension_id,
-    int32_t root_x, int32_t root_y, int32_t root_z,
-    const std::string& species_key,
-    CropGrowthStage growth_stage,
-    int64_t planted_tick,
-    const std::vector<OwnedCell>& owned_cells) {
-    EntityId id = next_id();
-
-    BlockEntityEntry entry;
-    entry.dimension_id = dimension_id;
-    entry.placement.id = id;
-    entry.placement.entity_type = BlockEntityType::CROP;
-    entry.placement.root_x = root_x;
-    entry.placement.root_y = root_y;
-    entry.placement.root_z = root_z;
-    entry.placement.owned_cell_count =
-        static_cast<uint32_t>(owned_cells.size());
-
-    // Encode type-specific data: "species_key|growth_stage|planted_tick"
-    entry.placement.type_data_json =
-        species_key + "|" +
-        std::to_string(static_cast<int>(growth_stage)) + "|" +
-        std::to_string(planted_tick);
-
-    entry.crop_state.species_key = species_key;
-    entry.crop_state.growth_stage = growth_stage;
-    entry.crop_state.planted_tick = planted_tick;
-    entry.crop_state.last_growth_tick = planted_tick;
-    entry.crop_state.last_harvest_tick = 0;
-    entry.crop_state.owned_cells = owned_cells;
-
-    // Index the owned cells for spatial lookup.
-    index_owned_cells(id, owned_cells);
-
-    // Index by chunk.
-    ChunkRefKey ck = chunk_for_block(dimension_id, root_x, root_y, root_z);
-    chunk_entities_[ck].push_back(id);
-
-    entities_[id] = std::move(entry);
-    return id;
-}
-
 EntityId BlockEntityRegistry::register_signal_wire_entity(
     const std::string& dimension_id,
     int32_t root_x, int32_t root_y, int32_t root_z,
@@ -361,11 +240,7 @@ void BlockEntityRegistry::remove_entity(EntityId id) {
     BlockEntityEntry& entry = it->second;
 
     // Remove spatial index entries.
-    if (entry.placement.entity_type == BlockEntityType::TREE) {
-        unindex_owned_cells(entry.tree_state.owned_cells);
-    } else if (entry.placement.entity_type == BlockEntityType::CROP) {
-        unindex_owned_cells(entry.crop_state.owned_cells);
-    } else if (entry.placement.entity_type == BlockEntityType::MACHINE) {
+    if (entry.placement.entity_type == BlockEntityType::MACHINE) {
         // Only formed machines have indexed claimed cells.
         unindex_owned_cells(entry.machine_state.claimed_cells);
     } else if (entry.placement.entity_type == BlockEntityType::SIGNAL_WIRE ||
@@ -415,21 +290,6 @@ BlockEntityType BlockEntityRegistry::get_entity_type(EntityId id) const {
     auto it = entities_.find(id);
     if (it == entities_.end()) return BlockEntityType::NONE;
     return it->second.placement.entity_type;
-}
-
-const TreeBlockEntityState* BlockEntityRegistry::get_tree_state(
-    EntityId id) const {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return nullptr;
-    if (it->second.placement.entity_type != BlockEntityType::TREE) return nullptr;
-    return &it->second.tree_state;
-}
-
-TreeBlockEntityState* BlockEntityRegistry::get_tree_state_mut(EntityId id) {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return nullptr;
-    if (it->second.placement.entity_type != BlockEntityType::TREE) return nullptr;
-    return &it->second.tree_state;
 }
 
 const CreatureBlockEntityState* BlockEntityRegistry::get_creature_state(
@@ -494,38 +354,6 @@ CableBlockEntityState* BlockEntityRegistry::get_cable_state_mut(
     if (it == entities_.end()) return nullptr;
     if (it->second.placement.entity_type != BlockEntityType::CABLE) return nullptr;
     return &it->second.cable_state;
-}
-
-const FarmlandBlockEntityState* BlockEntityRegistry::get_farmland_state(
-    EntityId id) const {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return nullptr;
-    if (it->second.placement.entity_type != BlockEntityType::FARMLAND) return nullptr;
-    return &it->second.farmland_state;
-}
-
-FarmlandBlockEntityState* BlockEntityRegistry::get_farmland_state_mut(
-    EntityId id) {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return nullptr;
-    if (it->second.placement.entity_type != BlockEntityType::FARMLAND) return nullptr;
-    return &it->second.farmland_state;
-}
-
-const CropBlockEntityState* BlockEntityRegistry::get_crop_state(
-    EntityId id) const {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return nullptr;
-    if (it->second.placement.entity_type != BlockEntityType::CROP) return nullptr;
-    return &it->second.crop_state;
-}
-
-CropBlockEntityState* BlockEntityRegistry::get_crop_state_mut(
-    EntityId id) {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return nullptr;
-    if (it->second.placement.entity_type != BlockEntityType::CROP) return nullptr;
-    return &it->second.crop_state;
 }
 
 const SignalWireBlockEntityState* BlockEntityRegistry::get_signal_wire_state(
@@ -594,24 +422,6 @@ std::vector<EntityId> BlockEntityRegistry::entities_in_chunk(
 
 // --- Owned cell management ---
 
-void BlockEntityRegistry::update_tree_owned_cells(
-    EntityId id, const std::vector<OwnedCell>& new_cells) {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return;
-    if (it->second.placement.entity_type != BlockEntityType::TREE) return;
-
-    // Remove old spatial index entries.
-    unindex_owned_cells(it->second.tree_state.owned_cells);
-
-    // Update owned cells.
-    it->second.tree_state.owned_cells = new_cells;
-    it->second.placement.owned_cell_count =
-        static_cast<uint32_t>(new_cells.size());
-
-    // Add new spatial index entries.
-    index_owned_cells(id, new_cells);
-}
-
 void BlockEntityRegistry::set_machine_formation(
     EntityId id,
     bool formed,
@@ -635,19 +445,6 @@ void BlockEntityRegistry::set_machine_formation(
     // Update owned_cell_count for serialization.
     it->second.placement.owned_cell_count =
         static_cast<uint32_t>(claimed_cells.size());
-}
-
-void BlockEntityRegistry::update_crop_owned_cells(
-    EntityId id, const std::vector<OwnedCell>& new_cells) {
-    auto it = entities_.find(id);
-    if (it == entities_.end()) return;
-    if (it->second.placement.entity_type != BlockEntityType::CROP) return;
-
-    unindex_owned_cells(it->second.crop_state.owned_cells);
-    it->second.crop_state.owned_cells = new_cells;
-    it->second.placement.owned_cell_count =
-        static_cast<uint32_t>(new_cells.size());
-    index_owned_cells(id, new_cells);
 }
 
 void BlockEntityRegistry::update_pipe_connections(EntityId id, uint8_t connections) {
@@ -687,15 +484,6 @@ void BlockEntityRegistry::update_signal_wire_source(EntityId id, bool is_source)
 
 // --- Iteration ---
 
-void BlockEntityRegistry::for_each_tree(
-    std::function<void(EntityId, const TreeBlockEntityState&)> fn) const {
-    for (const auto& [id, entry] : entities_) {
-        if (entry.placement.entity_type == BlockEntityType::TREE) {
-            fn(id, entry.tree_state);
-        }
-    }
-}
-
 void BlockEntityRegistry::for_each_machine(
     std::function<void(EntityId, const MachineBlockEntityState&)> fn) const {
     for (const auto& [id, entry] : entities_) {
@@ -719,24 +507,6 @@ void BlockEntityRegistry::for_each_cable(
     for (const auto& [id, entry] : entities_) {
         if (entry.placement.entity_type == BlockEntityType::CABLE) {
             fn(id, entry.cable_state);
-        }
-    }
-}
-
-void BlockEntityRegistry::for_each_crop(
-    std::function<void(EntityId, const CropBlockEntityState&)> fn) const {
-    for (const auto& [id, entry] : entities_) {
-        if (entry.placement.entity_type == BlockEntityType::CROP) {
-            fn(id, entry.crop_state);
-        }
-    }
-}
-
-void BlockEntityRegistry::for_each_farmland(
-    std::function<void(EntityId, const FarmlandBlockEntityState&)> fn) const {
-    for (const auto& [id, entry] : entities_) {
-        if (entry.placement.entity_type == BlockEntityType::FARMLAND) {
-            fn(id, entry.farmland_state);
         }
     }
 }

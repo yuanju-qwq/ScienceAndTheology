@@ -33,7 +33,6 @@ public:
 
         // Type-specific runtime state.
         // Only one variant is active at a time, determined by entity_type.
-        TreeBlockEntityState tree_state;
         CreatureBlockEntityState creature_state;
         MachineBlockEntityState machine_state;
         PipeBlockEntityState pipe_state;
@@ -59,14 +58,6 @@ public:
     // --- Registration ---
 
     // Register a tree block entity. Returns its assigned EntityId.
-    EntityId register_tree_entity(
-        const std::string& dimension_id,
-        int32_t root_x, int32_t root_y, int32_t root_z,
-        const std::string& species_key,
-        TreeGrowthStage growth_stage,
-        int64_t planted_tick,
-        const std::vector<OwnedCell>& owned_cells);
-
     // Register a creature block entity. Returns its assigned EntityId.
     // species_id: references CreatureSpeciesRegistry definition.
     // role: cached behavioral role (HERBIVORE/PREDATOR), set from species def.
@@ -167,9 +158,6 @@ public:
     BlockEntityType get_entity_type(EntityId id) const;
 
     // Returns the tree state for a given entity, or nullptr if not a tree.
-    const TreeBlockEntityState* get_tree_state(EntityId id) const;
-    TreeBlockEntityState* get_tree_state_mut(EntityId id);
-
     // Returns the creature state for a given entity, or nullptr if not a creature.
     const CreatureBlockEntityState* get_creature_state(EntityId id) const;
     CreatureBlockEntityState* get_creature_state_mut(EntityId id);
@@ -244,9 +232,6 @@ public:
 
     // Update the owned cells for a tree entity.
     // Removes old spatial index entries and adds new ones.
-    void update_tree_owned_cells(
-        EntityId id, const std::vector<OwnedCell>& new_cells);
-
     // Update the formation state of a machine entity.
     // Replaces claimed_cells (re-indexing the spatial index) and
     // hatch_entities, and sets the formed flag. Called by the
@@ -277,10 +262,6 @@ public:
     void update_signal_wire_source(EntityId id, bool is_source);
 
     // --- Iteration ---
-
-    // Iterate over all tree entities. Callback receives (EntityId, TreeBlockEntityState).
-    void for_each_tree(
-        std::function<void(EntityId, const TreeBlockEntityState&)> fn) const;
 
     // Iterate over all machine entities.
     void for_each_machine(

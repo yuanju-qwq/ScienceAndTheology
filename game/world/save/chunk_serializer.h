@@ -17,9 +17,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v13 adds the authenticated owner of an
-    // in-flight manual machine job, preserving task credit across restarts.
-    static constexpr uint8_t kCurrentVersion = 13;
+    // Current binary format version. v15 adds typed crop and farmland state
+    // alongside the existing chunk-anchored tree growth records.
+    static constexpr uint8_t kCurrentVersion = 15;
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;
@@ -90,6 +90,33 @@ private:
     static bool read_block_entity(const std::vector<uint8_t>& data,
                                   size_t& offset,
                                   BlockEntityPlacement& entity);
+
+    // --- Tree-growth sidecar serialization ---
+
+    static void write_tree_growth_record(
+        std::vector<uint8_t>& buf,
+        const TreeGrowthPersistenceRecord& record);
+    static bool read_tree_growth_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        TreeGrowthPersistenceRecord& record);
+
+    // --- Crop and farmland sidecar serialization ---
+
+    static void write_farmland_record(
+        std::vector<uint8_t>& buf,
+        const FarmlandPersistenceRecord& record);
+    static bool read_farmland_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        FarmlandPersistenceRecord& record);
+    static void write_crop_growth_record(
+        std::vector<uint8_t>& buf,
+        const CropGrowthPersistenceRecord& record);
+    static bool read_crop_growth_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        CropGrowthPersistenceRecord& record);
 
     // --- Player bed/grave sidecar serialization ---
 

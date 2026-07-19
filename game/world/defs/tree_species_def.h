@@ -20,7 +20,7 @@ namespace snt::game {
 //   - How it grows (growth ticks per stage, whether it's evergreen)
 //
 // Species are registered in GDScript (BuiltinTerrainContent.gd) and
-// consumed by the C++ terrain generator and TreeGrowthSystem.
+// consumed by the C++ terrain generator and GameTreeGrowthSystem.
 
 // Canopy shape determines how pass_surface_objects places leaf blocks.
 enum class CanopyShape : uint8_t {

@@ -5,8 +5,6 @@
 #include <godot_cpp/classes/resource.hpp>
 
 #include "core/simulation/event_types.hpp"
-#include "core/simulation/tree_growth_system.hpp"
-#include "core/simulation/crop_growth_system.hpp"
 #include "core/simulation/season_system.hpp"
 #include "core/simulation/region_system.hpp"
 #include "core/simulation/region_graph.hpp"
@@ -40,18 +38,6 @@ void GDTickSystem::set_world_data(godot::Resource* gd_world) {
         tick_system_ = std::make_unique<TickSystem>(world_ptr);
         world_set = true;
         subscribe_to_event_bus();
-    }
-}
-
-void GDTickSystem::register_tree_growth_system() {
-    if (tick_system_) {
-        tick_system_->register_subsystem(std::make_unique<TreeGrowthSystem>());
-    }
-}
-
-void GDTickSystem::register_crop_growth_system() {
-    if (tick_system_) {
-        tick_system_->register_subsystem(std::make_unique<CropGrowthSystem>());
     }
 }
 
@@ -826,10 +812,6 @@ godot::Dictionary GDTickSystem::delta_to_dict(const StateDelta& delta) const {
 void GDTickSystem::_bind_methods() {
     godot::ClassDB::bind_method(godot::D_METHOD("set_world_data", "gd_world"),
         &GDTickSystem::set_world_data);
-    godot::ClassDB::bind_method(godot::D_METHOD("register_tree_growth_system"),
-        &GDTickSystem::register_tree_growth_system);
-    godot::ClassDB::bind_method(godot::D_METHOD("register_crop_growth_system"),
-        &GDTickSystem::register_crop_growth_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_season_system"),
         &GDTickSystem::register_season_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_day_night_system"),

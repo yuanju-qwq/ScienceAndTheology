@@ -32,35 +32,22 @@ namespace science_and_theology {
 //   - BlockEntityPlacement is stored in ChunkData for save/load.
 //   - Full runtime state is reconstructed from placement data on load.
 
-// Growth stage for tree-type block entities.
-enum class TreeGrowthStage : uint8_t {
-    SAPLING     = 0,
-    YOUNG       = 1,
-    MATURE      = 2,
-    COUNT       = 3,
-};
-
-constexpr const char* kTreeGrowthStageNames[] = {
-    "Sapling", "Young", "Mature",
-};
-
 // Type discriminator for block entity variants.
 enum class BlockEntityType : uint8_t {
     NONE        = 0,
-    TREE        = 1,
-    MACHINE     = 2,
-    CREATURE    = 3,
-    PIPE        = 4,
-    CABLE       = 5,
-    FARMLAND    = 6,   // Tilled farmland (holds moisture/fertility)
-    CROP        = 7,   // Crop planted on farmland
-    SIGNAL_WIRE = 8,   // Signal wire segment (per-block signal network)
-    CUSTOM      = 9,   // Mod-registered block entity type
-    COUNT       = 10,
+    MACHINE     = 1,
+    CREATURE    = 2,
+    PIPE        = 3,
+    CABLE       = 4,
+    FARMLAND    = 5,   // Tilled farmland (holds moisture/fertility)
+    CROP        = 6,   // Crop planted on farmland
+    SIGNAL_WIRE = 7,   // Signal wire segment (per-block signal network)
+    CUSTOM      = 8,   // Mod-registered block entity type
+    COUNT       = 9,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
-    "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
+    "None", "Machine", "Creature", "Pipe", "Cable",
     "Farmland", "Crop", "SignalWire", "Custom",
 };
 
@@ -99,7 +86,6 @@ struct BlockEntityPlacement {
     int32_t root_z = 0;
 
     // Type-specific data encoded as key-value pairs.
-    // TREE:     { "species_key": str, "growth_stage": uint8, "planted_tick": int64 }
     // MACHINE:  { "machine_type": str, "facing": uint8, ... }
     // PIPE:     { "pipe_type": uint8, "connections": uint8 }
     // CABLE:    { "cable_tier": uint8, "connections": uint8 }
@@ -108,16 +94,6 @@ struct BlockEntityPlacement {
 
     // Number of owned cells (for serialization bounds checking).
     uint32_t owned_cell_count = 0;
-};
-
-// Full runtime state for a tree block entity.
-// Reconstructed from BlockEntityPlacement on chunk load.
-struct TreeBlockEntityState {
-    std::string species_key;
-    TreeGrowthStage growth_stage = TreeGrowthStage::SAPLING;
-    int64_t planted_tick = 0;
-    int64_t last_growth_tick = 0;
-    std::vector<OwnedCell> owned_cells;
 };
 
 // ============================================================

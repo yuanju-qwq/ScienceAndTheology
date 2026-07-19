@@ -2561,10 +2561,10 @@ static func _register_runtime_material_ids(registry: GDTerrainContentRegistry) -
 	})
 
 
-# Register crop species for the Tier 1 planting system.
-# Each species defines biome/season constraints, growth ticks, item production,
-# and 4 stage material keys. The C++ CropGrowthSystem consumes these definitions
-# to advance crop growth stages via scheduled ticks (priority 9).
+# Legacy Godot registration for the Tier 1 planting system.
+# Current C++ world content is held in WorldGenConfigSnapshot and advanced by
+# GameCropGrowthSystem. This path remains a migration reference for player
+# interaction and content mapping that have not yet moved to typed commands.
 static func _register_crop_species(registry: GDTerrainContentRegistry) -> void:
 	# Wheat: temperate grain, spring plant → summer grow → autumn harvest.
 	registry.register_crop_species({

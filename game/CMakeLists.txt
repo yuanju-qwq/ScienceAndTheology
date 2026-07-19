@@ -136,11 +136,13 @@ add_library(snt_game_simulation STATIC
     quest/quest_registry.cpp
     simulation/day_night_cycle.cpp
     simulation/block_physics_system.cpp
+    simulation/crop_growth_system.cpp
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
     simulation/science_and_theology_simulation_session.cpp
     simulation/season_cycle.cpp
+    simulation/tree_growth_system.cpp
 )
 target_include_directories(snt_game_simulation PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -314,6 +316,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_block_physics_system.cpp
         tests/test_day_night_cycle.cpp
         tests/test_season_cycle.cpp
+        tests/test_crop_growth_system.cpp
+        tests/test_tree_growth_system.cpp
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
         tests/test_client_block_interaction.cpp

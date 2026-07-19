@@ -39,13 +39,10 @@ public:
 
         // Type-specific runtime state.
         // Only one variant is active at a time, determined by entity_type.
-        TreeBlockEntityState tree_state;
         CreatureBlockEntityState creature_state;
         MachineBlockEntityState machine_state;
         PipeBlockEntityState pipe_state;
         CableBlockEntityState cable_state;
-        FarmlandBlockEntityState farmland_state;
-        CropBlockEntityState crop_state;
         SignalWireBlockEntityState signal_wire_state;
         CustomBlockEntityState custom_state;
     };
@@ -63,14 +60,6 @@ public:
     EntityId next_id();
 
     // --- Registration ---
-
-    EntityId register_tree_entity(
-        const std::string& dimension_id,
-        int32_t root_x, int32_t root_y, int32_t root_z,
-        const std::string& species_key,
-        TreeGrowthStage growth_stage,
-        int64_t planted_tick,
-        const std::vector<OwnedCell>& owned_cells);
 
     EntityId register_creature_entity(
         const std::string& dimension_id,
@@ -97,20 +86,6 @@ public:
         VoltageTier cable_tier,
         uint8_t connections);
 
-    EntityId register_farmland_entity(
-        const std::string& dimension_id,
-        int32_t root_x, int32_t root_y, int32_t root_z,
-        float initial_moisture, float initial_fertility,
-        int64_t current_tick);
-
-    EntityId register_crop_entity(
-        const std::string& dimension_id,
-        int32_t root_x, int32_t root_y, int32_t root_z,
-        const std::string& species_key,
-        CropGrowthStage growth_stage,
-        int64_t planted_tick,
-        const std::vector<OwnedCell>& owned_cells);
-
     EntityId register_signal_wire_entity(
         const std::string& dimension_id,
         int32_t root_x, int32_t root_y, int32_t root_z,
@@ -136,9 +111,6 @@ public:
 
     BlockEntityType get_entity_type(EntityId id) const;
 
-    const TreeBlockEntityState* get_tree_state(EntityId id) const;
-    TreeBlockEntityState* get_tree_state_mut(EntityId id);
-
     const CreatureBlockEntityState* get_creature_state(EntityId id) const;
     CreatureBlockEntityState* get_creature_state_mut(EntityId id);
 
@@ -150,12 +122,6 @@ public:
 
     const CableBlockEntityState* get_cable_state(EntityId id) const;
     CableBlockEntityState* get_cable_state_mut(EntityId id);
-
-    const FarmlandBlockEntityState* get_farmland_state(EntityId id) const;
-    FarmlandBlockEntityState* get_farmland_state_mut(EntityId id);
-
-    const CropBlockEntityState* get_crop_state(EntityId id) const;
-    CropBlockEntityState* get_crop_state_mut(EntityId id);
 
     const SignalWireBlockEntityState* get_signal_wire_state(EntityId id) const;
     SignalWireBlockEntityState* get_signal_wire_state_mut(EntityId id);
@@ -195,17 +161,11 @@ public:
 
     // --- Owned cell management ---
 
-    void update_tree_owned_cells(
-        EntityId id, const std::vector<OwnedCell>& new_cells);
-
     void set_machine_formation(
         EntityId id,
         bool formed,
         const std::vector<OwnedCell>& claimed_cells,
         const std::vector<EntityId>& hatch_entities);
-
-    void update_crop_owned_cells(
-        EntityId id, const std::vector<OwnedCell>& new_cells);
 
     void update_pipe_connections(EntityId id, uint8_t connections);
     void update_cable_connections(EntityId id, uint8_t connections);
@@ -215,18 +175,12 @@ public:
 
     // --- Iteration ---
 
-    void for_each_tree(
-        std::function<void(EntityId, const TreeBlockEntityState&)> fn) const;
     void for_each_machine(
         std::function<void(EntityId, const MachineBlockEntityState&)> fn) const;
     void for_each_pipe(
         std::function<void(EntityId, const PipeBlockEntityState&)> fn) const;
     void for_each_cable(
         std::function<void(EntityId, const CableBlockEntityState&)> fn) const;
-    void for_each_crop(
-        std::function<void(EntityId, const CropBlockEntityState&)> fn) const;
-    void for_each_farmland(
-        std::function<void(EntityId, const FarmlandBlockEntityState&)> fn) const;
     void for_each_signal_wire(
         std::function<void(EntityId, const SignalWireBlockEntityState&)> fn) const;
     void for_each_custom(

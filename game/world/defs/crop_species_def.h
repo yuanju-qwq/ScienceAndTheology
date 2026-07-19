@@ -21,9 +21,9 @@ namespace snt::game {
 //   - What it produces (seed, crop, byproduct)
 //   - How it looks (4 stage terrain materials)
 //
-// Species are registered in GDScript (BuiltinTerrainContent.gd) via
-// GDTerrainContentRegistry.register_crop_species() and consumed by
-// the C++ CropGrowthSystem and terrain generator.
+// The current game runtime stores registered species in WorldGenConfigSnapshot.
+// GameCropGrowthSystem and the terrain generator consume that typed content.
+// The GDScript registration path remains only as a legacy migration reference.
 
 // Crop growth stage. Herbaceous crops have 4 stages.
 enum class CropGrowthStage : uint8_t {

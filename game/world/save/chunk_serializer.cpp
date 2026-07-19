@@ -1,5 +1,6 @@
 #include "chunk_serializer.h"
 
+#include <cmath>
 #include <cstring>
 
 #include "game/world/defs/creature_species.h"
@@ -14,6 +15,14 @@ constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
 constexpr uint32_t kMaxMachineJobOwnerAccountBytes = 256;
+constexpr uint32_t kMaxTreeGrowthRecords = 4096;
+constexpr uint32_t kMaxTreeGrowthOwnedCells = 4096;
+constexpr uint32_t kMaxTreeGrowthSpeciesKeyBytes = 256;
+constexpr uint32_t kMaxFarmlandRecords = 4096;
+constexpr uint32_t kMaxCropGrowthRecords = 4096;
+constexpr uint32_t kMaxCropGrowthOwnedCells = 64;
+constexpr uint32_t kMaxCropGrowthSpeciesKeyBytes = 256;
+constexpr uint32_t kMaxFarmlandCropKeyBytes = 256;
 constexpr uint32_t kMaxPlayerBedRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveItemStacks = 128;
@@ -90,6 +99,25 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     write_uint32(buf, static_cast<uint32_t>(chunk.block_entities.size()));
     for (const auto& be : chunk.block_entities) {
         write_block_entity(buf, be);
+    }
+
+    // Typed tree-growth state is kept separate from generic block anchors so
+    // terrain systems never need to parse an opaque JSON/string payload.
+    write_uint32(buf, static_cast<uint32_t>(chunk.tree_growth_records.size()));
+    for (const TreeGrowthPersistenceRecord& record : chunk.tree_growth_records) {
+        write_tree_growth_record(buf, record);
+    }
+
+    // Crop runtime values are separate from their generic CROP/FARMLAND
+    // anchors for the same reason as tree growth: no gameplay code parses a
+    // legacy opaque block-entity payload.
+    write_uint32(buf, static_cast<uint32_t>(chunk.farmland_records.size()));
+    for (const FarmlandPersistenceRecord& record : chunk.farmland_records) {
+        write_farmland_record(buf, record);
+    }
+    write_uint32(buf, static_cast<uint32_t>(chunk.crop_growth_records.size()));
+    for (const CropGrowthPersistenceRecord& record : chunk.crop_growth_records) {
+        write_crop_growth_record(buf, record);
     }
 
     // Player bed anchors and grave inventories are game-owned world values.
@@ -244,6 +272,45 @@ bool GameChunkSerializer::deserialize(
         BlockEntityPlacement be;
         if (!read_block_entity(data, offset, be)) return false;
         chunk.block_entities.push_back(std::move(be));
+    }
+
+    uint32_t tree_growth_record_count;
+    if (!read_uint32(data, offset, tree_growth_record_count) ||
+        tree_growth_record_count > kMaxTreeGrowthRecords) {
+        return false;
+    }
+    chunk.tree_growth_records.clear();
+    chunk.tree_growth_records.reserve(tree_growth_record_count);
+    for (uint32_t i = 0; i < tree_growth_record_count; ++i) {
+        TreeGrowthPersistenceRecord record;
+        if (!read_tree_growth_record(data, offset, record)) return false;
+        chunk.tree_growth_records.push_back(std::move(record));
+    }
+
+    uint32_t farmland_record_count;
+    if (!read_uint32(data, offset, farmland_record_count) ||
+        farmland_record_count > kMaxFarmlandRecords) {
+        return false;
+    }
+    chunk.farmland_records.clear();
+    chunk.farmland_records.reserve(farmland_record_count);
+    for (uint32_t i = 0; i < farmland_record_count; ++i) {
+        FarmlandPersistenceRecord record;
+        if (!read_farmland_record(data, offset, record)) return false;
+        chunk.farmland_records.push_back(std::move(record));
+    }
+
+    uint32_t crop_growth_record_count;
+    if (!read_uint32(data, offset, crop_growth_record_count) ||
+        crop_growth_record_count > kMaxCropGrowthRecords) {
+        return false;
+    }
+    chunk.crop_growth_records.clear();
+    chunk.crop_growth_records.reserve(crop_growth_record_count);
+    for (uint32_t i = 0; i < crop_growth_record_count; ++i) {
+        CropGrowthPersistenceRecord record;
+        if (!read_crop_growth_record(data, offset, record)) return false;
+        chunk.crop_growth_records.push_back(std::move(record));
     }
 
     // Player bed anchors and grave inventories.
@@ -584,6 +651,171 @@ bool GameChunkSerializer::read_block_entity(
 
     if (!read_uint32(data, offset, entity.owned_cell_count)) return false;
 
+    return true;
+}
+
+// --- Tree-growth sidecar helpers ---
+
+void GameChunkSerializer::write_tree_growth_record(
+    std::vector<uint8_t>& buf,
+    const TreeGrowthPersistenceRecord& record) {
+    write_uint64(buf, record.anchor_entity_id.id);
+    write_string(buf, record.species_key);
+    write_uint8(buf, static_cast<uint8_t>(record.growth_stage));
+    write_uint64(buf, record.planted_tick);
+    write_uint64(buf, record.last_growth_tick);
+    write_uint32(buf, static_cast<uint32_t>(record.owned_cells.size()));
+    for (const TreeGrowthOwnedCell& cell : record.owned_cells) {
+        write_int32(buf, cell.block_x);
+        write_int32(buf, cell.block_y);
+        write_int32(buf, cell.block_z);
+        write_uint32(buf, static_cast<uint32_t>(cell.material));
+    }
+}
+
+bool GameChunkSerializer::read_tree_growth_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    TreeGrowthPersistenceRecord& record) {
+    uint64_t anchor_id = 0;
+    uint8_t stage = 0;
+    if (!read_uint64(data, offset, anchor_id) || anchor_id == 0 ||
+        !read_string(data, offset, record.species_key) ||
+        record.species_key.empty() ||
+        record.species_key.size() > kMaxTreeGrowthSpeciesKeyBytes ||
+        record.species_key.find('\0') != std::string::npos ||
+        !read_uint8(data, offset, stage) ||
+        stage >= static_cast<uint8_t>(TreeGrowthStage::COUNT) ||
+        !read_uint64(data, offset, record.planted_tick) ||
+        !read_uint64(data, offset, record.last_growth_tick)) {
+        return false;
+    }
+    record.anchor_entity_id = EntityId{anchor_id};
+    record.growth_stage = static_cast<TreeGrowthStage>(stage);
+
+    uint32_t owned_cell_count = 0;
+    if (!read_uint32(data, offset, owned_cell_count) ||
+        owned_cell_count > kMaxTreeGrowthOwnedCells) {
+        return false;
+    }
+    record.owned_cells.clear();
+    record.owned_cells.reserve(owned_cell_count);
+    for (uint32_t index = 0; index < owned_cell_count; ++index) {
+        TreeGrowthOwnedCell cell;
+        uint32_t material = 0;
+        if (!read_int32(data, offset, cell.block_x) ||
+            !read_int32(data, offset, cell.block_y) ||
+            !read_int32(data, offset, cell.block_z) ||
+            !read_uint32(data, offset, material)) {
+            return false;
+        }
+        cell.material = static_cast<TerrainMaterialId>(material);
+        record.owned_cells.push_back(cell);
+    }
+    return true;
+}
+
+// --- Crop and farmland sidecar helpers ---
+
+void GameChunkSerializer::write_farmland_record(
+    std::vector<uint8_t>& buf,
+    const FarmlandPersistenceRecord& record) {
+    write_uint64(buf, record.anchor_entity_id.id);
+    write_float(buf, record.moisture);
+    write_float(buf, record.fertility);
+    write_string(buf, record.last_crop_key);
+    write_uint32(buf, record.consecutive_same_crop);
+    write_uint64(buf, record.last_moisture_tick);
+}
+
+bool GameChunkSerializer::read_farmland_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    FarmlandPersistenceRecord& record) {
+    uint64_t anchor_id = 0;
+    if (!read_uint64(data, offset, anchor_id) || anchor_id == 0 ||
+        !read_float(data, offset, record.moisture) ||
+        !read_float(data, offset, record.fertility) ||
+        !std::isfinite(record.moisture) || !std::isfinite(record.fertility) ||
+        record.moisture < 0.0f || record.moisture > 1.0f ||
+        record.fertility < 0.0f || record.fertility > 1.0f ||
+        !read_string(data, offset, record.last_crop_key) ||
+        record.last_crop_key.size() > kMaxFarmlandCropKeyBytes ||
+        record.last_crop_key.find('\0') != std::string::npos ||
+        !read_uint32(data, offset, record.consecutive_same_crop) ||
+        !read_uint64(data, offset, record.last_moisture_tick)) {
+        return false;
+    }
+    record.anchor_entity_id = EntityId{anchor_id};
+    return true;
+}
+
+void GameChunkSerializer::write_crop_growth_record(
+    std::vector<uint8_t>& buf,
+    const CropGrowthPersistenceRecord& record) {
+    write_uint64(buf, record.anchor_entity_id.id);
+    write_uint64(buf, record.farmland_anchor_entity_id.id);
+    write_string(buf, record.species_key);
+    write_uint8(buf, static_cast<uint8_t>(record.growth_stage));
+    write_uint64(buf, record.planted_tick);
+    write_uint64(buf, record.last_growth_tick);
+    write_uint64(buf, record.last_harvest_tick);
+    write_uint8(buf, record.is_regrowing ? 1 : 0);
+    write_uint32(buf, static_cast<uint32_t>(record.owned_cells.size()));
+    for (const CropGrowthOwnedCell& cell : record.owned_cells) {
+        write_int32(buf, cell.block_x);
+        write_int32(buf, cell.block_y);
+        write_int32(buf, cell.block_z);
+        write_uint32(buf, static_cast<uint32_t>(cell.material));
+    }
+}
+
+bool GameChunkSerializer::read_crop_growth_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    CropGrowthPersistenceRecord& record) {
+    uint64_t anchor_id = 0;
+    uint64_t farmland_anchor_id = 0;
+    uint8_t stage = 0;
+    uint8_t is_regrowing = 0;
+    if (!read_uint64(data, offset, anchor_id) || anchor_id == 0 ||
+        !read_uint64(data, offset, farmland_anchor_id) ||
+        !read_string(data, offset, record.species_key) ||
+        record.species_key.empty() ||
+        record.species_key.size() > kMaxCropGrowthSpeciesKeyBytes ||
+        record.species_key.find('\0') != std::string::npos ||
+        !read_uint8(data, offset, stage) ||
+        stage >= static_cast<uint8_t>(CropGrowthStage::COUNT) ||
+        !read_uint64(data, offset, record.planted_tick) ||
+        !read_uint64(data, offset, record.last_growth_tick) ||
+        !read_uint64(data, offset, record.last_harvest_tick) ||
+        !read_uint8(data, offset, is_regrowing) || is_regrowing > 1) {
+        return false;
+    }
+    record.anchor_entity_id = EntityId{anchor_id};
+    record.farmland_anchor_entity_id = EntityId{farmland_anchor_id};
+    record.growth_stage = static_cast<CropGrowthStage>(stage);
+    record.is_regrowing = is_regrowing != 0;
+
+    uint32_t owned_cell_count = 0;
+    if (!read_uint32(data, offset, owned_cell_count) ||
+        owned_cell_count == 0 || owned_cell_count > kMaxCropGrowthOwnedCells) {
+        return false;
+    }
+    record.owned_cells.clear();
+    record.owned_cells.reserve(owned_cell_count);
+    for (uint32_t index = 0; index < owned_cell_count; ++index) {
+        CropGrowthOwnedCell cell;
+        uint32_t material = 0;
+        if (!read_int32(data, offset, cell.block_x) ||
+            !read_int32(data, offset, cell.block_y) ||
+            !read_int32(data, offset, cell.block_z) ||
+            !read_uint32(data, offset, material)) {
+            return false;
+        }
+        cell.material = static_cast<TerrainMaterialId>(material);
+        record.owned_cells.push_back(cell);
+    }
     return true;
 }
 

@@ -14,9 +14,11 @@
 #include "game/client/game_content_registry.h"
 #include "game/client/game_session_config.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/simulation/crop_growth_events.h"
 #include "game/simulation/day_night_cycle.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/simulation/season_cycle.h"
+#include "game/simulation/tree_growth_events.h"
 #include "game/quest/quest_registry.h"
 #include "game/world/game_chunk.h"
 
@@ -40,6 +42,8 @@ namespace snt::game {
 
 class GameWorldPersistenceLifecycle;
 class GameBlockPhysicsSystem;
+class GameCropGrowthSystem;
+class GameTreeGrowthSystem;
 class IMachineTickEventSink;
 class MachineTickSystem;
 struct WorldGenConfigSnapshot;
@@ -83,6 +87,12 @@ public:
     // Host composition binds its terrain-delta consumer before world creation.
     // The simulation retains no server or transport dependency.
     void set_block_physics_mutation_sink(IBlockPhysicsMutationSink* mutation_sink) noexcept;
+    // Host composition binds the consumer for authoritative tree growth after
+    // world creation. Tree simulation remains transport-neutral.
+    void set_tree_growth_mutation_sink(ITreeGrowthMutationSink* mutation_sink) noexcept;
+    // Crop and farmland changes use the same narrow host composition boundary
+    // as tree growth, while keeping crop simulation transport-neutral.
+    void set_crop_growth_mutation_sink(ICropGrowthMutationSink* mutation_sink) noexcept;
     void schedule_block_physics_after_terrain_mutation(
         std::string_view dimension_id, int32_t block_x, int32_t block_y,
         int32_t block_z, uint64_t source_tick) override;
@@ -103,6 +113,10 @@ private:
     std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;
     std::unique_ptr<GameBlockPhysicsSystem> block_physics_system_;
     IBlockPhysicsMutationSink* block_physics_mutation_sink_ = nullptr;
+    std::unique_ptr<GameTreeGrowthSystem> tree_growth_system_;
+    ITreeGrowthMutationSink* tree_growth_mutation_sink_ = nullptr;
+    std::unique_ptr<GameCropGrowthSystem> crop_growth_system_;
+    ICropGrowthMutationSink* crop_growth_mutation_sink_ = nullptr;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
     std::shared_ptr<MachineTickSystem> machine_tick_system_;

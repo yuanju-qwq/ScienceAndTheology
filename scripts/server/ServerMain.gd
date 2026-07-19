@@ -90,8 +90,6 @@ func _setup_systems() -> void:
 	_tick_system.set_world_data(_world_data)
 	_tick_system.register_day_night_system()
 	_tick_system.register_region_system()
-	_tick_system.register_tree_growth_system()
-	_tick_system.register_crop_growth_system()
 	_tick_system.register_season_system()
 	_tick_system.register_ecosystem_system()
 

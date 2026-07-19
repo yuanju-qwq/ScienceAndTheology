@@ -53,7 +53,7 @@ GameChunk TerrainGenerator::generate_chunk(
     pass_biome(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_ore_vein_group(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk.terrain);
     pass_surface_objects(normalized_dimension, chunk_x, chunk_y, chunk_z,
-                         chunk.terrain, chunk.block_entities);
+                         chunk.terrain, chunk.block_entities, chunk.tree_growth_records);
     pass_gameplay(normalized_dimension, chunk_x, chunk_y, chunk_z, chunk);
 
     return chunk;
@@ -851,7 +851,8 @@ void place_canopy_column(
 void TerrainGenerator::pass_surface_objects(
     const std::string& dimension_id, int chunk_x, int chunk_y, int chunk_z,
     TerrainData& terrain,
-    std::vector<BlockEntityPlacement>& block_entities) {
+    std::vector<BlockEntityPlacement>& block_entities,
+    std::vector<TreeGrowthPersistenceRecord>& tree_growth_records) {
     // Collect tree species that can appear in this dimension.
     std::vector<const TreeSpeciesDef*> species_list;
     for (const auto& species : config_->tree_species) {
@@ -1065,12 +1066,36 @@ void TerrainGenerator::pass_surface_objects(
             be.root_x = global_x;
             be.root_y = global_y + 1;
             be.root_z = global_z;
-            be.type_data_json =
-                selected->species_key + "|" +
-                std::to_string(static_cast<int>(TreeGrowthStage::MATURE)) + "|" +
-                std::to_string(static_cast<int64_t>(0));
-            be.owned_cell_count = static_cast<uint32_t>(owned_cells.size());
+            TreeGrowthPersistenceRecord growth_record;
+            growth_record.anchor_entity_id = be.id;
+            growth_record.species_key = selected->species_key;
+            growth_record.growth_stage = TreeGrowthStage::MATURE;
+            const auto append_owned_cell = [&growth_record, &terrain, chunk_x, chunk_y, chunk_z](
+                                               const OwnedCell& cell) {
+                const auto duplicate = std::find_if(
+                    growth_record.owned_cells.begin(), growth_record.owned_cells.end(),
+                    [&cell](const TreeGrowthOwnedCell& owned) {
+                        return owned.block_x == cell.block_x &&
+                               owned.block_y == cell.block_y &&
+                               owned.block_z == cell.block_z;
+                    });
+                if (duplicate != growth_record.owned_cells.end()) return;
+                const int local_x = cell.block_x - global_coord(chunk_x, 0);
+                const int local_y = cell.block_y - global_coord(chunk_y, 0);
+                const int local_z = cell.block_z - global_coord(chunk_z, 0);
+                if (!terrain.is_valid_cell(local_x, local_y, local_z)) return;
+                growth_record.owned_cells.push_back({
+                    .block_x = cell.block_x,
+                    .block_y = cell.block_y,
+                    .block_z = cell.block_z,
+                    .material = static_cast<TerrainMaterialId>(
+                        terrain.cell_at(local_x, local_y, local_z).material),
+                });
+            };
+            for (const OwnedCell& cell : owned_cells) append_owned_cell(cell);
+            be.owned_cell_count = static_cast<uint32_t>(growth_record.owned_cells.size());
             block_entities.push_back(std::move(be));
+            tree_growth_records.push_back(std::move(growth_record));
         }
     }
 

@@ -4,9 +4,10 @@
 // Namespace: science_and_theology -> snt::game.
 // gt sub-namespace merged into snt::game (gt::PipeType -> PipeType, etc.).
 //
-// Normal terrain cells only store material + flags. When a block needs
-// additional runtime state (e.g. tree growth stage, machine inventory,
-// furnace progress), a BlockEntity is attached to that cell position.
+// Normal terrain cells only store material + flags. When a block needs an
+// anchor in persistent game data, a BlockEntityPlacement records its root.
+// Typed dynamic state is owned by its feature sidecar (for example, tree
+// growth state is stored in GameChunkSidecar::tree_growth_records).
 
 #pragma once
 
@@ -18,7 +19,6 @@
 #include "game/world/defs/creature_species.h"
 #include "game/world/defs/pipe_types.h"
 #include "game/world/defs/gt_values.h"
-#include "game/world/defs/crop_species_def.h"
 
 namespace snt::game {
 
@@ -58,8 +58,8 @@ enum class BlockEntityType : uint8_t {
     CREATURE    = 3,
     PIPE        = 4,
     CABLE       = 5,
-    FARMLAND    = 6,   // Tilled farmland (holds moisture/fertility)
-    CROP        = 7,   // Crop planted on farmland
+    FARMLAND    = 6,   // Tilled farmland anchor; state is in a chunk sidecar.
+    CROP        = 7,   // Crop anchor; growth state is in a chunk sidecar.
     SIGNAL_WIRE = 8,   // Signal wire segment (per-block signal network)
     CUSTOM      = 9,   // Mod-registered block entity type
     COUNT       = 10,
@@ -104,8 +104,8 @@ struct BlockEntityPlacement {
     int32_t root_y = 0;
     int32_t root_z = 0;
 
-    // Type-specific data encoded as key-value pairs.
-    // TREE:     { "species_key": str, "growth_stage": uint8, "planted_tick": int64 }
+    // Type-specific data encoded as key-value pairs for legacy sidecar
+    // anchors that do not yet have a dedicated typed record.
     // MACHINE:  { "machine_type": str, "facing": uint8, ... }
     // PIPE:     { "pipe_type": uint8, "connections": uint8 }
     // CABLE:    { "cable_tier": uint8, "connections": uint8 }
@@ -114,16 +114,6 @@ struct BlockEntityPlacement {
 
     // Number of owned cells (for serialization bounds checking).
     uint32_t owned_cell_count = 0;
-};
-
-// Full runtime state for a tree block entity.
-// Reconstructed from BlockEntityPlacement on chunk load.
-struct TreeBlockEntityState {
-    std::string species_key;
-    TreeGrowthStage growth_stage = TreeGrowthStage::SAPLING;
-    int64_t planted_tick = 0;
-    int64_t last_growth_tick = 0;
-    std::vector<OwnedCell> owned_cells;
 };
 
 // ============================================================
@@ -224,38 +214,6 @@ struct SignalWireBlockEntityState {
     int32_t signal_strength = 0;      // Cached signal value (0 = unpowered)
     bool is_source = false;           // True if this wire emits signal
     std::vector<OwnedCell> owned_cells;  // usually empty (single cell)
-};
-
-// ============================================================
-// FarmlandBlockEntityState — tilled soil for crop planting
-// ============================================================
-
-struct FarmlandBlockEntityState {
-    // Current moisture level [0, 1].
-    float moisture = 0.5f;
-    // Current fertility level [0, 1].
-    float fertility = 0.7f;
-    // Last planted crop species key (for rotation penalty). Empty = none.
-    std::string last_crop_key;
-    // Consecutive plantings of the same crop (>=3 triggers penalty).
-    int consecutive_same_crop = 0;
-    // Last tick moisture was updated (for evaporation timing).
-    int64_t last_moisture_tick = 0;
-};
-
-// ============================================================
-// CropBlockEntityState — growing crop on farmland
-// ============================================================
-
-struct CropBlockEntityState {
-    std::string species_key;
-    CropGrowthStage growth_stage = CropGrowthStage::SEED;
-    int64_t planted_tick = 0;
-    int64_t last_growth_tick = 0;
-    // Regrow timer for repeat-harvest crops.
-    int64_t last_harvest_tick = 0;
-    // Cells occupied by the crop (usually 1, large crops may use more).
-    std::vector<OwnedCell> owned_cells;
 };
 
 // ============================================================

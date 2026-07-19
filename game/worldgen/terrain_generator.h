@@ -119,11 +119,12 @@ private:
                              TerrainData& terrain);
 
     // Pass 4: Place trees and small surface voxel features.
-    // Also creates BlockEntityPlacement entries in chunk.block_entities.
+    // It creates both the durable TREE anchor and typed tree-growth state.
     void pass_surface_objects(const std::string& dimension_id,
                    int chunk_x, int chunk_y, int chunk_z,
                    TerrainData& terrain,
-                   std::vector<BlockEntityPlacement>& block_entities);
+                   std::vector<BlockEntityPlacement>& block_entities,
+                   std::vector<TreeGrowthPersistenceRecord>& tree_growth_records);
 
     // Place wild crops on dirt surfaces for Tier 1 wild foraging.
     // Wild crops are terrain-only (no BlockEntity) 鈥?mined for seeds.

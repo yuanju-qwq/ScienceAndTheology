@@ -10,8 +10,8 @@ namespace science_and_theology {
 // it to other systems (tree growth, visual tinting, fruit drops).
 //
 // Design:
-//   - Runs at priority 4 (before TreeGrowthSystem at 5) so that
-//     the current season is up-to-date when trees check fruit drops.
+//   - Runs before remaining seasonal gameplay consumers so the current
+//     season is available to their tick logic.
 //   - tick_active() is lightweight: just computes the current season
 //     from the tick counter and caches the result.
 //   - Other systems query the cached season via current_season().

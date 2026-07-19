@@ -6,7 +6,9 @@
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
 #include "game/simulation/block_physics_system.h"
+#include "game/simulation/crop_growth_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
+#include "game/simulation/tree_growth_system.h"
 #include "game/world/save/world_persistence_lifecycle.h"
 #include "game/worldgen/default_worldgen_config.h"
 
@@ -42,6 +44,18 @@ void ScienceAndTheologySimulationSession::set_block_physics_mutation_sink(
     IBlockPhysicsMutationSink* mutation_sink) noexcept {
     block_physics_mutation_sink_ = mutation_sink;
     if (block_physics_system_) block_physics_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_tree_growth_mutation_sink(
+    ITreeGrowthMutationSink* mutation_sink) noexcept {
+    tree_growth_mutation_sink_ = mutation_sink;
+    if (tree_growth_system_) tree_growth_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_crop_growth_mutation_sink(
+    ICropGrowthMutationSink* mutation_sink) noexcept {
+    crop_growth_mutation_sink_ = mutation_sink;
+    if (crop_growth_system_) crop_growth_system_->set_mutation_sink(mutation_sink);
 }
 
 void ScienceAndTheologySimulationSession::schedule_block_physics_after_terrain_mutation(
@@ -168,9 +182,17 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     block_physics_system_ = std::make_unique<GameBlockPhysicsSystem>(
         *chunks_, *worldgen_config_, config_.gameplay);
     block_physics_system_->set_mutation_sink(block_physics_mutation_sink_);
+    tree_growth_system_ = std::make_unique<GameTreeGrowthSystem>(
+        *chunks_, chunk_sidecars_, *worldgen_config_);
+    tree_growth_system_->set_mutation_sink(tree_growth_mutation_sink_);
+    crop_growth_system_ = std::make_unique<GameCropGrowthSystem>(
+        *chunks_, chunk_sidecars_, *worldgen_config_);
+    crop_growth_system_->set_mutation_sink(crop_growth_mutation_sink_);
     world_ready_ = true;
 
     SNT_LOG_INFO("Game block physics initialized with the current world-generation snapshot");
+    SNT_LOG_INFO("Game tree growth initialized with typed chunk-sidecar state");
+    SNT_LOG_INFO("Game crop growth initialized with typed chunk-sidecar state");
     SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
     return {};
 }
@@ -182,6 +204,10 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
     season_cycle_.update(context.tick_index(), context.delta_seconds(), config_.gameplay,
                          config_.persistence.world_dimension_id);
     if (block_physics_system_) block_physics_system_->tick(context.tick_index());
+    if (tree_growth_system_) tree_growth_system_->tick(context.tick_index());
+    if (crop_growth_system_) {
+        crop_growth_system_->tick(context.tick_index(), season_cycle_.state().season);
+    }
     if (machine_tick_system_) machine_tick_system_->set_tick_index(context.tick_index());
     // File-watcher polling stays on the simulation main thread so a dedicated
     // server receives the same reload lifecycle as a graphical client.
@@ -202,6 +228,12 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
+    if (crop_growth_system_) crop_growth_system_->set_mutation_sink(nullptr);
+    crop_growth_system_.reset();
+    crop_growth_mutation_sink_ = nullptr;
+    if (tree_growth_system_) tree_growth_system_->set_mutation_sink(nullptr);
+    tree_growth_system_.reset();
+    tree_growth_mutation_sink_ = nullptr;
     if (block_physics_system_) block_physics_system_->set_mutation_sink(nullptr);
     block_physics_system_.reset();
     block_physics_mutation_sink_ = nullptr;

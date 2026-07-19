@@ -878,6 +878,16 @@ void GameServerPlayerReplication::on_block_physics_terrain_changed(
     mark_block_dirty(change.dimension_id, change.block_x, change.block_y, change.block_z);
 }
 
+void GameServerPlayerReplication::on_crop_growth_terrain_changed(
+    const CropGrowthTerrainChange& change) {
+    mark_block_dirty(change.dimension_id, change.block_x, change.block_y, change.block_z);
+}
+
+void GameServerPlayerReplication::on_tree_growth_terrain_changed(
+    const TreeGrowthTerrainChange& change) {
+    mark_block_dirty(change.dimension_id, change.block_x, change.block_y, change.block_z);
+}
+
 void GameServerPlayerReplication::mark_block_dirty(std::string_view dimension_id,
                                                     int32_t block_x, int32_t block_y,
                                                     int32_t block_z) noexcept {

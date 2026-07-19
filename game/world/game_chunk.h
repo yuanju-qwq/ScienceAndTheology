@@ -9,6 +9,7 @@
 
 #include "game/world/defs/block_entity.h"
 #include "game/world/defs/captive_creature.h"
+#include "game/world/defs/crop_species_def.h"
 #include "game/world/defs/entity_data.h"
 #include "game/world/defs/population_cell.h"
 #include "game/world/voxel_primitives.h"
@@ -106,6 +107,60 @@ struct MachineRuntimePersistenceRecord {
     uint8_t run_state = 0;
 };
 
+// Tree growth uses a typed sidecar record instead of the legacy
+// BlockEntityPlacement::type_data_json payload. The anchor remains the
+// authoritative identity and root coordinate; this record owns only the
+// state that changes while the tree grows.
+struct TreeGrowthOwnedCell {
+    int32_t block_x = 0;
+    int32_t block_y = 0;
+    int32_t block_z = 0;
+    TerrainMaterialId material = 0;
+};
+
+struct TreeGrowthPersistenceRecord {
+    EntityId anchor_entity_id;
+    std::string species_key;
+    TreeGrowthStage growth_stage = TreeGrowthStage::SAPLING;
+    uint64_t planted_tick = 0;
+    uint64_t last_growth_tick = 0;
+    std::vector<TreeGrowthOwnedCell> owned_cells;
+};
+
+// Crop and farmland state follows the same ownership model as tree growth:
+// generic block anchors establish identity and root coordinates, while this
+// typed sidecar owns every value that changes during simulation. Crop records
+// reference their supporting farmland anchor when they are player-planted;
+// a zero farmland anchor is reserved for a future explicitly modeled wild
+// crop source.
+struct FarmlandPersistenceRecord {
+    EntityId anchor_entity_id;
+    float moisture = 0.5f;
+    float fertility = 0.7f;
+    std::string last_crop_key;
+    uint32_t consecutive_same_crop = 0;
+    uint64_t last_moisture_tick = 0;
+};
+
+struct CropGrowthOwnedCell {
+    int32_t block_x = 0;
+    int32_t block_y = 0;
+    int32_t block_z = 0;
+    TerrainMaterialId material = 0;
+};
+
+struct CropGrowthPersistenceRecord {
+    EntityId anchor_entity_id;
+    EntityId farmland_anchor_entity_id;
+    std::string species_key;
+    CropGrowthStage growth_stage = CropGrowthStage::SEED;
+    uint64_t planted_tick = 0;
+    uint64_t last_growth_tick = 0;
+    uint64_t last_harvest_tick = 0;
+    bool is_regrowing = false;
+    std::vector<CropGrowthOwnedCell> owned_cells;
+};
+
 // Player beds and graves are world-owned sidecar values. They intentionally
 // do not use player ECS types: account-backed inventory conversion happens in
 // the dedicated-server service, while sidecars remain reusable world data.
@@ -137,6 +192,9 @@ struct GameChunkSidecar {
     std::vector<EntityId> entities;
     std::vector<MachineRuntimePersistenceRecord> machine_runtime_records;
     std::vector<BlockEntityPlacement> block_entities;
+    std::vector<TreeGrowthPersistenceRecord> tree_growth_records;
+    std::vector<FarmlandPersistenceRecord> farmland_records;
+    std::vector<CropGrowthPersistenceRecord> crop_growth_records;
     std::vector<GamePlayerBedRecord> player_beds;
     std::vector<GamePlayerGraveRecord> player_graves;
     std::vector<ConnectorId> connector_ids;

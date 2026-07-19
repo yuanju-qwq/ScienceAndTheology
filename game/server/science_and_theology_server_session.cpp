@@ -193,6 +193,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     }
     player_replication_ = std::move(*player_replication);
     simulation_session_.set_block_physics_mutation_sink(player_replication_.get());
+    simulation_session_.set_crop_growth_mutation_sink(player_replication_.get());
+    simulation_session_.set_tree_growth_mutation_sink(player_replication_.get());
     quest_events_->bind_player_state(*player_state_, player_lifecycle_.get());
     auto player_beds = replication::GameServerPlayerBedService::create(
         *player_state_, world.chunks(), simulation_session_.world_sidecars(),
@@ -407,6 +409,8 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     transport_.reset();
     replication_handler_.reset();
     command_sink_.reset();
+    simulation_session_.set_tree_growth_mutation_sink(nullptr);
+    simulation_session_.set_crop_growth_mutation_sink(nullptr);
     simulation_session_.set_block_physics_mutation_sink(nullptr);
     player_replication_.reset();
     inventory_replication_.reset();

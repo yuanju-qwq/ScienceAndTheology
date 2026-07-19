@@ -342,27 +342,6 @@ TEST(GameWorldPersistenceLifecycleTest, SavesLoadsAndRejectsMismatchedUniverse) 
     EXPECT_FALSE(error) << error.message();
 }
 
-TEST(GameBlockEntityRegistryTest, RegistersAndFindsTreeOwnership) {
-    snt::game::BlockEntityRegistry registry;
-    const std::vector<snt::game::OwnedCell> cells{{5, 10, 15}};
-    const auto id = registry.register_tree_entity(
-        "overworld", 5, 10, 15, "oak", snt::game::TreeGrowthStage::YOUNG, 0, cells);
-
-    EXPECT_EQ(registry.find_owner_at(5, 10, 15), id);
-    EXPECT_NE(registry.get_tree_state(id), nullptr);
-}
-
-TEST(GameBlockEntityRegistryTest, RemovesOwnedCellsWithEntity) {
-    snt::game::BlockEntityRegistry registry;
-    const std::vector<snt::game::OwnedCell> cells{{1, 1, 1}};
-    const auto id = registry.register_tree_entity(
-        "overworld", 1, 1, 1, "oak", snt::game::TreeGrowthStage::YOUNG, 0, cells);
-
-    registry.remove_entity(id);
-    EXPECT_EQ(registry.size(), 0u);
-    EXPECT_EQ(registry.find_owner_at(1, 1, 1), snt::game::EntityId{});
-}
-
 TEST(GameMachineCollisionOverlayTest, ClearsOneDimensionOnly) {
     snt::game::MachineCollisionOverlay overlay;
     overlay.mark("overworld", 1, 0, 0);

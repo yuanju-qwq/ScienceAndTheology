@@ -14,6 +14,8 @@
 #include "game/server/game_server_player_interaction.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/simulation/crop_growth_events.h"
+#include "game/simulation/tree_growth_events.h"
 
 #include <cstdint>
 #include <map>
@@ -47,7 +49,9 @@ struct GameServerPlayerReplicationConfig {
 class GameServerPlayerReplication final : public IGameReplicationInterestProvider,
                                           public IGameReplicationSnapshotSource,
                                           public IGameServerPlayerInteractionEventSink,
-                                          public IBlockPhysicsMutationSink {
+                                          public IBlockPhysicsMutationSink,
+                                          public ICropGrowthMutationSink,
+                                          public ITreeGrowthMutationSink {
 public:
     [[nodiscard]] static snt::core::Expected<std::unique_ptr<GameServerPlayerReplication>> create(
         GameServerPlayerState& player_state, snt::ecs::World& world,
@@ -77,6 +81,8 @@ public:
     // than writing an opaque delta or polling every loaded chunk.
     void on_player_interaction(const GameServerPlayerInteractionEvent& event) override;
     void on_block_physics_terrain_changed(const BlockPhysicsTerrainChange& change) override;
+    void on_crop_growth_terrain_changed(const CropGrowthTerrainChange& change) override;
+    void on_tree_growth_terrain_changed(const TreeGrowthTerrainChange& change) override;
     void mark_block_dirty(std::string_view dimension_id, int32_t block_x,
                           int32_t block_y, int32_t block_z) noexcept;
 
