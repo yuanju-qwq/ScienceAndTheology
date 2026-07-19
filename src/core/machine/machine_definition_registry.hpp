@@ -12,13 +12,12 @@ namespace science_and_theology::gt {
 // ============================================================
 //
 // A PanelLayout describes which widgets a machine panel should build
-// and where to place them, so a single MachinePanel.tscn can render any
-// furnace-family machine without a per-machine .tscn. The GDScript
-// side reads this structure and dynamically creates slot/progress/bar
-// nodes inside its Content container.
+// and where to place them. It is retained as legacy source metadata;
+// the current native MUI builds its machine panel from replicated state
+// rather than a Godot scene.
 //
-// Coordinates are offsets relative to the panel's top-left corner, in
-// the same convention as Godot Control offset_left/top/right/bottom.
+// Coordinates are legacy panel-local pixel offsets retained for source
+// comparison during later machine migrations.
 
 // A single widget descriptor inside a machine panel layout.
 struct PanelElement {
@@ -56,14 +55,14 @@ struct PanelLayout {
 struct MachineDefinition {
     std::string type_key;          // e.g. "my_mod:custom_furnace"
     std::string display_name;      // human-readable name
-    std::string gui_scene_path;    // path to GUI PackedScene
-    std::string model_path;        // path to 3D model
+    std::string gui_scene_path;    // legacy GUI scene source path; unused by current MUI
+    std::string model_path;        // legacy 3D model source path
     int32_t tier = 1;              // LV=1, MV=2, HV=3, etc.
     uint16_t hatch_mask = 0;       // bitmask of allowed hatch types
     int32_t input_slots = 1;       // number of input slots
     int32_t output_slots = 1;      // number of output slots
     int32_t power_capacity = 0;    // max energy storage (EU)
-    PanelLayout layout;            // data-driven GUI layout consumed by MachinePanel.gd
+    PanelLayout layout;            // legacy layout metadata; unused by current MUI
 };
 
 class MachineDefinitionRegistry {

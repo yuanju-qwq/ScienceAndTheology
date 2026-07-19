@@ -404,6 +404,56 @@ snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_transf
     return apply_slot_transfer(candidate, transfer);
 }
 
+snt::core::Expected<void> GameServerPlayerState::apply_inventory_slot_mutations(
+    const GameAuthenticatedPeer& peer,
+    std::span<const GamePlayerInventorySlotMutation> mutations) {
+    auto applicable = can_apply_inventory_slot_mutations(peer, mutations);
+    if (!applicable) return applicable.error();
+    if (!*applicable) {
+        return invalid_state("Authoritative player inventory rejected conditional slot mutations");
+    }
+
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+
+    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
+    for (const GamePlayerInventorySlotMutation& mutation : mutations) {
+        if (mutation.slot >= candidate.slots.size() ||
+            candidate.slots[mutation.slot] != mutation.expected) {
+            return invalid_state(
+                "Authoritative player inventory changed during conditional slot mutation apply");
+        }
+        candidate.slots[mutation.slot] = mutation.replacement;
+    }
+    if (auto result = validate_inventory(candidate); !result) return result.error();
+    world_->get_component<GamePlayerInventory>(*entity) = std::move(candidate);
+    return {};
+}
+
+snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_mutations(
+    const GameAuthenticatedPeer& peer,
+    std::span<const GamePlayerInventorySlotMutation> mutations) const {
+    if (auto result = validate_inventory_slot_mutations(mutations); !result) return result.error();
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+
+    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
+    if (auto result = validate_inventory(candidate); !result) return result.error();
+    for (const GamePlayerInventorySlotMutation& mutation : mutations) {
+        if (mutation.slot >= candidate.slots.size() ||
+            candidate.slots[mutation.slot] != mutation.expected) {
+            return false;
+        }
+        candidate.slots[mutation.slot] = mutation.replacement;
+    }
+    if (auto result = validate_inventory(candidate); !result) return result.error();
+    return true;
+}
+
 snt::core::Expected<void> GameServerPlayerState::replace_trusted_held_tool_tags(
     const GameAuthenticatedPeer& peer, std::vector<std::string> tags) {
     if (auto result = validate_tool_tags(tags); !result) return result.error();
@@ -546,6 +596,29 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_transfe
     if (!is_empty_stack_value(transfer.expected_target) &&
         !has_valid_nonempty_stack_shape(transfer.expected_target)) {
         return invalid_argument("Authoritative player slot transfer has an invalid expected target");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_mutations(
+    std::span<const GamePlayerInventorySlotMutation> mutations) const {
+    if (mutations.empty() || mutations.size() > kMaxInventoryTransactionEntries) {
+        return invalid_argument("Authoritative player conditional slot mutation count is invalid");
+    }
+    std::vector<bool> seen(config_.inventory_slots, false);
+    for (const GamePlayerInventorySlotMutation& mutation : mutations) {
+        if (mutation.slot >= config_.inventory_slots || seen[mutation.slot]) {
+            return invalid_argument(
+                "Authoritative player conditional slot mutation has an invalid or duplicate slot");
+        }
+        seen[mutation.slot] = true;
+        const auto valid_stack = [](const GamePlayerItemStack& stack) {
+            return is_empty_stack_value(stack) || has_valid_nonempty_stack_shape(stack);
+        };
+        if (!valid_stack(mutation.expected) || !valid_stack(mutation.replacement)) {
+            return invalid_argument(
+                "Authoritative player conditional slot mutation has an invalid stack value");
+        }
     }
     return {};
 }

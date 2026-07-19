@@ -61,7 +61,7 @@ encode_game_terrain_chunk_snapshot(const snt::voxel::VoxelChunk& chunk);
 decode_game_terrain_chunk_snapshot(std::span<const std::byte> payload);
 
 inline constexpr uint8_t kGameMachineReplicationEntityKind = 2;
-inline constexpr uint8_t kGameMachineReplicationEntityVersion = 1;
+inline constexpr uint8_t kGameMachineReplicationEntityVersion = 2;
 
 enum class GameMachineReplicationOperation : uint8_t {
     kUpsert = 1,
@@ -84,6 +84,8 @@ struct GameReplicatedMachineState {
     std::string machine_id;
     std::vector<GameReplicatedMachineItemStack> input_slots;
     std::vector<GameReplicatedMachineItemStack> output_slots;
+    uint8_t max_input_slots = 4;
+    uint8_t max_output_slots = 4;
     int32_t stored_energy = 0;
     int32_t energy_capacity = 0;
     int32_t progress_ticks = 0;

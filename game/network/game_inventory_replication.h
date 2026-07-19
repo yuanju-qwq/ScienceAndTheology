@@ -35,8 +35,19 @@ enum class GameInventorySlotTransferOutcome : uint8_t {
     kRejected = 2,
 };
 
-struct GameInventorySlotTransferResponse {
+// Player-private mutations can originate from a player-inventory drag or a
+// production-machine input edit. One response stream preserves a single
+// inventory revision ordering while keeping those typed command meanings
+// distinct for retained UI confirmation.
+enum class GameInventoryCommandKind : uint8_t {
+    kNone = 0,
+    kInventorySlotTransfer = 1,
+    kMachineInputSlotTransfer = 2,
+};
+
+struct GameInventoryCommandResponse {
     uint64_t request_id = 0;
+    GameInventoryCommandKind kind = GameInventoryCommandKind::kNone;
     GameInventorySlotTransferOutcome outcome = GameInventorySlotTransferOutcome::kNone;
     std::string rejection_reason;
 };
@@ -45,7 +56,7 @@ struct GameInventorySnapshot {
     std::string account_id;
     uint64_t inventory_revision = 0;
     uint64_t response_revision = 0;
-    GameInventorySlotTransferResponse response;
+    GameInventoryCommandResponse response;
     GamePlayerInventory inventory;
 };
 
@@ -60,7 +71,7 @@ struct GameInventoryDelta {
     uint64_t response_revision = 0;
     // A response is present only when response_revision advances. The prior
     // response remains observable for otherwise unrelated inventory deltas.
-    GameInventorySlotTransferResponse response;
+    GameInventoryCommandResponse response;
     // A revision-only delta is valid when multiple host mutations collapse
     // back to identical slots before this observer's next reliable batch.
     // It still invalidates stale client transfer requests without resending

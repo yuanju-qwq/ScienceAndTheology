@@ -441,6 +441,8 @@ TEST(GameMachineReplicationTest, RoundTripsPresentationStateAndAppliesOrderedRem
         .machine_id = "primitive_furnace",
         .input_slots = {{.item_id = "iron_crushed", .count = 2}, {}},
         .output_slots = {{.item_id = "iron_ingot", .count = 1}},
+        .max_input_slots = 6,
+        .max_output_slots = 3,
         .stored_energy = 20,
         .energy_capacity = 100,
         .progress_ticks = 30,
@@ -457,6 +459,8 @@ TEST(GameMachineReplicationTest, RoundTripsPresentationStateAndAppliesOrderedRem
     ASSERT_TRUE(decoded->machine.has_value());
     EXPECT_EQ(decoded->machine->machine_id, "primitive_furnace");
     EXPECT_EQ(decoded->machine->input_slots.size(), 2u);
+    EXPECT_EQ(decoded->machine->max_input_slots, 6u);
+    EXPECT_EQ(decoded->machine->max_output_slots, 3u);
 
     snt::game::replication::GameRemoteMachineWorld machines;
     ASSERT_TRUE(machines.apply(snt::game::replication::GameSnapshot{

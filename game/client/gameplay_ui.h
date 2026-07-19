@@ -49,6 +49,78 @@ struct CraftedItemResult {
     std::string reason;
 };
 
+// Production-machine presentation is a copied network value. It deliberately
+// has no ECS handle, sidecar record, or mutable inventory reference: the UI
+// can only turn a drag into a typed request and wait for host replication.
+struct MachinePanelState {
+    std::string dimension_id;
+    int32_t root_x = 0;
+    int32_t root_y = 0;
+    int32_t root_z = 0;
+    uint16_t expected_material = 0;
+    std::string machine_id;
+    std::vector<ItemStackState> input_slots;
+    std::vector<ItemStackState> output_slots;
+    int32_t max_input_slots = 0;
+    int32_t max_output_slots = 0;
+    int32_t stored_energy = 0;
+    int32_t energy_capacity = 0;
+    int32_t progress_ticks = 0;
+    int32_t active_recipe_duration_ticks = 0;
+
+    friend bool operator==(const MachinePanelState&, const MachinePanelState&) = default;
+};
+
+enum class MachineInputSlotTransferDirection : uint8_t {
+    PlayerToMachineInput,
+    MachineInputToPlayer,
+};
+
+struct MachineInputSlotTransferRequest {
+    uint64_t request_id = 0;
+    uint64_t expected_inventory_revision = 0;
+    MachineInputSlotTransferDirection direction =
+        MachineInputSlotTransferDirection::PlayerToMachineInput;
+    MachinePanelState target;
+    uint32_t player_slot = 0;
+    uint32_t machine_input_slot = 0;
+    int32_t count = 0;
+    ItemStackState expected_player_slot;
+    ItemStackState expected_machine_input_slot;
+};
+
+struct MachineInputSlotTransferConfirmation {
+    uint64_t request_id = 0;
+    InventorySlotTransferOutcome outcome = InventorySlotTransferOutcome::Rejected;
+    uint64_t authoritative_inventory_revision = 0;
+    std::vector<ItemStackState> inventory_slots;
+    int32_t inventory_max_stack_size = 64;
+    std::string rejection_reason;
+};
+
+class IMachineInputSlotTransferCommandSink {
+public:
+    virtual ~IMachineInputSlotTransferCommandSink() = default;
+
+    [[nodiscard]] virtual snt::core::Expected<void> submit_machine_input_slot_transfer(
+        MachineInputSlotTransferRequest request) = 0;
+};
+
+class MachinePanelViewModel {
+public:
+    [[nodiscard]] bool apply_authoritative_state(MachinePanelState state);
+    void clear() noexcept;
+
+    [[nodiscard]] const MachinePanelState* state() const noexcept {
+        return state_ ? &*state_ : nullptr;
+    }
+    [[nodiscard]] uint64_t revision() const noexcept { return revision_; }
+
+private:
+    std::optional<MachinePanelState> state_;
+    uint64_t revision_ = 0;
+};
+
 struct PerformanceStats {
     float fps = 0.0f;
     float frame_ms = 0.0f;
@@ -143,6 +215,7 @@ enum class GameplayUiScreen : uint8_t {
     None,
     Inventory,
     Crafting,
+    Machine,
 };
 
 class GameplayUiController {
@@ -150,19 +223,24 @@ public:
     GameplayUiController(InventoryViewModel inventory,
                          std::vector<CraftingRecipeState> recipes,
                          std::shared_ptr<IInventorySlotTransferCommandSink>
-                             slot_transfer_sink = {});
+                             slot_transfer_sink = {},
+                         std::shared_ptr<IMachineInputSlotTransferCommandSink>
+                             machine_input_slot_transfer_sink = {});
 
     InventoryViewModel& inventory() { return inventory_; }
     HotbarViewModel& hotbar() { return hotbar_; }
     CraftingViewModel& crafting() { return crafting_; }
+    MachinePanelViewModel& machine_panel() { return machine_panel_; }
 
     GameplayUiScreen open_screen() const { return open_screen_; }
     bool inventory_open() const { return open_screen_ == GameplayUiScreen::Inventory; }
     bool crafting_open() const { return open_screen_ == GameplayUiScreen::Crafting; }
+    bool machine_open() const { return open_screen_ == GameplayUiScreen::Machine; }
     uint64_t revision() const noexcept { return revision_; }
 
     void open_inventory();
     void open_crafting();
+    void open_machine(MachinePanelState state);
     void close();
     void toggle_inventory();
     void toggle_crafting();
@@ -171,6 +249,7 @@ public:
     // InventoryViewModel; the owning game session later supplies a matching
     // authority confirmation from its simulator or network adapter.
     void handle_inventory_slot_drag(const snt::ui::UiDragEvent& event);
+    void handle_machine_input_slot_drag(const snt::ui::UiDragEvent& event);
     // Applies a complete client-side reconstruction of the authoritative
     // inventory. Network replication may contain only changed slots on the
     // wire, but the UI always receives one validated full slot view.
@@ -179,10 +258,13 @@ public:
         uint64_t authoritative_revision);
     [[nodiscard]] bool apply_inventory_slot_transfer_confirmation(
         InventorySlotTransferConfirmation confirmation);
+    [[nodiscard]] bool apply_machine_input_slot_transfer_confirmation(
+        MachineInputSlotTransferConfirmation confirmation);
     // A reconnect invalidates presentation authority until the next full
     // server snapshot. Existing local slots remain visible but cannot be
     // safely used by a network command adapter with revision zero.
     void clear_inventory_authority() noexcept;
+    void clear_machine_authority() noexcept;
     [[nodiscard]] bool inventory_slot_transfer_pending() const noexcept {
         return pending_slot_transfer_.has_value();
     }
@@ -192,6 +274,14 @@ public:
     [[nodiscard]] uint64_t inventory_authority_revision() const noexcept {
         return inventory_authority_revision_;
     }
+    [[nodiscard]] bool machine_input_slot_transfer_pending() const noexcept {
+        return pending_machine_input_slot_transfer_.has_value();
+    }
+    [[nodiscard]] uint64_t pending_machine_input_slot_transfer_request_id() const noexcept {
+        return pending_machine_input_slot_transfer_
+            ? pending_machine_input_slot_transfer_->request_id
+            : 0;
+    }
 
 private:
     void set_open_screen(GameplayUiScreen screen);
@@ -199,11 +289,15 @@ private:
     InventoryViewModel inventory_;
     HotbarViewModel hotbar_;
     CraftingViewModel crafting_;
+    MachinePanelViewModel machine_panel_;
     GameplayUiScreen open_screen_ = GameplayUiScreen::None;
     std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink_;
+    std::shared_ptr<IMachineInputSlotTransferCommandSink> machine_input_slot_transfer_sink_;
     std::optional<InventorySlotTransferRequest> pending_slot_transfer_;
+    std::optional<MachineInputSlotTransferRequest> pending_machine_input_slot_transfer_;
     uint64_t inventory_authority_revision_ = 0;
     uint64_t next_inventory_transfer_request_id_ = 1;
+    uint64_t next_machine_input_slot_transfer_request_id_ = 1;
     uint64_t revision_ = 0;
 };
 
@@ -212,6 +306,9 @@ std::unique_ptr<snt::ui::ViewGroup> build_inventory_view(
     const InventoryViewModel& model, const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_crafting_view(
     CraftingViewModel& model, const localization::LocalizationService& localization);
+std::unique_ptr<snt::ui::ViewGroup> build_machine_panel_view(
+    const MachinePanelViewModel& model, const InventoryViewModel& inventory,
+    const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_performance_panel_view(
     const PerformanceViewModel& model, const localization::LocalizationService& localization);
 

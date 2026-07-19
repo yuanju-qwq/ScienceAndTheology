@@ -70,6 +70,7 @@ private:
         GameQuestClaimRewardCommand quest_claim_reward;
         GameBlockInteractionCommand block_interaction;
         GameInventorySlotTransferCommand inventory_slot_transfer;
+        GameMachineInputSlotTransferCommand machine_input_slot_transfer;
     };
 
     struct PendingMovementInput {

@@ -127,13 +127,18 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_response(
-    const GameInventorySlotTransferResponse& response, bool allow_none) {
+    const GameInventoryCommandResponse& response, bool allow_none) {
     if (response.request_id == 0) {
-        if (allow_none && response.outcome == GameInventorySlotTransferOutcome::kNone &&
+        if (allow_none && response.kind == GameInventoryCommandKind::kNone &&
+            response.outcome == GameInventorySlotTransferOutcome::kNone &&
             response.rejection_reason.empty()) {
             return {};
         }
         return protocol_error("Player inventory transfer response has no request id");
+    }
+    if (response.kind != GameInventoryCommandKind::kInventorySlotTransfer &&
+        response.kind != GameInventoryCommandKind::kMachineInputSlotTransfer) {
+        return protocol_error("Player inventory command response kind is invalid");
     }
     if (response.outcome != GameInventorySlotTransferOutcome::kAccepted &&
         response.outcome != GameInventorySlotTransferOutcome::kRejected) {
@@ -210,24 +215,27 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 }
 
 [[nodiscard]] snt::core::Expected<void> append_response(
-    std::vector<std::byte>& bytes, const GameInventorySlotTransferResponse& response,
+    std::vector<std::byte>& bytes, const GameInventoryCommandResponse& response,
     bool allow_none) {
     if (auto result = validate_response(response, allow_none); !result) return result.error();
     append_u64(bytes, response.request_id);
+    bytes.push_back(static_cast<std::byte>(response.kind));
     bytes.push_back(static_cast<std::byte>(response.outcome));
     return append_short_string(bytes, response.rejection_reason,
                                kMaxGameInventoryResponseReasonBytes,
                                "transfer response reason", false);
 }
 
-[[nodiscard]] snt::core::Expected<GameInventorySlotTransferResponse> read_response(
+[[nodiscard]] snt::core::Expected<GameInventoryCommandResponse> read_response(
     std::span<const std::byte> bytes, size_t& offset, bool allow_none) {
-    if (bytes.size() - offset < sizeof(uint64_t) + sizeof(uint8_t)) {
+    if (bytes.size() - offset < sizeof(uint64_t) + sizeof(uint8_t) * 2) {
         return protocol_error("Player inventory transfer response is truncated");
     }
-    GameInventorySlotTransferResponse response;
+    GameInventoryCommandResponse response;
     response.request_id = read_u64(bytes, offset);
     offset += sizeof(uint64_t);
+    response.kind = static_cast<GameInventoryCommandKind>(
+        std::to_integer<uint8_t>(bytes[offset++]));
     response.outcome = static_cast<GameInventorySlotTransferOutcome>(
         std::to_integer<uint8_t>(bytes[offset++]));
     auto reason = read_short_string(bytes, offset, kMaxGameInventoryResponseReasonBytes,

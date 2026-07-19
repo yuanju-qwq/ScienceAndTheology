@@ -7,7 +7,7 @@
 #
 # This script sets up the authoritative server pipeline without any rendering
 # nodes:
-#   GDWorldData → GameCommandServer + GDTickSystem + FurnaceManager
+#   GDWorldData → GameCommandServer + GDTickSystem
 #   GDNetworkServer wraps snt_server::ServerCore, bridging network frames
 #   to command execution and per-observer delta production.
 #
@@ -33,7 +33,6 @@ const SPAWN_CZ := 0
 
 @onready var _command_server: GameCommandServer = $GameCommandServer
 @onready var _tick_system: GDTickSystem = $GDTickSystem
-@onready var _furnace_manager: FurnaceManager = $FurnaceManager
 @onready var _net_server: GDNetworkServer = $GDNetworkServer
 
 var _world_data: GDWorldData = null
@@ -82,11 +81,10 @@ func _setup_world(seed: int) -> void:
 
 
 func _setup_systems() -> void:
-	# GameCommandServer: inject world data + furnace manager.
+	# GameCommandServer: inject world data.
 	# (GameCommandServer.gd's _configure_server tries ChunkRendererBridge
 	# which doesn't exist here, so we set world_data explicitly.)
 	_command_server.set_world_data(_world_data)
-	_command_server.set_furnace_manager(_furnace_manager)
 
 	# GDTickSystem: inject world data + register all subsystems.
 	_tick_system.set_world_data(_world_data)

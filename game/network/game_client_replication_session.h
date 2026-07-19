@@ -110,6 +110,8 @@ public:
     // compact changed-slot result through GameClientInventoryState.
     [[nodiscard]] snt::core::Expected<void> enqueue_inventory_slot_transfer(
         uint64_t client_sequence, GameInventorySlotTransferCommand command);
+    [[nodiscard]] snt::core::Expected<void> enqueue_machine_input_slot_transfer(
+        uint64_t client_sequence, GameMachineInputSlotTransferCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
         GamePlayerMovementInput input);
 

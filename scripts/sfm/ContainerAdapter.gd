@@ -71,8 +71,7 @@ func has_redstone() -> bool:
 
 func count_item(item_id: int) -> int:
 	# Query the block entity's inventory for this item.
-	# In a full implementation, this would call world_data.get_furnace_manager()
-	# or similar to get the actual inventory.
+	# A future game-owned container facade supplies the actual inventory.
 	if world_data == null:
 		return 0
 	# Placeholder: return 0 until full inventory integration is done.

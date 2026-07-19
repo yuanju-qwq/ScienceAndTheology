@@ -1020,6 +1020,8 @@ GameServerPlayerReplication::visible_machines(const GameReplicationInterest& int
                 .root_y = anchor->root_y,
                 .root_z = anchor->root_z,
                 .machine_id = runtime.machine_id,
+                .max_input_slots = static_cast<uint8_t>(runtime.max_input_slots),
+                .max_output_slots = static_cast<uint8_t>(runtime.max_output_slots),
                 .stored_energy = runtime.stored_energy,
                 .energy_capacity = runtime.energy_capacity,
                 .progress_ticks = runtime.progress_ticks,
@@ -1153,6 +1155,8 @@ bool GameServerPlayerReplication::same_machine_state(const GameReplicatedMachine
     return left.anchor_chunk == right.anchor_chunk &&
            left.root_x == right.root_x && left.root_y == right.root_y &&
            left.root_z == right.root_z && left.machine_id == right.machine_id &&
+           left.max_input_slots == right.max_input_slots &&
+           left.max_output_slots == right.max_output_slots &&
            same_machine_stacks(left.input_slots, right.input_slots) &&
            same_machine_stacks(left.output_slots, right.output_slots) &&
            left.stored_energy == right.stored_energy &&

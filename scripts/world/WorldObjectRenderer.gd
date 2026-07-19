@@ -1,7 +1,7 @@
 class_name WorldObjectRenderer
 extends Node3D
 
-# Renders world objects (furnaces, magic structures, etc.) using data-driven
+# Renders retained legacy world-object models using data-driven
 # BlockModelResource definitions registered in BuiltinBlockModels.
 # Workbenches and ladders are terrain blocks rendered by ChunkRendererBridge.
 #
@@ -25,12 +25,9 @@ const OVERWORLD: StringName = &"overworld"
 const BuiltinBlockModelsScript := preload("res://scripts/world/block_model/BuiltinBlockModels.gd")
 
 @export var world_path: NodePath = ^"../ChunkRendererBridge"
-@export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var universe_manager_path: NodePath = ^"../UniverseManager"
 
 @onready var _world: ChunkRendererBridge = get_node_or_null(world_path) as ChunkRendererBridge
-@onready var _furnace_manager: FurnaceManager = \
-	get_node_or_null(furnace_manager_path) as FurnaceManager
 @onready var _universe_manager: UniverseManager = \
 	get_node_or_null(universe_manager_path) as UniverseManager
 
@@ -65,7 +62,6 @@ func _ready() -> void:
 	# Initialize active dimension from ChunkRendererBridge if available.
 	if _world != null:
 		_active_dimension = _world.active_dimension
-	_sync_existing_objects()
 
 
 # Initialize the C++ RenderingServer-backed renderer. Binds to the parent
@@ -82,9 +78,6 @@ func _init_cpp_renderer() -> void:
 
 
 func _connect_manager_signals() -> void:
-	if _furnace_manager != null:
-		_furnace_manager.furnace_placed.connect(_on_furnace_placed)
-		_furnace_manager.furnace_removed.connect(_on_furnace_removed)
 	# Listen for active planet changes to swap rendered object sets.
 	if _universe_manager != null:
 		_universe_manager.active_planet_changed.connect(_on_active_planet_changed)
@@ -105,27 +98,6 @@ func _on_active_planet_changed(planet: PlanetDescriptor) -> void:
 			if model.baked_mesh != null:
 				_cpp_renderer.register_model(model_key, model.baked_mesh)
 	_active_dimension = new_dim
-	_sync_existing_objects()
-
-
-# Re-populate rendered objects from the FurnaceManager's authoritative state.
-# Called on ready and after dimension switches.
-func _sync_existing_objects() -> void:
-	if _furnace_manager != null:
-		for entry in _furnace_manager.get_all_furnaces():
-			_on_furnace_placed(
-				StringName(entry.get("dimension", "")),
-				entry.get("cell", Vector3i.ZERO))
-
-
-func _on_furnace_placed(dimension: StringName, cell: Vector3i) -> void:
-	_create_object(&"furnace", dimension, cell)
-
-
-func _on_furnace_removed(dimension: StringName, cell: Vector3i) -> void:
-	_remove_object(&"furnace", dimension, cell)
-
-
 # Place an object of the given type at the cell. Routes to MultiMesh when the
 # model has a baked_mesh; falls back to per-object Node3D otherwise.
 func _create_object(object_type: StringName, dimension: StringName, cell: Vector3i) -> void:

@@ -188,7 +188,6 @@ func _connect_command_server_signals() -> void:
 		return
 	_connect_command_signal(&"terrain_cell_synced", "_on_terrain_cell_synced")
 	_connect_command_signal(&"world_object_synced", "_on_world_object_synced")
-	_connect_command_signal(&"furnace_synced", "_on_furnace_synced")
 	_connect_command_signal(&"crop_harvested", "_on_crop_harvested")
 
 
@@ -519,13 +518,6 @@ func _on_world_object_synced(kind: StringName, action: StringName,
 	_broadcast_sync_event("world_object_synced", {
 		"kind": String(kind),
 		"action": String(action),
-		"dimension": String(dimension),
-		"cell": cell,
-	})
-
-
-func _on_furnace_synced(dimension: StringName, cell: Vector3i) -> void:
-	_broadcast_sync_event("furnace_synced", {
 		"dimension": String(dimension),
 		"cell": cell,
 	})

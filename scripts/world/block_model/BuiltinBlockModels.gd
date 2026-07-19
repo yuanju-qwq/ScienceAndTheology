@@ -44,7 +44,6 @@ const _BOX_FACES: Array = [
 # Returns: Dictionary { StringName model_key -> BlockModelResource }
 static func build_registry() -> Dictionary:
 	var registry: Dictionary = {}
-	registry[&"furnace"] = _make_furnace_model()
 	registry[&"campfire"] = _make_campfire_model()
 	registry[&"magic_structure"] = _make_magic_structure_model()
 	for key: StringName in registry.keys():
@@ -108,22 +107,6 @@ static func _append_box(st: SurfaceTool, pos: Vector3, size: Vector3, color: Col
 		st.set_normal(normal)
 		st.set_color(color)
 		st.add_vertex(v3)
-
-
-# Furnace model: stone body with a dark mouth opening and a hot bar above it.
-# Ports the previous hardcoded BoxMesh combination in WorldObjectRenderer.
-# Collision is handled by MachineCollisionOverlay (furnace cell marked in
-# WorldData, merged into chunk collision by GDChunkHelper::build_collision_faces).
-static func _make_furnace_model() -> BlockModelResource:
-	var boxes: Array[Dictionary] = [
-		{ "position": Vector3(0.0, 0.32, 0.0), "size": Vector3(0.96, 0.72, 0.96),
-		  "color": Color(0.42, 0.40, 0.36) },
-		{ "position": Vector3(0.0, 0.32, -0.49), "size": Vector3(0.46, 0.32, 0.04),
-		  "color": Color(0.08, 0.075, 0.07) },
-		{ "position": Vector3(0.0, 0.58, -0.515), "size": Vector3(0.30, 0.08, 0.03),
-		  "color": Color(1.0, 0.35, 0.08) },
-	]
-	return BlockModelResource.create(&"furnace", boxes)
 
 
 # Campfire model: a small log pile with a flame on top.

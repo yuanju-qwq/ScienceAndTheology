@@ -51,7 +51,8 @@ snt::core::Expected<void> GameServerInventoryReplication::submit_slot_transfer(
     auto account = synchronize_account(peer);
     if (!account) return account.error();
     if (command.expected_inventory_revision != (*account)->inventory_revision) {
-        return record_response(**account, command.request_id,
+        return record_response(**account, GameInventoryCommandKind::kInventorySlotTransfer,
+                               command.request_id,
                                GameInventorySlotTransferOutcome::kRejected,
                                "inventory revision is stale");
     }
@@ -68,7 +69,8 @@ snt::core::Expected<void> GameServerInventoryReplication::submit_slot_transfer(
         return applicable.error();
     }
     if (!*applicable) {
-        return record_response(**account, command.request_id,
+        return record_response(**account, GameInventoryCommandKind::kInventorySlotTransfer,
+                               command.request_id,
                                GameInventorySlotTransferOutcome::kRejected,
                                "authoritative inventory rejected the slot transfer");
     }
@@ -82,8 +84,29 @@ snt::core::Expected<void> GameServerInventoryReplication::submit_slot_transfer(
     }
     account = synchronize_account(peer);
     if (!account) return account.error();
-    return record_response(**account, command.request_id,
+    return record_response(**account, GameInventoryCommandKind::kInventorySlotTransfer,
+                           command.request_id,
                            GameInventorySlotTransferOutcome::kAccepted);
+}
+
+snt::core::Expected<bool> GameServerInventoryReplication::matches_inventory_revision(
+    const GameAuthenticatedPeer& peer, uint64_t expected_revision) {
+    if (expected_revision == 0) {
+        return invalid_state("Player inventory command has revision zero");
+    }
+    auto account = synchronize_account(peer);
+    if (!account) return account.error();
+    return (*account)->inventory_revision == expected_revision;
+}
+
+snt::core::Expected<void> GameServerInventoryReplication::record_command_response(
+    const GameAuthenticatedPeer& peer, GameInventoryCommandKind kind,
+    uint64_t request_id, GameInventorySlotTransferOutcome outcome,
+    std::string rejection_reason) {
+    auto account = synchronize_account(peer);
+    if (!account) return account.error();
+    return record_response(**account, kind, request_id, outcome,
+                           std::move(rejection_reason));
 }
 
 snt::core::Expected<std::vector<GameReplicationValue>>
@@ -172,9 +195,12 @@ GameServerInventoryReplication::synchronize_account(const GameAuthenticatedPeer&
 }
 
 snt::core::Expected<void> GameServerInventoryReplication::record_response(
-    AccountState& state, uint64_t request_id, GameInventorySlotTransferOutcome outcome,
+    AccountState& state, GameInventoryCommandKind kind, uint64_t request_id,
+    GameInventorySlotTransferOutcome outcome,
     std::string rejection_reason) {
     if (request_id == 0 ||
+        (kind != GameInventoryCommandKind::kInventorySlotTransfer &&
+         kind != GameInventoryCommandKind::kMachineInputSlotTransfer) ||
         (outcome != GameInventorySlotTransferOutcome::kAccepted &&
          outcome != GameInventorySlotTransferOutcome::kRejected)) {
         return invalid_state("Player inventory transfer response has an invalid identity");
@@ -189,6 +215,7 @@ snt::core::Expected<void> GameServerInventoryReplication::record_response(
     ++state.response_revision;
     state.response = {
         .request_id = request_id,
+        .kind = kind,
         .outcome = outcome,
         .rejection_reason = std::move(rejection_reason),
     };
@@ -261,7 +288,7 @@ GameServerInventoryReplication::prepare_delta_value(
         .account_id = peer.identity.account_id,
         .inventory_revision = account.inventory_revision,
         .response_revision = account.response_revision,
-        .response = response_changed ? account.response : GameInventorySlotTransferResponse{},
+        .response = response_changed ? account.response : GameInventoryCommandResponse{},
     };
     if (inventory_changed) {
         for (size_t index = 0; index < account.inventory.slots.size(); ++index) {

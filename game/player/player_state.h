@@ -123,6 +123,15 @@ struct GamePlayerInventorySlotTransfer {
     GamePlayerItemStack expected_target;
 };
 
+// A cross-container service uses this conditional replacement after it has
+// prepared its own machine/container candidate. Expected values prevent a
+// stale UI action from replacing a newer authoritative player slot.
+struct GamePlayerInventorySlotMutation {
+    uint32_t slot = 0;
+    GamePlayerItemStack expected;
+    GamePlayerItemStack replacement;
+};
+
 // ECS components attached only to server-owned player entities. Peer ids stay
 // in the dedicated-server service so gameplay ECS data remains transport-free.
 struct GamePlayerIdentityComponent {

@@ -15,6 +15,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace {
 
@@ -181,6 +182,18 @@ void drag_secondary(UiRuntime& runtime, View& root, Vec2 source, Vec2 target) {
     runtime.synchronize_interaction_state(root);
 }
 
+class RecordingMachineInputSlotTransferSink final
+    : public IMachineInputSlotTransferCommandSink {
+public:
+    snt::core::Expected<void> submit_machine_input_slot_transfer(
+        MachineInputSlotTransferRequest request) override {
+        requests.push_back(std::move(request));
+        return {};
+    }
+
+    std::vector<MachineInputSlotTransferRequest> requests;
+};
+
 }  // namespace
 
 TEST(GameplayUi, LocalSlotAuthoritySplitsMergesSwapsAndRejectsStaleSnapshots) {
@@ -308,6 +321,120 @@ TEST(GameplayUi, SlotDragChangesPresentationOnlyAfterAuthorityConfirmation) {
     EXPECT_EQ(controller.inventory_authority_revision(), 1u);
     EXPECT_EQ(controller.inventory().state().slots[0], (ItemStackState{"material.coal", 2}));
     EXPECT_EQ(controller.inventory().state().slots[1], (ItemStackState{"plank.oak", 8}));
+}
+
+TEST(GameplayUi, MachineInputSlotDragWaitsForTypedAuthorityConfirmation) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+
+    InventoryState inventory;
+    inventory.columns = 3;
+    inventory.max_stack_size = 64;
+    inventory.slots = {
+        {"iron_ore", 5},
+        {},
+        {},
+    };
+    auto sink = std::make_shared<RecordingMachineInputSlotTransferSink>();
+    GameplayUiController controller{
+        InventoryViewModel{inventory}, {}, {}, sink,
+    };
+    ASSERT_TRUE(controller.apply_inventory_authoritative_snapshot(inventory.slots, 64, 11));
+
+    MachinePanelState machine{
+        .dimension_id = "overworld",
+        .root_x = 4,
+        .root_y = 8,
+        .root_z = -2,
+        .expected_material = 10,
+        .machine_id = "furnace",
+        .input_slots = {{"iron_ore", 2}},
+        .max_input_slots = 2,
+        .max_output_slots = 1,
+    };
+    controller.open_machine(machine);
+    ASSERT_TRUE(controller.machine_open());
+
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    UiRuntime runtime(*paths);
+    auto root = build_gameplay_ui_root(controller, {800.0f, 600.0f}, **localization);
+    ASSERT_NE(root, nullptr);
+    runtime.layout(*root, {800.0f, 600.0f});
+    auto* player_source = dynamic_cast<SlotView*>(root->find("inventory_slot_0"));
+    auto* machine_target = dynamic_cast<SlotView*>(root->find("machine_input_slot_1"));
+    ASSERT_NE(player_source, nullptr);
+    ASSERT_NE(machine_target, nullptr);
+    const Rect player_bounds = player_source->bounds();
+    const Rect machine_bounds = machine_target->bounds();
+    drag_primary(runtime, *root,
+                 {player_bounds.pos.x + player_bounds.size.x * 0.5f,
+                  player_bounds.pos.y + player_bounds.size.y * 0.5f},
+                 {machine_bounds.pos.x + machine_bounds.size.x * 0.5f,
+                  machine_bounds.pos.y + machine_bounds.size.y * 0.5f});
+
+    ASSERT_EQ(sink->requests.size(), 1u);
+    const MachineInputSlotTransferRequest& to_machine = sink->requests.front();
+    EXPECT_EQ(to_machine.direction, MachineInputSlotTransferDirection::PlayerToMachineInput);
+    EXPECT_EQ(to_machine.expected_inventory_revision, 11u);
+    EXPECT_EQ(to_machine.player_slot, 0u);
+    EXPECT_EQ(to_machine.machine_input_slot, 1u);
+    EXPECT_EQ(to_machine.count, 5);
+    EXPECT_EQ(to_machine.expected_player_slot, (ItemStackState{"iron_ore", 5}));
+    EXPECT_TRUE(to_machine.expected_machine_input_slot.empty());
+    EXPECT_TRUE(controller.machine_input_slot_transfer_pending());
+    EXPECT_EQ(controller.inventory().state().slots[0], (ItemStackState{"iron_ore", 5}));
+    ASSERT_NE(controller.machine_panel().state(), nullptr);
+    EXPECT_EQ(controller.machine_panel().state()->input_slots.size(), 1u);
+
+    EXPECT_TRUE(controller.apply_machine_input_slot_transfer_confirmation({
+        .request_id = to_machine.request_id,
+        .outcome = InventorySlotTransferOutcome::Accepted,
+        .authoritative_inventory_revision = 12,
+        .inventory_slots = {{}, {}, {}},
+        .inventory_max_stack_size = 64,
+    }));
+    EXPECT_FALSE(controller.machine_input_slot_transfer_pending());
+    EXPECT_TRUE(controller.inventory().state().slots[0].empty());
+
+    machine.input_slots = {{"iron_ore", 2}, {"iron_ore", 5}};
+    controller.open_machine(machine);
+    root = build_gameplay_ui_root(controller, {800.0f, 600.0f}, **localization);
+    ASSERT_NE(root, nullptr);
+    runtime.layout(*root, {800.0f, 600.0f});
+    auto* machine_source = dynamic_cast<SlotView*>(root->find("machine_input_slot_1"));
+    auto* player_target = dynamic_cast<SlotView*>(root->find("inventory_slot_1"));
+    ASSERT_NE(machine_source, nullptr);
+    ASSERT_NE(player_target, nullptr);
+    const Rect machine_source_bounds = machine_source->bounds();
+    const Rect player_target_bounds = player_target->bounds();
+    drag_primary(runtime, *root,
+                 {machine_source_bounds.pos.x + machine_source_bounds.size.x * 0.5f,
+                  machine_source_bounds.pos.y + machine_source_bounds.size.y * 0.5f},
+                 {player_target_bounds.pos.x + player_target_bounds.size.x * 0.5f,
+                  player_target_bounds.pos.y + player_target_bounds.size.y * 0.5f});
+
+    ASSERT_EQ(sink->requests.size(), 2u);
+    const MachineInputSlotTransferRequest& to_player = sink->requests.back();
+    EXPECT_EQ(to_player.direction, MachineInputSlotTransferDirection::MachineInputToPlayer);
+    EXPECT_EQ(to_player.expected_inventory_revision, 12u);
+    EXPECT_EQ(to_player.player_slot, 1u);
+    EXPECT_EQ(to_player.machine_input_slot, 1u);
+    EXPECT_EQ(to_player.count, 5);
+    EXPECT_TRUE(to_player.expected_player_slot.empty());
+    EXPECT_EQ(to_player.expected_machine_input_slot, (ItemStackState{"iron_ore", 5}));
+    EXPECT_TRUE(controller.machine_input_slot_transfer_pending());
+
+    EXPECT_FALSE(controller.apply_machine_input_slot_transfer_confirmation({
+        .request_id = to_player.request_id,
+        .outcome = InventorySlotTransferOutcome::Rejected,
+        .authoritative_inventory_revision = 12,
+        .inventory_slots = {{}, {}, {}},
+        .inventory_max_stack_size = 64,
+        .rejection_reason = "machine changed",
+    }));
+    EXPECT_FALSE(controller.machine_input_slot_transfer_pending());
+    EXPECT_TRUE(controller.inventory().state().slots[1].empty());
 }
 
 TEST(GameplayUi, SecondarySlotDragRequestsHalfStackSplit) {

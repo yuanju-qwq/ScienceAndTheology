@@ -81,15 +81,31 @@ std::optional<uint32_t> inventory_slot_index(std::string_view id) {
     return std::nullopt;
 }
 
+std::optional<uint32_t> machine_input_slot_index(std::string_view id) {
+    constexpr std::string_view kPrefix = "machine_input_slot_";
+    if (!id.starts_with(kPrefix)) return std::nullopt;
+    const char* const first = id.data() + kPrefix.size();
+    const char* const last = id.data() + id.size();
+    uint32_t index = 0;
+    const auto [next, error] = std::from_chars(first, last, index);
+    if (error == std::errc{} && next == last) return index;
+    return std::nullopt;
+}
+
 void bind_inventory_slot_drag_handlers(View& view, GameplayUiController& controller) {
     if (auto* slot = dynamic_cast<SlotView*>(&view)) {
-        if (inventory_slot_index(slot->id())) {
+        if (inventory_slot_index(slot->id()) || machine_input_slot_index(slot->id())) {
             const std::string source_id = slot->id();
             slot->set_drag_handler([&controller, source_id](const UiDragEvent& event) {
                 // Both source and target receive Drop. Only the source emits
                 // the transaction, so one retained drag yields one command.
                 if (event.source_id != source_id) return;
-                controller.handle_inventory_slot_drag(event);
+                if (machine_input_slot_index(event.source_id) ||
+                    machine_input_slot_index(event.target_id)) {
+                    controller.handle_machine_input_slot_drag(event);
+                } else {
+                    controller.handle_inventory_slot_drag(event);
+                }
             });
         }
     }
@@ -238,6 +254,96 @@ UiWidgetTemplate crafting_template(const CraftingViewModel& model,
     return panel;
 }
 
+UiWidgetTemplate machine_panel_template(const MachinePanelViewModel& model,
+                                        const InventoryViewModel& inventory,
+                                        bool transfers_pending,
+                                        const localization::LocalizationService& localization) {
+    const MachinePanelState* const machine = model.state();
+    UiWidgetTemplate panel;
+    panel.type = UiWidgetType::Flex;
+    panel.id = "machine_panel";
+    panel.layout.orientation = Orientation::Vertical;
+    panel.layout.spacing = 8.0f;
+    panel.layout.padding = {10, 10, 10, 10};
+    panel.background = Color{14, 17, 22, 240};
+    panel.background_radius = 6.0f;
+    panel.layout.params = fixed(560.0f, 390.0f);
+    if (machine == nullptr) return panel;
+
+    UiWidgetTemplate title = text_widget(
+        "machine_title", localization.translate(machine->machine_id), 18.0f);
+    title.layout.params = fixed(520.0f, 24.0f);
+    append_child(panel, std::move(title));
+
+    UiWidgetTemplate storage;
+    storage.type = UiWidgetType::Flex;
+    storage.id = "machine_storage";
+    storage.layout.orientation = Orientation::Horizontal;
+    storage.layout.spacing = 28.0f;
+    storage.layout.params = fixed(520.0f, 104.0f);
+
+    UiWidgetTemplate inputs;
+    inputs.type = UiWidgetType::Grid;
+    inputs.id = "machine_input_grid";
+    inputs.layout.columns = std::min(4, std::max(1, machine->max_input_slots));
+    inputs.layout.column_spacing = kSlotGap;
+    inputs.layout.row_spacing = kSlotGap;
+    const int32_t input_slots = std::max(0, machine->max_input_slots);
+    for (int32_t index = 0; index < input_slots; ++index) {
+        const ItemStackState empty;
+        const ItemStackState& stack = index < static_cast<int32_t>(machine->input_slots.size())
+            ? machine->input_slots[index]
+            : empty;
+        append_child(inputs, slot_widget("machine_input_slot_" + std::to_string(index),
+                                         stack, false, !transfers_pending));
+    }
+    append_child(storage, std::move(inputs));
+
+    UiWidgetTemplate state = text_widget(
+        "machine_progress",
+        machine->active_recipe_duration_ticks > 0
+            ? std::to_string(machine->progress_ticks) + " / " +
+                std::to_string(machine->active_recipe_duration_ticks)
+            : std::to_string(machine->stored_energy) + " / " +
+                std::to_string(machine->energy_capacity),
+        14.0f);
+    state.layout.params = fixed(112.0f, 28.0f);
+    append_child(storage, std::move(state));
+
+    UiWidgetTemplate outputs;
+    outputs.type = UiWidgetType::Grid;
+    outputs.id = "machine_output_grid";
+    outputs.layout.columns = std::min(4, std::max(1, machine->max_output_slots));
+    outputs.layout.column_spacing = kSlotGap;
+    outputs.layout.row_spacing = kSlotGap;
+    const int32_t output_slots = std::max(0, machine->max_output_slots);
+    for (int32_t index = 0; index < output_slots; ++index) {
+        const ItemStackState empty;
+        const ItemStackState& stack = index < static_cast<int32_t>(machine->output_slots.size())
+            ? machine->output_slots[index]
+            : empty;
+        append_child(outputs, slot_widget("machine_output_slot_" + std::to_string(index),
+                                          stack, false, false));
+    }
+    append_child(storage, std::move(outputs));
+    append_child(panel, std::move(storage));
+
+    UiWidgetTemplate player_slots;
+    player_slots.type = UiWidgetType::Grid;
+    player_slots.id = "machine_player_inventory";
+    player_slots.layout.columns = std::max(1, inventory.state().columns);
+    player_slots.layout.column_spacing = kSlotGap;
+    player_slots.layout.row_spacing = kSlotGap;
+    for (int32_t index = 0; index < static_cast<int32_t>(inventory.state().slots.size()); ++index) {
+        append_child(player_slots, slot_widget("inventory_slot_" + std::to_string(index),
+                                               inventory.state().slots[index],
+                                               index == inventory.state().selected_hotbar,
+                                               !transfers_pending));
+    }
+    append_child(panel, std::move(player_slots));
+    return panel;
+}
+
 void dispatch_crafting_action(CraftingViewModel& model, std::string_view action_id) {
     constexpr std::string_view kCraftActionPrefix = "craft:";
     if (!action_id.starts_with(kCraftActionPrefix)) {
@@ -362,6 +468,38 @@ void PerformanceViewModel::set_visible(bool visible) {
     visible_ = visible;
     ++revision_;
     bindings_.set("performance.visible", visible_);
+}
+
+bool MachinePanelViewModel::apply_authoritative_state(MachinePanelState state) {
+    const auto valid_machine_stack = [](const ItemStackState& stack) {
+        if (stack.empty()) {
+            return stack.item_key.empty() && stack.count <= 0 && stack.instance_data.empty();
+        }
+        return !stack.item_key.empty() && stack.count > 0 && stack.instance_data.empty();
+    };
+    if (state.dimension_id.empty() || state.machine_id.empty() || state.max_input_slots <= 0 ||
+        state.max_output_slots <= 0 ||
+        state.input_slots.size() > static_cast<size_t>(state.max_input_slots) ||
+        state.output_slots.size() > static_cast<size_t>(state.max_output_slots) ||
+        state.stored_energy < 0 || state.energy_capacity < 0 ||
+        state.stored_energy > state.energy_capacity || state.progress_ticks < 0 ||
+        state.active_recipe_duration_ticks < 0 ||
+        !std::all_of(state.input_slots.begin(), state.input_slots.end(), valid_machine_stack) ||
+        !std::all_of(state.output_slots.begin(), state.output_slots.end(), valid_machine_stack)) {
+        SNT_LOG_ERROR("Machine panel rejected an invalid authoritative state for '%s'",
+                      state.machine_id.c_str());
+        return false;
+    }
+    if (state_ && *state_ == state) return true;
+    state_ = std::move(state);
+    ++revision_;
+    return true;
+}
+
+void MachinePanelViewModel::clear() noexcept {
+    if (!state_) return;
+    state_.reset();
+    ++revision_;
 }
 
 InventoryViewModel::InventoryViewModel(InventoryState state)
@@ -540,11 +678,14 @@ CraftedItemResult CraftingViewModel::craft(std::string_view recipe_id) {
 GameplayUiController::GameplayUiController(InventoryViewModel inventory,
                                            std::vector<CraftingRecipeState> recipes,
                                            std::shared_ptr<IInventorySlotTransferCommandSink>
-                                               slot_transfer_sink)
+                                               slot_transfer_sink,
+                                           std::shared_ptr<IMachineInputSlotTransferCommandSink>
+                                               machine_input_slot_transfer_sink)
     : inventory_(std::move(inventory)),
       hotbar_(inventory_),
       crafting_(inventory_, std::move(recipes)),
-      slot_transfer_sink_(std::move(slot_transfer_sink)) {}
+      slot_transfer_sink_(std::move(slot_transfer_sink)),
+      machine_input_slot_transfer_sink_(std::move(machine_input_slot_transfer_sink)) {}
 
 void GameplayUiController::open_inventory() {
     set_open_screen(GameplayUiScreen::Inventory);
@@ -552,6 +693,11 @@ void GameplayUiController::open_inventory() {
 
 void GameplayUiController::open_crafting() {
     set_open_screen(GameplayUiScreen::Crafting);
+}
+
+void GameplayUiController::open_machine(MachinePanelState state) {
+    if (!machine_panel_.apply_authoritative_state(std::move(state))) return;
+    set_open_screen(GameplayUiScreen::Machine);
 }
 
 void GameplayUiController::close() {
@@ -568,9 +714,11 @@ void GameplayUiController::toggle_crafting() {
 
 void GameplayUiController::handle_inventory_slot_drag(const UiDragEvent& event) {
     if (event.type != UiDragEventType::Drop) return;
-    if (pending_slot_transfer_) {
+    if (pending_slot_transfer_ || pending_machine_input_slot_transfer_) {
         SNT_LOG_WARN("Inventory slot transfer ignored while request %llu is awaiting confirmation",
-                     static_cast<unsigned long long>(pending_slot_transfer_->request_id));
+                     static_cast<unsigned long long>(
+                         pending_slot_transfer_ ? pending_slot_transfer_->request_id
+                                                : pending_machine_input_slot_transfer_->request_id));
         return;
     }
     if (!slot_transfer_sink_) {
@@ -626,6 +774,95 @@ void GameplayUiController::handle_inventory_slot_drag(const UiDragEvent& event) 
     SNT_LOG_INFO("Inventory slot transfer requested id=%llu source=%u target=%u count=%d",
                  static_cast<unsigned long long>(request.request_id), request.source_slot,
                  request.target_slot, request.count);
+}
+
+void GameplayUiController::handle_machine_input_slot_drag(const UiDragEvent& event) {
+    if (event.type != UiDragEventType::Drop) return;
+    if (pending_slot_transfer_ || pending_machine_input_slot_transfer_) {
+        SNT_LOG_WARN("Machine input transfer ignored while another inventory request is pending");
+        return;
+    }
+    if (!machine_input_slot_transfer_sink_) {
+        SNT_LOG_WARN("Machine input transfer has no authoritative command sink: source='%s' target='%s'",
+                     event.source_id.c_str(), event.target_id.c_str());
+        return;
+    }
+    const MachinePanelState* const machine = machine_panel_.state();
+    if (machine == nullptr || inventory_authority_revision_ == 0) {
+        SNT_LOG_WARN("Machine input transfer has no authoritative machine or inventory snapshot");
+        return;
+    }
+
+    const std::optional<uint32_t> source_player = inventory_slot_index(event.source_id);
+    const std::optional<uint32_t> target_player = inventory_slot_index(event.target_id);
+    const std::optional<uint32_t> source_machine = machine_input_slot_index(event.source_id);
+    const std::optional<uint32_t> target_machine = machine_input_slot_index(event.target_id);
+    MachineInputSlotTransferDirection direction;
+    uint32_t player_slot = 0;
+    uint32_t machine_slot = 0;
+    if (source_player && target_machine) {
+        direction = MachineInputSlotTransferDirection::PlayerToMachineInput;
+        player_slot = *source_player;
+        machine_slot = *target_machine;
+    } else if (source_machine && target_player) {
+        direction = MachineInputSlotTransferDirection::MachineInputToPlayer;
+        player_slot = *target_player;
+        machine_slot = *source_machine;
+    } else {
+        SNT_LOG_WARN("Machine input transfer has incompatible slot IDs: source='%s' target='%s'",
+                     event.source_id.c_str(), event.target_id.c_str());
+        return;
+    }
+    const InventoryState& inventory = inventory_.state();
+    if (player_slot >= inventory.slots.size() || machine_slot >= static_cast<uint32_t>(machine->max_input_slots) ||
+        machine_slot > machine->input_slots.size()) {
+        SNT_LOG_WARN("Machine input transfer references an unavailable player or machine slot");
+        return;
+    }
+    const ItemStackState& player_stack = inventory.slots[player_slot];
+    const ItemStackState empty;
+    const ItemStackState& machine_stack = machine_slot < machine->input_slots.size()
+        ? machine->input_slots[machine_slot]
+        : empty;
+    const ItemStackState& source = direction ==
+            MachineInputSlotTransferDirection::PlayerToMachineInput
+        ? player_stack
+        : machine_stack;
+    if (source.empty() || event.payload.type != "snt.item" ||
+        event.payload.resource_key != source.item_key || event.payload.count <= 0 ||
+        event.payload.count > source.count) {
+        SNT_LOG_WARN("Machine input transfer payload no longer matches the source slot");
+        return;
+    }
+    if (next_machine_input_slot_transfer_request_id_ == 0 ||
+        next_machine_input_slot_transfer_request_id_ == std::numeric_limits<uint64_t>::max()) {
+        SNT_LOG_ERROR("Machine input slot transfer request IDs are exhausted");
+        return;
+    }
+
+    MachineInputSlotTransferRequest request{
+        .request_id = next_machine_input_slot_transfer_request_id_,
+        .expected_inventory_revision = inventory_authority_revision_,
+        .direction = direction,
+        .target = *machine,
+        .player_slot = player_slot,
+        .machine_input_slot = machine_slot,
+        .count = event.payload.count,
+        .expected_player_slot = player_stack,
+        .expected_machine_input_slot = machine_stack,
+    };
+    if (auto submitted = machine_input_slot_transfer_sink_->submit_machine_input_slot_transfer(request);
+        !submitted) {
+        SNT_LOG_WARN("Machine input transfer request %llu was not submitted: %s",
+                     static_cast<unsigned long long>(request.request_id),
+                     submitted.error().format().c_str());
+        return;
+    }
+    pending_machine_input_slot_transfer_ = request;
+    ++next_machine_input_slot_transfer_request_id_;
+    SNT_LOG_INFO("Machine input transfer requested id=%llu player_slot=%u machine_slot=%u count=%d",
+                 static_cast<unsigned long long>(request.request_id), request.player_slot,
+                 request.machine_input_slot, request.count);
 }
 
 bool GameplayUiController::apply_inventory_authoritative_snapshot(
@@ -689,9 +926,56 @@ bool GameplayUiController::apply_inventory_slot_transfer_confirmation(
     return false;
 }
 
+bool GameplayUiController::apply_machine_input_slot_transfer_confirmation(
+    MachineInputSlotTransferConfirmation confirmation) {
+    if (!pending_machine_input_slot_transfer_ ||
+        confirmation.request_id != pending_machine_input_slot_transfer_->request_id) {
+        SNT_LOG_WARN("Machine authority returned an unknown input transfer confirmation id=%llu",
+                     static_cast<unsigned long long>(confirmation.request_id));
+        return false;
+    }
+
+    const MachineInputSlotTransferRequest request = *pending_machine_input_slot_transfer_;
+    pending_machine_input_slot_transfer_.reset();
+    const bool accepted = confirmation.outcome == InventorySlotTransferOutcome::Accepted;
+    if ((accepted && confirmation.authoritative_inventory_revision <=
+                         request.expected_inventory_revision) ||
+        (!accepted && confirmation.authoritative_inventory_revision <
+                          request.expected_inventory_revision)) {
+        SNT_LOG_ERROR("Machine authority returned a stale input transfer confirmation id=%llu revision=%llu",
+                      static_cast<unsigned long long>(confirmation.request_id),
+                      static_cast<unsigned long long>(confirmation.authoritative_inventory_revision));
+        return false;
+    }
+    if (!apply_inventory_authoritative_snapshot(std::move(confirmation.inventory_slots),
+                                                confirmation.inventory_max_stack_size,
+                                                confirmation.authoritative_inventory_revision)) {
+        SNT_LOG_ERROR("Machine authority confirmation id=%llu has an invalid inventory snapshot",
+                      static_cast<unsigned long long>(confirmation.request_id));
+        return false;
+    }
+    if (accepted) {
+        SNT_LOG_INFO("Machine input transfer confirmed id=%llu revision=%llu",
+                     static_cast<unsigned long long>(confirmation.request_id),
+                     static_cast<unsigned long long>(inventory_authority_revision_));
+        return true;
+    }
+    SNT_LOG_WARN("Machine input transfer rejected id=%llu: %s",
+                 static_cast<unsigned long long>(confirmation.request_id),
+                 confirmation.rejection_reason.empty() ? "authority rejected request"
+                                                        : confirmation.rejection_reason.c_str());
+    return false;
+}
+
 void GameplayUiController::clear_inventory_authority() noexcept {
     pending_slot_transfer_.reset();
     inventory_authority_revision_ = 0;
+}
+
+void GameplayUiController::clear_machine_authority() noexcept {
+    pending_machine_input_slot_transfer_.reset();
+    machine_panel_.clear();
+    if (machine_open()) set_open_screen(GameplayUiScreen::None);
 }
 
 void GameplayUiController::set_open_screen(GameplayUiScreen screen) {
@@ -712,6 +996,12 @@ std::unique_ptr<ViewGroup> build_inventory_view(
 std::unique_ptr<ViewGroup> build_crafting_view(
     CraftingViewModel& model, const localization::LocalizationService& localization) {
     return instantiate_group(crafting_template(model, localization), crafting_actions(model));
+}
+
+std::unique_ptr<ViewGroup> build_machine_panel_view(
+    const MachinePanelViewModel& model, const InventoryViewModel& inventory,
+    const localization::LocalizationService& localization) {
+    return instantiate_group(machine_panel_template(model, inventory, false, localization));
 }
 
 std::unique_ptr<ViewGroup> build_performance_panel_view(
@@ -749,6 +1039,16 @@ UiWidgetTree build_gameplay_ui_widget_tree(
             (viewport.x - crafting.layout.params.width) * 0.5f;
         crafting.layout.params.margin.top =
             (viewport.y - crafting.layout.params.height) * 0.5f;
+    } else if (controller.machine_open()) {
+        UiWidgetTemplate& machine = append_child(
+            root, machine_panel_template(controller.machine_panel(), controller.inventory(),
+                                         controller.inventory_slot_transfer_pending() ||
+                                             controller.machine_input_slot_transfer_pending(),
+                                         localization));
+        machine.layout.params.margin.left =
+            (viewport.x - machine.layout.params.width) * 0.5f;
+        machine.layout.params.margin.top =
+            (viewport.y - machine.layout.params.height) * 0.5f;
     }
 
     return tree;
@@ -763,12 +1063,14 @@ struct GameplayUiTreeState {
     uint64_t controller_revision = 0;
     uint64_t inventory_revision = 0;
     uint64_t crafting_revision = 0;
+    uint64_t machine_revision = 0;
     Vec2 viewport{};
 
     bool operator==(const GameplayUiTreeState& other) const {
         return controller_revision == other.controller_revision &&
             inventory_revision == other.inventory_revision &&
             crafting_revision == other.crafting_revision &&
+            machine_revision == other.machine_revision &&
             viewport.x == other.viewport.x && viewport.y == other.viewport.y;
     }
 };
@@ -779,6 +1081,7 @@ GameplayUiTreeState gameplay_ui_tree_state(GameplayUiController& controller,
         .controller_revision = controller.revision(),
         .inventory_revision = controller.inventory().revision(),
         .crafting_revision = controller.crafting().revision(),
+        .machine_revision = controller.machine_panel().revision(),
         .viewport = viewport,
     };
 }

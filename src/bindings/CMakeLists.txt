@@ -16,7 +16,6 @@ set(SOURCES
     world/gd_world_gen_config.cpp
     world/gd_terrain_content_registry.cpp
     world/gd_terrain_generator.cpp
-    world/gd_furnace_manager.cpp
     world/gd_charcoal_pit.cpp
     world/gd_pit_kiln.cpp
     world/gd_bloomery.cpp

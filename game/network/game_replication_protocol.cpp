@@ -185,6 +185,16 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     return false;
 }
 
+[[nodiscard]] bool is_known_machine_input_slot_transfer_direction(
+    GameMachineInputSlotTransferDirection direction) noexcept {
+    switch (direction) {
+        case GameMachineInputSlotTransferDirection::kPlayerToMachineInput:
+        case GameMachineInputSlotTransferDirection::kMachineInputToPlayer:
+            return true;
+    }
+    return false;
+}
+
 [[nodiscard]] bool is_empty_inventory_stack(const GamePlayerItemStack& stack) noexcept {
     return stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty();
 }
@@ -1037,6 +1047,152 @@ parse_game_inventory_slot_transfer_command(const GameClientCommand& command) {
     decoded.expected_source = std::move(*expected_source);
     decoded.expected_target = std::move(*expected_target);
     if (auto result = validate_game_inventory_slot_transfer_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
+}
+
+snt::core::Expected<void> validate_game_machine_input_slot_transfer_command(
+    const GameMachineInputSlotTransferCommand& command) {
+    if (command.request_id == 0 || command.expected_inventory_revision == 0 ||
+        !is_known_machine_input_slot_transfer_direction(command.direction) ||
+        command.dimension_id.empty() || command.dimension_id.size() > kMaxGameDimensionIdBytes ||
+        has_embedded_nul(command.dimension_id) ||
+        command.expected_material > kGameNoExpectedTerrainMaterial ||
+        command.player_slot >= kMaxGameInventorySlots ||
+        command.machine_input_slot >= kMaxGameMachineInputSlots || command.count <= 0) {
+        return protocol_error("Game machine input slot transfer header is invalid");
+    }
+    if (auto result = validate_inventory_stack(command.expected_player_slot,
+                                               command.direction ==
+                                                   GameMachineInputSlotTransferDirection::
+                                                       kMachineInputToPlayer,
+                                               "Game machine input slot transfer expected player slot");
+        !result) {
+        return result.error();
+    }
+    if (auto result = validate_inventory_stack(
+            command.expected_machine_input_slot,
+            command.direction ==
+                GameMachineInputSlotTransferDirection::kPlayerToMachineInput,
+            "Game machine input slot transfer expected machine input slot");
+        !result) {
+        return result.error();
+    }
+    if (!command.expected_machine_input_slot.instance_data.empty()) {
+        return protocol_error("Game machine input slot transfer cannot carry machine instance data");
+    }
+    const int32_t source_count = command.direction ==
+            GameMachineInputSlotTransferDirection::kPlayerToMachineInput
+        ? command.expected_player_slot.count
+        : command.expected_machine_input_slot.count;
+    if (command.count > source_count) {
+        return protocol_error("Game machine input slot transfer count exceeds the expected source");
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_machine_input_slot_transfer_command(
+    uint64_t client_sequence, const GameMachineInputSlotTransferCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game machine input slot transfer command sequence must be non-zero");
+    }
+    if (auto result = validate_game_machine_input_slot_transfer_command(command); !result) {
+        return result.error();
+    }
+
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kMachineInputSlotTransfer);
+    encoded.payload.reserve(sizeof(uint64_t) * 2 + sizeof(uint8_t) +
+                            command.dimension_id.size() + sizeof(uint16_t) * 4 +
+                            sizeof(uint32_t) * 4 +
+                            command.expected_player_slot.item_id.size() +
+                            command.expected_player_slot.instance_data.size() +
+                            command.expected_machine_input_slot.item_id.size() + 20);
+    append_u64(encoded.payload, command.request_id);
+    append_u64(encoded.payload, command.expected_inventory_revision);
+    encoded.payload.push_back(static_cast<std::byte>(command.direction));
+    if (auto result = append_short_string(encoded.payload, command.dimension_id,
+                                          kMaxGameDimensionIdBytes,
+                                          "machine input slot transfer dimension id", true);
+        !result) {
+        return result.error();
+    }
+    append_i32(encoded.payload, command.root_x);
+    append_i32(encoded.payload, command.root_y);
+    append_i32(encoded.payload, command.root_z);
+    append_u16(encoded.payload, command.expected_material);
+    append_u16(encoded.payload, command.player_slot);
+    append_u16(encoded.payload, command.machine_input_slot);
+    append_i32(encoded.payload, command.count);
+    if (auto result = append_inventory_stack(
+            encoded.payload, command.expected_player_slot,
+            "Game machine input slot transfer expected player slot");
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_inventory_stack(
+            encoded.payload, command.expected_machine_input_slot,
+            "Game machine input slot transfer expected machine input slot");
+        !result) {
+        return result.error();
+    }
+    return encoded;
+}
+
+snt::core::Expected<GameMachineInputSlotTransferCommand>
+parse_game_machine_input_slot_transfer_command(const GameClientCommand& command) {
+    if (command.command_type !=
+        static_cast<uint16_t>(GameClientCommandType::kMachineInputSlotTransfer)) {
+        return protocol_error("Game client command type is not MachineInputSlotTransfer");
+    }
+
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    constexpr size_t kPrefixBytes = sizeof(uint64_t) * 2 + sizeof(uint8_t);
+    if (bytes.size() < kPrefixBytes) {
+        return protocol_error("Game machine input slot transfer command is incomplete");
+    }
+    size_t offset = 0;
+    GameMachineInputSlotTransferCommand decoded;
+    decoded.request_id = read_u64(bytes, offset);
+    offset += sizeof(uint64_t);
+    decoded.expected_inventory_revision = read_u64(bytes, offset);
+    offset += sizeof(uint64_t);
+    decoded.direction = static_cast<GameMachineInputSlotTransferDirection>(
+        std::to_integer<uint8_t>(bytes[offset++]));
+    auto dimension_id = read_short_string(bytes, offset, kMaxGameDimensionIdBytes,
+                                          "machine input slot transfer dimension id", true);
+    if (!dimension_id) return dimension_id.error();
+    constexpr size_t kBodyBytes = sizeof(uint32_t) * 4 + sizeof(uint16_t) * 3;
+    if (bytes.size() - offset < kBodyBytes) {
+        return protocol_error("Game machine input slot transfer coordinates are truncated");
+    }
+    decoded.dimension_id = std::move(*dimension_id);
+    decoded.root_x = read_i32(bytes, offset);
+    decoded.root_y = read_i32(bytes, offset + sizeof(uint32_t));
+    decoded.root_z = read_i32(bytes, offset + sizeof(uint32_t) * 2);
+    offset += sizeof(uint32_t) * 3;
+    decoded.expected_material = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    decoded.player_slot = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    decoded.machine_input_slot = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    decoded.count = read_i32(bytes, offset);
+    offset += sizeof(uint32_t);
+    auto expected_player = read_inventory_stack(
+        bytes, offset, "Game machine input slot transfer expected player slot");
+    if (!expected_player) return expected_player.error();
+    auto expected_machine = read_inventory_stack(
+        bytes, offset, "Game machine input slot transfer expected machine input slot");
+    if (!expected_machine) return expected_machine.error();
+    if (offset != bytes.size()) {
+        return protocol_error("Game machine input slot transfer command has trailing bytes");
+    }
+    decoded.expected_player_slot = std::move(*expected_player);
+    decoded.expected_machine_input_slot = std::move(*expected_machine);
+    if (auto result = validate_game_machine_input_slot_transfer_command(decoded); !result) {
         return result.error();
     }
     return decoded;

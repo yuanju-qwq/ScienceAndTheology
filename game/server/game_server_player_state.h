@@ -20,6 +20,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -114,6 +115,15 @@ public:
     [[nodiscard]] snt::core::Expected<bool> can_apply_inventory_slot_transfer(
         const GameAuthenticatedPeer& peer,
         const GamePlayerInventorySlotTransfer& transfer) const;
+    // Main-thread cross-container services use this value-only conditional
+    // boundary after validating their own container candidate. All listed
+    // player slots are replaced atomically or none are changed.
+    [[nodiscard]] snt::core::Expected<void> apply_inventory_slot_mutations(
+        const GameAuthenticatedPeer& peer,
+        std::span<const GamePlayerInventorySlotMutation> mutations);
+    [[nodiscard]] snt::core::Expected<bool> can_apply_inventory_slot_mutations(
+        const GameAuthenticatedPeer& peer,
+        std::span<const GamePlayerInventorySlotMutation> mutations) const;
     [[nodiscard]] snt::core::Expected<void> replace_trusted_held_tool_tags(
         const GameAuthenticatedPeer& peer, std::vector<std::string> tags);
 
@@ -154,6 +164,8 @@ private:
         const GamePlayerInventoryTransaction& transaction) const;
     [[nodiscard]] snt::core::Expected<void> validate_inventory_slot_transfer(
         const GamePlayerInventorySlotTransfer& transfer) const;
+    [[nodiscard]] snt::core::Expected<void> validate_inventory_slot_mutations(
+        std::span<const GamePlayerInventorySlotMutation> mutations) const;
     [[nodiscard]] snt::core::Expected<void> validate_tool_tags(
         const std::vector<std::string>& tags) const;
     [[nodiscard]] snt::core::Expected<PlayerRecord*> find_active_record(

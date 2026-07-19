@@ -441,6 +441,13 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_inventory_slot_t
     return enqueue_command(std::move(*encoded));
 }
 
+snt::core::Expected<void> GameClientReplicationSession::enqueue_machine_input_slot_transfer(
+    uint64_t client_sequence, GameMachineInputSlotTransferCommand command) {
+    auto encoded = make_game_machine_input_slot_transfer_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
 snt::core::Expected<void> GameClientReplicationSession::enqueue_player_movement_input(
     GamePlayerMovementInput input) {
     if (!impl_ || !impl_->handler) {

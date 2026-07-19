@@ -208,9 +208,9 @@ struct CreatureBlockEntityState {
 //     `claimed_cells` is empty.
 //
 // Runtime state (inventory, progress, energy buffer) is NOT stored
-// here. It lives in the dedicated manager (e.g. FurnaceManager) keyed
-// by the EntityId. The BlockEntity placement acts as the spatial
-// anchor and the bridge to the runtime manager.
+// here. It lives in the game-owned machine runtime keyed by the EntityId.
+// The BlockEntity placement acts as the spatial anchor and the bridge to
+// that runtime.
 
 struct MachineBlockEntityState {
     std::string machine_type;        // e.g. "furnace", "coke_oven"

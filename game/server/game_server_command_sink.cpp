@@ -103,6 +103,23 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
             pending.inventory_slot_transfer = std::move(*parsed);
             break;
         }
+        case GameClientCommandType::kMachineInputSlotTransfer: {
+            if (player_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no host player interaction service"};
+            }
+            auto parsed = parse_game_machine_input_slot_transfer_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(MachineInputSlotTransfer)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kMachineInputSlotTransfer;
+            pending.machine_input_slot_transfer = std::move(*parsed);
+            break;
+        }
         default:
             return protocol_error("Game client command type is not implemented by this server");
     }
@@ -207,6 +224,19 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
                     record_gameplay_rejection(tick_index, command, result.error());
                 }
                 break;
+            case GameClientCommandType::kMachineInputSlotTransfer:
+                if (player_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its player interaction service"));
+                    break;
+                }
+                if (auto result = player_interactions_->submit_machine_input_slot_transfer(
+                        command.peer, command.machine_input_slot_transfer, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
         }
     }
     pending_.clear();
@@ -274,6 +304,9 @@ void GameServerCommandSink::record_gameplay_rejection(
             break;
         case GameClientCommandType::kInventorySlotTransfer:
             command_name = "inventory_slot_transfer";
+            break;
+        case GameClientCommandType::kMachineInputSlotTransfer:
+            command_name = "machine_input_slot_transfer";
             break;
     }
     SNT_LOG_WARN("Rejected %u host game command(s); latest peer=%llu player='%s' command=%s: %s",

@@ -1,7 +1,7 @@
 class_name MachineCollisionBridge
 extends Node
 
-# Bridges all machine managers (Furnace, Bloomery, PitKiln, CharcoalPit, Anvil)
+# Bridges retained legacy machine managers (Bloomery, PitKiln, CharcoalPit, Anvil)
 # to the C++ machine collision overlay on WorldData, and triggers a chunk
 # collision rebuild so each machine cell gets collision coverage from the
 # chunk-level collision mesh instead of a per-object Godot StaticBody3D.
@@ -27,7 +27,6 @@ extends Node
 #   connected. State is NOT persisted here — the authoritative source is each
 #   manager's own data.
 
-@export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var bloomery_manager_path: NodePath = ^"../BloomeryManager"
 @export var pit_kiln_manager_path: NodePath = ^"../PitKilnManager"
 @export var charcoal_pit_manager_path: NodePath = ^"../CharcoalPitManager"
@@ -35,7 +34,6 @@ extends Node
 @export var chunk_bridge_path: NodePath = ^"../ChunkRendererBridge"
 @export var universe_manager_path: NodePath = ^"../UniverseManager"
 
-var _furnace_manager: FurnaceManager = null
 var _bloomery_manager: BloomeryManager = null
 var _pit_kiln_manager: PitKilnManager = null
 var _charcoal_pit_manager: CharcoalPitManager = null
@@ -53,7 +51,6 @@ func _ready() -> void:
 # existing manager state. Deferred so sibling nodes added by the scene
 # loader are ready before we touch them.
 func _connect_signals() -> void:
-	_furnace_manager = get_node_or_null(furnace_manager_path) as FurnaceManager
 	_bloomery_manager = get_node_or_null(bloomery_manager_path) as BloomeryManager
 	_pit_kiln_manager = get_node_or_null(pit_kiln_manager_path) as PitKilnManager
 	_charcoal_pit_manager = get_node_or_null(charcoal_pit_manager_path) as CharcoalPitManager
@@ -66,9 +63,6 @@ func _connect_signals() -> void:
 		push_warning("MachineCollisionBridge: missing WorldData; machine collision will not sync.")
 		return
 	# Wire up every manager.
-	if _furnace_manager != null:
-		_furnace_manager.furnace_placed.connect(_on_furnace_placed)
-		_furnace_manager.furnace_removed.connect(_on_furnace_removed)
 	if _bloomery_manager != null:
 		_bloomery_manager.bloomery_placed.connect(_on_bloomery_placed)
 		_bloomery_manager.bloomery_removed.connect(_on_bloomery_removed)
@@ -90,12 +84,6 @@ func _connect_signals() -> void:
 
 
 # --- Signal handlers (one per manager type) ---
-
-func _on_furnace_placed(dimension: StringName, cell: Vector3i) -> void:
-	_mark_machine_cell(dimension, cell, true)
-
-func _on_furnace_removed(dimension: StringName, cell: Vector3i) -> void:
-	_mark_machine_cell(dimension, cell, false)
 
 func _on_bloomery_placed(dimension: StringName, cell: Vector3i) -> void:
 	_mark_machine_cell(dimension, cell, true)
@@ -157,7 +145,7 @@ func _sync_existing_objects() -> void:
 # Collect all machine managers into one list. Adding a new machine type only
 # requires appending it here.
 func _get_machine_managers() -> Array:
-	return [_furnace_manager, _bloomery_manager, _pit_kiln_manager,
+	return [_bloomery_manager, _pit_kiln_manager,
 			_charcoal_pit_manager, _anvil_manager]
 
 

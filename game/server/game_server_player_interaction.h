@@ -35,6 +35,7 @@ namespace snt::game::replication {
 class GameServerPlayerBedService;
 class GameServerPlayerState;
 class IGameServerPlayerStateCheckpointSink;
+class GameServerInventoryReplication;
 
 // A server-owned content catalog entry. Clients select item ids, but do not
 // get to write arbitrary terrain material or flag combinations into saves.
@@ -89,6 +90,10 @@ public:
     virtual snt::core::Expected<void> apply_block_interaction(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index) = 0;
+    virtual snt::core::Expected<void> submit_machine_input_slot_transfer(
+        const GameAuthenticatedPeer& peer,
+        const GameMachineInputSlotTransferCommand& command,
+        uint64_t tick_index) = 0;
 };
 
 class GameServerPlayerInteractionService final
@@ -100,6 +105,7 @@ public:
            GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
            GameServerPlayerBedService& beds, const GameContentRegistry& content,
            MachineInteractionService& machine_interactions,
+           GameServerInventoryReplication* inventory_replication = nullptr,
            IGameServerPlayerStateCheckpointSink* checkpoint_sink = nullptr,
            std::vector<IGameServerPlayerInteractionEventSink*> event_sinks = {},
            GameServerPlayerInteractionConfig config = {});
@@ -110,6 +116,10 @@ public:
     [[nodiscard]] snt::core::Expected<void> apply_block_interaction(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index) override;
+    [[nodiscard]] snt::core::Expected<void> submit_machine_input_slot_transfer(
+        const GameAuthenticatedPeer& peer,
+        const GameMachineInputSlotTransferCommand& command,
+        uint64_t tick_index) override;
 
     [[nodiscard]] static std::vector<GameServerBlockDefinition> default_block_definitions();
 
@@ -119,6 +129,7 @@ private:
         GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
         GameServerPlayerBedService& beds, const GameContentRegistry& content,
         MachineInteractionService& machine_interactions,
+        GameServerInventoryReplication* inventory_replication,
         IGameServerPlayerStateCheckpointSink* checkpoint_sink,
         std::vector<IGameServerPlayerInteractionEventSink*> event_sinks,
         GameServerPlayerInteractionConfig config);
@@ -141,6 +152,10 @@ private:
     [[nodiscard]] snt::core::Expected<void> apply_machine_collect(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_machine_input_slot_transfer(
+        const GameAuthenticatedPeer& peer,
+        const GameMachineInputSlotTransferCommand& command,
+        uint64_t tick_index);
 
     [[nodiscard]] const GameServerBlockDefinition* find_block_by_item(
         const std::string& item_id) const noexcept;
@@ -157,6 +172,7 @@ private:
     GameServerPlayerBedService* beds_ = nullptr;
     const GameContentRegistry* content_ = nullptr;
     MachineInteractionService* machine_interactions_ = nullptr;
+    GameServerInventoryReplication* inventory_replication_ = nullptr;
     IGameServerPlayerStateCheckpointSink* checkpoint_sink_ = nullptr;
     std::vector<IGameServerPlayerInteractionEventSink*> event_sinks_;
     GameServerPlayerInteractionConfig config_;

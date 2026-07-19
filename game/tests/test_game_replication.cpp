@@ -520,7 +520,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 12u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 13u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);

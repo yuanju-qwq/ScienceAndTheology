@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -29,12 +30,15 @@ using snt::game::make_local_name_player_identity;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameClientInventoryState;
 using snt::game::replication::GameDelta;
+using snt::game::replication::GameInventoryCommandKind;
 using snt::game::replication::GameInventoryDelta;
 using snt::game::replication::GameInventoryReplicationPayload;
 using snt::game::replication::GameInventorySlotChange;
 using snt::game::replication::GameInventorySlotTransferCommand;
 using snt::game::replication::GameInventorySlotTransferOutcome;
 using snt::game::replication::GameInventorySnapshot;
+using snt::game::replication::GameMachineInputSlotTransferCommand;
+using snt::game::replication::GameMachineInputSlotTransferDirection;
 using snt::game::replication::GameReplicationBudget;
 using snt::game::replication::GameReplicationInterest;
 using snt::game::replication::GameReplicationValue;
@@ -50,6 +54,8 @@ using snt::game::replication::decode_game_inventory_replication_payload;
 using snt::game::replication::encode_game_inventory_delta;
 using snt::game::replication::encode_game_inventory_snapshot;
 using snt::game::replication::make_game_inventory_slot_transfer_command;
+using snt::game::replication::make_game_machine_input_slot_transfer_command;
+using snt::game::replication::parse_game_machine_input_slot_transfer_command;
 
 PlayerIdentity make_local_identity(std::string name) {
     auto identity = make_local_name_player_identity(std::move(name));
@@ -111,6 +117,7 @@ TEST(GameInventoryReplicationCodecTest, SendsOnlyChangedSlotsAfterFullSnapshot) 
         .response_revision = 1,
         .response = {
             .request_id = 41,
+            .kind = GameInventoryCommandKind::kInventorySlotTransfer,
             .outcome = GameInventorySlotTransferOutcome::kAccepted,
         },
         .changed_slots = {
@@ -133,6 +140,55 @@ TEST(GameInventoryReplicationCodecTest, SendsOnlyChangedSlotsAfterFullSnapshot) 
     GameInventoryDelta duplicate_slot = delta;
     duplicate_slot.changed_slots.push_back({.slot_index = 0, .stack = {}});
     EXPECT_FALSE(encode_game_inventory_delta(duplicate_slot));
+}
+
+TEST(GameMachineInputSlotTransferProtocolTest, RoundTripsAndRejectsMalformedPayloads) {
+    const GameMachineInputSlotTransferCommand command{
+        .request_id = 71,
+        .expected_inventory_revision = 9,
+        .direction = GameMachineInputSlotTransferDirection::kPlayerToMachineInput,
+        .dimension_id = "overworld",
+        .root_x = -4,
+        .root_y = 12,
+        .root_z = 7,
+        .expected_material = 10,
+        .player_slot = 3,
+        .machine_input_slot = 1,
+        .count = 2,
+        .expected_player_slot = {.item_id = "iron_ore", .count = 5},
+        .expected_machine_input_slot = {.item_id = "iron_ore", .count = 1},
+    };
+    auto encoded = make_game_machine_input_slot_transfer_command(44, command);
+    ASSERT_TRUE(encoded) << encoded.error().format();
+    EXPECT_EQ(encoded->client_sequence, 44u);
+    auto decoded = parse_game_machine_input_slot_transfer_command(*encoded);
+    ASSERT_TRUE(decoded) << decoded.error().format();
+    EXPECT_EQ(decoded->request_id, command.request_id);
+    EXPECT_EQ(decoded->expected_inventory_revision, command.expected_inventory_revision);
+    EXPECT_EQ(decoded->direction, command.direction);
+    EXPECT_EQ(decoded->dimension_id, command.dimension_id);
+    EXPECT_EQ(decoded->root_x, command.root_x);
+    EXPECT_EQ(decoded->root_y, command.root_y);
+    EXPECT_EQ(decoded->root_z, command.root_z);
+    EXPECT_EQ(decoded->expected_material, command.expected_material);
+    EXPECT_EQ(decoded->player_slot, command.player_slot);
+    EXPECT_EQ(decoded->machine_input_slot, command.machine_input_slot);
+    EXPECT_EQ(decoded->count, command.count);
+    EXPECT_EQ(decoded->expected_player_slot, command.expected_player_slot);
+    EXPECT_EQ(decoded->expected_machine_input_slot, command.expected_machine_input_slot);
+
+    auto trailing = *encoded;
+    trailing.payload.push_back(std::byte{0});
+    EXPECT_FALSE(parse_game_machine_input_slot_transfer_command(trailing));
+
+    GameMachineInputSlotTransferCommand machine_instance = command;
+    machine_instance.expected_machine_input_slot.instance_data = "not-supported";
+    EXPECT_FALSE(make_game_machine_input_slot_transfer_command(45, machine_instance));
+
+    GameMachineInputSlotTransferCommand unavailable_slot = command;
+    unavailable_slot.machine_input_slot =
+        static_cast<uint16_t>(snt::game::replication::kMaxGameMachineInputSlots);
+    EXPECT_FALSE(make_game_machine_input_slot_transfer_command(46, unavailable_slot));
 }
 
 TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
@@ -159,6 +215,7 @@ TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
         .response_revision = 1,
         .response = {
             .request_id = 7,
+            .kind = GameInventoryCommandKind::kInventorySlotTransfer,
             .outcome = GameInventorySlotTransferOutcome::kAccepted,
         },
         .changed_slots = {

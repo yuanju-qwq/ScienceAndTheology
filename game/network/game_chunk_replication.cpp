@@ -172,8 +172,14 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     if (!is_valid_chunk_key(machine.anchor_chunk) || machine.machine_id.empty() ||
         machine.machine_id.size() > kMaxReplicatedMachineIdBytes ||
         has_embedded_nul(machine.machine_id) ||
+        machine.max_input_slots == 0 ||
+        machine.max_input_slots > kMaxReplicatedMachineSlots ||
+        machine.max_output_slots == 0 ||
+        machine.max_output_slots > kMaxReplicatedMachineSlots ||
         machine.input_slots.size() > kMaxReplicatedMachineSlots ||
         machine.output_slots.size() > kMaxReplicatedMachineSlots ||
+        machine.input_slots.size() > machine.max_input_slots ||
+        machine.output_slots.size() > machine.max_output_slots ||
         machine.stored_energy < 0 || machine.energy_capacity < 0 ||
         machine.stored_energy > machine.energy_capacity || machine.progress_ticks < 0 ||
         machine.active_recipe_duration_ticks < 0 ||
@@ -459,8 +465,8 @@ encode_game_machine_replication_entity(const GameMachineReplicationEntity& entit
         return result.error();
     }
     bytes.push_back(static_cast<std::byte>(machine.run_state));
-    bytes.push_back(std::byte{0});
-    bytes.push_back(std::byte{0});
+    bytes.push_back(static_cast<std::byte>(machine.max_input_slots));
+    bytes.push_back(static_cast<std::byte>(machine.max_output_slots));
     bytes.push_back(std::byte{0});
     append_i32(bytes, machine.stored_energy);
     append_i32(bytes, machine.energy_capacity);
@@ -519,9 +525,9 @@ decode_game_machine_replication_entity(std::span<const std::byte> payload) {
         return protocol_error("Game machine replication entity state is truncated");
     }
     machine.run_state = std::to_integer<uint8_t>(payload[offset]);
-    if (std::to_integer<uint8_t>(payload[offset + 1]) != 0 ||
-        std::to_integer<uint8_t>(payload[offset + 2]) != 0 ||
-        std::to_integer<uint8_t>(payload[offset + 3]) != 0) {
+    machine.max_input_slots = std::to_integer<uint8_t>(payload[offset + 1]);
+    machine.max_output_slots = std::to_integer<uint8_t>(payload[offset + 2]);
+    if (std::to_integer<uint8_t>(payload[offset + 3]) != 0) {
         return protocol_error("Game machine replication entity reserved bytes are invalid");
     }
     offset += sizeof(uint8_t) * 4;

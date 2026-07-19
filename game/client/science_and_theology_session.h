@@ -78,6 +78,10 @@ private:
     void process_lan_join_request();
     void set_lan_server_browser_visible(bool visible);
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
+    [[nodiscard]] std::optional<GameClientBlockInteractionTarget>
+    current_network_interaction_target() const;
+    [[nodiscard]] bool try_open_network_machine_panel();
+    void refresh_open_machine_panel();
     void handle_network_block_interaction_input(snt::engine::ClientFrameContext& context);
     void set_quest_book_visible(bool visible);
     [[nodiscard]] snt::core::Expected<void> submit_quest_reward_claim(

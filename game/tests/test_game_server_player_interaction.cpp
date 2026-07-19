@@ -5,8 +5,10 @@
 #include "ecs/world.h"
 #include "game/client/game_content_registry.h"
 #include "game/client/machine_tick_system.h"
+#include "game/network/game_inventory_replication.h"
 #include "game/player/player_identity.h"
 #include "game/server/game_server_command_sink.h"
+#include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
@@ -20,6 +22,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace {
 
@@ -35,7 +38,14 @@ using snt::game::QuestRegistry;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameBlockInteractionAction;
 using snt::game::replication::GameBlockInteractionCommand;
+using snt::game::replication::GameInventoryCommandKind;
+using snt::game::replication::GameInventoryDelta;
+using snt::game::replication::GameInventorySlotTransferOutcome;
+using snt::game::replication::GameInventorySnapshot;
+using snt::game::replication::GameMachineInputSlotTransferCommand;
+using snt::game::replication::GameMachineInputSlotTransferDirection;
 using snt::game::replication::GameServerCommandSink;
+using snt::game::replication::GameServerInventoryReplication;
 using snt::game::replication::GameServerPlayerBedService;
 using snt::game::replication::GameServerPlayerInteractionEvent;
 using snt::game::replication::GameServerPlayerInteractionEventKind;
@@ -44,6 +54,8 @@ using snt::game::replication::GameServerPlayerState;
 using snt::game::replication::IGameServerPlayerInteractionEventSink;
 using snt::game::replication::IGameServerPlayerInteractionService;
 using snt::game::replication::IGameServerPlayerStateCheckpointSink;
+using snt::game::replication::decode_game_inventory_replication_payload;
+using snt::game::replication::make_game_machine_input_slot_transfer_command;
 
 GameAuthenticatedPeer make_peer(snt::network::PeerId peer_id, std::string name) {
     auto identity = snt::game::make_local_name_player_identity(std::move(name));
@@ -102,10 +114,25 @@ public:
         return {};
     }
 
+    snt::core::Expected<void> submit_machine_input_slot_transfer(
+        const GameAuthenticatedPeer& peer,
+        const GameMachineInputSlotTransferCommand& command,
+        uint64_t tick_index) override {
+        ++machine_input_calls;
+        last_machine_input_peer = peer;
+        last_machine_input_command = command;
+        last_machine_input_tick = tick_index;
+        return {};
+    }
+
     int calls = 0;
+    int machine_input_calls = 0;
     GameAuthenticatedPeer last_peer;
     GameBlockInteractionCommand last_command;
     uint64_t last_tick = 0;
+    GameAuthenticatedPeer last_machine_input_peer;
+    GameMachineInputSlotTransferCommand last_machine_input_command;
+    uint64_t last_machine_input_tick = 0;
 };
 
 MachineDefinition make_manual_machine() {
@@ -184,7 +211,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     MachineInteractionService machine_interactions(content);
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        &checkpoint, {&events});
+        nullptr, &checkpoint, {&events});
     ASSERT_TRUE(interactions) << interactions.error().format();
 
     const GameBlockInteractionCommand place{
@@ -276,7 +303,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        &checkpoint, {&events});
+        nullptr, &checkpoint, {&events});
     ASSERT_TRUE(interactions) << interactions.error().format();
 
     const GameBlockInteractionCommand place{
@@ -349,7 +376,7 @@ TEST(GameServerPlayerInteractionTest, RejectsUnknownMachinePlacementAtServiceCre
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        &checkpoint);
+        nullptr, &checkpoint);
     EXPECT_FALSE(interactions);
     (*player_state)->shutdown();
 }
@@ -409,7 +436,7 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        &checkpoint);
+        nullptr, &checkpoint);
     ASSERT_TRUE(interactions) << interactions.error().format();
 
     const GameBlockInteractionCommand activate{
@@ -453,6 +480,217 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     (*player_state)->shutdown();
 }
 
+TEST(GameServerPlayerInteractionTest,
+     TransfersMachineInputsAtomicallyAndReturnsPrivateTypedResponses) {
+    snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    GameChunkSidecarRegistry sidecars;
+    add_ground_chunk(chunks);
+    auto player_state = GameServerPlayerState::create(
+        world,
+        {
+            .spawn = position(2, 1, 2),
+            .inventory_slots = 4,
+            .inventory_max_stack_size = 8,
+            .interaction_reach_blocks = 5,
+        });
+    ASSERT_TRUE(player_state) << player_state.error().format();
+    const GameAuthenticatedPeer peer = make_peer(605, "Machine Input Player");
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(
+        peer, (*player_state)->default_persistent_state()));
+    ASSERT_TRUE((*player_state)->apply_inventory_transaction(
+        peer, {.additions = {{.item_id = "iron_ore", .count = 6}}}));
+
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
+    MachineInteractionService machine_interactions(content);
+    const entt::entity machine_entity = world.create_entity();
+    auto& runtime = world.add_component<MachineRuntimeComponent>(machine_entity);
+    runtime.machine_id = "bloomery";
+    runtime.max_input_slots = 2;
+    runtime.max_output_slots = 1;
+    runtime.max_stack_size = 5;
+    runtime.input_slots = {{.item_id = "iron_ore", .count = 2}};
+    const auto machine_guid = world.guid_of(machine_entity);
+
+    auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
+    ASSERT_NE(terrain, nullptr);
+    terrain->terrain.set_cell(4, 1, 2, 10, snt::voxel::TF_SOLID);
+    const snt::voxel::ChunkKey key{"overworld", 0, 0, 0};
+    sidecars.set(key, {});
+    auto* sidecar = sidecars.get(key);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->block_entities.push_back({
+        .id = {.id = 91},
+        .entity_type = snt::game::BlockEntityType::MACHINE,
+        .root_x = 4,
+        .root_y = 1,
+        .root_z = 2,
+    });
+    sidecar->machine_runtime_records.push_back({
+        .anchor_entity_id = {.id = 91},
+        .entity_guid = machine_guid.value,
+        .machine_id = "bloomery",
+    });
+
+    CheckpointSink checkpoint;
+    auto beds = GameServerPlayerBedService::create(*(*player_state), chunks, sidecars, &checkpoint);
+    ASSERT_TRUE(beds) << beds.error().format();
+    auto inventory_source = GameServerInventoryReplication::create(**player_state, &checkpoint);
+    ASSERT_TRUE(inventory_source) << inventory_source.error().format();
+    auto interactions = GameServerPlayerInteractionService::create(
+        world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
+        inventory_source->get(), &checkpoint);
+    ASSERT_TRUE(interactions) << interactions.error().format();
+
+    const snt::network::ReplicationTickContext context{
+        .tick_index = 50,
+        .delta_seconds = 0.05f,
+    };
+    const snt::game::replication::GameReplicationBudget budget{
+        .max_reliable_bytes_per_tick = 4096,
+        .max_value_snapshots_per_tick = 1,
+    };
+    auto initial_values = (*inventory_source)->collect_values(
+        peer, {}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kInitialSnapshot);
+    ASSERT_TRUE(initial_values) << initial_values.error().format();
+    ASSERT_EQ(initial_values->size(), 1u);
+    auto initial_payload = decode_game_inventory_replication_payload(initial_values->front().payload);
+    ASSERT_TRUE(initial_payload) << initial_payload.error().format();
+    ASSERT_TRUE(std::holds_alternative<GameInventorySnapshot>(*initial_payload));
+    const GameInventorySnapshot initial = std::get<GameInventorySnapshot>(*initial_payload);
+    EXPECT_EQ(initial.inventory_revision, 1u);
+    (*inventory_source)->on_values_committed(
+        peer, snt::game::replication::GameReplicationValueCollectionPhase::kInitialSnapshot,
+        *initial_values);
+
+    const GameMachineInputSlotTransferCommand over_capacity{
+        .request_id = 1,
+        .expected_inventory_revision = initial.inventory_revision,
+        .direction = GameMachineInputSlotTransferDirection::kPlayerToMachineInput,
+        .dimension_id = "overworld",
+        .root_x = 4,
+        .root_y = 1,
+        .root_z = 2,
+        .expected_material = 10,
+        .player_slot = 0,
+        .machine_input_slot = 0,
+        .count = 4,
+        .expected_player_slot = {.item_id = "iron_ore", .count = 6},
+        .expected_machine_input_slot = {.item_id = "iron_ore", .count = 2},
+    };
+    ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, over_capacity, 51));
+    auto rejected_values = (*inventory_source)->collect_values(
+        peer, {}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kDelta);
+    ASSERT_TRUE(rejected_values) << rejected_values.error().format();
+    auto rejected_payload = decode_game_inventory_replication_payload(rejected_values->front().payload);
+    ASSERT_TRUE(rejected_payload) << rejected_payload.error().format();
+    ASSERT_TRUE(std::holds_alternative<GameInventoryDelta>(*rejected_payload));
+    const GameInventoryDelta rejected_capacity = std::get<GameInventoryDelta>(*rejected_payload);
+    EXPECT_EQ(rejected_capacity.inventory_revision, initial.inventory_revision);
+    EXPECT_TRUE(rejected_capacity.changed_slots.empty());
+    EXPECT_EQ(rejected_capacity.response.kind,
+              GameInventoryCommandKind::kMachineInputSlotTransfer);
+    EXPECT_EQ(rejected_capacity.response.outcome, GameInventorySlotTransferOutcome::kRejected);
+    EXPECT_EQ(runtime.input_slots[0].count, 2);
+    auto inventory = (*player_state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 6}));
+    (*inventory_source)->on_values_committed(
+        peer, snt::game::replication::GameReplicationValueCollectionPhase::kDelta,
+        *rejected_values);
+
+    GameMachineInputSlotTransferCommand to_machine = over_capacity;
+    to_machine.request_id = 2;
+    to_machine.count = 3;
+    ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, to_machine, 52));
+    inventory = (*player_state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 3}));
+    ASSERT_EQ(runtime.input_slots.size(), 1u);
+    EXPECT_EQ(runtime.input_slots[0].count, 5);
+
+    auto accepted_values = (*inventory_source)->collect_values(
+        peer, {}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kDelta);
+    ASSERT_TRUE(accepted_values) << accepted_values.error().format();
+    auto accepted_payload = decode_game_inventory_replication_payload(accepted_values->front().payload);
+    ASSERT_TRUE(accepted_payload) << accepted_payload.error().format();
+    ASSERT_TRUE(std::holds_alternative<GameInventoryDelta>(*accepted_payload));
+    const GameInventoryDelta accepted = std::get<GameInventoryDelta>(*accepted_payload);
+    EXPECT_EQ(accepted.inventory_revision, 2u);
+    EXPECT_EQ(accepted.response.kind,
+              GameInventoryCommandKind::kMachineInputSlotTransfer);
+    EXPECT_EQ(accepted.response.outcome, GameInventorySlotTransferOutcome::kAccepted);
+    (*inventory_source)->on_values_committed(
+        peer, snt::game::replication::GameReplicationValueCollectionPhase::kDelta,
+        *accepted_values);
+
+    const GameMachineInputSlotTransferCommand to_player{
+        .request_id = 3,
+        .expected_inventory_revision = accepted.inventory_revision,
+        .direction = GameMachineInputSlotTransferDirection::kMachineInputToPlayer,
+        .dimension_id = "overworld",
+        .root_x = 4,
+        .root_y = 1,
+        .root_z = 2,
+        .expected_material = 10,
+        .player_slot = 0,
+        .machine_input_slot = 0,
+        .count = 2,
+        .expected_player_slot = {.item_id = "iron_ore", .count = 3},
+        .expected_machine_input_slot = {.item_id = "iron_ore", .count = 5},
+    };
+    ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, to_player, 53));
+    inventory = (*player_state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 5}));
+    ASSERT_EQ(runtime.input_slots.size(), 1u);
+    EXPECT_EQ(runtime.input_slots[0].count, 3);
+
+    auto returned_values = (*inventory_source)->collect_values(
+        peer, {}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kDelta);
+    ASSERT_TRUE(returned_values) << returned_values.error().format();
+    auto returned_payload = decode_game_inventory_replication_payload(returned_values->front().payload);
+    ASSERT_TRUE(returned_payload) << returned_payload.error().format();
+    ASSERT_TRUE(std::holds_alternative<GameInventoryDelta>(*returned_payload));
+    const GameInventoryDelta returned = std::get<GameInventoryDelta>(*returned_payload);
+    EXPECT_EQ(returned.inventory_revision, 3u);
+    EXPECT_EQ(returned.response.outcome, GameInventorySlotTransferOutcome::kAccepted);
+    (*inventory_source)->on_values_committed(
+        peer, snt::game::replication::GameReplicationValueCollectionPhase::kDelta,
+        *returned_values);
+
+    GameMachineInputSlotTransferCommand stale = to_player;
+    stale.request_id = 4;
+    stale.expected_inventory_revision = accepted.inventory_revision;
+    stale.expected_player_slot = {.item_id = "iron_ore", .count = 5};
+    stale.expected_machine_input_slot = {.item_id = "iron_ore", .count = 3};
+    ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, stale, 54));
+    auto stale_values = (*inventory_source)->collect_values(
+        peer, {}, budget, context,
+        snt::game::replication::GameReplicationValueCollectionPhase::kDelta);
+    ASSERT_TRUE(stale_values) << stale_values.error().format();
+    auto stale_payload = decode_game_inventory_replication_payload(stale_values->front().payload);
+    ASSERT_TRUE(stale_payload) << stale_payload.error().format();
+    ASSERT_TRUE(std::holds_alternative<GameInventoryDelta>(*stale_payload));
+    const GameInventoryDelta stale_response = std::get<GameInventoryDelta>(*stale_payload);
+    EXPECT_EQ(stale_response.inventory_revision, returned.inventory_revision);
+    EXPECT_TRUE(stale_response.changed_slots.empty());
+    EXPECT_EQ(stale_response.response.kind,
+              GameInventoryCommandKind::kMachineInputSlotTransfer);
+    EXPECT_EQ(stale_response.response.outcome, GameInventorySlotTransferOutcome::kRejected);
+    inventory = (*player_state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 5}));
+    EXPECT_EQ(runtime.input_slots[0].count, 3);
+    EXPECT_EQ(checkpoint.marks, 2);
+    (*player_state)->shutdown();
+}
+
 TEST(GameServerCommandSinkTest, DispatchesBlockInteractionInTheSharedCommandOrder) {
     GameContentRegistry content;
     QuestRegistry quests(content);
@@ -477,4 +715,36 @@ TEST(GameServerCommandSinkTest, DispatchesBlockInteractionInTheSharedCommandOrde
     EXPECT_EQ(interactions.last_peer.peer, peer.peer);
     EXPECT_EQ(interactions.last_command.block_x, 2);
     EXPECT_EQ(interactions.last_tick, context.tick_index);
+}
+
+TEST(GameServerCommandSinkTest, DispatchesMachineInputTransferInTheSharedCommandOrder) {
+    GameContentRegistry content;
+    QuestRegistry quests(content);
+    RecordingInteractionService interactions;
+    GameServerCommandSink sink(quests, nullptr, &interactions);
+    const GameAuthenticatedPeer peer = make_peer(606, "Machine Input Route Player");
+    const snt::network::ReplicationTickContext context{.tick_index = 32, .delta_seconds = 0.05f};
+    auto command = make_game_machine_input_slot_transfer_command(
+        1,
+        {
+            .request_id = 11,
+            .expected_inventory_revision = 3,
+            .direction = GameMachineInputSlotTransferDirection::kPlayerToMachineInput,
+            .dimension_id = "overworld",
+            .root_x = 2,
+            .root_y = 1,
+            .root_z = 2,
+            .expected_material = 10,
+            .player_slot = 0,
+            .machine_input_slot = 0,
+            .count = 1,
+            .expected_player_slot = {.item_id = "iron_ore", .count = 1},
+        });
+    ASSERT_TRUE(command) << command.error().format();
+    ASSERT_TRUE(sink.enqueue_client_command(peer, std::move(*command), context));
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index));
+    EXPECT_EQ(interactions.machine_input_calls, 1);
+    EXPECT_EQ(interactions.last_machine_input_peer.peer, peer.peer);
+    EXPECT_EQ(interactions.last_machine_input_command.request_id, 11u);
+    EXPECT_EQ(interactions.last_machine_input_tick, context.tick_index);
 }

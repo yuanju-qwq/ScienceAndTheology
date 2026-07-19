@@ -23,7 +23,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 12;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 13;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -35,6 +35,7 @@ inline constexpr size_t kMaxGameQuestIdBytes = 512;
 inline constexpr size_t kMaxGameDimensionIdBytes = 128;
 inline constexpr size_t kMaxGameItemIdBytes = 256;
 inline constexpr size_t kMaxGameInventorySlots = 256;
+inline constexpr size_t kMaxGameMachineInputSlots = 64;
 inline constexpr int32_t kMaxGameInventoryStackSize = 65536;
 // Inventory replication must fit one bounded SNTG value even at maximum slot
 // count. Larger custom item data needs a future item-state blob protocol.
@@ -125,6 +126,7 @@ enum class GameClientCommandType : uint16_t {
     kBlockInteraction = 1,
     kQuestClaimReward = 2,
     kInventorySlotTransfer = 3,
+    kMachineInputSlotTransfer = 4,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -209,6 +211,32 @@ struct GameInventorySlotTransferCommand {
     int32_t count = 0;
     GamePlayerItemStack expected_source;
     GamePlayerItemStack expected_target;
+};
+
+// A production machine keeps its own input storage, so it must not be
+// represented as another player's inventory. This command moves one observed
+// player slot to or from one observed machine input position. The host checks
+// both snapshots and commits both containers on its simulation main thread.
+enum class GameMachineInputSlotTransferDirection : uint8_t {
+    kPlayerToMachineInput = 1,
+    kMachineInputToPlayer = 2,
+};
+
+struct GameMachineInputSlotTransferCommand {
+    uint64_t request_id = 0;
+    uint64_t expected_inventory_revision = 0;
+    GameMachineInputSlotTransferDirection direction =
+        GameMachineInputSlotTransferDirection::kPlayerToMachineInput;
+    std::string dimension_id;
+    int32_t root_x = 0;
+    int32_t root_y = 0;
+    int32_t root_z = 0;
+    uint16_t expected_material = kGameNoExpectedTerrainMaterial;
+    uint16_t player_slot = 0;
+    uint16_t machine_input_slot = 0;
+    int32_t count = 0;
+    GamePlayerItemStack expected_player_slot;
+    GamePlayerItemStack expected_machine_input_slot;
 };
 
 // Snapshot and delta payloads deliberately keep world/actor semantics opaque.
@@ -322,6 +350,14 @@ parse_game_block_interaction_command(const GameClientCommand& command);
     uint64_t client_sequence, const GameInventorySlotTransferCommand& command);
 [[nodiscard]] snt::core::Expected<GameInventorySlotTransferCommand>
 parse_game_inventory_slot_transfer_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_machine_input_slot_transfer_command(
+    const GameMachineInputSlotTransferCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand>
+make_game_machine_input_slot_transfer_command(
+    uint64_t client_sequence, const GameMachineInputSlotTransferCommand& command);
+[[nodiscard]] snt::core::Expected<GameMachineInputSlotTransferCommand>
+parse_game_machine_input_slot_transfer_command(const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_snapshot(
     const GameSnapshot& snapshot);

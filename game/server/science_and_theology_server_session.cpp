@@ -247,6 +247,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     auto player_interactions = replication::GameServerPlayerInteractionService::create(
         world.world(), world.chunks(), simulation_session_.world_sidecars(), *player_state_,
         *player_beds_, simulation_session_.content(), simulation_session_.machine_interactions(),
+        inventory_replication_.get(),
         player_lifecycle_.get(),
         {quest_events_.get(), player_replication_.get()},
         {

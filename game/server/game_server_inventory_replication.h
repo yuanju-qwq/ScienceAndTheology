@@ -42,6 +42,16 @@ public:
     [[nodiscard]] snt::core::Expected<void> submit_slot_transfer(
         const GameAuthenticatedPeer& peer, const GameInventorySlotTransferCommand& command);
 
+    // Cross-container gameplay services use these two operations to preserve
+    // the same player-private revision and response ordering as a normal
+    // inventory drag. They never expose the AccountState implementation.
+    [[nodiscard]] snt::core::Expected<bool> matches_inventory_revision(
+        const GameAuthenticatedPeer& peer, uint64_t expected_revision);
+    [[nodiscard]] snt::core::Expected<void> record_command_response(
+        const GameAuthenticatedPeer& peer, GameInventoryCommandKind kind,
+        uint64_t request_id, GameInventorySlotTransferOutcome outcome,
+        std::string rejection_reason = {});
+
     [[nodiscard]] snt::core::Expected<std::vector<GameReplicationValue>> collect_values(
         const GameAuthenticatedPeer& peer, const GameReplicationInterest& interest,
         const GameReplicationBudget& budget,
@@ -58,7 +68,7 @@ private:
         GamePlayerInventory inventory;
         uint64_t inventory_revision = 0;
         uint64_t response_revision = 0;
-        GameInventorySlotTransferResponse response;
+        GameInventoryCommandResponse response;
         bool initialized = false;
     };
 
@@ -66,7 +76,7 @@ private:
         GamePlayerInventory inventory;
         uint64_t inventory_revision = 0;
         uint64_t response_revision = 0;
-        GameInventorySlotTransferResponse response;
+        GameInventoryCommandResponse response;
         GameReplicationValueCollectionPhase phase =
             GameReplicationValueCollectionPhase::kInitialSnapshot;
         std::vector<std::byte> payload;
@@ -88,7 +98,8 @@ private:
     [[nodiscard]] snt::core::Expected<AccountState*> synchronize_account(
         const GameAuthenticatedPeer& peer);
     [[nodiscard]] snt::core::Expected<void> record_response(
-        AccountState& state, uint64_t request_id, GameInventorySlotTransferOutcome outcome,
+        AccountState& state, GameInventoryCommandKind kind, uint64_t request_id,
+        GameInventorySlotTransferOutcome outcome,
         std::string rejection_reason = {});
     [[nodiscard]] snt::core::Expected<GameReplicationValue> prepare_snapshot_value(
         const GameAuthenticatedPeer& peer, const AccountState& account,

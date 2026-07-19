@@ -69,7 +69,6 @@ var _flight_enabled := false
 @export var command_server_path: NodePath = ^"../GameCommandServer"
 @export var connector_manager_path: NodePath = ^"../ConnectorManager"
 @export var mechanism_manager_path: NodePath = ^"../MechanismManager"
-@export var furnace_manager_path: NodePath = ^"../FurnaceManager"
 @export var charcoal_pit_manager_path: NodePath = ^"../CharcoalPitManager"
 @export var pit_kiln_manager_path: NodePath = ^"../PitKilnManager"
 @export var bloomery_manager_path: NodePath = ^"../BloomeryManager"
@@ -77,7 +76,6 @@ var _flight_enabled := false
 @export var hotbar_ui_path: NodePath = ^"../UI/HotbarUI"
 @export var inventory_ui_path: NodePath = ^"../UI/InventoryUI"
 @export var crafting_ui_path: NodePath = ^"../UI/CraftingUI"
-@export var machine_panel_path: NodePath = ^"../UI/MachinePanel"
 @export var console_ui_path: NodePath = ^"../UI/ConsoleUI"
 @export var crosshair_path: NodePath = ^"../UI/Crosshair"
 @export var connector_prompt_path: NodePath = ^"../UI/ConnectorPrompt"
@@ -106,8 +104,6 @@ var selected_hotbar := 0
 	get_node_or_null(connector_manager_path) as ConnectorManager)
 @onready var mechanism_manager: MechanismManager = (
 	get_node_or_null(mechanism_manager_path) as MechanismManager)
-@onready var furnace_manager: FurnaceManager = (
-	get_node_or_null(furnace_manager_path) as FurnaceManager)
 @onready var charcoal_pit_manager: CharcoalPitManager = (
 	get_node_or_null(charcoal_pit_manager_path) as CharcoalPitManager)
 @onready var pit_kiln_manager: PitKilnManager = (
@@ -119,7 +115,6 @@ var selected_hotbar := 0
 @onready var hotbar_ui: HotbarUI = get_node_or_null(hotbar_ui_path) as HotbarUI
 @onready var inventory_ui: InventoryUI = get_node_or_null(inventory_ui_path) as InventoryUI
 @onready var crafting_ui: CraftingUI = get_node_or_null(crafting_ui_path) as CraftingUI
-@onready var machine_panel: MachinePanel = get_node_or_null(machine_panel_path) as MachinePanel
 @onready var console_ui: ConsoleUI = get_node_or_null(console_ui_path) as ConsoleUI
 @onready var connector_prompt: CanvasItem = get_node_or_null(connector_prompt_path) as CanvasItem
 @onready var connector_prompt_label: Label = get_node_or_null(connector_prompt_label_path) as Label
@@ -545,8 +540,6 @@ func _handle_key(event: InputEventKey) -> void:
 	if KeyBindings.is_action_event(event, &"toggle_crafting"):
 		_ui_connector.toggle_crafting()
 	elif KeyBindings.is_action_event(event, &"toggle_inventory"):
-		if _ui_connector.close_furnace_if_open():
-			return
 		if game_mode == GameMode.CREATIVE:
 			_ui_connector.toggle_creative_inventory()
 		else:
@@ -1343,7 +1336,6 @@ func _open_exit_menu() -> void:
 
 
 func _close_gameplay_ui() -> void:
-	_ui_connector.close_furnace_if_open()
 	if inventory_ui and inventory_ui.visible:
 		inventory_ui._is_open = false
 		inventory_ui.visible = false

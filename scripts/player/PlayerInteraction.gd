@@ -230,8 +230,6 @@ func try_mine_target(target: Dictionary) -> bool:
 
 
 func try_place_or_interact(target: Dictionary) -> bool:
-	if try_open_furnace(false):
-		return true
 	if try_use_connector(false):
 		return true
 	if try_activate_mechanism(false):
@@ -1107,41 +1105,6 @@ func try_activate_mechanism(auto_only: bool) -> bool:
 	_cooldown_remaining = _player.connector_cooldown
 	_player.mechanism_activated.emit(mechanism.mechanism_id, dimension)
 	return true
-
-
-@warning_ignore("unsafe_call_argument")
-func try_open_furnace(auto_only: bool) -> bool:
-	if auto_only:
-		return false
-	var furnace_manager: FurnaceManager = _player.furnace_manager
-	var machine_panel: MachinePanel = _player.machine_panel
-	if furnace_manager == null or machine_panel == null:
-		return false
-	var cell := _player.get_current_cell()
-	var dimension := _player.get_current_dimension()
-	var candidates := [cell]
-	var target := _player.target
-	if not target.is_empty():
-		candidates.append(target.get("cell", cell))
-		candidates.append(target.get("place_cell", cell))
-	candidates.append_array([
-		cell + Vector3i.RIGHT,
-		cell + Vector3i.LEFT,
-		cell + Vector3i.UP,
-		cell + Vector3i.DOWN,
-		cell + Vector3i.FORWARD,
-		cell + Vector3i.BACK,
-	])
-
-	for candidate: Vector3i in candidates:
-		if not furnace_manager.has_furnace(dimension, candidate):
-			continue
-		var data: GDFurnaceData = furnace_manager.get_furnace(dimension, candidate)
-		machine_panel.open(data, dimension, candidate, furnace_manager)
-		_player.set_input_locked(true)
-		_cooldown_remaining = _player.connector_cooldown
-		return true
-	return false
 
 
 @warning_ignore("unsafe_call_argument")

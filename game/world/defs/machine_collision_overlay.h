@@ -61,8 +61,8 @@ struct MachineCellKeyHash {
 //   - set(..., false) when the machine is removed.
 //   - Query get_chunk_mask(...) when building a chunk's collision mesh.
 //   - clear_dimension(...) when a planet is unloaded.
-//   - State is NOT persisted here; on load the owning manager (e.g.
-//     FurnaceManager) re-applies the overlay from its own save data.
+//   - State is NOT persisted here; on load the owning machine manager
+//     re-applies the overlay from its own save data.
 class MachineCollisionOverlay {
 public:
     MachineCollisionOverlay() = default;

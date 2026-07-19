@@ -9,6 +9,7 @@
 #include "game/client/game_content_registry.h"
 #include "game/client/machine_tick_system.h"
 #include "game/server/game_server_player_death.h"
+#include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/machine_interaction_service.h"
@@ -235,6 +236,7 @@ GameServerPlayerInteractionService::create(
     GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
     GameServerPlayerBedService& beds, const GameContentRegistry& content,
     MachineInteractionService& machine_interactions,
+    GameServerInventoryReplication* inventory_replication,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
     std::vector<IGameServerPlayerInteractionEventSink*> event_sinks,
     GameServerPlayerInteractionConfig config) {
@@ -254,7 +256,7 @@ GameServerPlayerInteractionService::create(
     return std::unique_ptr<GameServerPlayerInteractionService>(
         new GameServerPlayerInteractionService(
             world, chunks, sidecars, player_state, beds, content, machine_interactions,
-            checkpoint_sink, std::move(event_sinks), std::move(config)));
+            inventory_replication, checkpoint_sink, std::move(event_sinks), std::move(config)));
 }
 
 GameServerPlayerInteractionService::GameServerPlayerInteractionService(
@@ -262,12 +264,14 @@ GameServerPlayerInteractionService::GameServerPlayerInteractionService(
     GameChunkSidecarRegistry& sidecars, GameServerPlayerState& player_state,
     GameServerPlayerBedService& beds, const GameContentRegistry& content,
     MachineInteractionService& machine_interactions,
+    GameServerInventoryReplication* inventory_replication,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
     std::vector<IGameServerPlayerInteractionEventSink*> event_sinks,
     GameServerPlayerInteractionConfig config)
     : world_(&world), chunks_(&chunks), sidecars_(&sidecars), player_state_(&player_state),
       beds_(&beds), content_(&content), machine_interactions_(&machine_interactions),
-      checkpoint_sink_(checkpoint_sink), event_sinks_(std::move(event_sinks)),
+      inventory_replication_(inventory_replication), checkpoint_sink_(checkpoint_sink),
+      event_sinks_(std::move(event_sinks)),
       config_(std::move(config)) {}
 
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_block_interaction(
@@ -294,6 +298,40 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_block_intera
             return apply_machine_collect(peer, command, tick_index);
     }
     return invalid_argument("Game server player interaction action is invalid");
+}
+
+snt::core::Expected<void>
+GameServerPlayerInteractionService::submit_machine_input_slot_transfer(
+    const GameAuthenticatedPeer& peer,
+    const GameMachineInputSlotTransferCommand& command,
+    uint64_t tick_index) {
+    if (world_ == nullptr || chunks_ == nullptr || sidecars_ == nullptr ||
+        player_state_ == nullptr || inventory_replication_ == nullptr) {
+        return invalid_state("Game server machine input transfer service is unavailable");
+    }
+    if (auto result = validate_game_machine_input_slot_transfer_command(command); !result) {
+        return result.error();
+    }
+    auto revision_matches = inventory_replication_->matches_inventory_revision(
+        peer, command.expected_inventory_revision);
+    if (!revision_matches) return revision_matches.error();
+    if (!*revision_matches) {
+        return inventory_replication_->record_command_response(
+            peer, GameInventoryCommandKind::kMachineInputSlotTransfer,
+            command.request_id, GameInventorySlotTransferOutcome::kRejected,
+            "inventory revision is stale");
+    }
+
+    auto applied = apply_machine_input_slot_transfer(peer, command, tick_index);
+    if (!applied) {
+        return inventory_replication_->record_command_response(
+            peer, GameInventoryCommandKind::kMachineInputSlotTransfer,
+            command.request_id, GameInventorySlotTransferOutcome::kRejected,
+            applied.error().message());
+    }
+    return inventory_replication_->record_command_response(
+        peer, GameInventoryCommandKind::kMachineInputSlotTransfer,
+        command.request_id, GameInventorySlotTransferOutcome::kAccepted);
 }
 
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
@@ -606,6 +644,183 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_acti
         .tick_index = tick_index,
         .command = command,
     });
+    return {};
+}
+
+snt::core::Expected<void>
+GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
+    const GameAuthenticatedPeer& peer,
+    const GameMachineInputSlotTransferCommand& command,
+    uint64_t tick_index) {
+    static_cast<void>(tick_index);
+    const GameBlockInteractionCommand target_command{
+        .action = GameBlockInteractionAction::kActivateMachine,
+        .dimension_id = command.dimension_id,
+        .block_x = command.root_x,
+        .block_y = command.root_y,
+        .block_z = command.root_z,
+        .expected_material = command.expected_material,
+    };
+    auto target = resolve_target(*player_state_, *chunks_, peer, target_command);
+    if (!target) return target.error();
+    auto machine_guid = find_machine_at(*sidecars_, *target);
+    if (!machine_guid) return machine_guid.error();
+    const entt::entity entity = world_->find_entity_by_guid(*machine_guid);
+    if (entity == entt::null ||
+        !world_->registry().all_of<MachineRuntimeComponent>(entity)) {
+        return invalid_state("Machine input transfer target has no live host runtime");
+    }
+    MachineRuntimeComponent& runtime = world_->get_component<MachineRuntimeComponent>(entity);
+    if (runtime.max_input_slots <= 0 ||
+        runtime.max_input_slots > static_cast<int32_t>(kMaxGameMachineInputSlots) ||
+        runtime.max_stack_size <= 0 || runtime.max_stack_size > kMaxGameInventoryStackSize ||
+        runtime.input_slots.size() > static_cast<size_t>(runtime.max_input_slots)) {
+        return invalid_state("Machine input transfer target has an invalid input layout");
+    }
+
+    auto player_inventory = player_state_->inventory_for_peer(peer);
+    if (!player_inventory) return player_inventory.error();
+    if (command.player_slot >= player_inventory->slots.size()) {
+        return invalid_state("Machine input transfer player slot is outside the host inventory");
+    }
+    if (player_inventory->slots[command.player_slot] != command.expected_player_slot) {
+        return invalid_state("Machine input transfer player slot changed before host commit");
+    }
+
+    std::vector<MachineItemStack> candidate_inputs = runtime.input_slots;
+    for (const MachineItemStack& input : candidate_inputs) {
+        if (input.empty() || input.item_id.size() > kMaxGameItemIdBytes ||
+            input.count > runtime.max_stack_size) {
+            return invalid_state("Machine input transfer target has invalid input storage");
+        }
+    }
+    const size_t machine_slot_index = command.machine_input_slot;
+    if (machine_slot_index > candidate_inputs.size()) {
+        return invalid_state("Machine input transfer references an unavailable input position");
+    }
+    if (machine_slot_index == candidate_inputs.size()) {
+        if (candidate_inputs.size() >= static_cast<size_t>(runtime.max_input_slots)) {
+            return invalid_state("Machine input transfer has no free input position");
+        }
+        candidate_inputs.emplace_back();
+    }
+
+    GamePlayerItemStack candidate_player = player_inventory->slots[command.player_slot];
+    MachineItemStack& candidate_machine = candidate_inputs[machine_slot_index];
+    const GamePlayerItemStack observed_machine{
+        .item_id = candidate_machine.item_id,
+        .count = candidate_machine.count,
+    };
+    if (observed_machine != command.expected_machine_input_slot) {
+        return invalid_state("Machine input transfer input position changed before host commit");
+    }
+
+    const auto clear_player = [](GamePlayerItemStack& stack) {
+        stack.item_id.clear();
+        stack.count = 0;
+        stack.instance_data.clear();
+    };
+    const auto clear_machine = [](MachineItemStack& stack) {
+        stack.item_id.clear();
+        stack.count = 0;
+        stack.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+    };
+    const auto assign_machine = [](MachineItemStack& target,
+                                   const GamePlayerItemStack& source) {
+        target.item_id = source.item_id;
+        target.count = source.count;
+        target.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+    };
+    const auto assign_player = [](GamePlayerItemStack& target,
+                                  const MachineItemStack& source) {
+        target.item_id = source.item_id;
+        target.count = source.count;
+        target.instance_data.clear();
+    };
+
+    if (command.direction ==
+        GameMachineInputSlotTransferDirection::kPlayerToMachineInput) {
+        if (candidate_player.item_id.empty() || candidate_player.count <= 0 ||
+            !candidate_player.instance_data.empty()) {
+            return invalid_state("Machine input transfer cannot store a singular player item");
+        }
+        if (candidate_machine.empty()) {
+            MachineItemStack moved;
+            assign_machine(moved, candidate_player);
+            moved.count = command.count;
+            candidate_machine = std::move(moved);
+            candidate_player.count -= command.count;
+            if (candidate_player.count == 0) clear_player(candidate_player);
+        } else if (candidate_machine.item_id == candidate_player.item_id) {
+            if (candidate_machine.count > runtime.max_stack_size - command.count) {
+                return invalid_state("Machine input transfer does not fit the target stack");
+            }
+            candidate_machine.count += command.count;
+            candidate_player.count -= command.count;
+            if (candidate_player.count == 0) clear_player(candidate_player);
+        } else {
+            if (command.count != candidate_player.count) {
+                return invalid_state("Machine input transfer can only swap a complete player stack");
+            }
+            if (candidate_machine.count > player_inventory->max_stack_size) {
+                return invalid_state("Machine input transfer target stack exceeds player capacity");
+            }
+            const MachineItemStack previous_machine = candidate_machine;
+            assign_machine(candidate_machine, candidate_player);
+            assign_player(candidate_player, previous_machine);
+        }
+    } else {
+        if (candidate_machine.empty()) {
+            return invalid_state("Machine input transfer source slot is empty");
+        }
+        if (candidate_player.item_id.empty() || candidate_player.count <= 0) {
+            GamePlayerItemStack moved;
+            assign_player(moved, candidate_machine);
+            moved.count = command.count;
+            candidate_player = std::move(moved);
+            candidate_machine.count -= command.count;
+            if (candidate_machine.count == 0) clear_machine(candidate_machine);
+        } else if (candidate_player.instance_data.empty() &&
+                   candidate_player.item_id == candidate_machine.item_id) {
+            if (candidate_player.count > player_inventory->max_stack_size - command.count) {
+                return invalid_state("Machine input transfer does not fit the player stack");
+            }
+            candidate_player.count += command.count;
+            candidate_machine.count -= command.count;
+            if (candidate_machine.count == 0) clear_machine(candidate_machine);
+        } else {
+            if (command.count != candidate_machine.count) {
+                return invalid_state("Machine input transfer can only swap a complete machine stack");
+            }
+            if (!candidate_player.instance_data.empty() ||
+                candidate_player.count > runtime.max_stack_size) {
+                return invalid_state("Machine input transfer player stack cannot enter the machine");
+            }
+            const GamePlayerItemStack previous_player = candidate_player;
+            assign_player(candidate_player, candidate_machine);
+            assign_machine(candidate_machine, previous_player);
+        }
+    }
+
+    std::erase_if(candidate_inputs, [](const MachineItemStack& stack) {
+        return stack.empty();
+    });
+    const GamePlayerInventorySlotMutation mutation{
+        .slot = command.player_slot,
+        .expected = command.expected_player_slot,
+        .replacement = candidate_player,
+    };
+    auto applicable = player_state_->can_apply_inventory_slot_mutations(peer, {&mutation, 1});
+    if (!applicable) return applicable.error();
+    if (!*applicable) {
+        return invalid_state("Machine input transfer player slot changed before host commit");
+    }
+    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+    if (auto result = player_state_->apply_inventory_slot_mutations(peer, {&mutation, 1});
+        !result) {
+        return result.error();
+    }
+    runtime.input_slots = std::move(candidate_inputs);
     return {};
 }
 

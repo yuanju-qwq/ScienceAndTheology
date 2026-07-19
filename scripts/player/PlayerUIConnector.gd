@@ -14,7 +14,6 @@ func connect_ui() -> void:
 	var hotbar_ui: HotbarUI = _player.hotbar_ui
 	var inventory_ui: InventoryUI = _player.inventory_ui
 	var crafting_ui: CraftingUI = _player.crafting_ui
-	var furnace_ui: MachinePanel = _player.machine_panel
 	var knapping_ui: KnappingUI = _player.knapping_ui
 
 	if hotbar_ui:
@@ -23,10 +22,6 @@ func connect_ui() -> void:
 		inventory_ui.set_player(_player)
 	if crafting_ui:
 		crafting_ui.set_player(_player)
-	if furnace_ui:
-		furnace_ui.set_player(_player)
-		if not furnace_ui.closed.is_connected(_on_furnace_ui_closed):
-			furnace_ui.closed.connect(_on_furnace_ui_closed)
 	if knapping_ui:
 		knapping_ui.set_player(_player)
 		if not knapping_ui.closed.is_connected(_on_knapping_ui_closed):
@@ -117,15 +112,6 @@ func toggle_quest_book() -> void:
 	_player.set_input_locked(quest_ui.is_open())
 
 
-func close_furnace_if_open() -> bool:
-	var furnace_ui: MachinePanel = _player.machine_panel
-	if furnace_ui and furnace_ui.visible:
-		furnace_ui.close()
-		_player.set_input_locked(false)
-		return true
-	return false
-
-
 func update_hotbar_display() -> void:
 	var hotbar_ui: HotbarUI = _player.hotbar_ui
 	if hotbar_ui:
@@ -162,10 +148,6 @@ func update_connector_prompt() -> void:
 
 
 func _on_quest_book_closed() -> void:
-	_player.set_input_locked(false)
-
-
-func _on_furnace_ui_closed() -> void:
 	_player.set_input_locked(false)
 
 

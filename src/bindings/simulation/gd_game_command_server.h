@@ -20,7 +20,6 @@ namespace science_and_theology {
 
 class GDPlayerEquipment;
 class GDPlayerInventory;
-class GDFurnaceManager;
 class GDWorldData;
 
 class GDGameCommandServer : public godot::Node {
@@ -46,8 +45,6 @@ public:
 
     // Returns the number of registered players.
     int64_t get_player_count() const;
-
-    void set_furnace_manager(godot::Node* manager);
 
     godot::Dictionary submit_command(const godot::Dictionary& command);
 
@@ -79,22 +76,14 @@ private:
     godot::Dictionary cmd_remove_inventory_item(const godot::Dictionary& command);
     godot::Dictionary cmd_craft_recipe(const godot::Dictionary& command);
     godot::Dictionary cmd_place_object(const godot::Dictionary& command);
-    godot::Dictionary cmd_remove_object(const godot::Dictionary& command);
     godot::Dictionary cmd_till_farmland(const godot::Dictionary& command);
     godot::Dictionary cmd_plant_crop(const godot::Dictionary& command);
     godot::Dictionary cmd_harvest_crop(const godot::Dictionary& command);
     godot::Dictionary cmd_fertilize(const godot::Dictionary& command);
-    godot::Dictionary cmd_furnace_take_output(const godot::Dictionary& command);
-    godot::Dictionary cmd_furnace_insert_input(const godot::Dictionary& command);
-    godot::Dictionary cmd_furnace_insert_fuel(const godot::Dictionary& command);
 
     // TFC expansion commands
     godot::Dictionary cmd_forage_wild(const godot::Dictionary& command);
     godot::Dictionary cmd_knapping_pickup(const godot::Dictionary& command);
-
-    godot::Dictionary sync_furnace(
-        const godot::StringName& dimension, const godot::Vector3i& cell,
-        const char* reason);
 
     // Helpers operate on current_player_ (set by resolve_command_player).
     int32_t add_inventory_item(int64_t item_id, int32_t count,
@@ -144,8 +133,6 @@ private:
                              const godot::String& reason);
 
     GDWorldData* world_data_ = nullptr;
-    GDFurnaceManager* furnace_manager_cpp_ = nullptr;
-    godot::Node* furnace_manager_ = nullptr;
 
     // Multi-player player registry. Owns PlayerState entries (raw pointers
     // to inventory/equipment are owned by the GDPlayerInventory /
