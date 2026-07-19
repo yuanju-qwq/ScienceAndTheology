@@ -62,6 +62,42 @@ TEST(GameSimulationSessionTest, InitializesTerrainAndTicksWithoutClientRuntime) 
     EXPECT_FALSE(error) << error.message();
 }
 
+TEST(GameSimulationSessionTest, PublishesSeasonStateFromAuthoritativeFixedTicks) {
+    const auto root = make_runtime_root();
+
+    snt::core::RuntimeConfig runtime_config;
+    runtime_config.assets.manifest_path = "missing_manifest.json";
+    snt::game::GameSessionConfig session_config;
+    session_config.scripts.enabled = false;
+    session_config.gameplay.day_length_seconds = 1.0f;
+    session_config.gameplay.days_per_season = 1;
+
+    auto session = std::make_unique<snt::game::ScienceAndTheologySimulationSession>(
+        std::move(session_config));
+    auto* session_view = session.get();
+    snt::engine::SimulationRuntime runtime;
+    ASSERT_TRUE(runtime.init(
+        runtime_config,
+        {
+            .engine_root = (root / "engine").string(),
+            .game_root = (root / "game").string(),
+            .user_root = (root / "user").string(),
+        },
+        std::move(session)));
+    ASSERT_TRUE(runtime.run_fixed_ticks(20));
+
+    const snt::game::SeasonState& state = session_view->season_state();
+    EXPECT_EQ(state.source_tick, 20u);
+    EXPECT_EQ(state.game_day, 1u);
+    EXPECT_EQ(state.day_in_season, 0);
+    EXPECT_EQ(state.season, snt::game::Season::SUMMER);
+
+    runtime.shutdown();
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
 TEST(GameSimulationSessionTest, PersistsWorldAcrossSessionRestartWhenEnabled) {
     const auto root = make_runtime_root();
     snt::core::RuntimeConfig runtime_config;

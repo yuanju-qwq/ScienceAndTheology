@@ -1,18 +1,3 @@
-# Legacy simulation reference retained from the former U0 world-data smoke.
-# Day/night has no current game-owned replacement yet, so keep this isolated
-# from the migrated world generation and persistence assertions.
-add_executable(snt_day_night_smoke
-    day_night_smoke.cpp
-)
-
-target_link_libraries(snt_day_night_smoke PRIVATE snt_core)
-
-if(MSVC)
-    target_compile_options(snt_day_night_smoke PRIVATE /utf-8)
-endif()
-
-add_test(NAME snt.day_night_smoke COMMAND snt_day_night_smoke)
-
 # Machine collision overlay: per-(dimension, cell) overlay consumed by chunk
 # collision generation so machines get collision without per-object
 # StaticBody3D nodes. Current runtime boundary: docs/项目架构与运行时.md.
@@ -84,19 +69,6 @@ if(MSVC)
 endif()
 
 add_test(NAME snt.network_topology_builder COMMAND snt_network_topology_builder)
-
-# Block physics: origin-cell scheduling, event emission, support beam protection
-add_executable(snt_block_physics_system
-    block_physics_system.cpp
-)
-
-target_link_libraries(snt_block_physics_system PRIVATE snt_core)
-
-if(MSVC)
-    target_compile_options(snt_block_physics_system PRIVATE /utf-8)
-endif()
-
-add_test(NAME snt.block_physics_system COMMAND snt_block_physics_system)
 
 # GT multiblock closure: controller -> formation -> hatch summary -> tick gate
 add_executable(snt_multiblock_machine_service

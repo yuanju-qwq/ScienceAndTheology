@@ -13,7 +13,10 @@
 #include "engine/simulation_session.h"
 #include "game/client/game_content_registry.h"
 #include "game/client/game_session_config.h"
+#include "game/simulation/block_physics_events.h"
+#include "game/simulation/day_night_cycle.h"
 #include "game/simulation/machine_interaction_service.h"
+#include "game/simulation/season_cycle.h"
 #include "game/quest/quest_registry.h"
 #include "game/world/game_chunk.h"
 
@@ -36,10 +39,13 @@ class World;
 namespace snt::game {
 
 class GameWorldPersistenceLifecycle;
+class GameBlockPhysicsSystem;
 class IMachineTickEventSink;
 class MachineTickSystem;
+struct WorldGenConfigSnapshot;
 
-class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession {
+class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession,
+                                                  public IBlockPhysicsTrigger {
 public:
     explicit ScienceAndTheologySimulationSession(GameSessionConfig config);
     ~ScienceAndTheologySimulationSession() override;
@@ -57,6 +63,16 @@ public:
     MachineInteractionService& machine_interactions() noexcept {
         return machine_interactions_;
     }
+    // Read-only snapshot for client presentation and future authoritative
+    // replication. Game logic must use this rather than a wall-clock value.
+    [[nodiscard]] const DayNightState& day_night_state() const noexcept {
+        return day_night_cycle_.state();
+    }
+    // Seasonal values use the same authoritative tick as day/night and are
+    // safe for read-only gameplay, replication, and presentation consumers.
+    [[nodiscard]] const SeasonState& season_state() const noexcept {
+        return season_cycle_.state();
+    }
     // Server composition installs host-only consumers before world creation.
     // Runtime calls are main-thread lifecycle operations; the session updates
     // an already registered machine system only when no worker task is live.
@@ -64,6 +80,12 @@ public:
     void set_quest_reward_sink(IQuestRewardSink* reward_sink) noexcept {
         quest_registry_.set_reward_sink(reward_sink);
     }
+    // Host composition binds its terrain-delta consumer before world creation.
+    // The simulation retains no server or transport dependency.
+    void set_block_physics_mutation_sink(IBlockPhysicsMutationSink* mutation_sink) noexcept;
+    void schedule_block_physics_after_terrain_mutation(
+        std::string_view dimension_id, int32_t block_x, int32_t block_y,
+        int32_t block_z, uint64_t source_tick) override;
     // Server-owned world services may bind durable block-sidecar state here;
     // caller remains on the simulation main thread and must not retain it
     // past this session's shutdown.
@@ -76,6 +98,11 @@ private:
     GameContentRegistry content_registry_;
     QuestRegistry quest_registry_;
     MachineInteractionService machine_interactions_;
+    DayNightCycle day_night_cycle_;
+    SeasonCycle season_cycle_;
+    std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;
+    std::unique_ptr<GameBlockPhysicsSystem> block_physics_system_;
+    IBlockPhysicsMutationSink* block_physics_mutation_sink_ = nullptr;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
     std::shared_ptr<MachineTickSystem> machine_tick_system_;

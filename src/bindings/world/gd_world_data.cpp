@@ -57,8 +57,8 @@ void GDWorldData::set_worldgen_config(Resource* config) {
     worldgen_config_ = worldgen_config != nullptr
         ? worldgen_config->get_snapshot()
         : make_empty_world_gen_config();
-    // Sync the snapshot to the underlying WorldData so that
-    // simulation systems (BlockPhysicsSystem, etc.) can access it.
+    // Sync the snapshot to the underlying WorldData so remaining legacy
+    // simulation systems can access their world-generation definitions.
     world_.set_worldgen_config(worldgen_config_);
     rebuild_generator();
 }

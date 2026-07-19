@@ -113,8 +113,6 @@ target_sources(snt_core PRIVATE
     simulation/tick_profiler.cpp
     simulation/tick_system.hpp
     simulation/tick_system.cpp
-    simulation/block_physics_system.hpp
-    simulation/block_physics_system.cpp
     simulation/tree_growth_system.hpp
     simulation/tree_growth_system.cpp
     simulation/crop_growth_system.hpp

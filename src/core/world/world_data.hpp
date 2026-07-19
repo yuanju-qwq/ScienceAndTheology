@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <queue>
 #include <unordered_map>
 
 #include "chunk_data.hpp"
@@ -12,15 +11,6 @@
 #include "../world_gen/world_gen_config.hpp"
 
 namespace science_and_theology {
-
-// A block physics event enqueued after a block is mined.
-// BlockPhysicsSystem consumes these each tick.
-struct BlockPhysicsEvent {
-    std::string dimension_id;
-    int block_x = 0;
-    int block_y = 0;
-    int block_z = 0;
-};
 
 // Single source of truth for all world data.
 // Manages chunks across all dimensions. Godot nodes act only as rendering proxies.
@@ -118,24 +108,6 @@ public:
         return mobile_structure_registry_;
     }
 
-    // --- Block physics events ---
-
-    // Enqueue a block physics event (e.g., after mining a block).
-    void push_physics_event(const BlockPhysicsEvent& event) {
-        physics_events_.push(event);
-    }
-
-    // Dequeue the next physics event. Returns false if empty.
-    bool pop_physics_event(BlockPhysicsEvent& out) {
-        if (physics_events_.empty()) return false;
-        out = physics_events_.front();
-        physics_events_.pop();
-        return true;
-    }
-
-    // Returns the number of pending physics events.
-    size_t physics_event_count() const { return physics_events_.size(); }
-
     // --- Machine collision overlay ---
 
     // Sparse overlay of cells occupied by machines (furnaces, campfires, ...).
@@ -178,9 +150,6 @@ private:
 
     // Frozen world generation config snapshot.
     std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;
-
-    // Block physics event queue.
-    std::queue<BlockPhysicsEvent> physics_events_;
 
     // Block entity registry (trees, machines, etc.).
     BlockEntityRegistry block_entity_registry_;

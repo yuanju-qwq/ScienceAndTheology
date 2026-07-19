@@ -52,6 +52,14 @@
     "bootstrap_chunks": true,
     "seed": 20240601
   },
+  "gameplay": {
+    "enable_day_night": true,
+    "day_length_seconds": 600.0,
+    "twilight_fraction": 0.1,
+    "day_start_time": 0.5,
+    "days_per_season": 16,
+    "enable_season_colors": true
+  },
   "persistence": {
     "universe_save_dir": "saves/default",
     "world_save_enabled": true,

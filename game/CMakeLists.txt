@@ -20,6 +20,7 @@ target_link_libraries(snt_game_world_data PUBLIC
 )
 
 add_library(snt_game_worldgen STATIC
+    worldgen/default_worldgen_config.cpp
     worldgen/noise_generator.cpp
     worldgen/world_gen_config.cpp
     worldgen/terrain_generator.cpp
@@ -133,10 +134,13 @@ add_library(snt_game_simulation STATIC
     client/game_content_registry.cpp
     client/machine_tick_system.cpp
     quest/quest_registry.cpp
+    simulation/day_night_cycle.cpp
+    simulation/block_physics_system.cpp
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
     simulation/science_and_theology_simulation_session.cpp
+    simulation/season_cycle.cpp
 )
 target_include_directories(snt_game_simulation PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -161,6 +165,7 @@ add_executable(snt_game_client
     runtime/local_player_name_prompt.cpp
     runtime/runtime_package.cpp
     client/client_block_interaction.cpp
+    client/day_night_lighting.cpp
     client/inventory_slot_transaction.cpp
     client/gameplay_ui.cpp
     client/lan_server_browser.cpp
@@ -289,6 +294,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
 
     add_executable(snt_game_tests
         client/client_block_interaction.cpp
+        client/day_night_lighting.cpp
         client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
         client/lan_server_browser.cpp
@@ -305,6 +311,9 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_player_state.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
+        tests/test_block_physics_system.cpp
+        tests/test_day_night_cycle.cpp
+        tests/test_season_cycle.cpp
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
         tests/test_client_block_interaction.cpp
@@ -355,6 +364,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_localization
         snt_game_network
         snt_engine_settings
+        snt_render_components
         snt_third_party
         GTest::gtest_main
     )

@@ -3,6 +3,7 @@
 #define SNT_LOG_CHANNEL "game_session"
 #include "demo_world_bootstrap.h"
 
+#include "core/error.h"
 #include "core/log.h"
 #include "game/world/game_chunk.h"
 #include "game/worldgen/terrain_generator.h"
@@ -11,42 +12,8 @@
 #include "voxel/data/chunk_registry.h"
 #include "voxel/data/voxel_chunk.h"
 
-#include <memory>
-
 namespace snt::game {
 namespace {
-
-std::shared_ptr<const WorldGenConfigSnapshot> make_demo_world_gen_config() {
-    auto config = std::make_shared<WorldGenConfigSnapshot>();
-    const auto add_material = [&config](TerrainMaterialId id, const char* key, uint32_t flags) {
-        TerrainMaterialDef material;
-        material.id = id;
-        material.key = key;
-        material.flags = flags;
-        config->materials.push_back(material);
-        config->material_ids_by_key[material.key] = material.id;
-        config->material_keys_by_id[material.id] = material.key;
-    };
-
-    add_material(0, "air", 0);
-    add_material(1, "stone", TF_SOLID | TF_MINEABLE | TF_WALKABLE);
-    add_material(2, "dirt", TF_SOLID | TF_MINEABLE | TF_WALKABLE);
-    add_material(3, "sand", TF_SOLID | TF_MINEABLE | TF_WALKABLE | TF_GRAVITY_FALL);
-    add_material(4, "snow", TF_SOLID | TF_MINEABLE | TF_WALKABLE);
-
-    config->roles.air = 0;
-    config->roles.stone = 1;
-    config->roles.dirt = 2;
-
-    BaseTerrainRule rule;
-    rule.dimension_id = "overworld";
-    rule.default_material = config->roles.stone;
-    rule.high_elevation_material = config->roles.stone;
-    rule.cave_threshold = 10.0f;
-    config->base_terrain_rules.push_back(rule);
-    config->content_hash = hash_world_gen_config(*config);
-    return config;
-}
 
 void paint_demo_surface_variants(snt::voxel::VoxelChunk& chunk,
                                  const WorldGenConfigSnapshot& config) {
@@ -87,21 +54,26 @@ size_t count_non_air_cells(const snt::voxel::VoxelChunk& chunk,
 
 snt::core::Expected<void> bootstrap_demo_world(const GameDemoConfig& config,
                                                 snt::voxel::ChunkRegistry& chunk_registry,
-                                                GameChunkSidecarRegistry& sidecars) {
+                                                GameChunkSidecarRegistry& sidecars,
+                                                std::shared_ptr<const WorldGenConfigSnapshot>
+                                                    worldgen_config) {
     if (!config.bootstrap_chunks) {
         SNT_LOG_INFO("Demo chunk bootstrap disabled");
         return {};
     }
+    if (!worldgen_config) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
+                                "Demo world bootstrap requires a world-generation snapshot"};
+    }
 
-    auto world_config = make_demo_world_gen_config();
-    TerrainGenerator terrain_generator(WorldSeed(config.seed), world_config);
+    TerrainGenerator terrain_generator(WorldSeed(config.seed), worldgen_config);
     constexpr int32_t kDemoChunks[][3] = {{0, 0, 0}, {0, -1, 0}};
 
     for (const auto [chunk_x, chunk_y, chunk_z] : kDemoChunks) {
         GameChunk chunk = terrain_generator.generate_chunk(
             "overworld", chunk_x, chunk_y, chunk_z);
-        paint_demo_surface_variants(chunk, *world_config);
-        const size_t non_air = count_non_air_cells(chunk, world_config->roles.air);
+        paint_demo_surface_variants(chunk, *worldgen_config);
+        const size_t non_air = count_non_air_cells(chunk, worldgen_config->roles.air);
         const size_t total = chunk.terrain.cells.size();
         const snt::voxel::ChunkKey key("overworld", chunk_x, chunk_y, chunk_z);
         snt::voxel::VoxelChunk voxel_chunk = std::move(chunk.voxel_chunk());

@@ -192,6 +192,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_replication_ = std::move(*player_replication);
+    simulation_session_.set_block_physics_mutation_sink(player_replication_.get());
     quest_events_->bind_player_state(*player_state_, player_lifecycle_.get());
     auto player_beds = replication::GameServerPlayerBedService::create(
         *player_state_, world.chunks(), simulation_session_.world_sidecars(),
@@ -253,6 +254,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         {
             .air_material_id = 0,
             .reserved_grave_material_id = config_.server_player.grave_material_id,
+            .block_physics_trigger = &simulation_session_,
         });
     if (!player_interactions) {
         auto error = player_interactions.error();
@@ -405,6 +407,7 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     transport_.reset();
     replication_handler_.reset();
     command_sink_.reset();
+    simulation_session_.set_block_physics_mutation_sink(nullptr);
     player_replication_.reset();
     inventory_replication_.reset();
     quest_book_replication_.reset();

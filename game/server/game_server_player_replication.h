@@ -13,6 +13,7 @@
 #include "game/player/player_replication.h"
 #include "game/server/game_server_player_interaction.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/block_physics_events.h"
 
 #include <cstdint>
 #include <map>
@@ -45,7 +46,8 @@ struct GameServerPlayerReplicationConfig {
 
 class GameServerPlayerReplication final : public IGameReplicationInterestProvider,
                                           public IGameReplicationSnapshotSource,
-                                          public IGameServerPlayerInteractionEventSink {
+                                          public IGameServerPlayerInteractionEventSink,
+                                          public IBlockPhysicsMutationSink {
 public:
     [[nodiscard]] static snt::core::Expected<std::unique_ptr<GameServerPlayerReplication>> create(
         GameServerPlayerState& player_state, snt::ecs::World& world,
@@ -74,6 +76,7 @@ public:
     // server systems that change terrain must use the same declaration rather
     // than writing an opaque delta or polling every loaded chunk.
     void on_player_interaction(const GameServerPlayerInteractionEvent& event) override;
+    void on_block_physics_terrain_changed(const BlockPhysicsTerrainChange& change) override;
     void mark_block_dirty(std::string_view dimension_id, int32_t block_x,
                           int32_t block_y, int32_t block_z) noexcept;
 

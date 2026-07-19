@@ -6,6 +6,7 @@
 #pragma once
 
 #include "core/expected.h"
+#include "game/world/defs/gameplay_config.h"
 
 #include <cstdint>
 #include <string>
@@ -141,6 +142,9 @@ struct GameSessionConfig {
     GameSceneConfig scene;
     GameScriptConfig scripts;
     GameDemoConfig demo;
+    // Game-owned runtime rule configuration. The deterministic simulation
+    // reads this state; renderers only receive derived presentation values.
+    GameplayConfig gameplay;
     GamePersistenceConfig persistence;
     GameServerNetworkConfig server_network;
     GameServerPlayerConfig server_player;

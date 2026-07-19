@@ -27,6 +27,7 @@ class ChunkRegistry;
 namespace snt::game {
 class GameChunkSidecarRegistry;
 class GameContentRegistry;
+class IBlockPhysicsTrigger;
 class MachineInteractionService;
 }
 
@@ -49,6 +50,9 @@ struct GameServerBlockDefinition {
 struct GameServerPlayerInteractionConfig {
     uint32_t air_material_id = 0;
     uint32_t reserved_grave_material_id = 255;
+    // The shared simulation owns delayed terrain physics. The interaction
+    // transaction calls this only after its terrain and inventory commit.
+    IBlockPhysicsTrigger* block_physics_trigger = nullptr;
     std::vector<GameServerBlockDefinition> block_definitions;
 };
 
@@ -163,6 +167,8 @@ private:
         uint32_t material_id) const noexcept;
     [[nodiscard]] snt::core::Expected<void> mark_player_state_dirty(
         const GameAuthenticatedPeer& peer);
+    void schedule_block_physics_after_commit(
+        const GameBlockInteractionCommand& command, uint64_t tick_index) const;
     void emit_event(GameServerPlayerInteractionEvent event) const;
 
     snt::ecs::World* world_ = nullptr;

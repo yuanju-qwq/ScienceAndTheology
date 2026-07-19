@@ -39,11 +39,6 @@ public:
     // Attach a GDWorldData (which owns the C++ WorldData).
     void set_world_data(godot::Resource* gd_world);
 
-    // Register the block physics simulation subsystem.
-    // Must be called after set_world_data(). Handles gravity fall
-    // and cave-in collapse for blocks after mining.
-    void register_block_physics_system();
-
     // Register the tree growth simulation subsystem.
     // Must be called after set_world_data(). Handles tree growth
     // from sapling → young → mature based on tick timing and conditions.

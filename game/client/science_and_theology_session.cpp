@@ -3,6 +3,7 @@
 #define SNT_LOG_CHANNEL "game.client_session"
 #include "science_and_theology_session.h"
 
+#include "game/client/day_night_lighting.h"
 #include "assets/asset_manager.h"
 #include "core/error.h"
 #include "core/events.h"
@@ -604,6 +605,8 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
     }
 
     auto& world = world_session.world();
+    world_session.lighting().set_environment_lighting(
+        make_environment_lighting(simulation_session_.day_night_state()));
     auto scene_result = snt::scene::load_scene(
         world, world_session.assets(), services_->paths().resolve_game(config_.scene.path));
     if (!scene_result) {
@@ -1037,6 +1040,8 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::after_fixed_tick(
 }
 
 void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& context) {
+    context.world().lighting().set_environment_lighting(
+        make_environment_lighting(simulation_session_.day_night_state()));
     if (gameplay_ui_ && local_inventory_authority_) {
         for (InventorySlotTransferConfirmation confirmation :
              local_inventory_authority_->drain_slot_transfer_confirmations()) {

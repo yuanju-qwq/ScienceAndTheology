@@ -5,8 +5,10 @@
 
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
+#include "game/simulation/block_physics_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/world/save/world_persistence_lifecycle.h"
+#include "game/worldgen/default_worldgen_config.h"
 
 #include "core/log.h"
 #include "engine/simulation_services.h"
@@ -21,7 +23,12 @@ namespace snt::game {
 ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSessionConfig config)
     : config_(std::move(config)),
       quest_registry_(content_registry_),
-      machine_interactions_(content_registry_) {}
+      machine_interactions_(content_registry_) {
+    day_night_cycle_.update(0, 0.05f, config_.gameplay,
+                            config_.persistence.world_dimension_id);
+    season_cycle_.update(0, 0.05f, config_.gameplay,
+                         config_.persistence.world_dimension_id);
+}
 
 ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { shutdown(); }
 
@@ -29,6 +36,21 @@ void ScienceAndTheologySimulationSession::set_machine_tick_event_sink(
     IMachineTickEventSink* event_sink) noexcept {
     machine_tick_event_sink_ = event_sink;
     if (machine_tick_system_) machine_tick_system_->set_event_sink(event_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_block_physics_mutation_sink(
+    IBlockPhysicsMutationSink* mutation_sink) noexcept {
+    block_physics_mutation_sink_ = mutation_sink;
+    if (block_physics_system_) block_physics_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::schedule_block_physics_after_terrain_mutation(
+    std::string_view dimension_id, int32_t block_x, int32_t block_y,
+    int32_t block_z, uint64_t source_tick) {
+    if (block_physics_system_) {
+        block_physics_system_->schedule_after_terrain_mutation(
+            dimension_id, block_x, block_y, block_z, source_tick);
+    }
 }
 
 snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
@@ -110,6 +132,11 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
 
     world_ = &world_session.world();
     chunks_ = &world_session.chunks();
+    worldgen_config_ = make_default_game_worldgen_config();
+    if (!worldgen_config_) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Game world-generation snapshot is unavailable"};
+    }
     world_ready_ = false;
     bool loaded_existing_world = false;
     if (world_persistence_) {
@@ -123,7 +150,9 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     }
 
     if (!loaded_existing_world) {
-        if (auto result = bootstrap_demo_world(config_.demo, *chunks_, chunk_sidecars_); !result) {
+        if (auto result = bootstrap_demo_world(config_.demo, *chunks_, chunk_sidecars_,
+                                               worldgen_config_);
+            !result) {
             auto error = result.error();
             error.with_context("ScienceAndTheologySimulationSession::create_world(bootstrap_demo_world)");
             return error;
@@ -136,14 +165,23 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         error.with_context("ScienceAndTheologySimulationSession::create_world(restore machines)");
         return error;
     }
+    block_physics_system_ = std::make_unique<GameBlockPhysicsSystem>(
+        *chunks_, *worldgen_config_, config_.gameplay);
+    block_physics_system_->set_mutation_sink(block_physics_mutation_sink_);
     world_ready_ = true;
 
+    SNT_LOG_INFO("Game block physics initialized with the current world-generation snapshot");
     SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
     return {};
 }
 
 snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
     snt::engine::FixedTickContext& context) {
+    day_night_cycle_.update(context.tick_index(), context.delta_seconds(), config_.gameplay,
+                            config_.persistence.world_dimension_id);
+    season_cycle_.update(context.tick_index(), context.delta_seconds(), config_.gameplay,
+                         config_.persistence.world_dimension_id);
+    if (block_physics_system_) block_physics_system_->tick(context.tick_index());
     if (machine_tick_system_) machine_tick_system_->set_tick_index(context.tick_index());
     // File-watcher polling stays on the simulation main thread so a dedicated
     // server receives the same reload lifecycle as a graphical client.
@@ -164,6 +202,9 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
+    if (block_physics_system_) block_physics_system_->set_mutation_sink(nullptr);
+    block_physics_system_.reset();
+    block_physics_mutation_sink_ = nullptr;
     if (machine_tick_system_) machine_tick_system_->set_event_sink(nullptr);
     machine_tick_system_.reset();
     if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
@@ -178,6 +219,7 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
     world_ready_ = false;
     world_ = nullptr;
     chunks_ = nullptr;
+    worldgen_config_.reset();
     world_persistence_.reset();
     quest_registry_.clear();
     if (scripts_started_ && services_) {

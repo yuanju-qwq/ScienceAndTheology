@@ -58,6 +58,58 @@ void from_json(const json& object, GameDemoConfig& value) {
     read_optional(object, "seed", value.seed);
 }
 
+void from_json(const json& object, GameplayConfig::PlanetOverride& value) {
+    value = GameplayConfig::PlanetOverride{};
+    read_optional(object, "has_enable_collapse", value.has_enable_collapse);
+    read_optional(object, "enable_collapse", value.enable_collapse);
+    read_optional(object, "has_collapse_chance_multiplier",
+                  value.has_collapse_chance_multiplier);
+    read_optional(object, "collapse_chance_multiplier", value.collapse_chance_multiplier);
+    read_optional(object, "has_max_collapse_chain", value.has_max_collapse_chain);
+    read_optional(object, "max_collapse_chain", value.max_collapse_chain);
+    read_optional(object, "has_support_beam_radius", value.has_support_beam_radius);
+    read_optional(object, "support_beam_radius", value.support_beam_radius);
+    read_optional(object, "has_enable_gravity_fall", value.has_enable_gravity_fall);
+    read_optional(object, "enable_gravity_fall", value.enable_gravity_fall);
+    read_optional(object, "has_max_gravity_fall_chain", value.has_max_gravity_fall_chain);
+    read_optional(object, "max_gravity_fall_chain", value.max_gravity_fall_chain);
+    read_optional(object, "has_enable_day_night", value.has_enable_day_night);
+    read_optional(object, "enable_day_night", value.enable_day_night);
+    read_optional(object, "has_day_length_seconds", value.has_day_length_seconds);
+    read_optional(object, "day_length_seconds", value.day_length_seconds);
+    read_optional(object, "has_twilight_fraction", value.has_twilight_fraction);
+    read_optional(object, "twilight_fraction", value.twilight_fraction);
+    read_optional(object, "has_day_start_time", value.has_day_start_time);
+    read_optional(object, "day_start_time", value.day_start_time);
+    read_optional(object, "has_enable_ecosystem", value.has_enable_ecosystem);
+    read_optional(object, "enable_ecosystem", value.enable_ecosystem);
+    read_optional(object, "has_ecosystem_rate_multiplier",
+                  value.has_ecosystem_rate_multiplier);
+    read_optional(object, "ecosystem_rate_multiplier", value.ecosystem_rate_multiplier);
+}
+
+void from_json(const json& object, GameplayConfig& value) {
+    value = GameplayConfig{};
+    read_optional(object, "enable_collapse", value.enable_collapse);
+    read_optional(object, "collapse_chance_multiplier", value.collapse_chance_multiplier);
+    read_optional(object, "max_collapse_chain", value.max_collapse_chain);
+    read_optional(object, "support_beam_radius", value.support_beam_radius);
+    read_optional(object, "enable_gravity_fall", value.enable_gravity_fall);
+    read_optional(object, "max_gravity_fall_chain", value.max_gravity_fall_chain);
+    read_optional(object, "enable_day_night", value.enable_day_night);
+    read_optional(object, "day_length_seconds", value.day_length_seconds);
+    read_optional(object, "twilight_fraction", value.twilight_fraction);
+    read_optional(object, "day_start_time", value.day_start_time);
+    read_optional(object, "days_per_season", value.days_per_season);
+    read_optional(object, "enable_season_colors", value.enable_season_colors);
+    read_optional(object, "enable_ecosystem", value.enable_ecosystem);
+    read_optional(object, "ecosystem_rate_multiplier", value.ecosystem_rate_multiplier);
+    if (object.contains("planet_overrides")) {
+        value.planet_overrides = object.at("planet_overrides").get<
+            std::unordered_map<std::string, GameplayConfig::PlanetOverride>>();
+    }
+}
+
 void from_json(const json& object, GameServerNetworkConfig& value) {
     value = GameServerNetworkConfig{};
     read_optional(object, "enabled", value.enabled);
@@ -151,6 +203,7 @@ void from_json(const json& object, GameSessionConfig& value) {
     if (object.contains("scene")) value.scene = object["scene"].get<GameSceneConfig>();
     if (object.contains("scripts")) value.scripts = object["scripts"].get<GameScriptConfig>();
     if (object.contains("demo")) value.demo = object["demo"].get<GameDemoConfig>();
+    if (object.contains("gameplay")) value.gameplay = object["gameplay"].get<GameplayConfig>();
     if (object.contains("persistence")) {
         value.persistence = object["persistence"].get<GamePersistenceConfig>();
     }

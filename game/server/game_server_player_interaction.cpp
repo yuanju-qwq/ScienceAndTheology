@@ -12,6 +12,7 @@
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/block_physics_events.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/world/game_chunk.h"
@@ -384,6 +385,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
         error.with_context("GameServerPlayerInteractionService::apply_mine(inventory commit)");
         return error;
     }
+    schedule_block_physics_after_commit(command, tick_index);
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kBlockMined,
         .account_id = peer.identity.account_id,
@@ -451,6 +453,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
         error.with_context("GameServerPlayerInteractionService::apply_place(inventory commit)");
         return error;
     }
+    schedule_block_physics_after_commit(command, tick_index);
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kBlockPlaced,
         .account_id = peer.identity.account_id,
@@ -546,6 +549,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
         return error;
     }
 
+    schedule_block_physics_after_commit(command, tick_index);
     SNT_LOG_INFO("Placed machine '%s' for account '%s' at (%d,%d,%d) anchor=%llu runtime=%llu",
                  machine->id.c_str(), peer.identity.account_id.c_str(),
                  target->position.position.x, target->position.position.y,
@@ -896,6 +900,13 @@ snt::core::Expected<void> GameServerPlayerInteractionService::mark_player_state_
     const GameAuthenticatedPeer& peer) {
     if (checkpoint_sink_ == nullptr) return {};
     return checkpoint_sink_->mark_player_state_dirty(peer);
+}
+
+void GameServerPlayerInteractionService::schedule_block_physics_after_commit(
+    const GameBlockInteractionCommand& command, uint64_t tick_index) const {
+    if (config_.block_physics_trigger == nullptr) return;
+    config_.block_physics_trigger->schedule_block_physics_after_terrain_mutation(
+        command.dimension_id, command.block_x, command.block_y, command.block_z, tick_index);
 }
 
 void GameServerPlayerInteractionService::emit_event(

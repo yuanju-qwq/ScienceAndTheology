@@ -20,22 +20,11 @@
 
 #include <cstdint>
 #include <memory>
-#include <queue>
-#include <string>
 
 #include "game/world/defs/gameplay_config.h"
 #include "game/worldgen/world_gen_config.h"
 
 namespace snt::game {
-
-// A block physics event enqueued after a block is mined.
-// BlockPhysicsSystem consumes these each tick.
-struct BlockPhysicsEvent {
-    std::string dimension_id;
-    int block_x = 0;
-    int block_y = 0;
-    int block_z = 0;
-};
 
 // ECS component: runtime gameplay configuration (collapse, gravity fall, etc.).
 // Mutable at runtime, separate from frozen WorldGenConfigSnapshot.
@@ -58,27 +47,6 @@ struct TickComponent {
 // Attached as a singleton to the world context entity.
 struct WorldGenConfigComponent {
     std::shared_ptr<const WorldGenConfigSnapshot> config;
-};
-
-// ECS component: block physics event queue.
-// Producer: mining/placement systems push events here.
-// Consumer: BlockPhysicsSystem drains the queue each tick.
-// Attached as a singleton to the world context entity.
-struct BlockPhysicsEventQueue {
-    std::queue<BlockPhysicsEvent> events;
-
-    void push(const BlockPhysicsEvent& event) {
-        events.push(event);
-    }
-
-    bool pop(BlockPhysicsEvent& out) {
-        if (events.empty()) return false;
-        out = events.front();
-        events.pop();
-        return true;
-    }
-
-    size_t count() const { return events.size(); }
 };
 
 } // namespace snt::game

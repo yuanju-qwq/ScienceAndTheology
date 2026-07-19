@@ -12,6 +12,7 @@
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/block_physics_events.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/world/game_chunk.h"
 #include "voxel/data/chunk_registry.h"
@@ -49,6 +50,7 @@ using snt::game::replication::GameServerInventoryReplication;
 using snt::game::replication::GameServerPlayerBedService;
 using snt::game::replication::GameServerPlayerInteractionEvent;
 using snt::game::replication::GameServerPlayerInteractionEventKind;
+using snt::game::replication::GameServerPlayerInteractionConfig;
 using snt::game::replication::GameServerPlayerInteractionService;
 using snt::game::replication::GameServerPlayerState;
 using snt::game::replication::IGameServerPlayerInteractionEventSink;
@@ -99,6 +101,30 @@ struct EventSink final : IGameServerPlayerInteractionEventSink {
 
     void on_player_interaction(const GameServerPlayerInteractionEvent& event) override {
         events.push_back(event);
+    }
+};
+
+struct RecordingBlockPhysicsTrigger final : snt::game::IBlockPhysicsTrigger {
+    struct Call {
+        std::string dimension_id;
+        int32_t block_x = 0;
+        int32_t block_y = 0;
+        int32_t block_z = 0;
+        uint64_t tick_index = 0;
+    };
+
+    std::vector<Call> calls;
+
+    void schedule_block_physics_after_terrain_mutation(
+        std::string_view dimension_id, int32_t block_x, int32_t block_y,
+        int32_t block_z, uint64_t source_tick) override {
+        calls.push_back({
+            .dimension_id = std::string(dimension_id),
+            .block_x = block_x,
+            .block_y = block_y,
+            .block_z = block_z,
+            .tick_index = source_tick,
+        });
     }
 };
 
@@ -269,6 +295,70 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     EXPECT_EQ(checkpoint.marks, 3);
     ASSERT_EQ(events.events.size(), 3u);
     EXPECT_EQ(events.events.front().tick_index, 10u);
+    (*player_state)->shutdown();
+}
+
+TEST(GameServerPlayerInteractionTest, SchedulesPhysicsOnlyAfterHostTerrainCommit) {
+    snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    GameChunkSidecarRegistry sidecars;
+    add_ground_chunk(chunks);
+    auto player_state = GameServerPlayerState::create(
+        world,
+        {
+            .spawn = position(2, 1, 2),
+            .inventory_slots = 4,
+            .inventory_max_stack_size = 8,
+            .interaction_reach_blocks = 5,
+        });
+    ASSERT_TRUE(player_state) << player_state.error().format();
+    const GameAuthenticatedPeer peer = make_peer(606, "Physics Trigger Player");
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(
+        peer, (*player_state)->default_persistent_state()));
+    ASSERT_TRUE((*player_state)->apply_inventory_transaction(
+        peer, {.additions = {{.item_id = "sand", .count = 1}}}));
+
+    GameContentRegistry content;
+    MachineInteractionService machine_interactions(content);
+    CheckpointSink checkpoint;
+    RecordingBlockPhysicsTrigger physics_trigger;
+    auto beds = GameServerPlayerBedService::create(*(*player_state), chunks, sidecars, &checkpoint);
+    ASSERT_TRUE(beds) << beds.error().format();
+    GameServerPlayerInteractionConfig config;
+    config.block_physics_trigger = &physics_trigger;
+    auto interactions = GameServerPlayerInteractionService::create(
+        world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
+        nullptr, &checkpoint, {}, std::move(config));
+    ASSERT_TRUE(interactions) << interactions.error().format();
+
+    const GameBlockInteractionCommand place{
+        .action = GameBlockInteractionAction::kPlace,
+        .dimension_id = "overworld",
+        .block_x = 3,
+        .block_y = 1,
+        .block_z = 2,
+        .expected_material = 0,
+        .selected_item_id = "sand",
+    };
+    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, place, 20));
+    ASSERT_EQ(physics_trigger.calls.size(), 1u);
+    EXPECT_EQ(physics_trigger.calls.front().dimension_id, "overworld");
+    EXPECT_EQ(physics_trigger.calls.front().block_x, 3);
+    EXPECT_EQ(physics_trigger.calls.front().block_y, 1);
+    EXPECT_EQ(physics_trigger.calls.front().block_z, 2);
+    EXPECT_EQ(physics_trigger.calls.front().tick_index, 20u);
+
+    const GameBlockInteractionCommand mine{
+        .action = GameBlockInteractionAction::kMine,
+        .dimension_id = "overworld",
+        .block_x = 3,
+        .block_y = 1,
+        .block_z = 2,
+        .expected_material = 3,
+    };
+    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, mine, 21));
+    ASSERT_EQ(physics_trigger.calls.size(), 2u);
+    EXPECT_EQ(physics_trigger.calls.back().tick_index, 21u);
     (*player_state)->shutdown();
 }
 
