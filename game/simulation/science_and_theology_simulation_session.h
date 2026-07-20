@@ -17,6 +17,7 @@
 #include "game/simulation/crop_growth_events.h"
 #include "game/simulation/day_night_cycle.h"
 #include "game/simulation/machine_interaction_service.h"
+#include "game/simulation/region_topology.h"
 #include "game/simulation/season_cycle.h"
 #include "game/simulation/tree_growth_events.h"
 #include "game/quest/quest_registry.h"
@@ -77,6 +78,12 @@ public:
     [[nodiscard]] const SeasonState& season_state() const noexcept {
         return season_cycle_.state();
     }
+    // Typed topology is game-owned and advances from the same authoritative
+    // clock as every other simulation system. Hosts may attach observers but
+    // do not receive a mutable Godot or engine EventBus dependency.
+    RegionTopology& region_topology() noexcept { return region_topology_; }
+    const RegionTopology& region_topology() const noexcept { return region_topology_; }
+    void set_region_topology_event_sink(IRegionTopologyEventSink* event_sink) noexcept;
     // Server composition installs host-only consumers before world creation.
     // Runtime calls are main-thread lifecycle operations; the session updates
     // an already registered machine system only when no worker task is live.
@@ -110,6 +117,7 @@ private:
     MachineInteractionService machine_interactions_;
     DayNightCycle day_night_cycle_;
     SeasonCycle season_cycle_;
+    RegionTopology region_topology_;
     std::shared_ptr<const WorldGenConfigSnapshot> worldgen_config_;
     std::unique_ptr<GameBlockPhysicsSystem> block_physics_system_;
     IBlockPhysicsMutationSink* block_physics_mutation_sink_ = nullptr;

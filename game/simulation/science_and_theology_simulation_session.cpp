@@ -58,6 +58,11 @@ void ScienceAndTheologySimulationSession::set_crop_growth_mutation_sink(
     if (crop_growth_system_) crop_growth_system_->set_mutation_sink(mutation_sink);
 }
 
+void ScienceAndTheologySimulationSession::set_region_topology_event_sink(
+    IRegionTopologyEventSink* event_sink) noexcept {
+    region_topology_.set_event_sink(event_sink);
+}
+
 void ScienceAndTheologySimulationSession::schedule_block_physics_after_terrain_mutation(
     std::string_view dimension_id, int32_t block_x, int32_t block_y,
     int32_t block_z, uint64_t source_tick) {
@@ -193,6 +198,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     SNT_LOG_INFO("Game block physics initialized with the current world-generation snapshot");
     SNT_LOG_INFO("Game tree growth initialized with typed chunk-sidecar state");
     SNT_LOG_INFO("Game crop growth initialized with typed chunk-sidecar state");
+    SNT_LOG_INFO("Game region topology initialized for authoritative fixed ticks");
     SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
     return {};
 }
@@ -203,6 +209,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
                             config_.persistence.world_dimension_id);
     season_cycle_.update(context.tick_index(), context.delta_seconds(), config_.gameplay,
                          config_.persistence.world_dimension_id);
+    (void)region_topology_.fixed_tick(context.tick_index());
     if (block_physics_system_) block_physics_system_->tick(context.tick_index());
     if (tree_growth_system_) tree_growth_system_->tick(context.tick_index());
     if (crop_growth_system_) {
@@ -228,6 +235,8 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
+    region_topology_.set_event_sink(nullptr);
+    region_topology_.clear();
     if (crop_growth_system_) crop_growth_system_->set_mutation_sink(nullptr);
     crop_growth_system_.reset();
     crop_growth_mutation_sink_ = nullptr;

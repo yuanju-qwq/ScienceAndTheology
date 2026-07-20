@@ -5,6 +5,7 @@
 
 #include "core/log.h"
 #include "core/path_utils.h"
+#include "game/client/game_content_registry.h"
 #include "game/localization/localization.h"
 #include "ui/ui_packed_scene.h"
 #include "ui/retained_mui_controls.h"
@@ -12,9 +13,11 @@
 #include <algorithm>
 #include <charconv>
 #include <cstdio>
+#include <filesystem>
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <utility>
 
@@ -49,7 +52,23 @@ UiWidgetTemplate text_widget(std::string id, std::string text, float size = 16.0
     return widget;
 }
 
+std::string item_asset_image_key(std::string_view relative_path) {
+    return "game.item.asset:" + std::string(relative_path);
+}
+
+Color presentation_tint(const GameItemPresentation& presentation) {
+    const uint32_t tint = presentation.uses_tint ? presentation.tint_rgb : 0xffffffu;
+    return {
+        static_cast<uint8_t>((tint >> 16) & 0xffu),
+        static_cast<uint8_t>((tint >> 8) & 0xffu),
+        static_cast<uint8_t>(tint & 0xffu),
+        255,
+    };
+}
+
 UiWidgetTemplate slot_widget(std::string id, const ItemStackState& stack, bool selected,
+                             const GameContentRegistry* content,
+                             const localization::LocalizationService* localization,
                              bool interactive = true) {
     UiWidgetTemplate widget;
     widget.type = UiWidgetType::Slot;
@@ -61,6 +80,28 @@ UiWidgetTemplate slot_widget(std::string id, const ItemStackState& stack, bool s
         .count = stack.count,
         .selected = selected,
     };
+    if (stack.item_key.empty() || stack.count <= 0) return widget;
+
+    // Unknown IDs remain visible through the registered missing-icon image;
+    // semantic stack keys are never repurposed as UI image-registry keys.
+    widget.slot.image_key = "item.missing";
+    if (content == nullptr) return widget;
+
+    const GameItemDefinition* const definition = content->find_item(stack.item_key);
+    if (definition == nullptr) return widget;
+    const GameItemPresentation& presentation = definition->presentation;
+    if (!presentation.icon_path.empty()) {
+        widget.slot.image_key = item_asset_image_key(presentation.icon_path);
+    }
+    if (!presentation.icon_overlay_path.empty()) {
+        widget.slot.overlay_image_key = item_asset_image_key(presentation.icon_overlay_path);
+    }
+    widget.slot.image_tint = presentation_tint(presentation);
+    if (localization != nullptr) {
+        widget.tooltip = UiTooltipConfig{
+            .text = localization->translate(definition->title_key),
+        };
+    }
     return widget;
 }
 
@@ -142,7 +183,9 @@ std::unique_ptr<ViewGroup> instantiate_group(UiWidgetTemplate root,
     return std::unique_ptr<ViewGroup>(group);
 }
 
-UiWidgetTemplate hotbar_template(const HotbarViewModel& model) {
+UiWidgetTemplate hotbar_template(const HotbarViewModel& model,
+                                 const GameContentRegistry* content,
+                                 const localization::LocalizationService* localization) {
     UiWidgetTemplate root;
     root.type = UiWidgetType::Flex;
     root.id = "hotbar";
@@ -157,12 +200,13 @@ UiWidgetTemplate hotbar_template(const HotbarViewModel& model) {
     for (int32_t index = 0; index < limit; ++index) {
         append_child(root, slot_widget("hotbar_slot_" + std::to_string(index),
                                        inventory.slots[index],
-                                       index == model.selected_index()));
+                                       index == model.selected_index(), content, localization));
     }
     return root;
 }
 
 UiWidgetTemplate inventory_template(const InventoryViewModel& model,
+                                    const GameContentRegistry* content,
                                     const localization::LocalizationService& localization) {
     UiWidgetTemplate panel;
     panel.type = UiWidgetType::Flex;
@@ -187,13 +231,15 @@ UiWidgetTemplate inventory_template(const InventoryViewModel& model,
     for (int32_t index = 0; index < static_cast<int32_t>(model.state().slots.size()); ++index) {
         append_child(grid, slot_widget("inventory_slot_" + std::to_string(index),
                                        model.state().slots[index],
-                                       index == model.state().selected_hotbar));
+                                       index == model.state().selected_hotbar,
+                                       content, &localization));
     }
     append_child(panel, std::move(grid));
     return panel;
 }
 
 UiWidgetTemplate crafting_template(const CraftingViewModel& model,
+                                   const GameContentRegistry* content,
                                    const localization::LocalizationService& localization) {
     UiWidgetTemplate panel;
     panel.type = UiWidgetType::Flex;
@@ -226,7 +272,8 @@ UiWidgetTemplate crafting_template(const CraftingViewModel& model,
         row.layout.orientation = Orientation::Horizontal;
         row.layout.spacing = 8.0f;
         row.layout.params = fixed(480.0f, 48.0f);
-        append_child(row, slot_widget("recipe_output_" + recipe.id, recipe.output, false, false));
+        append_child(row, slot_widget("recipe_output_" + recipe.id, recipe.output, false,
+                                      content, &localization, false));
 
         const std::string output_name = localization.translate(recipe.output.item_key);
         const std::string output_count = std::to_string(recipe.output.count);
@@ -256,6 +303,7 @@ UiWidgetTemplate crafting_template(const CraftingViewModel& model,
 
 UiWidgetTemplate machine_panel_template(const MachinePanelViewModel& model,
                                         const InventoryViewModel& inventory,
+                                        const GameContentRegistry* content,
                                         bool transfers_pending,
                                         const localization::LocalizationService& localization) {
     const MachinePanelState* const machine = model.state();
@@ -295,7 +343,8 @@ UiWidgetTemplate machine_panel_template(const MachinePanelViewModel& model,
             ? machine->input_slots[index]
             : empty;
         append_child(inputs, slot_widget("machine_input_slot_" + std::to_string(index),
-                                         stack, false, !transfers_pending));
+                                         stack, false, content, &localization,
+                                         !transfers_pending));
     }
     append_child(storage, std::move(inputs));
 
@@ -323,7 +372,7 @@ UiWidgetTemplate machine_panel_template(const MachinePanelViewModel& model,
             ? machine->output_slots[index]
             : empty;
         append_child(outputs, slot_widget("machine_output_slot_" + std::to_string(index),
-                                          stack, false, false));
+                                          stack, false, content, &localization, false));
     }
     append_child(storage, std::move(outputs));
     append_child(panel, std::move(storage));
@@ -338,7 +387,7 @@ UiWidgetTemplate machine_panel_template(const MachinePanelViewModel& model,
         append_child(player_slots, slot_widget("inventory_slot_" + std::to_string(index),
                                                inventory.state().slots[index],
                                                index == inventory.state().selected_hotbar,
-                                               !transfers_pending));
+                                               content, &localization, !transfers_pending));
     }
     append_child(panel, std::move(player_slots));
     return panel;
@@ -680,12 +729,26 @@ GameplayUiController::GameplayUiController(InventoryViewModel inventory,
                                            std::shared_ptr<IInventorySlotTransferCommandSink>
                                                slot_transfer_sink,
                                            std::shared_ptr<IMachineInputSlotTransferCommandSink>
-                                               machine_input_slot_transfer_sink)
+                                               machine_input_slot_transfer_sink,
+                                           const GameContentRegistry* content,
+                                           const snt::core::RuntimePathResolver* paths)
     : inventory_(std::move(inventory)),
       hotbar_(inventory_),
       crafting_(inventory_, std::move(recipes)),
       slot_transfer_sink_(std::move(slot_transfer_sink)),
-      machine_input_slot_transfer_sink_(std::move(machine_input_slot_transfer_sink)) {}
+      machine_input_slot_transfer_sink_(std::move(machine_input_slot_transfer_sink)),
+      content_(content),
+      paths_(paths) {}
+
+uint64_t GameplayUiController::item_content_revision() const noexcept {
+    return content_ == nullptr ? 0 : content_->item_content_revision();
+}
+
+snt::core::Expected<void> GameplayUiController::register_content_images(
+    UiImageRegistry& images) const {
+    if (content_ == nullptr || paths_ == nullptr) return {};
+    return register_gameplay_ui_images(images, *paths_, content_);
+}
 
 void GameplayUiController::open_inventory() {
     set_open_screen(GameplayUiScreen::Inventory);
@@ -985,23 +1048,23 @@ void GameplayUiController::set_open_screen(GameplayUiScreen screen) {
 }
 
 std::unique_ptr<ViewGroup> build_hotbar_view(const HotbarViewModel& model) {
-    return instantiate_group(hotbar_template(model));
+    return instantiate_group(hotbar_template(model, nullptr, nullptr));
 }
 
 std::unique_ptr<ViewGroup> build_inventory_view(
     const InventoryViewModel& model, const localization::LocalizationService& localization) {
-    return instantiate_group(inventory_template(model, localization));
+    return instantiate_group(inventory_template(model, nullptr, localization));
 }
 
 std::unique_ptr<ViewGroup> build_crafting_view(
     CraftingViewModel& model, const localization::LocalizationService& localization) {
-    return instantiate_group(crafting_template(model, localization), crafting_actions(model));
+    return instantiate_group(crafting_template(model, nullptr, localization), crafting_actions(model));
 }
 
 std::unique_ptr<ViewGroup> build_machine_panel_view(
     const MachinePanelViewModel& model, const InventoryViewModel& inventory,
     const localization::LocalizationService& localization) {
-    return instantiate_group(machine_panel_template(model, inventory, false, localization));
+    return instantiate_group(machine_panel_template(model, inventory, nullptr, false, localization));
 }
 
 std::unique_ptr<ViewGroup> build_performance_panel_view(
@@ -1019,7 +1082,8 @@ UiWidgetTree build_gameplay_ui_widget_tree(
     root.id = "gameplay_ui_root";
     root.layout.params = fixed(viewport.x, viewport.y);
 
-    UiWidgetTemplate& hotbar = append_child(root, hotbar_template(controller.hotbar()));
+    UiWidgetTemplate& hotbar = append_child(
+        root, hotbar_template(controller.hotbar(), controller.content(), &localization));
     hotbar.layout.params = fixed(9.0f * kSlotSize + 8.0f * kSlotGap + 8.0f,
                                  kSlotSize + 8.0f);
     hotbar.layout.params.margin.left = (viewport.x - hotbar.layout.params.width) * 0.5f;
@@ -1027,14 +1091,14 @@ UiWidgetTree build_gameplay_ui_widget_tree(
 
     if (controller.inventory_open()) {
         UiWidgetTemplate& inventory = append_child(
-            root, inventory_template(controller.inventory(), localization));
+            root, inventory_template(controller.inventory(), controller.content(), localization));
         inventory.layout.params.margin.left =
             (viewport.x - inventory.layout.params.width) * 0.5f;
         inventory.layout.params.margin.top =
             (viewport.y - inventory.layout.params.height) * 0.5f;
     } else if (controller.crafting_open()) {
         UiWidgetTemplate& crafting = append_child(
-            root, crafting_template(controller.crafting(), localization));
+            root, crafting_template(controller.crafting(), controller.content(), localization));
         crafting.layout.params.margin.left =
             (viewport.x - crafting.layout.params.width) * 0.5f;
         crafting.layout.params.margin.top =
@@ -1042,6 +1106,7 @@ UiWidgetTree build_gameplay_ui_widget_tree(
     } else if (controller.machine_open()) {
         UiWidgetTemplate& machine = append_child(
             root, machine_panel_template(controller.machine_panel(), controller.inventory(),
+                                         controller.content(),
                                          controller.inventory_slot_transfer_pending() ||
                                              controller.machine_input_slot_transfer_pending(),
                                          localization));
@@ -1064,6 +1129,7 @@ struct GameplayUiTreeState {
     uint64_t inventory_revision = 0;
     uint64_t crafting_revision = 0;
     uint64_t machine_revision = 0;
+    uint64_t item_content_revision = 0;
     Vec2 viewport{};
 
     bool operator==(const GameplayUiTreeState& other) const {
@@ -1071,6 +1137,7 @@ struct GameplayUiTreeState {
             inventory_revision == other.inventory_revision &&
             crafting_revision == other.crafting_revision &&
             machine_revision == other.machine_revision &&
+            item_content_revision == other.item_content_revision &&
             viewport.x == other.viewport.x && viewport.y == other.viewport.y;
     }
 };
@@ -1082,6 +1149,7 @@ GameplayUiTreeState gameplay_ui_tree_state(GameplayUiController& controller,
         .inventory_revision = controller.inventory().revision(),
         .crafting_revision = controller.crafting().revision(),
         .machine_revision = controller.machine_panel().revision(),
+        .item_content_revision = controller.item_content_revision(),
         .viewport = viewport,
     };
 }
@@ -1190,6 +1258,11 @@ UiScreenFactory make_gameplay_ui_factory(
         -> snt::core::Expected<UiScreenMount> {
         const Vec2 viewport = context.viewport;
         UiWidgetActionDispatcher dispatch_action = context.dispatch_action;
+        if (auto result = controller.register_content_images(context.images); !result) {
+            auto error = result.error();
+            error.with_context("Gameplay UI image registration during mount");
+            return error;
+        }
         auto root = instantiate_ui_widget_tree(
             build_gameplay_ui_widget_tree(controller, viewport, localization), {
                 .dispatch_action = dispatch_action,
@@ -1211,6 +1284,15 @@ UiScreenFactory make_gameplay_ui_factory(
                 const GameplayUiTreeState next_state = gameplay_ui_tree_state(
                     controller, frame_context.viewport);
                 if (next_state == state->tree_state) return;
+
+                if (auto result = controller.register_content_images(frame_context.images); !result) {
+                    if (!state->refresh_failure_logged) {
+                        SNT_LOG_ERROR("Gameplay content image refresh failed: %s",
+                                      result.error().format().c_str());
+                        state->refresh_failure_logged = true;
+                    }
+                    return;
+                }
 
                 auto refreshed = replace_gameplay_ui_children(
                     mounted_root, controller, frame_context.viewport, localization, dispatch_action);
@@ -1265,30 +1347,44 @@ std::unique_ptr<ViewGroup> build_gameplay_ui_root(GameplayUiController& controll
 
 snt::core::Expected<void> register_gameplay_ui_images(
     UiImageRegistry& images,
-    const snt::core::RuntimePathResolver& paths) {
-    struct ImageRegistration {
-        const char* key;
-        const char* relative_path;
-    };
-    constexpr ImageRegistration kImages[] = {
-        {"item.missing", "resource/items/missing_icon_32.png"},
-        {"plank.oak", "resource/items/materials/wood_plank_icon_32.png"},
-        {"material.coal", "resource/items/tfc/charcoal_icon_32.png"},
-        {"stick", "resource/items/materials/stick_icon_32.png"},
-        {"workbench", "resource/items/placeables/workbench_icon_32.png"},
-    };
-
-    for (const ImageRegistration& image : kImages) {
-        if (auto result = images.register_file(image.key, paths.resolve_game(image.relative_path)); !result) {
-            auto error = result.error();
-            error.with_context("register_gameplay_ui_images");
-            return error;
-        }
+    const snt::core::RuntimePathResolver& paths,
+    const GameContentRegistry* content) {
+    if (auto result = images.register_file(
+            "item.missing", paths.resolve_game("resource/items/missing_icon_32.png")); !result) {
+        auto error = result.error();
+        error.with_context("register_gameplay_ui_images(fallback)");
+        return error;
     }
     if (auto result = images.set_fallback("item.missing"); !result) {
         return result.error();
     }
-    SNT_LOG_INFO("Gameplay UI image catalog registered (%zu images)", std::size(kImages));
+
+    if (content == nullptr) {
+        SNT_LOG_INFO("Gameplay UI registered only the missing-item fallback (no content registry)");
+        return {};
+    }
+
+    std::set<std::string, std::less<>> asset_paths;
+    for (const GameItemDefinition& definition : content->item_definitions()) {
+        if (!definition.presentation.icon_path.empty()) {
+            asset_paths.insert(definition.presentation.icon_path);
+        }
+        if (!definition.presentation.icon_overlay_path.empty()) {
+            asset_paths.insert(definition.presentation.icon_overlay_path);
+        }
+    }
+
+    for (const std::string& asset_path : asset_paths) {
+        if (auto result = images.register_file(
+                item_asset_image_key(asset_path),
+                paths.resolve_game("resource/items/" + asset_path)); !result) {
+            auto error = result.error();
+            error.with_context("register_gameplay_ui_images(" + asset_path + ")");
+            return error;
+        }
+    }
+    SNT_LOG_INFO("Gameplay UI image catalog synchronized: %zu unique asset(s) for %zu item definition(s)",
+                 asset_paths.size(), content->item_definitions().size());
     return {};
 }
 

@@ -4,11 +4,14 @@
 #include "game_content_registry.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <set>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include <angelscript.h>
@@ -61,6 +64,240 @@ constexpr uint64_t kQuestBookFingerprintOffset = 1469598103934665603ull;
 constexpr uint64_t kQuestBookFingerprintPrime = 1099511628211ull;
 constexpr size_t kMaxGameItemKeyBytes = 256;
 constexpr int32_t kMaxGameItemStackSize = 1'000'000;
+constexpr size_t kMaxMaterialCompositionEntries = 32;
+constexpr size_t kMaxItemToolTags = 16;
+constexpr uint16_t kKnownMaterialGenerationFlags =
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kDust) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kMetal) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kGem) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kOre) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kCell) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kPlasma) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kWire) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kBlock) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kPlate) |
+    static_cast<uint16_t>(GameMaterialGenerationFlag::kRod);
+
+constexpr std::array<std::string_view,
+                     static_cast<size_t>(GameMaterialForm::kCount)>
+    kMaterialFormNames = {
+        "dust", "tiny_dust", "small_dust", "impure_dust", "purified_dust",
+        "crushed", "crushed_purified", "crushed_centrifuged",
+        "gem", "flawed_gem", "flawless_gem", "exquisite_gem",
+        "ingot", "ingot_hot", "nugget", "block",
+        "plate", "double_plate", "dense_plate",
+        "rod", "long_rod", "bolt", "screw", "ring", "rotor", "gear",
+        "small_gear", "wire_fine", "wire", "cell", "plasma_cell",
+    };
+
+constexpr std::array<int64_t, static_cast<size_t>(GameMaterialForm::kCount)>
+    kMaterialFormAmounts = {
+        144, 16, 36, 144, 144, 144, 144, 144,
+        144, 144, 144, 144, 144, 144, 16, 1296,
+        144, 288, 1296, 72, 144, 8, 8, 36, 576, 576,
+        72, 72, 144, 144, 144,
+    };
+
+constexpr size_t material_form_index(GameMaterialForm form) noexcept {
+    return static_cast<size_t>(form);
+}
+
+constexpr bool valid_material_form(GameMaterialForm form) noexcept {
+    return material_form_index(form) < material_form_index(GameMaterialForm::kCount);
+}
+
+constexpr std::string_view material_form_name(GameMaterialForm form) noexcept {
+    return valid_material_form(form) ? kMaterialFormNames[material_form_index(form)]
+                                     : std::string_view{};
+}
+
+constexpr int64_t material_form_amount(GameMaterialForm form) noexcept {
+    return valid_material_form(form) ? kMaterialFormAmounts[material_form_index(form)] : 0;
+}
+
+constexpr bool valid_material_state(GameMaterialState state) noexcept {
+    return state == GameMaterialState::kSolid || state == GameMaterialState::kLiquid ||
+        state == GameMaterialState::kGas || state == GameMaterialState::kPlasma;
+}
+
+constexpr bool valid_item_category(GameItemCategory category) noexcept {
+    return static_cast<uint8_t>(category) <= static_cast<uint8_t>(GameItemCategory::kMisc);
+}
+
+constexpr bool valid_tool_type(GameToolType type) noexcept {
+    return static_cast<uint8_t>(type) <= static_cast<uint8_t>(GameToolType::kSpear);
+}
+
+constexpr std::string_view tool_type_tag(GameToolType type) noexcept {
+    switch (type) {
+    case GameToolType::kPickaxe: return "pickaxe";
+    case GameToolType::kAxe: return "axe";
+    case GameToolType::kShovel: return "shovel";
+    case GameToolType::kSword: return "sword";
+    case GameToolType::kHoe: return "hoe";
+    case GameToolType::kKnife: return "knife";
+    case GameToolType::kSpear: return "spear";
+    case GameToolType::kNone: return {};
+    }
+    return {};
+}
+
+constexpr bool material_generates_form(const GameMaterialDefinition& material,
+                                       GameMaterialForm form) noexcept {
+    switch (form) {
+    case GameMaterialForm::kDust:
+    case GameMaterialForm::kTinyDust:
+    case GameMaterialForm::kSmallDust:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kDust);
+    case GameMaterialForm::kGem:
+    case GameMaterialForm::kFlawedGem:
+    case GameMaterialForm::kFlawlessGem:
+    case GameMaterialForm::kExquisiteGem:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kGem);
+    case GameMaterialForm::kImpureDust:
+    case GameMaterialForm::kPurifiedDust:
+    case GameMaterialForm::kCrushed:
+    case GameMaterialForm::kCrushedPurified:
+    case GameMaterialForm::kCrushedCentrifuged:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kOre);
+    case GameMaterialForm::kIngot:
+    case GameMaterialForm::kHotIngot:
+    case GameMaterialForm::kNugget:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kMetal);
+    case GameMaterialForm::kPlate:
+    case GameMaterialForm::kDoublePlate:
+    case GameMaterialForm::kDensePlate:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kMetal) ||
+            has_material_generation_flag(material.generation_flags,
+                                         GameMaterialGenerationFlag::kPlate);
+    case GameMaterialForm::kRod:
+    case GameMaterialForm::kLongRod:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kMetal) ||
+            has_material_generation_flag(material.generation_flags,
+                                         GameMaterialGenerationFlag::kRod);
+    case GameMaterialForm::kBolt:
+    case GameMaterialForm::kScrew:
+    case GameMaterialForm::kRing:
+    case GameMaterialForm::kRotor:
+    case GameMaterialForm::kGear:
+    case GameMaterialForm::kSmallGear:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kMetal);
+    case GameMaterialForm::kFineWire:
+    case GameMaterialForm::kWire:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kWire);
+    case GameMaterialForm::kBlock:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kBlock);
+    case GameMaterialForm::kCell:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kCell);
+    case GameMaterialForm::kPlasmaCell:
+        return has_material_generation_flag(material.generation_flags,
+                                            GameMaterialGenerationFlag::kPlasma);
+    case GameMaterialForm::kCount:
+        return false;
+    }
+    return false;
+}
+
+uint32_t darken_rgb(uint32_t color, uint32_t numerator = 9,
+                    uint32_t denominator = 10) noexcept {
+    const auto scale = [numerator, denominator](uint32_t channel) {
+        return (channel * numerator) / denominator;
+    };
+    return (scale((color >> 16) & 0xffu) << 16) |
+        (scale((color >> 8) & 0xffu) << 8) | scale(color & 0xffu);
+}
+
+std::string material_form_icon_path(GameMaterialForm form) {
+    switch (form) {
+    case GameMaterialForm::kDust:
+    case GameMaterialForm::kImpureDust:
+    case GameMaterialForm::kPurifiedDust:
+        return "material_sets/generic/dust_base_32.png";
+    case GameMaterialForm::kTinyDust:
+        return "material_sets/generic/dust_tiny_base_32.png";
+    case GameMaterialForm::kSmallDust:
+        return "material_sets/generic/dust_pile_base_32.png";
+    case GameMaterialForm::kCrushed:
+    case GameMaterialForm::kCrushedPurified:
+    case GameMaterialForm::kCrushedCentrifuged:
+        return "material_sets/generic/crushed_base_32.png";
+    case GameMaterialForm::kGem:
+    case GameMaterialForm::kFlawedGem:
+    case GameMaterialForm::kFlawlessGem:
+    case GameMaterialForm::kExquisiteGem:
+        return "material_sets/generic/gem_base_32.png";
+    case GameMaterialForm::kIngot:
+    case GameMaterialForm::kHotIngot:
+        return "material_sets/generic/ingot_base_32.png";
+    case GameMaterialForm::kNugget:
+        return "material_sets/generic/nugget_base_32.png";
+    case GameMaterialForm::kBlock:
+        return "material_sets/generic/block_base_32.png";
+    case GameMaterialForm::kPlate:
+    case GameMaterialForm::kDoublePlate:
+        return "material_sets/generic/plate_base_32.png";
+    case GameMaterialForm::kDensePlate:
+        return "material_sets/generic/dense_plate_base_32.png";
+    case GameMaterialForm::kRod:
+    case GameMaterialForm::kLongRod:
+        return "material_sets/generic/rod_base_32.png";
+    case GameMaterialForm::kBolt:
+        return "material_sets/generic/bolt_base_32.png";
+    case GameMaterialForm::kScrew:
+        return "material_sets/generic/screw_base_32.png";
+    case GameMaterialForm::kRing:
+        return "material_sets/generic/ring_base_32.png";
+    case GameMaterialForm::kRotor:
+    case GameMaterialForm::kGear:
+    case GameMaterialForm::kSmallGear:
+        return "material_sets/generic/gear_base_32.png";
+    case GameMaterialForm::kFineWire:
+    case GameMaterialForm::kWire:
+        return "material_sets/generic/wire_base_32.png";
+    case GameMaterialForm::kCell:
+    case GameMaterialForm::kPlasmaCell:
+        return "material_sets/generic/cell_base_32.png";
+    case GameMaterialForm::kCount:
+        return {};
+    }
+    return {};
+}
+
+GameItemPresentation make_generated_material_presentation(
+    const GameMaterialDefinition& material, GameMaterialForm form) {
+    GameItemPresentation presentation;
+    presentation.category = GameItemCategory::kMaterials;
+    presentation.icon_path = material_form_icon_path(form);
+    presentation.icon_overlay_path =
+        (form == GameMaterialForm::kIngot || form == GameMaterialForm::kHotIngot)
+        ? "material_sets/generic/ingot_overlay_32.png" : "";
+    presentation.tint_rgb =
+        (form == GameMaterialForm::kDust || form == GameMaterialForm::kTinyDust ||
+         form == GameMaterialForm::kSmallDust || form == GameMaterialForm::kImpureDust ||
+         form == GameMaterialForm::kPurifiedDust || form == GameMaterialForm::kCrushed ||
+         form == GameMaterialForm::kCrushedPurified ||
+         form == GameMaterialForm::kCrushedCentrifuged)
+        ? darken_rgb(material.color_rgb) : material.color_rgb;
+    presentation.uses_tint = true;
+    return presentation;
+}
+
+bool valid_relative_item_asset_path(std::string_view path) noexcept {
+    if (path.empty()) return true;
+    return path.size() <= kMaxGameItemKeyBytes && path.find('\0') == std::string_view::npos &&
+        !path.starts_with('/') && path.find('\\') == std::string_view::npos &&
+        path.find("..") == std::string_view::npos && path.ends_with(".png");
+}
 
 void hash_byte(uint64_t& hash, uint8_t value) noexcept {
     hash ^= value;
@@ -96,6 +333,159 @@ void api_register_item(const std::string& id,
     definition.max_stack = max_stack;
     if (auto result = registry->register_script_item(
             g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_register_material(const std::string& id,
+                           const std::string& title_key,
+                           int generation_flags,
+                           int state,
+                           int color_rgb,
+                           int melting_point_kelvin,
+                           int boiling_point_kelvin,
+                           float mass,
+                           const std::string& chemical_formula) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (generation_flags < 0 ||
+        generation_flags > std::numeric_limits<uint16_t>::max() || state < 0 ||
+        state > static_cast<int>(GameMaterialState::kPlasma) || color_rgb < 0 ||
+        color_rgb > 0xffffff ||
+        melting_point_kelvin < 0 || boiling_point_kelvin < 0) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Material registration integers must not be negative"});
+        return;
+    }
+
+    GameMaterialDefinition definition;
+    definition.id = id;
+    definition.title_key = title_key;
+    definition.generation_flags = static_cast<uint16_t>(generation_flags);
+    definition.state = static_cast<GameMaterialState>(state);
+    definition.color_rgb = static_cast<uint32_t>(color_rgb);
+    definition.melting_point_kelvin = melting_point_kelvin;
+    definition.boiling_point_kelvin = boiling_point_kelvin;
+    definition.mass = mass;
+    definition.chemical_formula = chemical_formula;
+    if (auto result = registry->register_script_material(
+            g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_add_material_element(const std::string& material_id,
+                              const std::string& symbol,
+                              int count) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (count <= 0 || count > std::numeric_limits<uint8_t>::max()) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Material element count must fit in one positive byte"});
+        return;
+    }
+    if (auto result = registry->add_script_material_element(
+            g_active_script_id, material_id,
+            {.symbol = symbol, .count = static_cast<uint8_t>(count)}); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_set_material_form_presentation(const std::string& material_id,
+                                        int form,
+                                        const std::string& title_key,
+                                        int max_stack,
+                                        const std::string& icon_path,
+                                        const std::string& icon_overlay_path,
+                                        int tint_rgb,
+                                        bool uses_tint) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (form < 0 || form >= static_cast<int>(GameMaterialForm::kCount) ||
+        max_stack <= 0 || tint_rgb < 0 || tint_rgb > 0xffffff) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Material form presentation contains an invalid integer"});
+        return;
+    }
+    GameMaterialFormPresentation presentation;
+    presentation.title_key = title_key;
+    presentation.max_stack = max_stack;
+    presentation.presentation.category = GameItemCategory::kMaterials;
+    presentation.presentation.icon_path = icon_path;
+    presentation.presentation.icon_overlay_path = icon_overlay_path;
+    presentation.presentation.tint_rgb = static_cast<uint32_t>(tint_rgb);
+    presentation.presentation.uses_tint = uses_tint;
+    if (auto result = registry->set_script_material_form_presentation(
+            g_active_script_id, material_id, static_cast<GameMaterialForm>(form),
+            std::move(presentation)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_set_item_presentation(const std::string& item_id,
+                               int category,
+                               const std::string& icon_path,
+                               const std::string& icon_overlay_path,
+                               int tint_rgb,
+                               bool uses_tint) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (category < 0 || category > static_cast<int>(GameItemCategory::kMisc) ||
+        tint_rgb < 0 || tint_rgb > 0xffffff) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Item presentation contains an invalid integer"});
+        return;
+    }
+    GameItemPresentation presentation;
+    presentation.category = static_cast<GameItemCategory>(category);
+    presentation.icon_path = icon_path;
+    presentation.icon_overlay_path = icon_overlay_path;
+    presentation.tint_rgb = static_cast<uint32_t>(tint_rgb);
+    presentation.uses_tint = uses_tint;
+    if (auto result = registry->set_script_item_presentation(
+            g_active_script_id, item_id, std::move(presentation)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_set_item_tool(const std::string& item_id,
+                       int type,
+                       int mining_level,
+                       const std::string& material_key,
+                       float speed,
+                       int durability,
+                       float attack_damage) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (type < 0 || type > static_cast<int>(GameToolType::kSpear) ||
+        mining_level < 0 || durability < 0) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Item tool registration contains an invalid integer"});
+        return;
+    }
+    GameToolDefinition definition;
+    definition.type = static_cast<GameToolType>(type);
+    definition.mining_level = mining_level;
+    definition.material_key = material_key;
+    definition.speed = speed;
+    definition.durability = durability;
+    definition.attack_damage = attack_damage;
+    if (auto result = registry->set_script_item_tool(
+            g_active_script_id, item_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
+void api_add_item_tool_tag(const std::string& item_id, const std::string& tool_tag) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (auto result = registry->add_script_item_tool_tag(
+            g_active_script_id, item_id, tool_tag); !result) {
         report_binding_error(result.error());
     }
 }
@@ -383,6 +773,28 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             asFUNCTION(api_register_item)); !result) return result;
     if (auto result = register_function(
             engine,
+            "void snt_register_material(const string &in, const string &in, int, int, int, int, int, float, const string &in)",
+            asFUNCTION(api_register_material)); !result) return result;
+    if (auto result = register_function(
+            engine, "void snt_add_material_element(const string &in, const string &in, int)",
+            asFUNCTION(api_add_material_element)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_material_form_presentation(const string &in, int, const string &in, int, const string &in, const string &in, int, bool)",
+            asFUNCTION(api_set_material_form_presentation)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_item_presentation(const string &in, int, const string &in, const string &in, int, bool)",
+            asFUNCTION(api_set_item_presentation)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_item_tool(const string &in, int, int, const string &in, float, int, float)",
+            asFUNCTION(api_set_item_tool)); !result) return result;
+    if (auto result = register_function(
+            engine, "void snt_add_item_tool_tag(const string &in, const string &in)",
+            asFUNCTION(api_add_item_tool_tag)); !result) return result;
+    if (auto result = register_function(
+            engine,
             "void snt_register_recipe(const string &in, const string &in, const string &in, int, const string &in, int, int, int, const string &in)",
             asFUNCTION(api_register_recipe)); !result) return result;
     if (auto result = register_function(
@@ -474,6 +886,95 @@ snt::core::Expected<std::string> GameContentRegistry::normalize_item_key(
 }
 
 snt::core::Expected<void> GameContentRegistry::validate(
+    const GameMaterialElement& element) {
+    if (element.symbol.empty() || element.symbol.size() > 2 || element.count == 0) {
+        return invalid_argument("Material element must use a one- or two-letter symbol and positive count");
+    }
+    if (element.symbol[0] < 'A' || element.symbol[0] > 'Z' ||
+        (element.symbol.size() == 2 &&
+         (element.symbol[1] < 'a' || element.symbol[1] > 'z'))) {
+        return invalid_argument("Material element symbol must use standard chemical capitalization");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const GameItemPresentation& presentation) {
+    if (!valid_item_category(presentation.category) || presentation.tint_rgb > 0xffffffu ||
+        !valid_relative_item_asset_path(presentation.icon_path) ||
+        !valid_relative_item_asset_path(presentation.icon_overlay_path)) {
+        return invalid_argument("Game item presentation contains an invalid category, tint, or icon path");
+    }
+    if (presentation.uses_tint && presentation.icon_path.empty()) {
+        return invalid_argument("Tinted game item presentation requires an icon path");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const GameMaterialFormPresentation& presentation) {
+    if (!presentation.title_key.empty() &&
+        (presentation.title_key.size() > kMaxGameItemKeyBytes ||
+         presentation.title_key.find('\0') != std::string::npos)) {
+        return invalid_argument("Material-form title_key must contain at most 256 non-null bytes");
+    }
+    if (presentation.max_stack <= 0 || presentation.max_stack > kMaxGameItemStackSize ||
+        presentation.presentation.category != GameItemCategory::kMaterials) {
+        return invalid_argument("Material-form presentation has an invalid stack limit or category");
+    }
+    return validate(presentation.presentation);
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const GameMaterialDefinition& definition) {
+    if (definition.id.empty() || definition.id.size() > kMaxGameItemKeyBytes ||
+        definition.title_key.empty() || definition.title_key.size() > kMaxGameItemKeyBytes ||
+        definition.title_key.find('\0') != std::string::npos ||
+        !valid_material_state(definition.state) ||
+        (definition.generation_flags & ~kKnownMaterialGenerationFlags) != 0 ||
+        definition.color_rgb > 0xffffffu || definition.melting_point_kelvin < 0 ||
+        definition.boiling_point_kelvin < 0 || !std::isfinite(definition.mass) ||
+        definition.mass < 0.0f || definition.chemical_formula.empty() ||
+        definition.chemical_formula.size() > kMaxGameItemKeyBytes ||
+        definition.chemical_formula.find('\0') != std::string::npos ||
+        definition.composition.size() > kMaxMaterialCompositionEntries) {
+        return invalid_argument("Game material definition contains an invalid physical property");
+    }
+    const auto normalized = normalize_item_key(definition.id);
+    if (!normalized) return normalized.error();
+    if (*normalized != definition.id) {
+        return invalid_argument("Game material id must be normalized before registration");
+    }
+    std::set<std::string, std::less<>> symbols;
+    for (const GameMaterialElement& element : definition.composition) {
+        if (auto result = validate(element); !result) return result.error();
+        if (!symbols.insert(element.symbol).second) {
+            return invalid_argument("Game material composition must not repeat an element");
+        }
+    }
+    for (const auto& [form, presentation] : definition.form_presentations) {
+        if (!valid_material_form(form) || !material_generates_form(definition, form)) {
+            return invalid_argument("Game material form presentation refers to a form it does not generate");
+        }
+        if (auto result = validate(presentation); !result) return result.error();
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
+    const GameToolDefinition& definition) {
+    if (!valid_tool_type(definition.type) || definition.mining_level < 0 ||
+        definition.mining_level > 1'000 || definition.material_key.size() > kMaxGameItemKeyBytes ||
+        definition.material_key.find('\0') != std::string::npos ||
+        !std::isfinite(definition.speed) || definition.speed < 0.0f ||
+        definition.durability < 0 || !std::isfinite(definition.attack_damage) ||
+        definition.attack_damage < 0.0f) {
+        return invalid_argument("Game tool definition contains an invalid behavior value");
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate(
     const GameItemDefinition& definition) {
     if (definition.id.empty() || definition.id.size() > kMaxGameItemKeyBytes) {
         return invalid_argument("Game item id must contain 1 to 256 bytes");
@@ -489,6 +990,28 @@ snt::core::Expected<void> GameContentRegistry::validate(
     if (!normalized) return normalized.error();
     if (*normalized != definition.id) {
         return invalid_argument("Game item id must be normalized before registration");
+    }
+    if (auto result = validate(definition.presentation); !result) return result.error();
+    if (definition.tool.has_value()) {
+        if (auto result = validate(*definition.tool); !result) return result.error();
+    }
+    if (definition.tool_tags.size() > kMaxItemToolTags) {
+        return invalid_argument("Game item has too many tool tags");
+    }
+    std::set<std::string, std::less<>> tags;
+    for (const std::string& tag : definition.tool_tags) {
+        const auto normalized_tag = normalize_item_key(tag);
+        if (!normalized_tag || *normalized_tag != tag || !tags.insert(tag).second) {
+            return invalid_argument("Game item tool tags must be unique normalized content keys");
+        }
+    }
+    if (definition.material_form.has_value()) {
+        const GameMaterialFormReference& form = *definition.material_form;
+        const auto material_id = normalize_item_key(form.material_id);
+        if (!material_id || *material_id != form.material_id || !valid_material_form(form.form) ||
+            form.material_units <= 0) {
+            return invalid_argument("Game item material-form reference is invalid");
+        }
     }
     return {};
 }
@@ -644,6 +1167,32 @@ snt::core::Expected<void> GameContentRegistry::validate(const EventListener& lis
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_material(
+    GameMaterialDefinition definition) {
+    if (!reloads_.empty()) {
+        return invalid_state("Built-in material registration is not allowed during a script reload");
+    }
+    MaterialMap previous_backup = backup_materials_;
+    MaterialMap previous_live = live_materials_;
+    ItemMap previous_generated = live_generated_material_items_;
+    if (auto result = register_material(kBuiltinScriptId, std::move(definition), true); !result) {
+        return result.error();
+    }
+    if (auto result = rebuild_generated_material_items(); !result) {
+        backup_materials_ = std::move(previous_backup);
+        live_materials_ = std::move(previous_live);
+        live_generated_material_items_ = std::move(previous_generated);
+        return result.error();
+    }
+    if (auto result = publish_item_runtime_index(); !result) {
+        backup_materials_ = std::move(previous_backup);
+        live_materials_ = std::move(previous_live);
+        live_generated_material_items_ = std::move(previous_generated);
+        return result.error();
+    }
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_item(
     GameItemDefinition definition) {
     if (!reloads_.empty()) {
@@ -699,6 +1248,208 @@ snt::core::Expected<void> GameContentRegistry::register_script_item(
     if (!staged_reload) {
         if (auto result = publish_item_runtime_index(); !result) {
             backup_items_ = std::move(previous_backup);
+            live_items_ = std::move(previous_live);
+            return result.error();
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::register_script_material(
+    ScriptId script_id, GameMaterialDefinition definition) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Material script registrations require a non-builtin ScriptId");
+    }
+    const bool staged_reload = reloads_.contains(script_id);
+    MaterialMap previous_backup;
+    MaterialMap previous_live;
+    ItemMap previous_generated;
+    if (!staged_reload) {
+        previous_backup = backup_materials_;
+        previous_live = live_materials_;
+        previous_generated = live_generated_material_items_;
+    }
+    if (auto result = register_material(script_id, std::move(definition), false); !result) {
+        return result.error();
+    }
+    // ScriptLoader wraps every module activation in a reload transaction.
+    // Rebuilding all generated forms per material turns a large catalog into
+    // quadratic work, so the transaction publishes one complete form set in
+    // commit_reload instead.
+    if (staged_reload) return {};
+    if (auto result = rebuild_generated_material_items(); !result) {
+        backup_materials_ = std::move(previous_backup);
+        live_materials_ = std::move(previous_live);
+        live_generated_material_items_ = std::move(previous_generated);
+        return result.error();
+    }
+    if (auto result = publish_item_runtime_index(); !result) {
+        backup_materials_ = std::move(previous_backup);
+        live_materials_ = std::move(previous_live);
+        live_generated_material_items_ = std::move(previous_generated);
+        return result.error();
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::add_script_material_element(
+    ScriptId script_id, std::string material_id, GameMaterialElement element) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Material script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(element); !result) return result.error();
+    const auto normalized_id = normalize_item_key(material_id);
+    if (!normalized_id) return normalized_id.error();
+    const auto found = live_materials_.find(*normalized_id);
+    if (found == live_materials_.end() || found->second.owner != script_id) {
+        return invalid_state("Material composition can only modify a material owned by the active script");
+    }
+    const bool staged_reload = reloads_.contains(script_id);
+    MaterialMap previous_live;
+    if (!staged_reload) previous_live = live_materials_;
+
+    auto& composition = found->second.definition.composition;
+    if (composition.size() >= kMaxMaterialCompositionEntries ||
+        std::any_of(composition.begin(), composition.end(), [&element](const auto& current) {
+            return current.symbol == element.symbol;
+        })) {
+        return invalid_state("Material composition cannot repeat an element or exceed its entry limit");
+    }
+    composition.push_back(std::move(element));
+    if (auto result = validate(found->second.definition); !result) {
+        if (!staged_reload) live_materials_ = std::move(previous_live);
+        return result.error();
+    }
+    if (!staged_reload) {
+        if (auto result = publish_item_runtime_index(); !result) {
+            live_materials_ = std::move(previous_live);
+            return result.error();
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::set_script_material_form_presentation(
+    ScriptId script_id, std::string material_id, GameMaterialForm form,
+    GameMaterialFormPresentation presentation) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Material script mutations require a non-builtin ScriptId");
+    }
+    if (!valid_material_form(form)) return invalid_argument("Material form is invalid");
+    if (auto result = validate(presentation); !result) return result.error();
+    const auto normalized_id = normalize_item_key(material_id);
+    if (!normalized_id) return normalized_id.error();
+    const auto found = live_materials_.find(*normalized_id);
+    if (found == live_materials_.end() || found->second.owner != script_id) {
+        return invalid_state("Material-form presentation can only modify a material owned by the active script");
+    }
+    if (!material_generates_form(found->second.definition, form)) {
+        return invalid_argument("Material-form presentation refers to a form the material does not generate");
+    }
+    const bool staged_reload = reloads_.contains(script_id);
+    MaterialMap previous_live;
+    ItemMap previous_generated;
+    if (!staged_reload) {
+        previous_live = live_materials_;
+        previous_generated = live_generated_material_items_;
+    }
+    found->second.definition.form_presentations[form] = std::move(presentation);
+    if (staged_reload) return {};
+    if (auto result = rebuild_generated_material_items(); !result) {
+        live_materials_ = std::move(previous_live);
+        live_generated_material_items_ = std::move(previous_generated);
+        return result.error();
+    }
+    if (auto result = publish_item_runtime_index(); !result) {
+        live_materials_ = std::move(previous_live);
+        live_generated_material_items_ = std::move(previous_generated);
+        return result.error();
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::set_script_item_presentation(
+    ScriptId script_id, std::string item_id, GameItemPresentation presentation) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Item script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(presentation); !result) return result.error();
+    const auto normalized_id = normalize_item_key(item_id);
+    if (!normalized_id) return normalized_id.error();
+    const auto found = live_items_.find(*normalized_id);
+    if (found == live_items_.end() || found->second.owner != script_id) {
+        return invalid_state("Item presentation can only modify an authored item owned by the active script");
+    }
+    const bool staged_reload = reloads_.contains(script_id);
+    ItemMap previous_live;
+    if (!staged_reload) previous_live = live_items_;
+    found->second.definition.presentation = std::move(presentation);
+    if (auto result = validate(found->second.definition); !result) {
+        if (!staged_reload) live_items_ = std::move(previous_live);
+        return result.error();
+    }
+    if (!staged_reload) {
+        if (auto result = publish_item_runtime_index(); !result) {
+            live_items_ = std::move(previous_live);
+            return result.error();
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::set_script_item_tool(
+    ScriptId script_id, std::string item_id, GameToolDefinition tool) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Item script mutations require a non-builtin ScriptId");
+    }
+    if (auto result = validate(tool); !result) return result.error();
+    const auto normalized_id = normalize_item_key(item_id);
+    if (!normalized_id) return normalized_id.error();
+    const auto found = live_items_.find(*normalized_id);
+    if (found == live_items_.end() || found->second.owner != script_id) {
+        return invalid_state("Item tool behavior can only modify an authored item owned by the active script");
+    }
+    const bool staged_reload = reloads_.contains(script_id);
+    ItemMap previous_live;
+    if (!staged_reload) previous_live = live_items_;
+    found->second.definition.tool = std::move(tool);
+    if (auto result = validate(found->second.definition); !result) {
+        if (!staged_reload) live_items_ = std::move(previous_live);
+        return result.error();
+    }
+    if (!staged_reload) {
+        if (auto result = publish_item_runtime_index(); !result) {
+            live_items_ = std::move(previous_live);
+            return result.error();
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::add_script_item_tool_tag(
+    ScriptId script_id, std::string item_id, std::string tool_tag) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Item script mutations require a non-builtin ScriptId");
+    }
+    const auto normalized_id = normalize_item_key(item_id);
+    if (!normalized_id) return normalized_id.error();
+    const auto normalized_tag = normalize_item_key(tool_tag);
+    if (!normalized_tag) return normalized_tag.error();
+    const auto found = live_items_.find(*normalized_id);
+    if (found == live_items_.end() || found->second.owner != script_id) {
+        return invalid_state("Item tool tags can only modify an authored item owned by the active script");
+    }
+    const bool staged_reload = reloads_.contains(script_id);
+    ItemMap previous_live;
+    if (!staged_reload) previous_live = live_items_;
+    auto& tags = found->second.definition.tool_tags;
+    if (tags.size() >= kMaxItemToolTags ||
+        std::find(tags.begin(), tags.end(), *normalized_tag) != tags.end()) {
+        return invalid_state("Item tool tag is duplicate or exceeds the supported limit");
+    }
+    tags.push_back(std::move(*normalized_tag));
+    if (!staged_reload) {
+        if (auto result = publish_item_runtime_index(); !result) {
             live_items_ = std::move(previous_live);
             return result.error();
         }
@@ -843,6 +1594,40 @@ snt::core::Expected<void> GameContentRegistry::add_script_quest_reward(
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::register_material(
+    ScriptId owner, GameMaterialDefinition definition, bool builtin) {
+    const auto normalized_id = normalize_item_key(definition.id);
+    if (!normalized_id) return normalized_id.error();
+    definition.id = *normalized_id;
+    if (auto valid = validate(definition); !valid) return valid.error();
+    if (builtin != (owner == kBuiltinScriptId)) {
+        return invalid_argument("Built-in registrations must use ScriptId 0");
+    }
+
+    const std::string id = definition.id;
+    const auto existing = live_materials_.find(id);
+    if (!builtin && existing != live_materials_.end() &&
+        existing->second.owner != kBuiltinScriptId && existing->second.owner != owner) {
+        return invalid_state("Game material id is already owned by another script: " + id);
+    }
+    if (builtin && existing != live_materials_.end() &&
+        existing->second.owner != kBuiltinScriptId) {
+        return invalid_state("Cannot replace a live script material with a built-in material: " + id);
+    }
+    for (const auto& [reloading_script_id, snapshot] : reloads_) {
+        if (reloading_script_id == owner) continue;
+        if (snapshot.materials.contains(id)) {
+            return invalid_state(
+                "Game material id is reserved by another active script reload: " + id);
+        }
+    }
+
+    OwnedDefinition<GameMaterialDefinition> entry{owner, std::move(definition)};
+    if (builtin) backup_materials_[id] = entry;
+    live_materials_[id] = std::move(entry);
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::register_item(
     ScriptId owner, GameItemDefinition definition, bool builtin) {
     const auto normalized_id = normalize_item_key(definition.id);
@@ -855,6 +1640,9 @@ snt::core::Expected<void> GameContentRegistry::register_item(
     }
 
     const std::string id = definition.id;
+    if (live_generated_material_items_.contains(id)) {
+        return invalid_state("Game item id collides with an auto-generated material form: " + id);
+    }
     const auto existing = live_items_.find(id);
     if (!builtin && existing != live_items_.end() &&
         existing->second.owner != kBuiltinScriptId && existing->second.owner != owner) {
@@ -875,6 +1663,51 @@ snt::core::Expected<void> GameContentRegistry::register_item(
     OwnedDefinition<GameItemDefinition> entry{owner, std::move(definition)};
     if (builtin) backup_items_[id] = entry;
     live_items_[id] = std::move(entry);
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::rebuild_generated_material_items() {
+    ItemMap generated;
+    for (const auto& [material_id, entry] : live_materials_) {
+        const GameMaterialDefinition& material = entry.definition;
+        for (size_t index = 0; index < material_form_index(GameMaterialForm::kCount); ++index) {
+            const GameMaterialForm form = static_cast<GameMaterialForm>(index);
+            if (!material_generates_form(material, form)) continue;
+
+            GameItemDefinition item;
+            item.id = std::string(material_form_name(form)) + "." + material_id;
+            item.title_key = "item." + material_id + "_" + std::string(material_form_name(form));
+            item.max_stack = 64;
+            item.presentation = make_generated_material_presentation(material, form);
+            item.material_form = GameMaterialFormReference{
+                .material_id = material_id,
+                .form = form,
+                .material_units = material_form_amount(form),
+            };
+
+            if (const auto override = material.form_presentations.find(form);
+                override != material.form_presentations.end()) {
+                if (!override->second.title_key.empty()) item.title_key = override->second.title_key;
+                item.max_stack = override->second.max_stack;
+                item.presentation = override->second.presentation;
+            }
+            if (auto result = validate(item); !result) return result.error();
+            if (live_items_.contains(item.id)) {
+                return invalid_state("Authored game item collides with generated material form: " + item.id);
+            }
+            // Keep the ordered-map key separate from the moved definition.
+            // Function-argument evaluation would otherwise allow `item` to be
+            // moved before `item.id` is copied into the key.
+            const std::string item_id = item.id;
+            if (!generated.emplace(item_id, OwnedDefinition<GameItemDefinition>{
+                    .owner = entry.owner,
+                    .definition = std::move(item),
+                }).second) {
+                return invalid_state("Duplicate generated material item id: " + item_id);
+            }
+        }
+    }
+    live_generated_material_items_ = std::move(generated);
     return {};
 }
 
@@ -982,7 +1815,15 @@ snt::core::Expected<void> GameContentRegistry::register_quest(
 
 const GameItemDefinition* GameContentRegistry::find_item(std::string_view id) const {
     const auto it = live_items_.find(id);
-    return it == live_items_.end() ? nullptr : &it->second.definition;
+    if (it != live_items_.end()) return &it->second.definition;
+    const auto generated = live_generated_material_items_.find(id);
+    return generated == live_generated_material_items_.end() ? nullptr :
+        &generated->second.definition;
+}
+
+const GameMaterialDefinition* GameContentRegistry::find_material(std::string_view id) const {
+    const auto it = live_materials_.find(id);
+    return it == live_materials_.end() ? nullptr : &it->second.definition;
 }
 
 std::optional<GameItemRuntimeId> GameContentRegistry::find_item_runtime_id(
@@ -1005,25 +1846,78 @@ uint64_t GameContentRegistry::item_runtime_generation() const noexcept {
 
 std::vector<GameItemDefinition> GameContentRegistry::item_definitions() const {
     std::vector<GameItemDefinition> definitions;
-    definitions.reserve(live_items_.size());
+    definitions.reserve(live_items_.size() + live_generated_material_items_.size());
     for (const auto& [id, entry] : live_items_) {
+        (void)id;
+        definitions.push_back(entry.definition);
+    }
+    for (const auto& [id, entry] : live_generated_material_items_) {
+        (void)id;
+        definitions.push_back(entry.definition);
+    }
+    std::sort(definitions.begin(), definitions.end(), [](const auto& lhs, const auto& rhs) {
+        return lhs.id < rhs.id;
+    });
+    return definitions;
+}
+
+std::vector<GameMaterialDefinition> GameContentRegistry::material_definitions() const {
+    std::vector<GameMaterialDefinition> definitions;
+    definitions.reserve(live_materials_.size());
+    for (const auto& [id, entry] : live_materials_) {
         (void)id;
         definitions.push_back(entry.definition);
     }
     return definitions;
 }
 
+std::vector<std::string> GameContentRegistry::tool_tags_for_item(
+    std::string_view item_id) const {
+    const GameItemDefinition* const item = find_item(item_id);
+    if (item == nullptr) return {};
+    std::vector<std::string> tags = item->tool_tags;
+    if (item->tool.has_value()) {
+        if (const std::string_view type_tag = tool_type_tag(item->tool->type); !type_tag.empty()) {
+            tags.emplace_back(type_tag);
+        }
+    }
+    std::sort(tags.begin(), tags.end());
+    tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
+    return tags;
+}
+
+bool GameContentRegistry::item_matches_tool_requirement(
+    std::string_view item_id, std::string_view required_tag,
+    int32_t required_mining_level) const {
+    if (required_mining_level < 0) return false;
+    if (required_tag.empty()) return true;
+    const auto normalized_tag = normalize_item_key(required_tag);
+    if (!normalized_tag) return false;
+    const GameItemDefinition* const item = find_item(item_id);
+    if (item == nullptr) return false;
+    const std::vector<std::string> tags = tool_tags_for_item(item_id);
+    if (std::find(tags.begin(), tags.end(), *normalized_tag) == tags.end()) return false;
+    return required_mining_level == 0 ||
+        (item->tool.has_value() && item->tool->mining_level >= required_mining_level);
+}
+
 snt::core::Expected<void> GameContentRegistry::publish_item_runtime_index() {
     std::vector<std::string_view> keys;
-    keys.reserve(live_items_.size());
+    keys.reserve(live_items_.size() + live_generated_material_items_.size());
     for (const auto& [id, entry] : live_items_) {
         (void)entry;
         keys.push_back(id);
     }
+    for (const auto& [id, entry] : live_generated_material_items_) {
+        (void)entry;
+        keys.push_back(id);
+    }
     if (auto result = item_runtime_index_.rebuild(keys); !result) return result.error();
-    SNT_LOG_INFO("Published %zu game item runtime id(s), generation=%llu",
+    ++item_content_revision_;
+    SNT_LOG_INFO("Published %zu game item runtime id(s), generation=%llu, content_revision=%llu",
                  keys.size(),
-                 static_cast<unsigned long long>(item_runtime_index_.generation()));
+                 static_cast<unsigned long long>(item_runtime_index_.generation()),
+                 static_cast<unsigned long long>(item_content_revision_));
     return {};
 }
 
@@ -1231,8 +2125,16 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
 
     if (auto result = machine_placements_.begin_reload(script_id); !result) return result.error();
 
-    reloads_.emplace(script_id, snapshot_script_content(script_id));
-    erase_script_content(script_id);
+    auto [reload, inserted] = reloads_.emplace(script_id, snapshot_script_content(script_id));
+    (void)inserted;
+    if (auto result = erase_script_content(script_id); !result) {
+        auto error = result.error();
+        static_cast<void>(restore_script_content(reload->second));
+        reloads_.erase(reload);
+        static_cast<void>(machine_placements_.rollback_reload(script_id));
+        error.with_context("Game content reload could not remove prior script content");
+        return error;
+    }
     SNT_LOG_DEBUG("Game content began transactional reload for script %llu",
                   static_cast<unsigned long long>(script_id));
     return {};
@@ -1241,11 +2143,16 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
 snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id) {
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
+    // All material changes made during a registration transaction become
+    // visible together. This preserves the worker snapshot boundary and
+    // avoids regenerating the complete form catalog for every API call.
+    if (auto result = rebuild_generated_material_items(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
     if (auto result = publish_item_runtime_index(); !result) return result.error();
     if (auto result = machine_placements_.commit_reload(script_id); !result) {
         item_runtime_index_.restore(it->second.item_runtime_index);
+        item_content_revision_ = it->second.item_content_revision;
         return result.error();
     }
     reloads_.erase(it);
@@ -1261,9 +2168,10 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
 
     if (auto result = machine_placements_.rollback_reload(script_id); !result) return result.error();
 
-    erase_script_content(script_id);
-    restore_script_content(it->second);
+    if (auto result = erase_script_content(script_id); !result) return result.error();
+    if (auto result = restore_script_content(it->second); !result) return result.error();
     item_runtime_index_.restore(it->second.item_runtime_index);
+    item_content_revision_ = it->second.item_content_revision;
     reloads_.erase(it);
     SNT_LOG_WARN("Game content rolled back reload for script %llu",
                  static_cast<unsigned long long>(script_id));
@@ -1302,12 +2210,15 @@ snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id)
 void GameContentRegistry::reset() {
     const bool had_quest_book_content = !backup_quest_chapters_.empty() ||
         !live_quest_chapters_.empty() || !backup_quests_.empty() || !live_quests_.empty();
+    backup_materials_.clear();
     backup_items_.clear();
     backup_recipes_.clear();
     backup_machines_.clear();
     backup_quest_chapters_.clear();
     backup_quests_.clear();
+    live_materials_.clear();
     live_items_.clear();
+    live_generated_material_items_.clear();
     live_recipes_.clear();
     live_machines_.clear();
     live_quest_chapters_.clear();
@@ -1321,6 +2232,7 @@ void GameContentRegistry::reset() {
         SNT_LOG_ERROR("Failed to publish an empty game item runtime index during reset: %s",
                       result.error().format().c_str());
     }
+    ++item_content_revision_;
     if (had_quest_book_content) ++quest_content_revision_;
 }
 
@@ -1328,6 +2240,10 @@ GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content
     ScriptId script_id) const {
     ReloadSnapshot snapshot;
     snapshot.item_runtime_index = item_runtime_index_.snapshot();
+    snapshot.item_content_revision = item_content_revision_;
+    for (const auto& [id, entry] : live_materials_) {
+        if (entry.owner == script_id) snapshot.materials.emplace(id, entry);
+    }
     for (const auto& [id, entry] : live_items_) {
         if (entry.owner == script_id) snapshot.items.emplace(id, entry);
     }
@@ -1352,7 +2268,19 @@ GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content
     return snapshot;
 }
 
-void GameContentRegistry::erase_script_content(ScriptId script_id) {
+snt::core::Expected<void> GameContentRegistry::erase_script_content(ScriptId script_id) {
+    for (auto it = live_materials_.begin(); it != live_materials_.end();) {
+        if (it->second.owner != script_id) {
+            ++it;
+            continue;
+        }
+        auto backup = backup_materials_.find(it->first);
+        if (backup == backup_materials_.end()) it = live_materials_.erase(it);
+        else {
+            it->second = backup->second;
+            ++it;
+        }
+    }
     for (auto it = live_items_.begin(); it != live_items_.end();) {
         if (it->second.owner != script_id) {
             ++it;
@@ -1425,9 +2353,12 @@ void GameContentRegistry::erase_script_content(ScriptId script_id) {
         if (listeners.empty()) events = event_listeners_.erase(events);
         else ++events;
     }
+    return rebuild_generated_material_items();
 }
 
-void GameContentRegistry::restore_script_content(const ReloadSnapshot& snapshot) {
+ snt::core::Expected<void> GameContentRegistry::restore_script_content(
+    const ReloadSnapshot& snapshot) {
+    for (const auto& [id, entry] : snapshot.materials) live_materials_[id] = entry;
     for (const auto& [id, entry] : snapshot.items) live_items_[id] = entry;
     for (const auto& [id, entry] : snapshot.recipes) live_recipes_[id] = entry;
     for (const auto& [id, entry] : snapshot.machines) live_machines_[id] = entry;
@@ -1438,6 +2369,7 @@ void GameContentRegistry::restore_script_content(const ReloadSnapshot& snapshot)
         event_listeners_[listener.event_name].push_back(listener);
         sort_event_listeners(listener.event_name);
     }
+    return rebuild_generated_material_items();
 }
 
 void GameContentRegistry::sort_event_listeners(std::string_view event_name) {

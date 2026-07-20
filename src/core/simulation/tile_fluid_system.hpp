@@ -8,11 +8,22 @@
 #include <vector>
 
 #include "simulation_system.hpp"
-#include "region_graph.hpp"
 #include "../world/terrain_data.hpp"
 #include "../fluid/fluid_registry.hpp"
 
 namespace science_and_theology {
+
+// Fluid aggregate state belongs to TileFluidSystem. Its IDs are local to this
+// subsystem and are not RegionTopology handles used by game-owned power or
+// pollution simulation.
+struct FluidRegionData {
+    CellFluidId fluid_type = kInvalidCellFluidId;
+    bool is_equilibrium = true;
+    int32_t water_level_y = 0;
+    int64_t total_mass = 0;
+    size_t fluid_cell_count = 0;
+    int16_t avg_temperature = 300;
+};
 
 // ============================================================
 // FluidCellKey — identifies a single active fluid cell
@@ -401,7 +412,7 @@ private:
     std::unordered_map<FluidCellKey, int> idle_counters_;
 
     // Per-region fluid data, keyed by region ID.
-    // Region IDs come from the FLUID RegionGraph in RegionSystem.
+    // Region IDs are allocated locally by TileFluidSystem.
     std::unordered_map<uint64_t, FluidRegionData> fluid_regions_;
 
     // Maps each sleeping fluid cell to its equilibrium region ID.

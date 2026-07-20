@@ -31,6 +31,8 @@ namespace snt::core { class RuntimePathResolver; }
 
 namespace snt::game {
 
+class GameContentRegistry;
+
 struct RecipeIngredientState {
     std::string item_key;
     int32_t count = 0;
@@ -225,12 +227,21 @@ public:
                          std::shared_ptr<IInventorySlotTransferCommandSink>
                              slot_transfer_sink = {},
                          std::shared_ptr<IMachineInputSlotTransferCommandSink>
-                             machine_input_slot_transfer_sink = {});
+                             machine_input_slot_transfer_sink = {},
+                         const GameContentRegistry* content = nullptr,
+                         const snt::core::RuntimePathResolver* paths = nullptr);
 
     InventoryViewModel& inventory() { return inventory_; }
     HotbarViewModel& hotbar() { return hotbar_; }
     CraftingViewModel& crafting() { return crafting_; }
     MachinePanelViewModel& machine_panel() { return machine_panel_; }
+    [[nodiscard]] const GameContentRegistry* content() const noexcept { return content_; }
+    [[nodiscard]] uint64_t item_content_revision() const noexcept;
+    // The source path is session-owned and stable for the controller lifetime.
+    // Calling this again after a content reload is idempotent for unchanged
+    // assets and registers only newly referenced item images.
+    [[nodiscard]] snt::core::Expected<void> register_content_images(
+        snt::ui::UiImageRegistry& images) const;
 
     GameplayUiScreen open_screen() const { return open_screen_; }
     bool inventory_open() const { return open_screen_ == GameplayUiScreen::Inventory; }
@@ -295,6 +306,8 @@ private:
     std::shared_ptr<IMachineInputSlotTransferCommandSink> machine_input_slot_transfer_sink_;
     std::optional<InventorySlotTransferRequest> pending_slot_transfer_;
     std::optional<MachineInputSlotTransferRequest> pending_machine_input_slot_transfer_;
+    const GameContentRegistry* content_ = nullptr;
+    const snt::core::RuntimePathResolver* paths_ = nullptr;
     uint64_t inventory_authority_revision_ = 0;
     uint64_t next_inventory_transfer_request_id_ = 1;
     uint64_t next_machine_input_slot_transfer_request_id_ = 1;
@@ -345,7 +358,8 @@ void dispatch_gameplay_ui_action(GameplayUiController& controller,
 // engine only accepts logical UI image keys; content chooses their files.
 [[nodiscard]] snt::core::Expected<void> register_gameplay_ui_images(
     snt::ui::UiImageRegistry& images,
-    const snt::core::RuntimePathResolver& paths);
+    const snt::core::RuntimePathResolver& paths,
+    const GameContentRegistry* content = nullptr);
 
 std::vector<CraftingRecipeState> make_starting_crafting_recipes();
 InventoryState make_starting_inventory();

@@ -34,13 +34,158 @@ using GameItemRuntimeId = snt::core::RuntimeKeyId;
 inline constexpr GameItemRuntimeId kInvalidGameItemRuntimeId =
     snt::core::kInvalidRuntimeKeyId;
 
-// Game item definitions own semantic keys and presentation metadata. Durable
-// game state refers to `id`; worker systems capture the registry's immutable
-// RuntimeKeyIndex snapshot and use GameItemRuntimeId for their hot paths.
+// Material, item-presentation, and tool definitions are game content rather
+// than engine state. The registry owns their script-reload transaction so a
+// worker snapshot never observes generated material forms from a partial
+// material catalog.
+enum class GameMaterialState : uint8_t {
+    kSolid = 0,
+    kLiquid = 1,
+    kGas = 2,
+    kPlasma = 3,
+};
+
+enum class GameMaterialGenerationFlag : uint16_t {
+    kDust = 1u << 0,
+    kMetal = 1u << 1,
+    kGem = 1u << 2,
+    kOre = 1u << 3,
+    kCell = 1u << 4,
+    kPlasma = 1u << 5,
+    kWire = 1u << 6,
+    kBlock = 1u << 7,
+    kPlate = 1u << 8,
+    kRod = 1u << 9,
+};
+
+inline constexpr bool has_material_generation_flag(
+    uint16_t flags, GameMaterialGenerationFlag flag) noexcept {
+    return (flags & static_cast<uint16_t>(flag)) != 0;
+}
+
+// The numeric values intentionally match the legacy material-form catalog.
+// They are content data, never persistent item IDs.
+enum class GameMaterialForm : uint8_t {
+    kDust = 0,
+    kTinyDust,
+    kSmallDust,
+    kImpureDust,
+    kPurifiedDust,
+    kCrushed,
+    kCrushedPurified,
+    kCrushedCentrifuged,
+    kGem,
+    kFlawedGem,
+    kFlawlessGem,
+    kExquisiteGem,
+    kIngot,
+    kHotIngot,
+    kNugget,
+    kBlock,
+    kPlate,
+    kDoublePlate,
+    kDensePlate,
+    kRod,
+    kLongRod,
+    kBolt,
+    kScrew,
+    kRing,
+    kRotor,
+    kGear,
+    kSmallGear,
+    kFineWire,
+    kWire,
+    kCell,
+    kPlasmaCell,
+    kCount,
+};
+
+enum class GameItemCategory : uint8_t {
+    kMaterials = 0,
+    kTools,
+    kComponents,
+    kPlaceables,
+    kResources,
+    kFood,
+    kMisc,
+};
+
+enum class GameToolType : uint8_t {
+    kNone = 0,
+    kPickaxe,
+    kAxe,
+    kShovel,
+    kSword,
+    kHoe,
+    kKnife,
+    kSpear,
+};
+
+struct GameMaterialElement {
+    std::string symbol;
+    uint8_t count = 0;
+};
+
+// `icon_path` and `icon_overlay_path` are paths relative to
+// `game/resource/items`. The retained-MUI client maps them to its image
+// registry; the simulation and server only carry these values as content.
+struct GameItemPresentation {
+    GameItemCategory category = GameItemCategory::kMisc;
+    std::string icon_path;
+    std::string icon_overlay_path;
+    uint32_t tint_rgb = 0xffffffu;
+    bool uses_tint = false;
+};
+
+struct GameMaterialFormPresentation {
+    std::string title_key;
+    int32_t max_stack = 64;
+    GameItemPresentation presentation{
+        .category = GameItemCategory::kMaterials,
+    };
+};
+
+struct GameMaterialDefinition {
+    std::string id;
+    std::string title_key;
+    uint16_t generation_flags = 0;
+    GameMaterialState state = GameMaterialState::kSolid;
+    uint32_t color_rgb = 0xffffffu;
+    int64_t melting_point_kelvin = 0;
+    int64_t boiling_point_kelvin = 0;
+    float mass = 0.0f;
+    std::string chemical_formula;
+    std::vector<GameMaterialElement> composition;
+    std::map<GameMaterialForm, GameMaterialFormPresentation> form_presentations;
+};
+
+struct GameMaterialFormReference {
+    std::string material_id;
+    GameMaterialForm form = GameMaterialForm::kCount;
+    int64_t material_units = 0;
+};
+
+struct GameToolDefinition {
+    GameToolType type = GameToolType::kNone;
+    int32_t mining_level = 0;
+    std::string material_key;
+    float speed = 1.0f;
+    int32_t durability = 0;
+    float attack_damage = 1.0f;
+};
+
+// Game item definitions own stable semantic keys, presentation metadata, and
+// optional material/tool behavior. Durable game state refers to `id`; worker
+// systems capture the immutable RuntimeKeyIndex snapshot and use
+// GameItemRuntimeId for their hot paths.
 struct GameItemDefinition {
     std::string id;
     std::string title_key;
     int32_t max_stack = 64;
+    GameItemPresentation presentation;
+    std::optional<GameToolDefinition> tool;
+    std::vector<std::string> tool_tags;
+    std::optional<GameMaterialFormReference> material_form;
 };
 
 struct RecipeOutputDefinition {
@@ -186,6 +331,7 @@ public:
 
     // Built-in registrations are fallback values restored when a script
     // override unloads. Game bootstrapping code may use them before scripts.
+    snt::core::Expected<void> register_builtin_material(GameMaterialDefinition definition);
     snt::core::Expected<void> register_builtin_item(GameItemDefinition definition);
     snt::core::Expected<void> register_builtin_recipe(RecipeDefinition definition);
     snt::core::Expected<void> register_builtin_machine(MachineDefinition definition);
@@ -197,8 +343,21 @@ public:
 
     // Script definitions may shadow built-ins but cannot race another script
     // for the same id. Values are copied so no AngelScript memory is retained.
+    snt::core::Expected<void> register_script_material(
+        ScriptId script_id, GameMaterialDefinition definition);
     snt::core::Expected<void> register_script_item(ScriptId script_id,
                                                    GameItemDefinition definition);
+    snt::core::Expected<void> add_script_material_element(
+        ScriptId script_id, std::string material_id, GameMaterialElement element);
+    snt::core::Expected<void> set_script_material_form_presentation(
+        ScriptId script_id, std::string material_id, GameMaterialForm form,
+        GameMaterialFormPresentation presentation);
+    snt::core::Expected<void> set_script_item_presentation(
+        ScriptId script_id, std::string item_id, GameItemPresentation presentation);
+    snt::core::Expected<void> set_script_item_tool(
+        ScriptId script_id, std::string item_id, GameToolDefinition tool);
+    snt::core::Expected<void> add_script_item_tool_tag(
+        ScriptId script_id, std::string item_id, std::string tool_tag);
     snt::core::Expected<void> register_script_recipe(ScriptId script_id,
                                                      RecipeDefinition definition);
     snt::core::Expected<void> register_script_machine(ScriptId script_id,
@@ -222,6 +381,7 @@ public:
         ScriptId script_id, std::string quest_id, QuestRewardDefinition reward);
 
     const GameItemDefinition* find_item(std::string_view id) const;
+    const GameMaterialDefinition* find_material(std::string_view id) const;
     [[nodiscard]] std::optional<GameItemRuntimeId> find_item_runtime_id(
         std::string_view id) const noexcept;
     [[nodiscard]] std::optional<std::string_view> find_item_key(
@@ -229,6 +389,18 @@ public:
     [[nodiscard]] snt::core::RuntimeKeyIndex::Snapshot item_runtime_index() const noexcept;
     [[nodiscard]] uint64_t item_runtime_generation() const noexcept;
     [[nodiscard]] std::vector<GameItemDefinition> item_definitions() const;
+    [[nodiscard]] std::vector<GameMaterialDefinition> material_definitions() const;
+    // The content revision changes for presentation, material, generated-form,
+    // or authored-item changes. Retained MUI uses it to rebuild only when
+    // hot-reloaded content can visibly change a displayed slot.
+    [[nodiscard]] uint64_t item_content_revision() const noexcept {
+        return item_content_revision_;
+    }
+    [[nodiscard]] std::vector<std::string> tool_tags_for_item(
+        std::string_view item_id) const;
+    [[nodiscard]] bool item_matches_tool_requirement(
+        std::string_view item_id, std::string_view required_tag,
+        int32_t required_mining_level) const;
 
     const RecipeDefinition* find_recipe(std::string_view id) const;
     const MachineDefinition* find_machine(std::string_view id) const;
@@ -272,6 +444,8 @@ private:
     };
 
     using ItemMap = std::map<std::string, OwnedDefinition<GameItemDefinition>, std::less<>>;
+    using MaterialMap = std::map<std::string,
+                                 OwnedDefinition<GameMaterialDefinition>, std::less<>>;
     using RecipeMap = std::map<std::string, OwnedDefinition<RecipeDefinition>, std::less<>>;
     using MachineMap = std::map<std::string, OwnedDefinition<MachineDefinition>, std::less<>>;
     using QuestChapterMap = std::map<std::string,
@@ -279,6 +453,7 @@ private:
     using QuestMap = std::map<std::string, OwnedDefinition<QuestDefinition>, std::less<>>;
 
     struct ReloadSnapshot {
+        MaterialMap materials;
         ItemMap items;
         RecipeMap recipes;
         MachineMap machines;
@@ -286,8 +461,12 @@ private:
         QuestMap quests;
         std::vector<EventListener> event_listeners;
         snt::core::RuntimeKeyIndex::Snapshot item_runtime_index;
+        uint64_t item_content_revision = 1;
     };
 
+    snt::core::Expected<void> register_material(ScriptId owner,
+                                                GameMaterialDefinition definition,
+                                                bool builtin);
     snt::core::Expected<void> register_item(ScriptId owner,
                                             GameItemDefinition definition,
                                             bool builtin);
@@ -303,6 +482,11 @@ private:
                                              QuestDefinition definition,
                                              bool builtin);
 
+    static snt::core::Expected<void> validate(const GameMaterialDefinition& definition);
+    static snt::core::Expected<void> validate(const GameMaterialElement& element);
+    static snt::core::Expected<void> validate(const GameItemPresentation& presentation);
+    static snt::core::Expected<void> validate(const GameMaterialFormPresentation& presentation);
+    static snt::core::Expected<void> validate(const GameToolDefinition& definition);
     static snt::core::Expected<void> validate(const GameItemDefinition& definition);
     static snt::core::Expected<void> validate(const RecipeDefinition& definition);
     static snt::core::Expected<void> validate(const RecipeInputDefinition& input);
@@ -316,22 +500,28 @@ private:
     static snt::core::Expected<void> validate(const EventListener& listener);
     static snt::core::Expected<std::string> normalize_item_key(std::string_view key);
 
+    snt::core::Expected<void> rebuild_generated_material_items();
     snt::core::Expected<void> publish_item_runtime_index();
     snt::core::Expected<void> validate_machine_item_references() const;
 
-    void erase_script_content(ScriptId script_id);
+    snt::core::Expected<void> erase_script_content(ScriptId script_id);
     ReloadSnapshot snapshot_script_content(ScriptId script_id) const;
-    void restore_script_content(const ReloadSnapshot& snapshot);
+    snt::core::Expected<void> restore_script_content(const ReloadSnapshot& snapshot);
     void sort_event_listeners(std::string_view event_name);
 
     // `backup_*` stores built-ins. `live_*` is the effective game definition
     // after an optional script override. Ordered maps make iteration stable.
+    MaterialMap backup_materials_;
     ItemMap backup_items_;
     RecipeMap backup_recipes_;
     MachineMap backup_machines_;
     QuestChapterMap backup_quest_chapters_;
     QuestMap backup_quests_;
+    MaterialMap live_materials_;
     ItemMap live_items_;
+    // Rebuilt from `live_materials_`; it is deliberately not script-owned
+    // state and therefore is reconstructed after every material transition.
+    ItemMap live_generated_material_items_;
     RecipeMap live_recipes_;
     MachineMap live_machines_;
     QuestChapterMap live_quest_chapters_;
@@ -341,6 +531,7 @@ private:
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;
     snt::core::RuntimeKeyIndex item_runtime_index_;
+    uint64_t item_content_revision_ = 1;
     uint64_t quest_content_revision_ = 1;
 };
 

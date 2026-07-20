@@ -125,10 +125,6 @@ target_sources(snt_core PRIVATE
     simulation/day_night_def.hpp
     simulation/day_night_system.hpp
     simulation/day_night_system.cpp
-    simulation/region_graph.hpp
-    simulation/region_graph.cpp
-    simulation/region_system.hpp
-    simulation/region_system.cpp
     simulation/tile_fluid_system.hpp
     simulation/tile_fluid_system.cpp
     simulation/satiation_system.hpp

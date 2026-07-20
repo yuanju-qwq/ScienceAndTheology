@@ -4,6 +4,7 @@
 #include "engine/simulation_services.h"
 #include "game/client/machine_tick_system.h"
 #include "game/client/game_session_config.h"
+#include "game/simulation/region_topology.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
 #include "game/world/save/world_persistence_lifecycle.h"
 #include "voxel/data/chunk_registry.h"
@@ -91,6 +92,47 @@ TEST(GameSimulationSessionTest, PublishesSeasonStateFromAuthoritativeFixedTicks)
     EXPECT_EQ(state.game_day, 1u);
     EXPECT_EQ(state.day_in_season, 0);
     EXPECT_EQ(state.season, snt::game::Season::SUMMER);
+
+    runtime.shutdown();
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameSimulationSessionTest, AdvancesRegionTopologyFromAuthoritativeFixedTicks) {
+    const auto root = make_runtime_root();
+
+    snt::core::RuntimeConfig runtime_config;
+    runtime_config.assets.manifest_path = "missing_manifest.json";
+    snt::game::GameSessionConfig session_config;
+    session_config.scripts.enabled = false;
+
+    auto session = std::make_unique<snt::game::ScienceAndTheologySimulationSession>(
+        std::move(session_config));
+    auto* session_view = session.get();
+    snt::engine::SimulationRuntime runtime;
+    ASSERT_TRUE(runtime.init(
+        runtime_config,
+        {
+            .engine_root = (root / "engine").string(),
+            .game_root = (root / "game").string(),
+            .user_root = (root / "user").string(),
+        },
+        std::move(session)));
+
+    auto& topology = session_view->region_topology();
+    const auto source = topology.add_node(
+        snt::game::RegionDomain::kPollution, {"overworld", 0, 0, 0});
+    const auto target = topology.add_node(
+        snt::game::RegionDomain::kPollution, {"overworld", 1, 0, 0});
+    ASSERT_TRUE(topology.set_pollution(source, 1.0));
+    ASSERT_TRUE(topology.set_pollution(target, 0.0));
+
+    ASSERT_TRUE(runtime.run_fixed_ticks(1));
+    ASSERT_TRUE(topology.last_fixed_tick().has_value());
+    EXPECT_EQ(*topology.last_fixed_tick(), 1u);
+    EXPECT_NEAR(topology.find_state(source)->pollution, 0.95, 0.000001);
+    EXPECT_NEAR(topology.find_state(target)->pollution, 0.05, 0.000001);
 
     runtime.shutdown();
     std::error_code error;

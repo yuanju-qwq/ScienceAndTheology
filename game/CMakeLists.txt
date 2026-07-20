@@ -140,6 +140,7 @@ add_library(snt_game_simulation STATIC
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
+    simulation/region_topology.cpp
     simulation/science_and_theology_simulation_session.cpp
     simulation/season_cycle.cpp
     simulation/tree_growth_system.cpp
@@ -316,6 +317,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_block_physics_system.cpp
         tests/test_day_night_cycle.cpp
         tests/test_season_cycle.cpp
+        tests/test_region_topology.cpp
         tests/test_crop_growth_system.cpp
         tests/test_tree_growth_system.cpp
         tests/test_localization.cpp

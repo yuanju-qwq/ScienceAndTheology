@@ -6,8 +6,6 @@
 
 #include "core/simulation/event_types.hpp"
 #include "core/simulation/season_system.hpp"
-#include "core/simulation/region_system.hpp"
-#include "core/simulation/region_graph.hpp"
 #include "core/simulation/ecosystem_system.hpp"
 #include "bindings/world/gd_world_data.h"
 
@@ -51,14 +49,6 @@ void GDTickSystem::register_day_night_system() {
     if (tick_system_) {
         auto sys = std::make_unique<DayNightSystem>();
         day_night_system_ = sys.get();
-        tick_system_->register_subsystem(std::move(sys));
-    }
-}
-
-void GDTickSystem::register_region_system() {
-    if (tick_system_) {
-        auto sys = std::make_unique<RegionSystem>();
-        region_system_ = sys.get();
         tick_system_->register_subsystem(std::move(sys));
     }
 }
@@ -125,44 +115,6 @@ float GDTickSystem::get_time_of_day() const {
 bool GDTickSystem::get_is_daytime() const {
     if (!day_night_system_) return true;
     return day_night_system_->is_daytime();
-}
-
-int64_t GDTickSystem::get_region_count() const {
-    if (!region_system_) return 0;
-    return static_cast<int64_t>(region_system_->total_region_count());
-}
-
-int64_t GDTickSystem::get_region_count_by_type(int64_t type_index) const {
-    if (!region_system_) return 0;
-    if (type_index < 0 || type_index >= static_cast<int64_t>(RegionType::COUNT)) {
-        return 0;
-    }
-    return static_cast<int64_t>(
-        region_system_->region_count(static_cast<RegionType>(type_index)));
-}
-
-godot::Dictionary GDTickSystem::get_region_data(
-    int64_t type_index, int64_t region_id) const {
-    godot::Dictionary d;
-    if (!region_system_) return d;
-    if (type_index < 0 || type_index >= static_cast<int64_t>(RegionType::COUNT)) {
-        return d;
-    }
-
-    auto type = static_cast<RegionType>(type_index);
-    const auto* graph = region_system_->get_graph(type);
-    if (!graph) return d;
-
-    const auto* data = graph->get_region_data(static_cast<uint64_t>(region_id));
-    if (!data) return d;
-
-    d["region_id"] = static_cast<int64_t>(data->region_id);
-    d["type"] = static_cast<int64_t>(data->type);
-    d["dimension"] = godot::String(data->dimension_id.c_str());
-    d["pollution"] = data->pollution;
-    d["temperature"] = data->temperature;
-    d["node_count"] = static_cast<int64_t>(data->node_count);
-    return d;
 }
 
 // --- Ecosystem query ---
@@ -816,8 +768,6 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::register_season_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_day_night_system"),
         &GDTickSystem::register_day_night_system);
-    godot::ClassDB::bind_method(godot::D_METHOD("register_region_system"),
-        &GDTickSystem::register_region_system);
     godot::ClassDB::bind_method(godot::D_METHOD("register_ecosystem_system"),
         &GDTickSystem::register_ecosystem_system);
     godot::ClassDB::bind_method(godot::D_METHOD("get_day_night_state"),
@@ -826,13 +776,6 @@ void GDTickSystem::_bind_methods() {
         &GDTickSystem::get_time_of_day);
     godot::ClassDB::bind_method(godot::D_METHOD("get_is_daytime"),
         &GDTickSystem::get_is_daytime);
-    godot::ClassDB::bind_method(godot::D_METHOD("get_region_count"),
-        &GDTickSystem::get_region_count);
-    godot::ClassDB::bind_method(godot::D_METHOD("get_region_count_by_type",
-        "type_index"), &GDTickSystem::get_region_count_by_type);
-    godot::ClassDB::bind_method(godot::D_METHOD("get_region_data",
-        "type_index", "region_id"), &GDTickSystem::get_region_data);
-
     // Ecosystem query methods.
     godot::ClassDB::bind_method(godot::D_METHOD("get_population_data",
         "dimension", "cx", "cy", "cz"),

@@ -1498,7 +1498,6 @@ func _initializetick_system() -> void:
 	# Register subsystems in priority order.
 	# DayNight must be first (priority 0) so other systems can read is_daytime.
 	tick_system.register_day_night_system()
-	tick_system.register_region_system()
 	tick_system.register_season_system()
 	tick_system.register_ecosystem_system()
 

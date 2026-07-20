@@ -73,14 +73,18 @@ std::string gameplay_source(const std::string& input_item,
     return source;
 }
 
-std::string read_packaged_p7_bootstrap_script() {
+std::string read_packaged_game_script(std::string_view file_name) {
     const fs::path path = fs::path(SNT_ENGINE_TEST_ROOT).parent_path() /
-                          "game/scripts/p7_bootstrap.as";
+                          "game/scripts" / file_name;
     std::ifstream input(path, std::ios::binary);
     if (!input.is_open()) return {};
     std::ostringstream source;
     source << input.rdbuf();
     return source.str();
+}
+
+std::string read_packaged_p7_bootstrap_script() {
+    return read_packaged_game_script("p7_bootstrap.as");
 }
 
 }  // namespace
@@ -334,6 +338,51 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
                   "iron_bloom", 1, 12000, "primitive_thermal");
     assert_recipe("snt.anvil.forge_wrought_iron", "anvil", {{"iron_bloom", 1}},
                   "wrought_iron_ingot", 1, 1, "primitive_forging");
+
+    scripts.shutdown();
+}
+
+TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+
+    const std::string source = read_packaged_game_script("00_material_catalog.as");
+    ASSERT_FALSE(source.empty());
+    ASSERT_TRUE(scripts.load_source("material_catalog", source));
+
+    EXPECT_EQ(content.material_definitions().size(), 258u);
+
+    const auto* iron = content.find_material("iron");
+    ASSERT_NE(iron, nullptr);
+    EXPECT_EQ(iron->title_key, "material.iron");
+    EXPECT_EQ(iron->color_rgb, 0xc8b0a0u);
+    EXPECT_EQ(iron->melting_point_kelvin, 1811);
+    EXPECT_EQ(iron->boiling_point_kelvin, 3134);
+    EXPECT_FLOAT_EQ(iron->mass, 55.8f);
+    EXPECT_EQ(iron->chemical_formula, "Fe");
+    ASSERT_EQ(iron->composition.size(), 1u);
+    EXPECT_EQ(iron->composition.front().symbol, "Fe");
+    EXPECT_EQ(iron->composition.front().count, 1u);
+
+    const auto* iron_ingot = content.find_item("ingot.iron");
+    ASSERT_NE(iron_ingot, nullptr);
+    ASSERT_TRUE(iron_ingot->material_form.has_value());
+    EXPECT_EQ(iron_ingot->material_form->material_id, "iron");
+    EXPECT_EQ(iron_ingot->material_form->material_units, 144);
+    EXPECT_EQ(iron_ingot->presentation.icon_path,
+              "material_sets/generic/ingot_base_32.png");
+    EXPECT_EQ(iron_ingot->presentation.icon_overlay_path,
+              "material_sets/generic/ingot_overlay_32.png");
+    EXPECT_TRUE(iron_ingot->presentation.uses_tint);
+
+    const auto* wood_log = content.find_item("dust.wood");
+    ASSERT_NE(wood_log, nullptr);
+    EXPECT_EQ(wood_log->title_key, "item.wood_log");
+    EXPECT_EQ(wood_log->presentation.icon_path, "materials/wood_log_icon_32.png");
+    EXPECT_FALSE(wood_log->presentation.uses_tint);
+    EXPECT_TRUE(content.find_item_runtime_id("dust.wood").has_value());
 
     scripts.shutdown();
 }

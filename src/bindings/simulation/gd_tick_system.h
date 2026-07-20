@@ -11,7 +11,6 @@
 
 #include "core/simulation/tick_system.hpp"
 #include "core/simulation/day_night_system.hpp"
-#include "core/simulation/region_system.hpp"
 #include "core/simulation/ecosystem_system.hpp"
 
 namespace science_and_theology {
@@ -50,12 +49,6 @@ public:
     // first (before other subsystems) since it runs at priority 0.
     void register_day_night_system();
 
-    // Register the region simulation subsystem.
-    // Must be called after set_world_data(). Manages RegionGraphs
-    // for power grids, fluid networks, pollution, and temperature.
-    // Runs at priority 5 (after Machine, before Season).
-    void register_region_system();
-
     // Register the ecosystem simulation subsystem.
     // Must be called after set_world_data(). Manages population
     // dynamics (vegetation, herbivores, predators) and proxy
@@ -72,19 +65,6 @@ public:
 
     // Convenience: returns true if the sun is above the horizon.
     bool get_is_daytime() const;
-
-    // --- Region query ---
-
-    // Returns the total number of regions across all types.
-    int64_t get_region_count() const;
-
-    // Returns the number of regions for a specific type.
-    // type_index: 0=PowerGrid, 1=Fluid, 2=Connected, 3=Pollution, 4=Temperature.
-    int64_t get_region_count_by_type(int64_t type_index) const;
-
-    // Returns region data as a Dictionary for a given region type and ID.
-    // type_index: 0=PowerGrid, 1=Fluid, 2=Connected, 3=Pollution, 4=Temperature.
-    godot::Dictionary get_region_data(int64_t type_index, int64_t region_id) const;
 
     // --- Ecosystem query ---
 
@@ -314,9 +294,6 @@ private:
 
     // Raw pointer to the DayNightSystem (owned by tick_system_).
     DayNightSystem* day_night_system_ = nullptr;
-
-    // Raw pointer to the RegionSystem (owned by tick_system_).
-    RegionSystem* region_system_ = nullptr;
 
     // Raw pointer to the EcosystemSystem (owned by tick_system_).
     EcosystemSystem* ecosystem_system_ = nullptr;

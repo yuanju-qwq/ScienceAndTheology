@@ -711,7 +711,8 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         return error;
     }
 
-    if (auto result = register_gameplay_ui_images(world_session.ui_images(), services_->paths()); !result) {
+    if (auto result = register_gameplay_ui_images(
+            world_session.ui_images(), services_->paths(), &simulation_session_.content()); !result) {
         auto error = result.error();
         error.with_context("ScienceAndTheologyClientSession::create_client_world(ui images)");
         return error;
@@ -743,7 +744,8 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
     gameplay_ui_ = std::make_unique<GameplayUiController>(
         InventoryViewModel{std::move(initial_inventory)},
         make_starting_crafting_recipes(), std::move(slot_transfer_sink),
-        std::move(machine_input_slot_transfer_sink));
+        std::move(machine_input_slot_transfer_sink), &simulation_session_.content(),
+        &services_->paths());
     performance_ui_ = std::make_unique<PerformanceViewModel>();
     quest_book_ui_ = std::make_unique<QuestBookViewModel>(
         simulation_session_.content(), quest_book_state_.get(), this);
