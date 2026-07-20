@@ -28,6 +28,7 @@ namespace snt::game::localization {
 class LocalizationService;
 }
 namespace snt::core { class RuntimePathResolver; }
+namespace snt::ui { class UiImageRegistry; }
 
 namespace snt::game {
 

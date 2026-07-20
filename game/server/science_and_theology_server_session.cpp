@@ -14,6 +14,7 @@
 #include "game/server/game_server_quest_events.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
+#include "game/worldgen/world_gen_config.h"
 #include "network/lan_discovery.h"
 #include "network/replication.h"
 #include "network/tcp_udp_transport.h"
@@ -77,6 +78,11 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         auto error = result.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(simulation)");
         return error;
+    }
+    const WorldGenConfigSnapshot* const worldgen_config = simulation_session_.worldgen_config();
+    if (worldgen_config == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Dedicated server simulation did not publish a worldgen snapshot"};
     }
     if (!config_.server_network.enabled) return {};
     if (services_ == nullptr) {
@@ -193,6 +199,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     }
     player_replication_ = std::move(*player_replication);
     simulation_session_.set_block_physics_mutation_sink(player_replication_.get());
+    simulation_session_.set_fluid_mutation_sink(player_replication_.get());
     simulation_session_.set_crop_growth_mutation_sink(player_replication_.get());
     simulation_session_.set_tree_growth_mutation_sink(player_replication_.get());
     quest_events_->bind_player_state(*player_state_, player_lifecycle_.get());
@@ -209,7 +216,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         world.chunks(), simulation_session_.world_sidecars(),
         {
             .grave_material_id = config_.server_player.grave_material_id,
-            .air_material_id = 0,
+            .air_material_id = worldgen_config->roles.air,
             .vertical_search_blocks = config_.server_player.grave_vertical_search_blocks,
         });
     if (!player_graves) {
@@ -254,9 +261,10 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         player_lifecycle_.get(),
         {quest_events_.get(), player_replication_.get()},
         {
-            .air_material_id = 0,
+            .worldgen_config = worldgen_config,
             .reserved_grave_material_id = config_.server_player.grave_material_id,
             .block_physics_trigger = &simulation_session_,
+            .fluid_trigger = &simulation_session_,
         });
     if (!player_interactions) {
         auto error = player_interactions.error();

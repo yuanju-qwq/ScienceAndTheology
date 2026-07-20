@@ -108,7 +108,7 @@ TEST(GameContentRegistryTest, RejectsUnloadThatWouldLeaveMachinePlacementDanglin
         MachinePlacementDefinition{
             .item_id = "p7.unload.machine_block",
             .machine_id = "p7.unload.machine",
-            .material_id = 42,
+            .material_key = "snt:machine.unload",
         }));
     ASSERT_TRUE(content.validate_machine_placement_references());
 

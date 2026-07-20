@@ -150,28 +150,22 @@ static int run_world_test() {
     std::cout << "=== Game World Smoke Test ===" << std::endl;
     std::cout << "Generating chunk (0,0,0)..." << std::endl;
 
-    // Build a minimal world-gen config with air + stone roles.
+    // Register semantic terrain keys, then derive compact runtime IDs before
+    // the generator receives its immutable snapshot.
     auto config = std::make_shared<WorldGenConfigSnapshot>();
-    TerrainMaterialDef air_def;
-    air_def.id = 0;
-    air_def.key = "air";
-    config->materials.push_back(air_def);
-    config->material_ids_by_key["air"] = 0;
-    config->material_keys_by_id[0] = "air";
-    config->roles.air = 0;
-    config->roles.stone = 0;
-
-    TerrainMaterialDef stone_def;
-    stone_def.id = 1;
-    stone_def.key = "stone";
-    config->materials.push_back(stone_def);
-    config->material_ids_by_key["stone"] = 1;
-    config->material_keys_by_id[1] = "stone";
-    config->roles.stone = 1;
+    config->materials.push_back({.key = "snt:air"});
+    config->materials.push_back({.key = "snt:stone", .flags = TF_SOLID});
+    config->role_keys.air = "snt:air";
+    config->role_keys.stone = "snt:stone";
+    if (auto result = finalize_world_gen_config(*config); !result) {
+        std::cerr << "Failed to finalize world-gen config: "
+                  << result.error().format() << std::endl;
+        return 1;
+    }
 
     BaseTerrainRule rule;
     rule.dimension_id = "overworld";
-    rule.default_material = 1;
+    rule.default_material = config->roles.stone;
     config->base_terrain_rules.push_back(rule);
 
     config->content_hash = hash_world_gen_config(*config);

@@ -838,6 +838,10 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
             known->second.cells[block.local_index] = {
                 .material = block.material,
                 .flags = block.flags,
+                .fluid_type = block.fluid_type,
+                .fluid_mass = block.fluid_mass,
+                .fluid_temperature = block.fluid_temperature,
+                .fluid_is_gas = block.fluid_is_gas,
             };
         }
     }
@@ -875,6 +879,11 @@ void GameServerPlayerReplication::on_player_interaction(
 
 void GameServerPlayerReplication::on_block_physics_terrain_changed(
     const BlockPhysicsTerrainChange& change) {
+    mark_block_dirty(change.dimension_id, change.block_x, change.block_y, change.block_z);
+}
+
+void GameServerPlayerReplication::on_fluid_terrain_changed(
+    const FluidTerrainChange& change) {
     mark_block_dirty(change.dimension_id, change.block_x, change.block_y, change.block_z);
 }
 
@@ -926,6 +935,10 @@ void GameServerPlayerReplication::mark_block_dirty(std::string_view dimension_id
             .local_index = static_cast<uint16_t>(index),
             .material = cell.material,
             .flags = cell.flags,
+            .fluid_type = cell.fluid_type,
+            .fluid_mass = cell.fluid_mass,
+            .fluid_temperature = cell.fluid_temperature,
+            .fluid_is_gas = cell.fluid_is_gas,
         });
 }
 

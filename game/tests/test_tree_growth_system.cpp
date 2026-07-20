@@ -18,30 +18,27 @@ constexpr uint32_t kMineable = static_cast<uint32_t>(snt::voxel::TF_MINEABLE);
 
 snt::game::WorldGenConfigSnapshot make_worldgen_config() {
     snt::game::WorldGenConfigSnapshot config;
-    const auto add_material = [&config](snt::game::TerrainMaterialId id,
-                                        const char* key,
+    const auto add_material = [&config](const char* key,
                                         uint32_t flags) {
         snt::game::TerrainMaterialDef material;
-        material.id = id;
         material.key = key;
         material.flags = flags;
-        config.material_ids_by_key[material.key] = material.id;
-        config.material_keys_by_id[material.id] = material.key;
         config.materials.push_back(std::move(material));
     };
-    add_material(0, "air", 0);
-    add_material(1, "dirt", kSolid | kMineable);
-    add_material(2, "oak_sapling", kMineable);
-    add_material(3, "oak_wood", kSolid | kMineable);
-    add_material(4, "oak_leaves", kMineable);
-    add_material(5, "stone", kSolid | kMineable);
-    config.roles.air = 0;
+    add_material("snt:air", 0);
+    add_material("snt:dirt", kSolid | kMineable);
+    add_material("snt:oak_sapling", kMineable);
+    add_material("snt:oak_wood", kSolid | kMineable);
+    add_material("snt:oak_leaves", kMineable);
+    add_material("snt:stone", kSolid | kMineable);
+    config.role_keys.air = "snt:air";
+    EXPECT_TRUE(snt::game::finalize_world_gen_config(config));
 
     snt::game::TreeSpeciesDef oak;
     oak.species_key = "oak";
-    oak.wood_material_key = "oak_wood";
-    oak.leaves_material_key = "oak_leaves";
-    oak.sapling_material_key = "oak_sapling";
+    oak.wood_material_key = "snt:oak_wood";
+    oak.leaves_material_key = "snt:oak_leaves";
+    oak.sapling_material_key = "snt:oak_sapling";
     oak.min_trunk_height = 3;
     oak.max_trunk_height = 3;
     oak.canopy_shape = snt::game::CanopyShape::SPHERE;
@@ -96,7 +93,8 @@ TEST(GameTreeGrowthSystemTest, GrowsSaplingInActiveChunkAndEmitsCommittedTerrain
 
     auto* chunk = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(chunk, nullptr);
-    chunk->terrain.set_cell(10, 0, 10, 1, kSolid | kMineable);
+    chunk->terrain.set_cell(10, 0, 10, config.material_id_or("snt:dirt", 0),
+                            kSolid | kMineable);
     const auto anchor = trees.plant_sapling({
         .dimension_id = "overworld",
         .block_x = 10,
@@ -115,13 +113,15 @@ TEST(GameTreeGrowthSystemTest, GrowsSaplingInActiveChunkAndEmitsCommittedTerrain
     const auto& record = sidecar->tree_growth_records.front();
     EXPECT_EQ(record.anchor_entity_id, *anchor);
     EXPECT_EQ(record.growth_stage, snt::game::TreeGrowthStage::YOUNG);
-    EXPECT_EQ(chunk->terrain.cell_at(10, 1, 10).material, 3u);
-    EXPECT_EQ(chunk->terrain.cell_at(10, 2, 10).material, 3u);
-    EXPECT_EQ(chunk->terrain.cell_at(10, 3, 10).material, 4u);
-    EXPECT_EQ(chunk->terrain.cell_at(9, 3, 10).material, 4u);
-    EXPECT_EQ(chunk->terrain.cell_at(11, 3, 10).material, 4u);
-    EXPECT_EQ(chunk->terrain.cell_at(10, 3, 9).material, 4u);
-    EXPECT_EQ(chunk->terrain.cell_at(10, 3, 11).material, 4u);
+    const auto wood = config.material_id_or("snt:oak_wood", 0);
+    const auto leaves = config.material_id_or("snt:oak_leaves", 0);
+    EXPECT_EQ(chunk->terrain.cell_at(10, 1, 10).material, wood);
+    EXPECT_EQ(chunk->terrain.cell_at(10, 2, 10).material, wood);
+    EXPECT_EQ(chunk->terrain.cell_at(10, 3, 10).material, leaves);
+    EXPECT_EQ(chunk->terrain.cell_at(9, 3, 10).material, leaves);
+    EXPECT_EQ(chunk->terrain.cell_at(11, 3, 10).material, leaves);
+    EXPECT_EQ(chunk->terrain.cell_at(10, 3, 9).material, leaves);
+    EXPECT_EQ(chunk->terrain.cell_at(10, 3, 11).material, leaves);
     EXPECT_EQ(changes.changes.size(), 7u);
 }
 
@@ -137,7 +137,8 @@ TEST(GameTreeGrowthSystemTest, DoesNotGrowThroughForeignTerrain) {
 
     auto* chunk = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(chunk, nullptr);
-    chunk->terrain.set_cell(5, 0, 5, 1, kSolid | kMineable);
+    chunk->terrain.set_cell(5, 0, 5, config.material_id_or("snt:dirt", 0),
+                            kSolid | kMineable);
     ASSERT_TRUE(trees.plant_sapling({
         .dimension_id = "overworld",
         .block_x = 5,
@@ -145,7 +146,8 @@ TEST(GameTreeGrowthSystemTest, DoesNotGrowThroughForeignTerrain) {
         .block_z = 5,
         .species_key = "oak",
     }, 0));
-    chunk->terrain.set_cell(5, 2, 5, 5, kSolid | kMineable);
+    chunk->terrain.set_cell(5, 2, 5, config.material_id_or("snt:stone", 0),
+                            kSolid | kMineable);
     changes.changes.clear();
 
     trees.tick(1);
@@ -155,8 +157,10 @@ TEST(GameTreeGrowthSystemTest, DoesNotGrowThroughForeignTerrain) {
     ASSERT_EQ(sidecar->tree_growth_records.size(), 1u);
     EXPECT_EQ(sidecar->tree_growth_records.front().growth_stage,
               snt::game::TreeGrowthStage::SAPLING);
-    EXPECT_EQ(chunk->terrain.cell_at(5, 1, 5).material, 2u);
-    EXPECT_EQ(chunk->terrain.cell_at(5, 2, 5).material, 5u);
+    EXPECT_EQ(chunk->terrain.cell_at(5, 1, 5).material,
+              config.material_id_or("snt:oak_sapling", 0));
+    EXPECT_EQ(chunk->terrain.cell_at(5, 2, 5).material,
+              config.material_id_or("snt:stone", 0));
     EXPECT_TRUE(changes.changes.empty());
 }
 
@@ -174,7 +178,8 @@ TEST(GameTreeGrowthSystemTest, DefersClimateChecksToTheDeclaredEnvironmentProvid
 
     auto* chunk = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(chunk, nullptr);
-    chunk->terrain.set_cell(8, 0, 8, 1, kSolid | kMineable);
+    chunk->terrain.set_cell(8, 0, 8, config.material_id_or("snt:dirt", 0),
+                            kSolid | kMineable);
     ASSERT_TRUE(trees.plant_sapling({
         .dimension_id = "overworld",
         .block_x = 8,

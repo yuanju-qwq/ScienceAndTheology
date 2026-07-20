@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "game_content_registry.h"
+#include "game/simulation/game_content_reload_service.h"
 #include "script/file_watcher.h"
 #include "script/script_manager.h"
 
@@ -19,6 +20,8 @@ namespace fs = std::filesystem;
 namespace {
 
 using snt::game::GameContentRegistry;
+using snt::game::GameContentReloadService;
+using snt::game::GameContentReloadTarget;
 using snt::script::FileChange;
 using snt::script::FileChangeKind;
 using snt::script::ScriptManager;
@@ -83,10 +86,6 @@ std::string read_packaged_game_script(std::string_view file_name) {
     return source.str();
 }
 
-std::string read_packaged_p7_bootstrap_script() {
-    return read_packaged_game_script("p7_bootstrap.as");
-}
-
 }  // namespace
 
 TEST(P7FileWatcherTest, ReportsFilteredChangesInStablePathOrder) {
@@ -125,7 +124,7 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
         "void snt_register() {"
         "  snt_register_item(\"p7.test.machine_block\", \"item.test_machine_block\", 1);"
         "  snt_register_machine(\"p7.test.machine\", \"Test Machine\", 2, 500, true);"
-        "  snt_register_machine_placement(\"p7.test.machine_block\", \"p7.test.machine\", 42);"
+        "  snt_register_machine_placement(\"p7.test.machine_block\", \"p7.test.machine\", \"snt:test.machine\");"
         "  snt_set_machine_activation_requirements(\"p7.test.machine\", true, false, true, \"hammer\");"
         "  snt_register_quest_chapter(\"p7.test.chapter\", \"Test Chapter\", \"Chapter description\", \"chapter.test\", 3);"
         "  snt_register_quest(\"p7.test.quest\", \"p7.test.chapter\", \"Test Quest\", \"Description\", 96.0f, 48.0f, \"quest.test\", false, false);"
@@ -145,7 +144,7 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
     const auto* placement = content.find_machine_placement_by_item("p7.test.machine_block");
     ASSERT_NE(placement, nullptr);
     EXPECT_EQ(placement->machine_id, "p7.test.machine");
-    EXPECT_EQ(placement->material_id, 42u);
+    EXPECT_EQ(placement->material_key, "snt:test.machine");
     const auto* chapter = content.find_quest_chapter("p7.test.chapter");
     ASSERT_NE(chapter, nullptr);
     EXPECT_EQ(chapter->title, "Test Chapter");
@@ -195,13 +194,13 @@ TEST(P7ScriptApiTest, RollsBackPlacementThatReferencesAMissingMachine) {
         "void snt_register() {"
         "  snt_register_item(\"p7.valid.block\", \"item.valid_block\", 1);"
         "  snt_register_machine(\"p7.valid.machine\", \"Valid\", 1, 0, false);"
-        "  snt_register_machine_placement(\"p7.valid.block\", \"p7.valid.machine\", 43);"
+        "  snt_register_machine_placement(\"p7.valid.block\", \"p7.valid.machine\", \"snt:valid.machine\");"
         "}"));
 
     EXPECT_FALSE(scripts.load_source(
         "p7_machine_placement_validation",
         "void snt_register() {"
-        "  snt_register_machine_placement(\"p7.valid.block\", \"p7.missing.machine\", 43);"
+        "  snt_register_machine_placement(\"p7.valid.block\", \"p7.missing.machine\", \"snt:valid.machine\");"
         "}"));
 
     EXPECT_NE(content.find_machine("p7.valid.machine"), nullptr);
@@ -212,15 +211,27 @@ TEST(P7ScriptApiTest, RollsBackPlacementThatReferencesAMissingMachine) {
     scripts.shutdown();
 }
 
-TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript) {
+TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs) {
     GameContentRegistry content;
     ScriptManager scripts;
     ASSERT_TRUE(scripts.set_content_host(content));
     ASSERT_TRUE(scripts.init());
 
-    const std::string source = read_packaged_p7_bootstrap_script();
-    ASSERT_FALSE(source.empty());
-    ASSERT_TRUE(scripts.load_source("p7_bootstrap", source));
+    const std::string material_source = read_packaged_game_script("00_material_catalog.as");
+    const std::string item_source = read_packaged_game_script("10_item_catalog.as");
+    const std::string machine_source = read_packaged_game_script("20_machine_catalog.as");
+    const std::string recipe_source = read_packaged_game_script("30_recipe_catalog.as");
+    const std::string quest_source = read_packaged_game_script("40_quest_catalog.as");
+    ASSERT_FALSE(material_source.empty());
+    ASSERT_FALSE(item_source.empty());
+    ASSERT_FALSE(machine_source.empty());
+    ASSERT_FALSE(recipe_source.empty());
+    ASSERT_FALSE(quest_source.empty());
+    ASSERT_TRUE(scripts.load_source("00_material_catalog", material_source));
+    ASSERT_TRUE(scripts.load_source("10_item_catalog", item_source));
+    ASSERT_TRUE(scripts.load_source("20_machine_catalog", machine_source));
+    ASSERT_TRUE(scripts.load_source("30_recipe_catalog", recipe_source));
+    ASSERT_TRUE(scripts.load_source("40_quest_catalog", quest_source));
 
     const auto assert_item = [&content](std::string_view id, int32_t max_stack) {
         const auto* item = content.find_item(id);
@@ -234,7 +245,7 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
     assert_item("bloomery", 1);
     assert_item("anvil", 1);
     assert_item("iron_ore", 64);
-    assert_item("iron_ingot", 64);
+    assert_item("ingot.iron", 64);
     assert_item("unfired_bowl", 16);
     assert_item("fired_bowl", 16);
     assert_item("unfired_jug", 16);
@@ -243,13 +254,31 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
     assert_item("fired_crucible", 16);
     assert_item("unfired_brick", 64);
     assert_item("refractory_brick", 64);
-    assert_item("wood_dust", 64);
+    assert_item("dust.wood", 64);
     assert_item("charcoal", 64);
-    assert_item("iron_crushed", 64);
+    assert_item("crushed.iron", 64);
     assert_item("iron_bloom", 16);
-    assert_item("wrought_iron_ingot", 64);
+    assert_item("ingot.wrought_iron", 64);
     assert_item("flint_and_steel", 1);
     assert_item("hammer", 1);
+    assert_item("snt:glow_deer_antler", 64);
+    assert_item("crop.wheat", 64);
+    assert_item("meat.raw.glow_deer", 64);
+
+    const auto* iron_pickaxe = content.find_item("iron_pickaxe");
+    ASSERT_NE(iron_pickaxe, nullptr);
+    ASSERT_TRUE(iron_pickaxe->tool.has_value());
+    EXPECT_EQ(iron_pickaxe->tool->type, snt::game::GameToolType::kPickaxe);
+    EXPECT_EQ(iron_pickaxe->tool->mining_level, 2);
+    EXPECT_EQ(iron_pickaxe->tool->durability, 250);
+    EXPECT_EQ(iron_pickaxe->presentation.icon_path, "tools/iron_pickaxe_icon_32.png");
+
+    const auto* hammer = content.find_item("hammer");
+    ASSERT_NE(hammer, nullptr);
+    ASSERT_TRUE(hammer->tool.has_value());
+    EXPECT_EQ(hammer->tool->type, snt::game::GameToolType::kNone);
+    EXPECT_EQ(hammer->tool->durability, 200);
+    EXPECT_EQ(content.tool_tags_for_item("hammer"), (std::vector<std::string>{"hammer"}));
 
     const auto assert_machine = [&content](std::string_view id,
                                            std::string_view display_name,
@@ -269,17 +298,17 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
 
     const auto assert_placement = [&content](std::string_view item_id,
                                              std::string_view machine_id,
-                                             uint32_t material_id) {
+                                             std::string_view material_key) {
         const auto* placement = content.find_machine_placement_by_item(item_id);
         ASSERT_NE(placement, nullptr);
         EXPECT_EQ(placement->machine_id, machine_id);
-        EXPECT_EQ(placement->material_id, material_id);
+        EXPECT_EQ(placement->material_key, material_key);
     };
-    assert_placement("furnace", "furnace", 7);
-    assert_placement("pit_kiln", "pit_kiln", 8);
-    assert_placement("charcoal_pit", "charcoal_pit", 9);
-    assert_placement("bloomery", "bloomery", 10);
-    assert_placement("anvil", "anvil", 11);
+    assert_placement("furnace", "furnace", "snt:runtime.machine.furnace");
+    assert_placement("pit_kiln", "pit_kiln", "snt:runtime.machine.pit_kiln");
+    assert_placement("charcoal_pit", "charcoal_pit", "snt:runtime.machine.charcoal_pit");
+    assert_placement("bloomery", "bloomery", "snt:runtime.machine.bloomery");
+    assert_placement("anvil", "anvil", "snt:runtime.machine.anvil");
 
     const auto assert_requirements = [&content](std::string_view id,
                                                 bool requires_cover,
@@ -323,7 +352,7 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
         EXPECT_EQ(recipe->tag, tag);
     };
     assert_recipe("snt.furnace.iron", "furnace", {{"iron_ore", 1}},
-                  "iron_ingot", 1, 200, "smelting");
+                  "ingot.iron", 1, 200, "smelting");
     assert_recipe("snt.pit_kiln.fire_unfired_bowl", "pit_kiln", {{"unfired_bowl", 1}},
                   "fired_bowl", 1, 8000, "primitive_thermal");
     assert_recipe("snt.pit_kiln.fire_unfired_jug", "pit_kiln", {{"unfired_jug", 1}},
@@ -332,12 +361,137 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromTheRuntimeScript
                   "fired_crucible", 1, 12000, "primitive_thermal");
     assert_recipe("snt.pit_kiln.fire_unfired_brick", "pit_kiln", {{"unfired_brick", 1}},
                   "refractory_brick", 1, 6000, "primitive_thermal");
-    assert_recipe("snt.charcoal_pit.burn_wood", "charcoal_pit", {{"wood_dust", 16}},
+    assert_recipe("snt.charcoal_pit.burn_wood", "charcoal_pit", {{"dust.wood", 16}},
                   "charcoal", 8, 24000, "primitive_thermal");
-    assert_recipe("snt.bloomery.iron", "bloomery", {{"iron_crushed", 5}, {"charcoal", 5}},
+    assert_recipe("snt.bloomery.iron", "bloomery", {{"crushed.iron", 5}, {"charcoal", 5}},
                   "iron_bloom", 1, 12000, "primitive_thermal");
     assert_recipe("snt.anvil.forge_wrought_iron", "anvil", {{"iron_bloom", 1}},
-                  "wrought_iron_ingot", 1, 1, "primitive_forging");
+                  "ingot.wrought_iron", 1, 1, "primitive_forging");
+
+    scripts.shutdown();
+}
+
+TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselectedContent) {
+    TempScriptDirectory directory("category_reload");
+    directory.write("00_material_catalog.as", "void snt_register() {}");
+    directory.write(
+        "10_item_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_item(\"reload.input\", \"item.reload_input_a\", 64);\n"
+        "  snt_register_item(\"reload.output\", \"item.reload_output\", 64);\n"
+        "}\n");
+    directory.write(
+        "20_machine_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_machine(\"reload.machine\", \"Machine A\", 1, 0, false);\n"
+        "}\n");
+    directory.write(
+        "30_recipe_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_recipe(\"reload.recipe\", \"reload.machine\", \"reload.input\", 1,\n"
+        "                      \"reload.output\", 1, 20, 0, \"recipe-a\");\n"
+        "}\n");
+    directory.write(
+        "40_quest_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_quest_chapter(\"reload.chapter\", \"Reload Chapter\", \"Description\", \"\", 0);\n"
+        "  snt_register_quest(\"reload.quest\", \"reload.chapter\", \"Quest A\", \"Description\",\n"
+        "                     0.0f, 0.0f, \"\", false, false);\n"
+        "}\n");
+
+    GameContentReloadService reload_service;
+    ASSERT_TRUE(reload_service.configure(directory.root()));
+
+    const auto material_plan = reload_service.plan(GameContentReloadTarget::kMaterials);
+    ASSERT_TRUE(material_plan);
+    EXPECT_EQ(material_plan->expanded_targets,
+              (std::vector<GameContentReloadTarget>{
+                  GameContentReloadTarget::kMaterials,
+                  GameContentReloadTarget::kItems,
+                  GameContentReloadTarget::kMachines,
+                  GameContentReloadTarget::kRecipes,
+                  GameContentReloadTarget::kQuests,
+              }));
+    EXPECT_EQ(material_plan->files,
+              (std::vector<fs::path>{
+                  directory.root() / "00_material_catalog.as",
+                  directory.root() / "10_item_catalog.as",
+                  directory.root() / "20_machine_catalog.as",
+                  directory.root() / "30_recipe_catalog.as",
+                  directory.root() / "40_quest_catalog.as",
+              }));
+
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+    ASSERT_TRUE(scripts.load_directory(directory.root().string()));
+
+    directory.write(
+        "10_item_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_item(\"reload.input\", \"item.reload_input_b\", 64);\n"
+        "  snt_register_item(\"reload.output\", \"item.reload_output\", 64);\n"
+        "}\n");
+    directory.write(
+        "20_machine_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_machine(\"reload.machine\", \"Machine B\", 1, 0, false);\n"
+        "}\n");
+    directory.write(
+        "30_recipe_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_recipe(\"reload.recipe\", \"reload.machine\", \"reload.input\", 1,\n"
+        "                      \"reload.output\", 1, 20, 0, \"recipe-b\");\n"
+        "}\n");
+    directory.write(
+        "40_quest_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_quest_chapter(\"reload.chapter\", \"Reload Chapter\", \"Description\", \"\", 0);\n"
+        "  snt_register_quest(\"reload.quest\", \"reload.chapter\", \"Quest B\", \"Description\",\n"
+        "                     0.0f, 0.0f, \"\", false, false);\n"
+        "}\n");
+
+    const auto machine_reload = reload_service.reload(scripts, GameContentReloadTarget::kMachines);
+    ASSERT_TRUE(machine_reload);
+    EXPECT_EQ(machine_reload->plan.expanded_targets,
+              (std::vector<GameContentReloadTarget>{
+                  GameContentReloadTarget::kMachines,
+                  GameContentReloadTarget::kRecipes,
+              }));
+    ASSERT_NE(content.find_machine("reload.machine"), nullptr);
+    EXPECT_EQ(content.find_machine("reload.machine")->display_name, "Machine B");
+    ASSERT_NE(content.find_recipe("reload.recipe"), nullptr);
+    EXPECT_EQ(content.find_recipe("reload.recipe")->tag, "recipe-b");
+    ASSERT_NE(content.find_item("reload.input"), nullptr);
+    EXPECT_EQ(content.find_item("reload.input")->title_key, "item.reload_input_a");
+    ASSERT_NE(content.find_quest("reload.quest"), nullptr);
+    EXPECT_EQ(content.find_quest("reload.quest")->title, "Quest A");
+
+    const auto all_reload = reload_service.reload(scripts, GameContentReloadTarget::kAll);
+    ASSERT_TRUE(all_reload);
+    EXPECT_EQ(all_reload->plan.expanded_targets.size(), 5u);
+    ASSERT_NE(content.find_item("reload.input"), nullptr);
+    EXPECT_EQ(content.find_item("reload.input")->title_key, "item.reload_input_b");
+    ASSERT_NE(content.find_quest("reload.quest"), nullptr);
+    EXPECT_EQ(content.find_quest("reload.quest")->title, "Quest B");
+
+    directory.write(
+        "20_machine_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_machine(\"reload.machine\", \"Machine C\", 1, 0, false);\n"
+        "}\n");
+    directory.write(
+        "30_recipe_catalog.as",
+        "void snt_register() {\n"
+        "  snt_register_recipe(\"reload.recipe\", \"reload.machine\", \"reload.input\", 1,\n"
+        "                      \"reload.missing_output\", 1, 20, 0, \"recipe-invalid\");\n"
+        "}\n");
+    EXPECT_FALSE(reload_service.reload(scripts, GameContentReloadTarget::kMachines));
+    ASSERT_NE(content.find_machine("reload.machine"), nullptr);
+    EXPECT_EQ(content.find_machine("reload.machine")->display_name, "Machine B");
+    ASSERT_NE(content.find_recipe("reload.recipe"), nullptr);
+    EXPECT_EQ(content.find_recipe("reload.recipe")->tag, "recipe-b");
 
     scripts.shutdown();
 }
@@ -383,6 +537,24 @@ TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
     EXPECT_EQ(wood_log->presentation.icon_path, "materials/wood_log_icon_32.png");
     EXPECT_FALSE(wood_log->presentation.uses_tint);
     EXPECT_TRUE(content.find_item_runtime_id("dust.wood").has_value());
+
+    size_t compound_count = 0;
+    for (const auto& item : content.item_definitions()) {
+        if (item.title_key.starts_with("item.compound.")) ++compound_count;
+    }
+    EXPECT_EQ(compound_count, 65u);
+
+    const auto* hematite = content.find_item("crushed.hematite");
+    ASSERT_NE(hematite, nullptr);
+    EXPECT_EQ(hematite->title_key, "item.compound.crushed_hematite");
+    EXPECT_EQ(hematite->presentation.category, snt::game::GameItemCategory::kMaterials);
+    EXPECT_EQ(hematite->presentation.icon_path,
+              "material_sets/generic/crushed_base_32.png");
+    EXPECT_TRUE(hematite->presentation.uses_tint);
+
+    const auto* ash = content.find_item("dust.ash");
+    ASSERT_NE(ash, nullptr);
+    EXPECT_EQ(ash->presentation.icon_path, "material_sets/generic/dust_base_32.png");
 
     scripts.shutdown();
 }

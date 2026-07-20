@@ -3,6 +3,7 @@
 #include "gameplay_ui.h"
 
 #include "core/path_utils.h"
+#include "game/client/game_content_registry.h"
 #include "game/localization/localization.h"
 #include "ui/retained_mui_controls.h"
 #include "ui/retained_mui_drag.h"
@@ -193,6 +194,24 @@ public:
 
     std::vector<MachineInputSlotTransferRequest> requests;
 };
+
+GameItemDefinition make_presented_test_item(std::string id,
+                                            std::string icon_path,
+                                            std::string overlay_path,
+                                            uint32_t tint_rgb) {
+    return {
+        .id = std::move(id),
+        .title_key = "item.test.presented",
+        .max_stack = 64,
+        .presentation = {
+            .category = GameItemCategory::kMaterials,
+            .icon_path = std::move(icon_path),
+            .icon_overlay_path = std::move(overlay_path),
+            .tint_rgb = tint_rgb,
+            .uses_tint = true,
+        },
+    };
+}
 
 }  // namespace
 
@@ -533,9 +552,8 @@ TEST(GameplayUi, PackagedItemImagesRegisterAndRenderInInventorySlots) {
     UiRuntime runtime(*paths);
     auto registration = register_gameplay_ui_images(runtime.images(), *paths);
     ASSERT_TRUE(registration) << registration.error().format();
-    EXPECT_EQ(runtime.images().image_count(), 5u);
+    EXPECT_EQ(runtime.images().image_count(), 1u);
     EXPECT_NE(runtime.images().resolve("item.missing"), nullptr);
-    EXPECT_NE(runtime.images().resolve("plank.oak"), nullptr);
 
     const auto localization = make_test_localization();
     ASSERT_TRUE(localization) << localization.error().format();
@@ -552,6 +570,83 @@ TEST(GameplayUi, PackagedItemImagesRegisterAndRenderInInventorySlots) {
     EXPECT_TRUE(std::any_of(
         frame.draw_data.vertices.begin(), frame.draw_data.vertices.end(),
         [](const UiVertex& vertex) { return vertex.texture_mode == UiTextureMode::Image; }));
+}
+
+TEST(GameplayUi, ContentPresentationKeepsSemanticDragKeysAndRefreshesRetainedSlots) {
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_script_item(
+        42, make_presented_test_item("test.item", "material_sets/generic/ingot_base_32.png",
+                                     "material_sets/generic/ingot_overlay_32.png", 0xc8b0a0u)));
+
+    InventoryState inventory;
+    inventory.columns = 1;
+    inventory.slots = {{"test.item", 3}};
+    GameplayUiController controller{
+        InventoryViewModel{inventory}, {}, {}, {}, &content, &*paths,
+    };
+    controller.open_inventory();
+
+    UiImageRegistry images;
+    UiLayerStack layers;
+    ASSERT_TRUE(layers.register_screen({
+        .owner_id = "science_and_theology",
+        .screen_id = "gameplay",
+        .layer = UiLayer::Screen,
+        .initially_visible = true,
+        .factory = make_gameplay_ui_factory(controller, **localization),
+    }));
+
+    const auto& initial_frame = layers.prepare_frame({
+        .viewport = {800.0f, 600.0f},
+        .images = images,
+    });
+    ASSERT_EQ(initial_frame.size(), 1u);
+    auto* root = dynamic_cast<ViewGroup*>(initial_frame.front().root);
+    ASSERT_NE(root, nullptr);
+    auto* slot = dynamic_cast<SlotView*>(root->find("inventory_slot_0"));
+    ASSERT_NE(slot, nullptr);
+    EXPECT_EQ(slot->slot_state().item_key, "test.item");
+    EXPECT_EQ(slot->slot_state().image_key,
+              "game.item.asset:material_sets/generic/ingot_base_32.png");
+    EXPECT_EQ(slot->slot_state().overlay_image_key,
+              "game.item.asset:material_sets/generic/ingot_overlay_32.png");
+    EXPECT_EQ(slot->slot_state().image_tint.r, 0xc8u);
+    EXPECT_EQ(slot->slot_state().image_tint.g, 0xb0u);
+    EXPECT_EQ(slot->slot_state().image_tint.b, 0xa0u);
+    EXPECT_NE(images.resolve(slot->slot_state().image_key), nullptr);
+    EXPECT_NE(images.resolve(slot->slot_state().overlay_image_key), nullptr);
+
+    const uint64_t initial_content_revision = content.item_content_revision();
+    ASSERT_TRUE(content.set_script_item_presentation(
+        42, "test.item", {
+            .category = GameItemCategory::kMaterials,
+            .icon_path = "material_sets/generic/dust_base_32.png",
+            .tint_rgb = 0x20a0ffu,
+            .uses_tint = true,
+        }));
+    EXPECT_GT(content.item_content_revision(), initial_content_revision);
+
+    const auto& refreshed_frame = layers.prepare_frame({
+        .viewport = {800.0f, 600.0f},
+        .images = images,
+    });
+    ASSERT_EQ(refreshed_frame.size(), 1u);
+    EXPECT_EQ(refreshed_frame.front().root, root);
+    slot = dynamic_cast<SlotView*>(root->find("inventory_slot_0"));
+    ASSERT_NE(slot, nullptr);
+    EXPECT_EQ(slot->slot_state().item_key, "test.item");
+    EXPECT_EQ(slot->slot_state().image_key,
+              "game.item.asset:material_sets/generic/dust_base_32.png");
+    EXPECT_TRUE(slot->slot_state().overlay_image_key.empty());
+    EXPECT_EQ(slot->slot_state().image_tint.r, 0x20u);
+    EXPECT_EQ(slot->slot_state().image_tint.g, 0xa0u);
+    EXPECT_EQ(slot->slot_state().image_tint.b, 0xffu);
+    EXPECT_NE(images.resolve(slot->slot_state().image_key), nullptr);
 }
 
 TEST(GameplayUi, PerformancePanelUsesRetainedViewModel) {

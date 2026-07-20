@@ -15,6 +15,7 @@
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
 #include "game/simulation/crop_growth_events.h"
+#include "game/simulation/game_fluid_system_events.h"
 #include "game/simulation/tree_growth_events.h"
 
 #include <cstdint>
@@ -50,6 +51,7 @@ class GameServerPlayerReplication final : public IGameReplicationInterestProvide
                                           public IGameReplicationSnapshotSource,
                                           public IGameServerPlayerInteractionEventSink,
                                           public IBlockPhysicsMutationSink,
+                                          public IFluidMutationSink,
                                           public ICropGrowthMutationSink,
                                           public ITreeGrowthMutationSink {
 public:
@@ -81,6 +83,7 @@ public:
     // than writing an opaque delta or polling every loaded chunk.
     void on_player_interaction(const GameServerPlayerInteractionEvent& event) override;
     void on_block_physics_terrain_changed(const BlockPhysicsTerrainChange& change) override;
+    void on_fluid_terrain_changed(const FluidTerrainChange& change) override;
     void on_crop_growth_terrain_changed(const CropGrowthTerrainChange& change) override;
     void on_tree_growth_terrain_changed(const TreeGrowthTerrainChange& change) override;
     void mark_block_dirty(std::string_view dimension_id, int32_t block_x,

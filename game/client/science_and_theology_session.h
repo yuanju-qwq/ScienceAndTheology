@@ -64,6 +64,15 @@ public:
     [[nodiscard]] const replication::GameClientQuestBookState* quest_book_state() const noexcept {
         return quest_book_state_.get();
     }
+    void request_content_reload(GameContentReloadTarget target) noexcept {
+        simulation_session_.request_content_reload(target);
+    }
+    [[nodiscard]] std::vector<GameContentReloadTargetInfo> content_reload_targets() const {
+        return simulation_session_.content_reload_targets();
+    }
+    [[nodiscard]] const GameContentReloadResult* last_content_reload_result() const noexcept {
+        return simulation_session_.last_content_reload_result();
+    }
 
 private:
     [[nodiscard]] bool uses_network_presentation() const noexcept;

@@ -5,8 +5,9 @@
 
 #include "core/error.h"
 #include "core/log.h"
+#include "game/worldgen/world_gen_config.h"
 
-#include <limits>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -46,11 +47,11 @@ const MachinePlacementDefinition* MachinePlacementRegistry::find_by_item(
     return it == live_definitions_.end() ? nullptr : &it->second.definition;
 }
 
-const MachinePlacementDefinition* MachinePlacementRegistry::find_by_material(
-    uint32_t material_id) const noexcept {
+const MachinePlacementDefinition* MachinePlacementRegistry::find_by_material_key(
+    std::string_view material_key) const noexcept {
     for (const auto& [item_id, entry] : live_definitions_) {
         (void)item_id;
-        if (entry.definition.material_id == material_id) return &entry.definition;
+        if (entry.definition.material_key == material_key) return &entry.definition;
     }
     return nullptr;
 }
@@ -108,6 +109,79 @@ snt::core::Expected<void> MachinePlacementRegistry::rollback_reload(
     return {};
 }
 
+snt::core::Expected<void> MachinePlacementRegistry::begin_reload_batch(
+    std::span<const snt::script::ScriptId> script_ids) {
+    if (script_ids.empty()) {
+        return invalid_argument("Machine placement reload batch must not be empty");
+    }
+
+    std::set<snt::script::ScriptId> unique_ids;
+    for (const snt::script::ScriptId script_id : script_ids) {
+        if (script_id == snt::script::kBuiltinScriptId) {
+            return invalid_argument("Built-in machine placement content cannot be reloaded as a script");
+        }
+        if (!unique_ids.insert(script_id).second) {
+            return invalid_argument("Machine placement reload batch contains a duplicate ScriptId");
+        }
+        if (reloads_.contains(script_id)) {
+            return invalid_state("Machine placement reload is already active for a batch script");
+        }
+    }
+
+    for (const snt::script::ScriptId script_id : script_ids) {
+        reloads_.emplace(script_id, snapshot_script_definitions(script_id));
+        erase_script_definitions(script_id);
+    }
+    SNT_LOG_DEBUG("Machine placement content began transactional reload batch with %zu script(s)",
+                  script_ids.size());
+    return {};
+}
+
+snt::core::Expected<void> MachinePlacementRegistry::commit_reload_batch(
+    std::span<const snt::script::ScriptId> script_ids) {
+    if (script_ids.empty()) {
+        return invalid_argument("Machine placement reload batch must not be empty");
+    }
+
+    std::set<snt::script::ScriptId> unique_ids;
+    for (const snt::script::ScriptId script_id : script_ids) {
+        if (!unique_ids.insert(script_id).second || !reloads_.contains(script_id)) {
+            return invalid_state("No active machine placement reload for a batch script");
+        }
+    }
+    for (const snt::script::ScriptId script_id : script_ids) {
+        reloads_.erase(script_id);
+    }
+    SNT_LOG_INFO("Machine placement content committed reload batch with %zu script(s)",
+                 script_ids.size());
+    return {};
+}
+
+snt::core::Expected<void> MachinePlacementRegistry::rollback_reload_batch(
+    std::span<const snt::script::ScriptId> script_ids) {
+    if (script_ids.empty()) {
+        return invalid_argument("Machine placement reload batch must not be empty");
+    }
+
+    std::set<snt::script::ScriptId> unique_ids;
+    for (const snt::script::ScriptId script_id : script_ids) {
+        if (!unique_ids.insert(script_id).second || !reloads_.contains(script_id)) {
+            return invalid_state("No active machine placement reload for a batch script");
+        }
+    }
+    for (auto it = script_ids.rbegin(); it != script_ids.rend(); ++it) {
+        const auto snapshot = reloads_.find(*it);
+        erase_script_definitions(*it);
+        restore_script_definitions(snapshot->second);
+    }
+    for (const snt::script::ScriptId script_id : script_ids) {
+        reloads_.erase(script_id);
+    }
+    SNT_LOG_WARN("Machine placement content rolled back reload batch with %zu script(s)",
+                 script_ids.size());
+    return {};
+}
+
 snt::core::Expected<void> MachinePlacementRegistry::unload_script(
     snt::script::ScriptId script_id) {
     if (script_id == snt::script::kBuiltinScriptId) {
@@ -130,6 +204,9 @@ void MachinePlacementRegistry::reset() noexcept {
 
 snt::core::Expected<void> MachinePlacementRegistry::register_definition(
     snt::script::ScriptId owner, MachinePlacementDefinition definition, bool builtin) {
+    auto normalized_material_key = normalize_terrain_material_key(definition.material_key);
+    if (!normalized_material_key) return normalized_material_key.error();
+    definition.material_key = std::move(*normalized_material_key);
     if (auto result = validate(definition); !result) return result.error();
     if (builtin != (owner == snt::script::kBuiltinScriptId)) {
         return invalid_argument("Built-in machine placement registrations must use ScriptId 0");
@@ -153,18 +230,18 @@ snt::core::Expected<void> MachinePlacementRegistry::register_definition(
         -> const std::string* {
         for (const auto& [registered_item_id, entry] : definitions) {
             if (registered_item_id != item_id &&
-                entry.definition.material_id == definition.material_id) {
+                entry.definition.material_key == definition.material_key) {
                 return &registered_item_id;
             }
         }
         return nullptr;
     };
     if (const std::string* collision = find_material_collision(live_definitions_)) {
-        return invalid_state("Machine placement material id is already registered by item: " +
+        return invalid_state("Machine placement material key is already registered by item: " +
                              *collision);
     }
     if (const std::string* collision = find_material_collision(backup_definitions_)) {
-        return invalid_state("Machine placement material id is reserved by built-in item: " +
+        return invalid_state("Machine placement material key is reserved by built-in item: " +
                              *collision);
     }
     for (const auto& [reloading_script_id, snapshot] : reloads_) {
@@ -175,7 +252,7 @@ snt::core::Expected<void> MachinePlacementRegistry::register_definition(
         }
         if (const std::string* collision = find_material_collision(snapshot)) {
             return invalid_state(
-                "Machine placement material id is reserved by an active script reload item: " +
+                "Machine placement material key is reserved by an active script reload item: " +
                 *collision);
         }
     }
@@ -194,9 +271,8 @@ snt::core::Expected<void> MachinePlacementRegistry::validate(
     if (!is_valid_identifier(definition.machine_id)) {
         return invalid_argument("Machine placement machine id is invalid");
     }
-    if (definition.material_id == 0 ||
-        definition.material_id > std::numeric_limits<uint8_t>::max()) {
-        return invalid_argument("Machine placement material id must be a non-air terrain material");
+    if (!is_valid_identifier(definition.material_key)) {
+        return invalid_argument("Machine placement material key is invalid");
     }
     return {};
 }

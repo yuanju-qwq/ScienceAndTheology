@@ -28,13 +28,16 @@ struct GameChunkKeyLess final {
                                   const snt::voxel::ChunkKey& right) const noexcept;
 };
 
-// Terrain snapshots deliberately omit fluids. Current P7 block interaction
-// commits only material and flags, which are exactly the fields carried by
-// GameBlockDelta. A future fluid replication payload can be introduced as a
-// new latest-only chunk payload version instead of overloading this format.
+// Terrain snapshots carry the complete latest terrain cell, including fluid.
+// The authoritative hybrid solver can therefore replicate a fluid move through
+// the same AOI baseline and sparse delta path as every other terrain mutation.
 struct GameReplicatedTerrainCell {
     snt::voxel::TerrainMaterialId material = 0;
     uint32_t flags = 0;
+    snt::voxel::CellFluidId fluid_type = snt::voxel::kInvalidCellFluidId;
+    int16_t fluid_mass = 0;
+    int16_t fluid_temperature = 300;
+    bool fluid_is_gas = false;
 };
 
 struct GameReplicatedTerrainChunk {

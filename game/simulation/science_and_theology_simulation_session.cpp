@@ -7,6 +7,7 @@
 #include "game/client/machine_tick_system.h"
 #include "game/simulation/block_physics_system.h"
 #include "game/simulation/crop_growth_system.h"
+#include "game/simulation/game_fluid_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/simulation/tree_growth_system.h"
 #include "game/world/save/world_persistence_lifecycle.h"
@@ -34,6 +35,16 @@ ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSes
 
 ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { shutdown(); }
 
+void ScienceAndTheologySimulationSession::request_content_reload(
+    GameContentReloadTarget target) noexcept {
+    pending_content_reload_ = target;
+}
+
+std::vector<GameContentReloadTargetInfo>
+ScienceAndTheologySimulationSession::content_reload_targets() const {
+    return content_reload_service_.targets();
+}
+
 void ScienceAndTheologySimulationSession::set_machine_tick_event_sink(
     IMachineTickEventSink* event_sink) noexcept {
     machine_tick_event_sink_ = event_sink;
@@ -44,6 +55,30 @@ void ScienceAndTheologySimulationSession::set_block_physics_mutation_sink(
     IBlockPhysicsMutationSink* mutation_sink) noexcept {
     block_physics_mutation_sink_ = mutation_sink;
     if (block_physics_system_) block_physics_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_fluid_mutation_sink(
+    IFluidMutationSink* mutation_sink) noexcept {
+    fluid_mutation_sink_ = mutation_sink;
+    if (fluid_system_) fluid_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_fluid_presentation_sink(
+    IFluidPresentationSink* presentation_sink) noexcept {
+    fluid_presentation_sink_ = presentation_sink;
+    if (fluid_system_) fluid_system_->set_presentation_sink(presentation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_fluid_telemetry_sink(
+    IFluidSimulationTelemetrySink* telemetry_sink) noexcept {
+    fluid_telemetry_sink_ = telemetry_sink;
+    if (fluid_system_) fluid_system_->set_telemetry_sink(telemetry_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_fluid_compute_backend(
+    IFluidComputeBackend* backend) noexcept {
+    fluid_compute_backend_ = backend;
+    if (fluid_system_) fluid_system_->set_compute_backend(backend);
 }
 
 void ScienceAndTheologySimulationSession::set_tree_growth_mutation_sink(
@@ -68,6 +103,15 @@ void ScienceAndTheologySimulationSession::schedule_block_physics_after_terrain_m
     int32_t block_z, uint64_t source_tick) {
     if (block_physics_system_) {
         block_physics_system_->schedule_after_terrain_mutation(
+            dimension_id, block_x, block_y, block_z, source_tick);
+    }
+}
+
+void ScienceAndTheologySimulationSession::schedule_fluid_after_terrain_mutation(
+    std::string_view dimension_id, int32_t block_x, int32_t block_y,
+    int32_t block_z, uint64_t source_tick) {
+    if (fluid_system_) {
+        fluid_system_->schedule_after_terrain_mutation(
             dimension_id, block_x, block_y, block_z, source_tick);
     }
 }
@@ -101,6 +145,12 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
     scripts_started_ = true;
 
     const std::filesystem::path root(services.paths().resolve_game(config_.scripts.root));
+    if (auto result = content_reload_service_.configure(root); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::register_content(reload service)");
+        return error;
+    }
+    scripts.set_file_change_handler(&content_reload_service_);
     std::error_code error_code;
     if (!std::filesystem::is_directory(root, error_code) || error_code) {
         SNT_LOG_INFO("Gameplay script root not present; no modules loaded: %s", root.string().c_str());
@@ -187,6 +237,12 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     block_physics_system_ = std::make_unique<GameBlockPhysicsSystem>(
         *chunks_, *worldgen_config_, config_.gameplay);
     block_physics_system_->set_mutation_sink(block_physics_mutation_sink_);
+    fluid_system_ = std::make_unique<GameFluidSystem>(*chunks_, *worldgen_config_);
+    fluid_system_->set_mutation_sink(fluid_mutation_sink_);
+    fluid_system_->set_presentation_sink(fluid_presentation_sink_);
+    fluid_system_->set_telemetry_sink(fluid_telemetry_sink_);
+    fluid_system_->set_compute_backend(fluid_compute_backend_);
+    fluid_system_->initialize_loaded_chunks();
     tree_growth_system_ = std::make_unique<GameTreeGrowthSystem>(
         *chunks_, chunk_sidecars_, *worldgen_config_);
     tree_growth_system_->set_mutation_sink(tree_growth_mutation_sink_);
@@ -196,6 +252,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     world_ready_ = true;
 
     SNT_LOG_INFO("Game block physics initialized with the current world-generation snapshot");
+    SNT_LOG_INFO("Game hybrid fluid simulation initialized with sparse, dense, and equilibrium layers");
     SNT_LOG_INFO("Game tree growth initialized with typed chunk-sidecar state");
     SNT_LOG_INFO("Game crop growth initialized with typed chunk-sidecar state");
     SNT_LOG_INFO("Game region topology initialized for authoritative fixed ticks");
@@ -211,6 +268,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
                          config_.persistence.world_dimension_id);
     (void)region_topology_.fixed_tick(context.tick_index());
     if (block_physics_system_) block_physics_system_->tick(context.tick_index());
+    if (fluid_system_) fluid_system_->tick(context.tick_index());
     if (tree_growth_system_) tree_growth_system_->tick(context.tick_index());
     if (crop_growth_system_) {
         crop_growth_system_->tick(context.tick_index(), season_cycle_.state().season);
@@ -219,6 +277,17 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
     // File-watcher polling stays on the simulation main thread so a dedicated
     // server receives the same reload lifecycle as a graphical client.
     if (scripts_started_) {
+        if (pending_content_reload_) {
+            const GameContentReloadTarget target = *pending_content_reload_;
+            pending_content_reload_.reset();
+            auto reloaded = content_reload_service_.reload(context.services().scripts(), target);
+            if (!reloaded) {
+                auto error = reloaded.error();
+                error.with_context("ScienceAndTheologySimulationSession::fixed_tick(content reload)");
+                return error;
+            }
+            last_content_reload_result_ = std::move(*reloaded);
+        }
         context.services().scripts().update(context.delta_seconds());
     }
     if (auto result = quest_registry_.tick(context.tick_index()); !result) {
@@ -246,6 +315,17 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
     if (block_physics_system_) block_physics_system_->set_mutation_sink(nullptr);
     block_physics_system_.reset();
     block_physics_mutation_sink_ = nullptr;
+    if (fluid_system_) {
+        fluid_system_->set_mutation_sink(nullptr);
+        fluid_system_->set_presentation_sink(nullptr);
+        fluid_system_->set_telemetry_sink(nullptr);
+        fluid_system_->set_compute_backend(nullptr);
+    }
+    fluid_system_.reset();
+    fluid_mutation_sink_ = nullptr;
+    fluid_presentation_sink_ = nullptr;
+    fluid_telemetry_sink_ = nullptr;
+    fluid_compute_backend_ = nullptr;
     if (machine_tick_system_) machine_tick_system_->set_event_sink(nullptr);
     machine_tick_system_.reset();
     if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
@@ -264,9 +344,13 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
     world_persistence_.reset();
     quest_registry_.clear();
     if (scripts_started_ && services_) {
+        services_->scripts().set_file_change_handler(nullptr);
         services_->scripts().shutdown();
         scripts_started_ = false;
     }
+    pending_content_reload_.reset();
+    last_content_reload_result_.reset();
+    content_reload_service_.reset();
     services_ = nullptr;
 }
 

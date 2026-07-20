@@ -442,7 +442,15 @@ GameDelta make_test_delta(uint64_t snapshot_id, uint64_t sequence) {
     delta.removed_chunks.push_back(snt::voxel::ChunkKey{"overworld", 4, 0, -1});
     snt::game::replication::GameChunkDelta chunk;
     chunk.chunk = snt::voxel::ChunkKey{"overworld", -2, 3, 7};
-    chunk.blocks.push_back({.local_index = 37, .material = 9, .flags = 0x5u});
+    chunk.blocks.push_back({
+        .local_index = 37,
+        .material = 9,
+        .flags = 0x5u,
+        .fluid_type = 7,
+        .fluid_mass = 640,
+        .fluid_temperature = 341,
+        .fluid_is_gas = true,
+    });
     delta.chunks.push_back(std::move(chunk));
     snt::game::replication::GameEntitySnapshot entity;
     entity.entity_guid = {.value = 102};
@@ -520,7 +528,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 13u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 14u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
@@ -565,6 +573,10 @@ TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
     EXPECT_EQ(parsed_delta->chunks.front().blocks.front().local_index, 37u);
     EXPECT_EQ(parsed_delta->chunks.front().blocks.front().material, 9u);
     EXPECT_EQ(parsed_delta->chunks.front().blocks.front().flags, 0x5u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().fluid_type, 7u);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().fluid_mass, 640);
+    EXPECT_EQ(parsed_delta->chunks.front().blocks.front().fluid_temperature, 341);
+    EXPECT_TRUE(parsed_delta->chunks.front().blocks.front().fluid_is_gas);
     ASSERT_EQ(parsed_delta->values.size(), 1u);
     EXPECT_EQ(parsed_delta->values.front().operation,
               snt::game::replication::GameReplicationValueOperation::kRemove);

@@ -18,34 +18,31 @@ constexpr uint32_t kMineable = static_cast<uint32_t>(snt::voxel::TF_MINEABLE);
 
 snt::game::WorldGenConfigSnapshot make_worldgen_config() {
     snt::game::WorldGenConfigSnapshot config;
-    const auto add_material = [&config](snt::game::TerrainMaterialId id,
-                                        const char* key,
+    const auto add_material = [&config](const char* key,
                                         uint32_t flags) {
         snt::game::TerrainMaterialDef material;
-        material.id = id;
         material.key = key;
         material.flags = flags;
-        config.material_ids_by_key[material.key] = material.id;
-        config.material_keys_by_id[material.id] = material.key;
         config.materials.push_back(std::move(material));
     };
-    add_material(0, "air", 0);
-    add_material(1, "dirt", kSolid | kMineable);
-    add_material(2, "farmland", kSolid | kMineable);
-    add_material(3, "wheat_seed", kMineable);
-    add_material(4, "wheat_sprout", kMineable);
-    add_material(5, "wheat_growing", kMineable);
-    add_material(6, "wheat_mature", kMineable);
-    config.roles.air = 0;
-    config.roles.dirt = 1;
-    config.runtime_ids.farmland = 2;
+    add_material("snt:air", 0);
+    add_material("snt:dirt", kSolid | kMineable);
+    add_material("snt:farmland", kSolid | kMineable);
+    add_material("snt:wheat_seed", kMineable);
+    add_material("snt:wheat_sprout", kMineable);
+    add_material("snt:wheat_growing", kMineable);
+    add_material("snt:wheat_mature", kMineable);
+    config.role_keys.air = "snt:air";
+    config.role_keys.dirt = "snt:dirt";
+    config.runtime_material_keys.farmland = "snt:farmland";
+    EXPECT_TRUE(snt::game::finalize_world_gen_config(config));
 
     snt::game::CropSpeciesDef wheat;
     wheat.species_key = "wheat";
-    wheat.stage_material_keys[0] = "wheat_seed";
-    wheat.stage_material_keys[1] = "wheat_sprout";
-    wheat.stage_material_keys[2] = "wheat_growing";
-    wheat.stage_material_keys[3] = "wheat_mature";
+    wheat.stage_material_keys[0] = "snt:wheat_seed";
+    wheat.stage_material_keys[1] = "snt:wheat_sprout";
+    wheat.stage_material_keys[2] = "snt:wheat_growing";
+    wheat.stage_material_keys[3] = "snt:wheat_mature";
     wheat.ticks_seed_to_sprout = 1;
     wheat.ticks_sprout_to_growing = 1;
     wheat.ticks_growing_to_mature = 1;
@@ -92,11 +89,13 @@ struct TooColdEnvironment final : snt::game::ICropGrowthEnvironmentProvider {
 
 void prepare_farmland_and_crop(snt::game::GameCropGrowthSystem& crops,
                                snt::voxel::ChunkRegistry& chunks,
+                               const snt::game::WorldGenConfigSnapshot& config,
                                int32_t block_x,
                                int32_t block_z) {
     auto* chunk = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(chunk, nullptr);
-    chunk->terrain.set_cell(block_x, 0, block_z, 1, kSolid | kMineable);
+    chunk->terrain.set_cell(
+        block_x, 0, block_z, config.roles.dirt, kSolid | kMineable);
     ASSERT_TRUE(crops.till_farmland({
         .dimension_id = "overworld",
         .block_x = block_x,
@@ -123,7 +122,7 @@ TEST(GameCropGrowthSystemTest, TillsPlantsAndGrowsActiveCropsWithTerrainDeltas) 
     snt::game::GameCropGrowthSystem crops(chunks, sidecars, config);
     RecordingMutationSink changes;
     crops.set_mutation_sink(&changes);
-    prepare_farmland_and_crop(crops, chunks, 10, 10);
+    prepare_farmland_and_crop(crops, chunks, config, 10, 10);
     changes.changes.clear();
 
     crops.tick(1, snt::game::Season::SPRING);
@@ -139,9 +138,11 @@ TEST(GameCropGrowthSystemTest, TillsPlantsAndGrowsActiveCropsWithTerrainDeltas) 
     EXPECT_FLOAT_EQ(sidecar->farmland_records.front().moisture, 0.497f);
     const auto* chunk = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(chunk, nullptr);
-    EXPECT_EQ(chunk->terrain.cell_at(10, 1, 10).material, 6u);
+    EXPECT_EQ(chunk->terrain.cell_at(10, 1, 10).material,
+              config.material_id_or("snt:wheat_mature", 0));
     ASSERT_EQ(changes.changes.size(), 3u);
-    EXPECT_EQ(changes.changes.back().current_material, 6u);
+    EXPECT_EQ(changes.changes.back().current_material,
+              config.material_id_or("snt:wheat_mature", 0));
 }
 
 TEST(GameCropGrowthSystemTest, UsesAuthoritativeSeasonAndOptionalEnvironmentProvider) {
@@ -152,7 +153,7 @@ TEST(GameCropGrowthSystemTest, UsesAuthoritativeSeasonAndOptionalEnvironmentProv
     snt::game::WorldGenConfigSnapshot config = make_worldgen_config();
     config.crop_species.front().grow_season = static_cast<int>(snt::game::Season::SUMMER);
     snt::game::GameCropGrowthSystem crops(chunks, sidecars, config);
-    prepare_farmland_and_crop(crops, chunks, 8, 8);
+    prepare_farmland_and_crop(crops, chunks, config, 8, 8);
 
     crops.tick(1, snt::game::Season::WINTER);
     const auto* sidecar = sidecars.get({"overworld", 0, 0, 0});
@@ -180,7 +181,7 @@ TEST(GameCropGrowthSystemTest, HarvestsAndRegrowsRepeatHarvestCrops) {
     snt::game::WorldGenConfigSnapshot config = make_worldgen_config();
     config.crop_species.front().repeat_harvest = true;
     snt::game::GameCropGrowthSystem crops(chunks, sidecars, config);
-    prepare_farmland_and_crop(crops, chunks, 6, 6);
+    prepare_farmland_and_crop(crops, chunks, config, 6, 6);
     crops.tick(1, snt::game::Season::SPRING);
     crops.tick(2, snt::game::Season::SPRING);
     crops.tick(3, snt::game::Season::SPRING);

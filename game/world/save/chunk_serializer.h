@@ -17,9 +17,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v15 adds typed crop and farmland state
-    // alongside the existing chunk-anchored tree growth records.
-    static constexpr uint8_t kCurrentVersion = 15;
+    // Current binary format version. v16 persists complete per-cell fluid
+    // state for the game-owned hybrid fluid simulation.
+    static constexpr uint8_t kCurrentVersion = 16;
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;
@@ -33,6 +33,8 @@ private:
     // --- Write helpers ---
 
     static void write_uint8(std::vector<uint8_t>& buf, uint8_t value);
+    static void write_int16(std::vector<uint8_t>& buf, int16_t value);
+    static void write_uint16(std::vector<uint8_t>& buf, uint16_t value);
     static void write_int32(std::vector<uint8_t>& buf, int32_t value);
     static void write_uint32(std::vector<uint8_t>& buf, uint32_t value);
     static void write_int64(std::vector<uint8_t>& buf, int64_t value);
@@ -47,6 +49,10 @@ private:
 
     static bool read_uint8(const std::vector<uint8_t>& data,
                            size_t& offset, uint8_t& out);
+    static bool read_int16(const std::vector<uint8_t>& data,
+                           size_t& offset, int16_t& out);
+    static bool read_uint16(const std::vector<uint8_t>& data,
+                            size_t& offset, uint16_t& out);
     static bool read_int32(const std::vector<uint8_t>& data,
                            size_t& offset, int32_t& out);
     static bool read_uint32(const std::vector<uint8_t>& data,

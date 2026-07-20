@@ -63,6 +63,16 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
         write_uint32(buf, chunk.terrain.cells[i].flags);
     }
 
+    // Fluid values are stored separately from material/flags so a fluid cell
+    // remains an air terrain cell with deterministic mass and temperature.
+    for (int i = 0; i < cell_count; ++i) {
+        const TerrainCell& cell = chunk.terrain.cells[i];
+        write_uint16(buf, cell.fluid_type);
+        write_int16(buf, cell.fluid_mass);
+        write_int16(buf, cell.fluid_temperature);
+        write_uint8(buf, cell.fluid_is_gas ? 1 : 0);
+    }
+
     // Connectors.
     write_uint32(buf, static_cast<uint32_t>(chunk.connectors.size()));
     for (const auto& conn : chunk.connectors) {
@@ -205,6 +215,25 @@ bool GameChunkSerializer::deserialize(
         uint32_t flags;
         if (!read_uint32(data, offset, flags)) return false;
         chunk.terrain.cells[i].flags = flags;
+    }
+
+    // Fluid values are a latest-only v16 layout. Invalid mass/type pairs are
+    // rejected before sidecars or gameplay state can observe the chunk.
+    for (int i = 0; i < cell_count; ++i) {
+        TerrainCell& cell = chunk.terrain.cells[i];
+        uint8_t is_gas = 0;
+        if (!read_uint16(data, offset, cell.fluid_type) ||
+            !read_int16(data, offset, cell.fluid_mass) ||
+            !read_int16(data, offset, cell.fluid_temperature) ||
+            !read_uint8(data, offset, is_gas) || is_gas > 1 ||
+            cell.fluid_mass < 0 || cell.fluid_mass > snt::voxel::kCellFluidCapacity ||
+            (cell.fluid_mass == 0 &&
+             (cell.fluid_type != snt::voxel::kInvalidCellFluidId || is_gas != 0)) ||
+            (cell.fluid_mass > 0 &&
+             cell.fluid_type == snt::voxel::kInvalidCellFluidId)) {
+            return false;
+        }
+        cell.fluid_is_gas = is_gas != 0;
     }
 
     // Connectors.
@@ -376,6 +405,16 @@ void GameChunkSerializer::write_uint8(std::vector<uint8_t>& buf, uint8_t value) 
     buf.push_back(value);
 }
 
+void GameChunkSerializer::write_int16(std::vector<uint8_t>& buf, int16_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    buf.insert(buf.end(), bytes, bytes + sizeof(value));
+}
+
+void GameChunkSerializer::write_uint16(std::vector<uint8_t>& buf, uint16_t value) {
+    const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
+    buf.insert(buf.end(), bytes, bytes + sizeof(value));
+}
+
 void GameChunkSerializer::write_int32(std::vector<uint8_t>& buf, int32_t value) {
     const auto* bytes = reinterpret_cast<const uint8_t*>(&value);
     buf.insert(buf.end(), bytes, bytes + sizeof(value));
@@ -422,6 +461,22 @@ bool GameChunkSerializer::read_uint8(const std::vector<uint8_t>& data,
                                  size_t& offset, uint8_t& out) {
     if (offset >= data.size()) return false;
     out = data[offset++];
+    return true;
+}
+
+bool GameChunkSerializer::read_int16(const std::vector<uint8_t>& data,
+                                     size_t& offset, int16_t& out) {
+    if (offset + sizeof(out) > data.size()) return false;
+    std::memcpy(&out, &data[offset], sizeof(out));
+    offset += sizeof(out);
+    return true;
+}
+
+bool GameChunkSerializer::read_uint16(const std::vector<uint8_t>& data,
+                                      size_t& offset, uint16_t& out) {
+    if (offset + sizeof(out) > data.size()) return false;
+    std::memcpy(&out, &data[offset], sizeof(out));
+    offset += sizeof(out);
     return true;
 }
 

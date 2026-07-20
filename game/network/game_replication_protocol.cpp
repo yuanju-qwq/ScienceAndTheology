@@ -72,6 +72,16 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     return std::bit_cast<int32_t>(read_u32(bytes, offset));
 }
 
+[[nodiscard]] bool valid_fluid_fields(snt::voxel::CellFluidId fluid_type,
+                                      int16_t fluid_mass,
+                                      bool fluid_is_gas) noexcept {
+    if (fluid_mass < 0 || fluid_mass > snt::voxel::kCellFluidCapacity) return false;
+    if (fluid_mass == 0) {
+        return fluid_type == snt::voxel::kInvalidCellFluidId && !fluid_is_gas;
+    }
+    return fluid_type != snt::voxel::kInvalidCellFluidId;
+}
+
 [[nodiscard]] snt::core::Expected<void> validate_message_shape(
     const GameReplicationMessage& message) {
     if (message.protocol_version != kCurrentGameReplicationProtocolVersion) {
@@ -440,7 +450,9 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         local_indices.reserve(chunk.blocks.size());
         for (const GameBlockDelta& block : chunk.blocks) {
             if (block.local_index >= kMaxGameBlockDeltasPerChunk ||
-                !local_indices.insert(block.local_index).second) {
+                !local_indices.insert(block.local_index).second ||
+                !valid_fluid_fields(block.fluid_type, block.fluid_mass,
+                                    block.fluid_is_gas)) {
                 return protocol_error("Game replication chunk delta has invalid local block indices");
             }
         }
@@ -1337,6 +1349,10 @@ snt::core::Expected<GameReplicationMessage> make_game_delta(const GameDelta& del
             append_u16(message.payload, block.local_index);
             message.payload.push_back(static_cast<std::byte>(block.material));
             append_u32(message.payload, block.flags);
+            append_u16(message.payload, block.fluid_type);
+            append_i16(message.payload, block.fluid_mass);
+            append_i16(message.payload, block.fluid_temperature);
+            message.payload.push_back(static_cast<std::byte>(block.fluid_is_gas ? 1 : 0));
         }
     }
     append_u16(message.payload, static_cast<uint16_t>(delta.entities.size()));
@@ -1432,7 +1448,9 @@ snt::core::Expected<GameDelta> parse_game_delta(const GameReplicationMessage& me
         GameChunkDelta chunk_delta;
         chunk_delta.chunk = std::move(*chunk);
         chunk_delta.blocks.reserve(block_count);
-        constexpr size_t kBlockDeltaBytes = sizeof(uint16_t) + sizeof(uint8_t) + sizeof(uint32_t);
+        constexpr size_t kBlockDeltaBytes = sizeof(uint16_t) + sizeof(uint8_t) +
+                                            sizeof(uint32_t) + sizeof(uint16_t) +
+                                            sizeof(int16_t) + sizeof(int16_t) + sizeof(uint8_t);
         for (size_t block_index = 0; block_index < block_count; ++block_index) {
             if (bytes.size() - offset < kBlockDeltaBytes) {
                 return protocol_error("Game replication block delta is truncated");
@@ -1443,6 +1461,17 @@ snt::core::Expected<GameDelta> parse_game_delta(const GameReplicationMessage& me
             block.material = std::to_integer<snt::voxel::TerrainMaterialId>(bytes[offset++]);
             block.flags = read_u32(bytes, offset);
             offset += sizeof(uint32_t);
+            block.fluid_type = read_u16(bytes, offset);
+            offset += sizeof(uint16_t);
+            block.fluid_mass = read_i16(bytes, offset);
+            offset += sizeof(int16_t);
+            block.fluid_temperature = read_i16(bytes, offset);
+            offset += sizeof(int16_t);
+            const uint8_t fluid_is_gas = std::to_integer<uint8_t>(bytes[offset++]);
+            if (fluid_is_gas > 1) {
+                return protocol_error("Game replication block delta has invalid gas flag");
+            }
+            block.fluid_is_gas = fluid_is_gas != 0;
             chunk_delta.blocks.push_back(block);
         }
         delta.chunks.push_back(std::move(chunk_delta));

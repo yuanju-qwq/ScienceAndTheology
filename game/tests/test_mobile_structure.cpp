@@ -3,6 +3,7 @@
 #include "game/world/mobile/dynamic_structure.h"
 #include "game/world/mobile/ship_local_grid.h"
 #include "game/world/mobile/ship_structure.h"
+#include "game/worldgen/world_gen_config.h"
 
 #include <gtest/gtest.h>
 
@@ -25,7 +26,9 @@ VoxelChunk make_empty_chunk() {
 
 WorldGenConfigSnapshot make_worldgen_config() {
     WorldGenConfigSnapshot config;
-    config.roles.air = 0;
+    config.materials.push_back({.key = "snt:air"});
+    config.role_keys.air = "snt:air";
+    EXPECT_TRUE(finalize_world_gen_config(config));
     return config;
 }
 

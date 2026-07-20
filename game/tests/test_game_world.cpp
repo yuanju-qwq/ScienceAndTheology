@@ -28,26 +28,18 @@ std::shared_ptr<const snt::game::WorldGenConfigSnapshot> make_test_worldgen_conf
     using namespace snt::game;
 
     auto config = std::make_shared<WorldGenConfigSnapshot>();
-    TerrainMaterialDef air;
-    air.id = 0;
-    air.key = "air";
-    config->materials.push_back(air);
-    config->material_ids_by_key[air.key] = air.id;
-    config->material_keys_by_id[air.id] = air.key;
-    config->roles.air = air.id;
-
-    TerrainMaterialDef stone;
-    stone.id = 1;
-    stone.key = "stone";
-    stone.flags = TF_SOLID;
-    config->materials.push_back(stone);
-    config->material_ids_by_key[stone.key] = stone.id;
-    config->material_keys_by_id[stone.id] = stone.key;
-    config->roles.stone = stone.id;
+    config->materials.push_back({.key = "snt:air"});
+    config->materials.push_back({.key = "snt:stone", .flags = TF_SOLID});
+    config->role_keys.air = "snt:air";
+    config->role_keys.stone = "snt:stone";
+    if (auto result = finalize_world_gen_config(*config); !result) {
+        ADD_FAILURE() << result.error().format();
+        return {};
+    }
 
     BaseTerrainRule rule;
     rule.dimension_id = "overworld";
-    rule.default_material = stone.id;
+    rule.default_material = config->roles.stone;
     config->base_terrain_rules.push_back(rule);
     config->content_hash = hash_world_gen_config(*config);
     return config;
@@ -57,38 +49,39 @@ std::shared_ptr<const snt::game::WorldGenConfigSnapshot> make_polar_worldgen_con
     using namespace snt::game;
 
     auto config = std::make_shared<WorldGenConfigSnapshot>();
-    const auto add_material = [&config](TerrainMaterialId id, const char* key,
-                                        uint32_t flags) {
+    const auto add_material = [&config](const char* key, uint32_t flags) {
         TerrainMaterialDef material;
-        material.id = id;
         material.key = key;
         material.flags = flags;
         config->materials.push_back(material);
-        config->material_ids_by_key[material.key] = id;
-        config->material_keys_by_id[id] = material.key;
     };
 
-    add_material(0, "snt:air", 0);
-    add_material(1, "snt:stone", TF_SOLID | TF_MINEABLE);
-    add_material(2, "snt:dirt", TF_WALKABLE | TF_MINEABLE);
-    add_material(3, "snt:sand", TF_WALKABLE | TF_MINEABLE);
-    add_material(4, "snt:water", TF_LIQUID);
-    add_material(5, "snt:lava", TF_LIQUID);
-    add_material(6, "snt:deepstone", TF_SOLID | TF_MINEABLE);
-    add_material(7, "snt:core_barrier", TF_SOLID | TF_INDESTRUCTIBLE);
-    add_material(103, "snt:snow", TF_WALKABLE | TF_MINEABLE);
-    add_material(104, "snt:ice", TF_SOLID | TF_WALKABLE | TF_MINEABLE);
-
-    config->roles.air = 0;
-    config->roles.stone = 1;
-    config->roles.dirt = 2;
-    config->roles.sand = 3;
-    config->roles.water = 4;
-    config->roles.lava = 5;
-    config->roles.deepstone = 6;
-    config->roles.core_barrier = 7;
-    config->roles.snow = 103;
-    config->roles.ice = 104;
+    add_material("snt:air", 0);
+    add_material("snt:stone", TF_SOLID | TF_MINEABLE);
+    add_material("snt:dirt", TF_WALKABLE | TF_MINEABLE);
+    add_material("snt:sand", TF_WALKABLE | TF_MINEABLE);
+    add_material("snt:water", TF_LIQUID);
+    add_material("snt:lava", TF_LIQUID);
+    add_material("snt:deepstone", TF_SOLID | TF_MINEABLE);
+    add_material("snt:core_barrier", TF_SOLID | TF_INDESTRUCTIBLE);
+    add_material("snt:snow", TF_WALKABLE | TF_MINEABLE);
+    add_material("snt:ice", TF_SOLID | TF_WALKABLE | TF_MINEABLE);
+    config->role_keys = {
+        .air = "snt:air",
+        .stone = "snt:stone",
+        .dirt = "snt:dirt",
+        .sand = "snt:sand",
+        .water = "snt:water",
+        .lava = "snt:lava",
+        .deepstone = "snt:deepstone",
+        .core_barrier = "snt:core_barrier",
+        .snow = "snt:snow",
+        .ice = "snt:ice",
+    };
+    if (auto result = finalize_world_gen_config(*config); !result) {
+        ADD_FAILURE() << result.error().format();
+        return {};
+    }
 
     PlanetConfig planet;
     planet.dimension_id = "polar_test";
@@ -103,6 +96,36 @@ std::shared_ptr<const snt::game::WorldGenConfigSnapshot> make_polar_worldgen_con
 
 }  // namespace
 
+TEST(WorldGenConfigFinalizationTest, NormalizesSortsAndAssignsRuntimeIdsAfterCollection) {
+    snt::game::WorldGenConfigSnapshot config;
+    config.materials = {
+        {.key = "SNT:Zinc"},
+        {.key = "snt:air"},
+        {.key = "snt:Alpha"},
+    };
+    config.role_keys.air = "SNT:Air";
+
+    ASSERT_TRUE(snt::game::finalize_world_gen_config(config));
+    EXPECT_EQ(config.roles.air, 0u);
+    EXPECT_EQ(config.material_id_or("snt:alpha", 0), 1u);
+    EXPECT_EQ(config.material_id_or("snt:zinc", 0), 2u);
+    ASSERT_EQ(config.materials.size(), 3u);
+    EXPECT_EQ(config.materials[0].key, "snt:air");
+    EXPECT_EQ(config.materials[1].key, "snt:alpha");
+    EXPECT_EQ(config.materials[2].key, "snt:zinc");
+}
+
+TEST(WorldGenConfigFinalizationTest, RejectsAuthoredRuntimeMaterialIds) {
+    snt::game::WorldGenConfigSnapshot config;
+    config.materials = {
+        {.key = "snt:air"},
+        {.id = 9, .key = "snt:stone"},
+    };
+    config.role_keys.air = "snt:air";
+
+    EXPECT_FALSE(snt::game::finalize_world_gen_config(config));
+}
+
 TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {
     snt::game::GameChunk original;
     original.chunk_x = 5;
@@ -111,6 +134,10 @@ TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {
     original.state = snt::game::ChunkState::Active;
     original.terrain.resize(4, 4, 4);
     original.terrain.cell_at(0, 0, 0).material = 1;
+    original.terrain.cell_at(1, 1, 1).fluid_type = 7;
+    original.terrain.cell_at(1, 1, 1).fluid_mass = 640;
+    original.terrain.cell_at(1, 1, 1).fluid_temperature = 341;
+    original.terrain.cell_at(1, 1, 1).fluid_is_gas = true;
     original.connectors.push_back({.connector_id = 42, .from_dimension = "overworld"});
     original.has_population_cell = true;
     original.population_cell.vegetation_density = 0.75f;
@@ -125,6 +152,10 @@ TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {
     EXPECT_EQ(dimension, "overworld");
     EXPECT_EQ(restored.chunk_x, original.chunk_x);
     EXPECT_EQ(restored.connectors.size(), 1u);
+    EXPECT_EQ(restored.terrain.cell_at(1, 1, 1).fluid_type, 7u);
+    EXPECT_EQ(restored.terrain.cell_at(1, 1, 1).fluid_mass, 640);
+    EXPECT_EQ(restored.terrain.cell_at(1, 1, 1).fluid_temperature, 341);
+    EXPECT_TRUE(restored.terrain.cell_at(1, 1, 1).fluid_is_gas);
     EXPECT_TRUE(restored.has_population_cell);
     EXPECT_FLOAT_EQ(restored.population_cell.vegetation_density, 0.75f);
 }
@@ -380,6 +411,7 @@ TEST(GameNoiseGeneratorTest, StaysInExpectedRange) {
 
 TEST(GameTerrainGeneratorTest, ProducesVoxelChunkAndSidecar) {
     const auto config = make_test_worldgen_config();
+    ASSERT_NE(config, nullptr);
     snt::game::TerrainGenerator generator(snt::game::WorldSeed(12345), config);
     const snt::game::GameChunk chunk = generator.generate_chunk("overworld", 0, 0, 0);
 
@@ -391,20 +423,23 @@ TEST(GameTerrainGeneratorTest, PreservesPolarSurfaceLandformsAndChunkSeams) {
     using namespace snt::game;
 
     const auto config = make_polar_worldgen_config();
+    ASSERT_NE(config, nullptr);
     TerrainGenerator generator(WorldSeed(20260619), config);
     const GameChunk chunk = generator.generate_chunk("polar_test", 0, 0, 0);
+    const TerrainMaterialId snow_material = config->roles.snow;
+    const TerrainMaterialId water_material = config->roles.water;
 
     int snow_count = 0;
     for (const TerrainCell& cell : chunk.terrain.cells) {
-        if (cell.material == 103) {
+        if (cell.material == snow_material) {
             ++snow_count;
         }
     }
     EXPECT_GT(snow_count, 0);
-    EXPECT_EQ(chunk.terrain.cell_at(0, 6, 0).material, 103u);
-    EXPECT_EQ(chunk.terrain.cell_at(16, 6, 16).material, 103u);
-    EXPECT_EQ(chunk.terrain.cell_at(31, 6, 0).material, 103u);
-    EXPECT_EQ(chunk.terrain.cell_at(16, 7, 16).material, 0u);
+    EXPECT_EQ(chunk.terrain.cell_at(0, 6, 0).material, snow_material);
+    EXPECT_EQ(chunk.terrain.cell_at(16, 6, 16).material, snow_material);
+    EXPECT_EQ(chunk.terrain.cell_at(31, 6, 0).material, snow_material);
+    EXPECT_EQ(chunk.terrain.cell_at(16, 7, 16).material, config->roles.air);
 
     auto dry_config = std::make_shared<WorldGenConfigSnapshot>(*config);
     dry_config->planet_configs[0].dimension_id = "landform_test";
@@ -433,17 +468,18 @@ TEST(GameTerrainGeneratorTest, PreservesPolarSurfaceLandformsAndChunkSeams) {
     const GameChunk left_high = generator.generate_chunk("polar_test", 2, 0, 0);
     const GameChunk right_low = generator.generate_chunk("polar_test", 3, -1, 0);
     const GameChunk right_high = generator.generate_chunk("polar_test", 3, 0, 0);
-    const auto surface_height = [](const GameChunk& low, const GameChunk& high,
-                                   int local_x, int local_z) {
+    const auto surface_height = [air_material = config->roles.air, water_material](
+                                    const GameChunk& low, const GameChunk& high,
+                                    int local_x, int local_z) {
         for (int y = VoxelChunk::kChunkSize - 1; y >= 0; --y) {
             const TerrainMaterialId material = high.terrain.cell_at(local_x, y, local_z).material;
-            if (material != 0 && material != 4) {
+            if (material != air_material && material != water_material) {
                 return y;
             }
         }
         for (int y = VoxelChunk::kChunkSize - 1; y >= 0; --y) {
             const TerrainMaterialId material = low.terrain.cell_at(local_x, y, local_z).material;
-            if (material != 0 && material != 4) {
+            if (material != air_material && material != water_material) {
                 return y - VoxelChunk::kChunkSize;
             }
         }

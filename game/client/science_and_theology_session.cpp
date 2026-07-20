@@ -18,6 +18,7 @@
 #include "game/network/game_quest_book_replication.h"
 #include "game/player/player_replication.h"
 #include "game/world/defs/machine_structure_validator.h"
+#include "game/worldgen/world_gen_config.h"
 #include "network/tcp_udp_transport.h"
 #include "player/player_controller.h"
 #include "player/player_physics_system.h"
@@ -126,6 +127,7 @@ struct LocalTerrainCell {
 
 [[nodiscard]] uint8_t make_machine_activation_hints(
     const GameContentRegistry& content, const GameClientInteractionConfig& config,
+    const WorldGenConfigSnapshot* worldgen_config,
     const snt::voxel::ChunkRegistry& chunks,
     const GameClientBlockInteractionTarget& target,
     const replication::GameRemoteMachineState& machine,
@@ -146,13 +148,17 @@ struct LocalTerrainCell {
         selected_item_id == config.ignition_item_id) {
         hints |= replication::kGameBlockInteractionHintIgnition;
     }
-    if (requirements.requires_valid_structure && machine.machine.machine_id == "bloomery") {
-        const MachinePlacementDefinition* placement =
-            content.find_machine_placement_by_material(target.hit_material);
+    if (requirements.requires_valid_structure && machine.machine.machine_id == "bloomery" &&
+        worldgen_config != nullptr) {
+        const TerrainMaterialDef* terrain_material = worldgen_config->find_material(
+            static_cast<TerrainMaterialId>(target.hit_material));
+        const MachinePlacementDefinition* placement = terrain_material == nullptr
+            ? nullptr
+            : content.find_machine_placement_by_material_key(terrain_material->key);
         if (placement != nullptr && placement->machine_id == machine.machine.machine_id &&
             MachineStructureValidator::validate_bloomery(
                 chunks, target.dimension_id, target.hit_x, target.hit_y, target.hit_z,
-                static_cast<TerrainMaterialId>(placement->material_id)).valid()) {
+                terrain_material->id).valid()) {
             hints |= replication::kGameBlockInteractionHintStructure;
         }
     }
@@ -1056,11 +1062,8 @@ void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& con
 
     if (config_.scripts.enabled && services_) {
         if (context.input().key_pressed[SDL_SCANCODE_F5]) {
-            if (auto result = context.services().scripts().reload_all(); !result) {
-                SNT_LOG_ERROR("Gameplay script reload failed: %s", result.error().format().c_str());
-            } else {
-                SNT_LOG_INFO("Gameplay script reload completed");
-            }
+            simulation_session_.request_content_reload(GameContentReloadTarget::kAll);
+            SNT_LOG_INFO("Queued gameplay content reload target=all");
         }
     }
 
@@ -1298,6 +1301,7 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
                     definition->requires_manual_activation,
                 .activation_hints = make_machine_activation_hints(
                     simulation_session_.content(), config_.client_interaction,
+                    simulation_session_.worldgen_config(),
                     *presentation_chunks_, target, *remote_machine, selected_item_id),
             };
         }

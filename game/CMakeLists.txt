@@ -21,6 +21,7 @@ target_link_libraries(snt_game_world_data PUBLIC
 
 add_library(snt_game_worldgen STATIC
     worldgen/default_worldgen_config.cpp
+    worldgen/legacy_terrain_material_catalog.cpp
     worldgen/noise_generator.cpp
     worldgen/world_gen_config.cpp
     worldgen/terrain_generator.cpp
@@ -30,6 +31,7 @@ target_include_directories(snt_game_worldgen PUBLIC
 )
 target_link_libraries(snt_game_worldgen PUBLIC
     snt_engine_settings
+    snt_core
     snt_voxel_data
     snt_game_world_data
 )
@@ -137,6 +139,9 @@ add_library(snt_game_simulation STATIC
     simulation/day_night_cycle.cpp
     simulation/block_physics_system.cpp
     simulation/crop_growth_system.cpp
+    simulation/fluid_lattice_boltzmann.cpp
+    simulation/game_content_reload_service.cpp
+    simulation/game_fluid_system.cpp
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
@@ -315,6 +320,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
         tests/test_block_physics_system.cpp
+        tests/test_game_fluid_system.cpp
         tests/test_day_night_cycle.cpp
         tests/test_season_cycle.cpp
         tests/test_region_topology.cpp

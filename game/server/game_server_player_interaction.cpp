@@ -13,16 +13,17 @@
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/simulation/game_fluid_system_events.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/world/game_chunk.h"
+#include "game/worldgen/world_gen_config.h"
 #include "voxel/data/chunk_registry.h"
 #include "voxel/data/terrain_data.h"
 #include "voxel/data/voxel_chunk.h"
 
 #include <algorithm>
 #include <functional>
-#include <limits>
 #include <set>
 #include <string>
 #include <utility>
@@ -32,11 +33,6 @@ namespace snt::game::replication {
 namespace {
 
 constexpr size_t kMaxCollectedMachineStacks = 64;
-constexpr uint32_t kPlacedMachineTerrainFlags =
-    static_cast<uint32_t>(snt::voxel::TF_SOLID) |
-    static_cast<uint32_t>(snt::voxel::TF_MINEABLE) |
-    static_cast<uint32_t>(snt::voxel::TF_WALKABLE);
-
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
 }
@@ -156,26 +152,30 @@ struct TargetCell {
 
 [[nodiscard]] snt::core::Expected<void> validate_catalog(
     GameServerPlayerInteractionConfig& config) {
-    const uint32_t maximum_material =
-        std::numeric_limits<snt::voxel::TerrainMaterialId>::max();
-    if (config.air_material_id > maximum_material ||
-        config.reserved_grave_material_id > maximum_material ||
-        config.air_material_id == config.reserved_grave_material_id) {
+    if (config.worldgen_config == nullptr) {
+        return invalid_argument("Game server block interaction requires a finalized worldgen snapshot");
+    }
+    const WorldGenConfigSnapshot& worldgen = *config.worldgen_config;
+    const uint32_t air_material_id = worldgen.roles.air;
+    if (!worldgen.has_material(worldgen.roles.air) ||
+        config.reserved_grave_material_id == air_material_id) {
         return invalid_argument("Game server block interaction material configuration is invalid");
     }
 
     std::set<std::string, std::less<>> item_ids;
-    std::set<uint32_t> material_ids;
-    for (const GameServerBlockDefinition& definition : config.block_definitions) {
+    std::set<std::string, std::less<>> material_keys;
+    for (GameServerBlockDefinition& definition : config.block_definitions) {
+        auto normalized_material_key = normalize_terrain_material_key(definition.material_key);
+        if (!normalized_material_key) return normalized_material_key.error();
+        definition.material_key = std::move(*normalized_material_key);
+        const TerrainMaterialDef* material = worldgen.find_material(definition.material_key);
         if (definition.item_id.empty() || definition.item_id.size() > kMaxGameItemIdBytes ||
             definition.item_id.find('\0') != std::string::npos ||
-            definition.material_id > maximum_material ||
-            definition.material_id == config.air_material_id ||
-            definition.material_id == config.reserved_grave_material_id ||
-            (definition.placement_flags &
-             static_cast<uint32_t>(snt::voxel::TF_INDESTRUCTIBLE)) != 0 ||
+            material == nullptr || material->id == air_material_id ||
+            material->id == config.reserved_grave_material_id ||
+            (material->flags & static_cast<uint32_t>(snt::voxel::TF_INDESTRUCTIBLE)) != 0 ||
             !item_ids.insert(definition.item_id).second ||
-            !material_ids.insert(definition.material_id).second) {
+            !material_keys.insert(definition.material_key).second) {
             return invalid_argument("Game server block interaction catalog contains an invalid definition");
         }
     }
@@ -191,15 +191,17 @@ struct TargetCell {
     if (auto result = content.validate_machine_placement_references(); !result) {
         return result.error();
     }
+    const WorldGenConfigSnapshot& worldgen = *config.worldgen_config;
     for (const MachinePlacementDefinition& placement :
          content.machine_placement_definitions()) {
+        const TerrainMaterialDef* material = worldgen.find_material(placement.material_key);
         const bool collides_with_block = std::any_of(
             config.block_definitions.begin(), config.block_definitions.end(),
             [&placement](const GameServerBlockDefinition& block) {
-                return block.material_id == placement.material_id;
+                return block.material_key == placement.material_key;
             });
-        if (placement.material_id == config.air_material_id ||
-            placement.material_id == config.reserved_grave_material_id ||
+        if (material == nullptr || material->id == worldgen.roles.air ||
+            material->id == config.reserved_grave_material_id ||
             collides_with_block) {
             return invalid_argument("Machine placement item '" + placement.item_id +
                                     "' has a terrain material that conflicts with the "
@@ -209,25 +211,109 @@ struct TargetCell {
     return {};
 }
 
+enum class MiningDropPolicy : uint8_t {
+    kGrantDrops,
+    kBreakWithoutDrops,
+};
+
+[[nodiscard]] snt::core::Expected<MiningDropPolicy> mining_drop_policy(
+    const GameContentRegistry& content, GameServerPlayerState& player_state,
+    const GameAuthenticatedPeer& peer, const TerrainMaterialDef& material) {
+    auto main_hand_item_id = player_state.main_hand_item_id_for_peer(peer);
+    if (!main_hand_item_id) return main_hand_item_id.error();
+
+    const std::vector<std::string> tool_tags = content.tool_tags_for_item(*main_hand_item_id);
+    const bool tag_matches = material.required_tool_tag.empty() ||
+        std::find(tool_tags.begin(), tool_tags.end(), material.required_tool_tag) !=
+            tool_tags.end();
+    int32_t mining_level = 0;
+    if (const GameItemDefinition* item = content.find_item(*main_hand_item_id);
+        item != nullptr && item->tool.has_value()) {
+        mining_level = item->tool->mining_level;
+    }
+
+    // A matching but under-level tool cannot mine the block at all. A wrong
+    // tool may break a levelled block but never receives its material drops,
+    // matching the retired command-server behavior.
+    if (tag_matches && mining_level < material.required_mining_level) {
+        return invalid_state("Held tool mining level is below the terrain material requirement");
+    }
+    if (!tag_matches && material.required_mining_level > 0) {
+        return MiningDropPolicy::kBreakWithoutDrops;
+    }
+    return MiningDropPolicy::kGrantDrops;
+}
+
+void hash_text(uint64_t& value, std::string_view text) noexcept {
+    for (const unsigned char byte : text) {
+        value ^= byte;
+        value *= 1099511628211ULL;
+    }
+}
+
+void hash_u64(uint64_t& value, uint64_t input) noexcept {
+    for (int shift = 0; shift < 64; shift += 8) {
+        value ^= (input >> shift) & 0xffU;
+        value *= 1099511628211ULL;
+    }
+}
+
+[[nodiscard]] uint64_t deterministic_drop_roll(
+    const GameBlockInteractionCommand& command, uint64_t tick_index,
+    std::string_view material_key, size_t drop_index, uint64_t salt) noexcept {
+    uint64_t value = 1469598103934665603ULL;
+    hash_text(value, command.dimension_id);
+    hash_u64(value, static_cast<uint32_t>(command.block_x));
+    hash_u64(value, static_cast<uint32_t>(command.block_y));
+    hash_u64(value, static_cast<uint32_t>(command.block_z));
+    hash_u64(value, tick_index);
+    hash_text(value, material_key);
+    hash_u64(value, drop_index);
+    hash_u64(value, salt);
+    return value;
+}
+
+[[nodiscard]] snt::core::Expected<std::vector<GamePlayerItemStack>> make_mining_drops(
+    const TerrainMaterialDef& material, const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    std::vector<GamePlayerItemStack> additions;
+    additions.reserve(material.drops.size());
+    for (size_t drop_index = 0; drop_index < material.drops.size(); ++drop_index) {
+        const TerrainDropDef& drop = material.drops[drop_index];
+        const uint64_t chance_roll = deterministic_drop_roll(
+            command, tick_index, material.key, drop_index, 0x63b5d167ULL);
+        const double chance_sample = static_cast<double>(chance_roll >> 11) /
+            static_cast<double>(1ULL << 53);
+        if (chance_sample >= static_cast<double>(drop.chance)) continue;
+        const uint64_t amount_roll = deterministic_drop_roll(
+            command, tick_index, material.key, drop_index, 0x1db50b19ULL);
+        const uint64_t range = static_cast<uint64_t>(drop.max_count - drop.min_count) + 1u;
+        const int32_t count = drop.min_count + static_cast<int32_t>(amount_roll % range);
+        auto existing = std::find_if(additions.begin(), additions.end(),
+            [&drop](const GamePlayerItemStack& stack) { return stack.item_id == drop.item_key; });
+        if (existing == additions.end()) {
+            additions.push_back({.item_id = drop.item_key, .count = count});
+        } else {
+            existing->count += count;
+        }
+    }
+    if (additions.size() > kMaxCollectedMachineStacks) {
+        return invalid_state("Terrain material produces too many distinct inventory stacks");
+    }
+    return additions;
+}
+
 }  // namespace
 
 std::vector<GameServerBlockDefinition>
 GameServerPlayerInteractionService::default_block_definitions() {
-    const uint32_t solid_mineable_walkable =
-        static_cast<uint32_t>(snt::voxel::TF_SOLID) |
-        static_cast<uint32_t>(snt::voxel::TF_MINEABLE) |
-        static_cast<uint32_t>(snt::voxel::TF_WALKABLE);
     return {
-        {.item_id = "stone", .material_id = 1, .placement_flags = solid_mineable_walkable},
-        {.item_id = "dirt", .material_id = 2, .placement_flags = solid_mineable_walkable},
-        {.item_id = "sand", .material_id = 3,
-         .placement_flags = solid_mineable_walkable |
-                            static_cast<uint32_t>(snt::voxel::TF_GRAVITY_FALL)},
-        {.item_id = "snow", .material_id = 4, .placement_flags = solid_mineable_walkable},
-        {.item_id = "bed", .material_id = 5, .placement_flags = solid_mineable_walkable,
-         .is_bed = true},
-        {.item_id = "fire", .material_id = 6,
-         .placement_flags = static_cast<uint32_t>(snt::voxel::TF_MINEABLE)},
+        {.item_id = "stone", .material_key = "snt:stone"},
+        {.item_id = "dirt", .material_key = "snt:dirt"},
+        {.item_id = "sand", .material_key = "snt:sand"},
+        {.item_id = "snow", .material_key = "snt:snow"},
+        {.item_id = "bed", .material_key = "snt:runtime.bed", .is_bed = true},
+        {.item_id = "fire", .material_key = "snt:runtime.fire"},
     };
 }
 
@@ -340,60 +426,82 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
     uint64_t tick_index) {
     auto target = resolve_target(*player_state_, *chunks_, peer, command);
     if (!target) return target.error();
+    if (config_.worldgen_config == nullptr) {
+        return invalid_state("Game server interaction has no worldgen snapshot");
+    }
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
     const uint32_t material = static_cast<uint32_t>(target->cell->material);
-    if (material == config_.air_material_id || !target->cell->is_mineable() ||
-        target->cell->is_indestructible()) {
+    const TerrainMaterialDef* terrain_material = worldgen.find_material(
+        static_cast<TerrainMaterialId>(material));
+    if (terrain_material == nullptr || material == worldgen.roles.air ||
+        (terrain_material->flags & static_cast<uint32_t>(snt::voxel::TF_MINEABLE)) == 0 ||
+        (terrain_material->flags & static_cast<uint32_t>(snt::voxel::TF_INDESTRUCTIBLE)) != 0) {
         return invalid_state("Client mining target is not host-mineable");
     }
     const GameServerBlockDefinition* definition = find_block_by_material(material);
-    if (definition == nullptr) {
-        return invalid_state("Client mining target has no host block catalog definition");
-    }
     GameChunkSidecar* sidecar = sidecars_->get(target->chunk_key);
     if (sidecar != nullptr && has_non_bed_sidecar_claim(*sidecar, target->position)) {
         return invalid_state("Client mining target owns a protected game sidecar anchor");
     }
     auto bed_present = beds_->has_bed_at(target->position);
     if (!bed_present) return bed_present.error();
-    if (definition->is_bed != *bed_present) {
+    const bool is_bed = definition != nullptr && definition->is_bed;
+    if (is_bed != *bed_present) {
         return invalid_state("Client mining target has inconsistent bed sidecar state");
     }
 
-    const GamePlayerInventoryTransaction transaction{
-        .additions = {{.item_id = definition->item_id, .count = 1}},
-    };
-    auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
-    if (!can_apply) return can_apply.error();
-    if (!*can_apply) {
-        return invalid_state("Client mining result does not fit the host inventory");
+    auto drop_policy = mining_drop_policy(*content_, *player_state_, peer, *terrain_material);
+    if (!drop_policy) return drop_policy.error();
+    std::vector<GamePlayerItemStack> additions;
+    if (*drop_policy == MiningDropPolicy::kGrantDrops) {
+        auto resolved_drops = make_mining_drops(*terrain_material, command, tick_index);
+        if (!resolved_drops) return resolved_drops.error();
+        additions = std::move(*resolved_drops);
     }
-    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+    const GamePlayerInventoryTransaction transaction{.additions = additions};
+    if (!transaction.additions.empty()) {
+        auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
+        if (!can_apply) return can_apply.error();
+        if (!*can_apply) {
+            return invalid_state("Client mining result does not fit the host inventory");
+        }
+    }
+    if (is_bed || !transaction.additions.empty()) {
+        if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+    }
 
     bool removed_bed = false;
-    if (definition->is_bed) {
+    if (is_bed) {
         if (auto result = beds_->on_bed_removed(target->position); !result) return result.error();
         removed_bed = true;
     }
     const snt::voxel::TerrainCell previous = *target->cell;
-    *target->cell = {.material = static_cast<snt::voxel::TerrainMaterial>(config_.air_material_id)};
-    if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
-        *target->cell = previous;
-        if (removed_bed) {
-            static_cast<void>(beds_->on_bed_placed(target->position));
+    const TerrainMaterialDef* air_material = worldgen.find_material(worldgen.roles.air);
+    *target->cell = {
+        .material = static_cast<snt::voxel::TerrainMaterial>(worldgen.roles.air),
+        .flags = air_material == nullptr ? 0u : air_material->flags,
+    };
+    if (!transaction.additions.empty()) {
+        if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+            *target->cell = previous;
+            if (removed_bed) {
+                static_cast<void>(beds_->on_bed_placed(target->position));
+            }
+            auto error = result.error();
+            error.with_context("GameServerPlayerInteractionService::apply_mine(inventory commit)");
+            return error;
         }
-        auto error = result.error();
-        error.with_context("GameServerPlayerInteractionService::apply_mine(inventory commit)");
-        return error;
     }
-    schedule_block_physics_after_commit(command, tick_index);
+    schedule_terrain_simulation_after_commit(command, tick_index);
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kBlockMined,
         .account_id = peer.identity.account_id,
         .tick_index = tick_index,
         .command = command,
-        .item_id = definition->item_id,
+        .item_id = !transaction.additions.empty() ? transaction.additions.front().item_id :
+            (definition != nullptr ? definition->item_id : terrain_material->key),
         .previous_material = material,
-        .current_material = config_.air_material_id,
+        .current_material = worldgen.roles.air,
     });
     return {};
 }
@@ -404,15 +512,23 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
     if (content_->find_machine_placement_by_item(command.selected_item_id) != nullptr) {
         return apply_machine_place(peer, command, tick_index);
     }
+    if (config_.worldgen_config == nullptr) {
+        return invalid_state("Game server interaction has no worldgen snapshot");
+    }
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
     auto target = resolve_target(*player_state_, *chunks_, peer, command);
     if (!target) return target.error();
-    if (static_cast<uint32_t>(target->cell->material) != config_.air_material_id ||
+    if (static_cast<uint32_t>(target->cell->material) != worldgen.roles.air ||
         target->cell->has_fluid()) {
         return invalid_state("Client placement target is not an empty host terrain cell");
     }
     const GameServerBlockDefinition* definition = find_block_by_item(command.selected_item_id);
     if (definition == nullptr) {
         return invalid_state("Client placement item is not in the host block catalog");
+    }
+    const TerrainMaterialDef* terrain_material = find_terrain_material(definition->material_key);
+    if (terrain_material == nullptr) {
+        return invalid_state("Client placement refers to an unavailable terrain material key");
     }
     GameChunkSidecar* sidecar = sidecars_->get(target->chunk_key);
     if ((sidecar != nullptr && has_non_bed_sidecar_claim(*sidecar, target->position))) {
@@ -441,8 +557,8 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
     }
     const snt::voxel::TerrainCell previous = *target->cell;
     *target->cell = {
-        .material = static_cast<snt::voxel::TerrainMaterial>(definition->material_id),
-        .flags = definition->placement_flags,
+        .material = static_cast<snt::voxel::TerrainMaterial>(terrain_material->id),
+        .flags = terrain_material->flags,
     };
     if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
         *target->cell = previous;
@@ -453,15 +569,15 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
         error.with_context("GameServerPlayerInteractionService::apply_place(inventory commit)");
         return error;
     }
-    schedule_block_physics_after_commit(command, tick_index);
+    schedule_terrain_simulation_after_commit(command, tick_index);
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kBlockPlaced,
         .account_id = peer.identity.account_id,
         .tick_index = tick_index,
         .command = command,
         .item_id = definition->item_id,
-        .previous_material = config_.air_material_id,
-        .current_material = definition->material_id,
+        .previous_material = worldgen.roles.air,
+        .current_material = terrain_material->id,
     });
     return {};
 }
@@ -469,9 +585,13 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_place(
     const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
     uint64_t tick_index) {
+    if (config_.worldgen_config == nullptr) {
+        return invalid_state("Game server interaction has no worldgen snapshot");
+    }
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
     auto target = resolve_target(*player_state_, *chunks_, peer, command);
     if (!target) return target.error();
-    if (static_cast<uint32_t>(target->cell->material) != config_.air_material_id ||
+    if (static_cast<uint32_t>(target->cell->material) != worldgen.roles.air ||
         target->cell->has_fluid()) {
         return invalid_state("Client machine placement target is not an empty host terrain cell");
     }
@@ -481,13 +601,17 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
     if (placement == nullptr) {
         return invalid_state("Client machine placement item is not in the host placement registry");
     }
+    const TerrainMaterialDef* terrain_material = find_terrain_material(placement->material_key);
+    if (terrain_material == nullptr) {
+        return invalid_state("Machine placement refers to an unavailable terrain material key");
+    }
     const MachineDefinition* machine = content_->find_machine(placement->machine_id);
     if (machine == nullptr) {
         return invalid_state("Machine placement refers to a missing current machine definition");
     }
-    if (placement->material_id == config_.air_material_id ||
-        placement->material_id == config_.reserved_grave_material_id ||
-        find_block_by_material(placement->material_id) != nullptr) {
+    if (terrain_material->id == worldgen.roles.air ||
+        terrain_material->id == config_.reserved_grave_material_id ||
+        find_block_by_material(terrain_material->id) != nullptr) {
         return invalid_state("Machine placement material conflicts with a host terrain material");
     }
 
@@ -529,8 +653,8 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
 
     const snt::voxel::TerrainCell previous = *target->cell;
     *target->cell = {
-        .material = static_cast<snt::voxel::TerrainMaterial>(placement->material_id),
-        .flags = kPlacedMachineTerrainFlags,
+        .material = static_cast<snt::voxel::TerrainMaterial>(terrain_material->id),
+        .flags = terrain_material->flags,
     };
     if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
         *target->cell = previous;
@@ -549,7 +673,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
         return error;
     }
 
-    schedule_block_physics_after_commit(command, tick_index);
+    schedule_terrain_simulation_after_commit(command, tick_index);
     SNT_LOG_INFO("Placed machine '%s' for account '%s' at (%d,%d,%d) anchor=%llu runtime=%llu",
                  machine->id.c_str(), peer.identity.account_id.c_str(),
                  target->position.position.x, target->position.position.y,
@@ -563,8 +687,8 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
         .command = command,
         .item_id = placement->item_id,
         .machine_id = machine->id,
-        .previous_material = config_.air_material_id,
-        .current_material = placement->material_id,
+        .previous_material = worldgen.roles.air,
+        .current_material = terrain_material->id,
     });
     return {};
 }
@@ -607,15 +731,9 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_acti
     auto machine_guid = find_machine_at(*sidecars_, *target);
     if (!machine_guid) return machine_guid.error();
 
-    auto held_tags = player_state_->held_tool_tags_for_peer(peer);
-    if (!held_tags) return held_tags.error();
-    // selected_item_id is intentionally a trusted local tool hint in the
-    // co-op model. Existing server-owned tags remain available to scripted
-    // hosts, while clients without an equipment UI can still activate a tool
-    // gated machine by selecting its content id.
-    if (!command.selected_item_id.empty()) held_tags->push_back(command.selected_item_id);
-    std::sort(held_tags->begin(), held_tags->end());
-    held_tags->erase(std::unique(held_tags->begin(), held_tags->end()), held_tags->end());
+    auto main_hand_item_id = player_state_->main_hand_item_id_for_peer(peer);
+    if (!main_hand_item_id) return main_hand_item_id.error();
+    const std::vector<std::string> held_tags = content_->tool_tags_for_item(*main_hand_item_id);
 
     const MachineActivationContext context{
         .target_is_reachable = true,
@@ -625,7 +743,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_acti
             (command.client_hints & kGameBlockInteractionHintIgnition) != 0,
         .structure_is_valid =
             (command.client_hints & kGameBlockInteractionHintStructure) != 0,
-        .held_tool_tags = std::move(*held_tags),
+        .held_tool_tags = held_tags,
     };
     if (auto result = machine_interactions_->request_manual_activation(
             *world_, *machine_guid, context);
@@ -888,12 +1006,21 @@ const GameServerBlockDefinition* GameServerPlayerInteractionService::find_block_
 
 const GameServerBlockDefinition* GameServerPlayerInteractionService::find_block_by_material(
     uint32_t material_id) const noexcept {
+    if (config_.worldgen_config == nullptr) return nullptr;
     const auto found = std::find_if(
         config_.block_definitions.begin(), config_.block_definitions.end(),
-        [material_id](const GameServerBlockDefinition& definition) {
-            return definition.material_id == material_id;
+        [this, material_id](const GameServerBlockDefinition& definition) {
+            const TerrainMaterialDef* material = find_terrain_material(definition.material_key);
+            return material != nullptr && material->id == material_id;
         });
     return found == config_.block_definitions.end() ? nullptr : &*found;
+}
+
+const TerrainMaterialDef* GameServerPlayerInteractionService::find_terrain_material(
+    std::string_view material_key) const noexcept {
+    return config_.worldgen_config == nullptr
+        ? nullptr
+        : config_.worldgen_config->find_material(std::string(material_key));
 }
 
 snt::core::Expected<void> GameServerPlayerInteractionService::mark_player_state_dirty(
@@ -902,11 +1029,16 @@ snt::core::Expected<void> GameServerPlayerInteractionService::mark_player_state_
     return checkpoint_sink_->mark_player_state_dirty(peer);
 }
 
-void GameServerPlayerInteractionService::schedule_block_physics_after_commit(
+void GameServerPlayerInteractionService::schedule_terrain_simulation_after_commit(
     const GameBlockInteractionCommand& command, uint64_t tick_index) const {
-    if (config_.block_physics_trigger == nullptr) return;
-    config_.block_physics_trigger->schedule_block_physics_after_terrain_mutation(
-        command.dimension_id, command.block_x, command.block_y, command.block_z, tick_index);
+    if (config_.block_physics_trigger != nullptr) {
+        config_.block_physics_trigger->schedule_block_physics_after_terrain_mutation(
+            command.dimension_id, command.block_x, command.block_y, command.block_z, tick_index);
+    }
+    if (config_.fluid_trigger != nullptr) {
+        config_.fluid_trigger->schedule_fluid_after_terrain_mutation(
+            command.dimension_id, command.block_x, command.block_y, command.block_z, tick_index);
+    }
 }
 
 void GameServerPlayerInteractionService::emit_event(

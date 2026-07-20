@@ -18,8 +18,6 @@ namespace {
 constexpr size_t kMaxDimensionIdBytes = 128;
 constexpr size_t kMaxItemIdBytes = 256;
 constexpr size_t kMaxItemInstanceDataBytes = 16u * 1024u;
-constexpr size_t kMaxToolTagBytes = 128;
-constexpr size_t kMaxToolTags = 64;
 constexpr size_t kMaxOrganSchemaIdBytes = 128;
 constexpr size_t kMaxOrganPayloadBytes = 64u * 1024u;
 constexpr uint32_t kMaxInventorySlots = 256;
@@ -209,13 +207,14 @@ snt::core::Expected<GamePlayerEquipment> GameServerPlayerState::equipment_for_pe
     return world_->get_component<GamePlayerEquipment>(*entity);
 }
 
-snt::core::Expected<std::vector<std::string>> GameServerPlayerState::held_tool_tags_for_peer(
+snt::core::Expected<std::string> GameServerPlayerState::main_hand_item_id_for_peer(
     const GameAuthenticatedPeer& peer) const {
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
-    return world_->get_component<GamePlayerToolState>(*entity).held_tool_tags;
+    const auto& equipment = world_->get_component<GamePlayerEquipment>(*entity);
+    return equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)].item_id;
 }
 
 snt::core::Expected<GameAuthenticatedPeer> GameServerPlayerState::active_peer_for_account(
@@ -454,19 +453,6 @@ snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_mutati
     return true;
 }
 
-snt::core::Expected<void> GameServerPlayerState::replace_trusted_held_tool_tags(
-    const GameAuthenticatedPeer& peer, std::vector<std::string> tags) {
-    if (auto result = validate_tool_tags(tags); !result) return result.error();
-    auto record = find_active_record(peer);
-    if (!record) return record.error();
-    auto entity = entity_for_record(**record);
-    if (!entity) return entity.error();
-    std::sort(tags.begin(), tags.end());
-    tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
-    world_->get_component<GamePlayerToolState>(*entity).held_tool_tags = std::move(tags);
-    return {};
-}
-
 void GameServerPlayerState::shutdown() noexcept {
     if (stopped_) return;
     stopped_ = true;
@@ -623,19 +609,6 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_mutatio
     return {};
 }
 
-snt::core::Expected<void> GameServerPlayerState::validate_tool_tags(
-    const std::vector<std::string>& tags) const {
-    if (tags.size() > kMaxToolTags) {
-        return invalid_argument("Authoritative player tool tag count exceeds the limit");
-    }
-    for (const std::string& tag : tags) {
-        if (tag.empty() || tag.size() > kMaxToolTagBytes) {
-            return invalid_argument("Authoritative player tool tag is invalid");
-        }
-    }
-    return {};
-}
-
 snt::core::Expected<GameServerPlayerState::PlayerRecord*>
 GameServerPlayerState::find_active_record(const GameAuthenticatedPeer& peer) {
     if (stopped_) return invalid_state("Dedicated server player state is stopped");
@@ -677,8 +650,7 @@ snt::core::Expected<entt::entity> GameServerPlayerState::entity_for_record(
                                    snt::ecs::Position,
                                    GamePlayerInventory,
                                    GamePlayerEquipment,
-                                   GamePlayerOrganState,
-                                   GamePlayerToolState>(entity)) {
+                                   GamePlayerOrganState>(entity)) {
         return invalid_state("Authoritative player entity is absent or has invalid components");
     }
     return entity;
@@ -726,7 +698,6 @@ snt::core::Expected<snt::ecs::EntityGuid> GameServerPlayerState::create_player_e
     world_->add_component<GamePlayerInventory>(entity, state.inventory);
     world_->add_component<GamePlayerEquipment>(entity, state.equipment);
     world_->add_component<GamePlayerOrganState>(entity, state.organs);
-    world_->add_component<GamePlayerToolState>(entity, GamePlayerToolState{});
     return world_->guid_of(entity);
 }
 

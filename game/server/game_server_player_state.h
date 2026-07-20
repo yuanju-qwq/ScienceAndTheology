@@ -78,7 +78,10 @@ public:
         const GameAuthenticatedPeer& peer) const;
     [[nodiscard]] snt::core::Expected<GamePlayerEquipment> equipment_for_peer(
         const GameAuthenticatedPeer& peer) const;
-    [[nodiscard]] snt::core::Expected<std::vector<std::string>> held_tool_tags_for_peer(
+    // Gameplay action services derive behavior from this server-owned main
+    // hand value through the content catalog; clients never provide a tool
+    // identity as an authority input.
+    [[nodiscard]] snt::core::Expected<std::string> main_hand_item_id_for_peer(
         const GameAuthenticatedPeer& peer) const;
 
     // Server-composition services receive stable account ids from committed
@@ -124,8 +127,6 @@ public:
     [[nodiscard]] snt::core::Expected<bool> can_apply_inventory_slot_mutations(
         const GameAuthenticatedPeer& peer,
         std::span<const GamePlayerInventorySlotMutation> mutations) const;
-    [[nodiscard]] snt::core::Expected<void> replace_trusted_held_tool_tags(
-        const GameAuthenticatedPeer& peer, std::vector<std::string> tags);
 
     // The lifecycle uses these value boundaries for first join, disconnect
     // save, and controlled shutdown. No entt handle or transport id leaks
@@ -166,8 +167,6 @@ private:
         const GamePlayerInventorySlotTransfer& transfer) const;
     [[nodiscard]] snt::core::Expected<void> validate_inventory_slot_mutations(
         std::span<const GamePlayerInventorySlotMutation> mutations) const;
-    [[nodiscard]] snt::core::Expected<void> validate_tool_tags(
-        const std::vector<std::string>& tags) const;
     [[nodiscard]] snt::core::Expected<PlayerRecord*> find_active_record(
         const GameAuthenticatedPeer& peer);
     [[nodiscard]] snt::core::Expected<const PlayerRecord*> find_active_record(

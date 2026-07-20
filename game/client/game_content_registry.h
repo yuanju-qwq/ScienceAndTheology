@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -325,6 +326,12 @@ public:
     snt::core::Expected<void> begin_reload(ScriptId script_id) override;
     snt::core::Expected<void> commit_reload(ScriptId script_id) override;
     snt::core::Expected<void> rollback_reload(ScriptId script_id) override;
+    snt::core::Expected<void> begin_reload_batch(
+        std::span<const ScriptId> script_ids) override;
+    snt::core::Expected<void> commit_reload_batch(
+        std::span<const ScriptId> script_ids) override;
+    snt::core::Expected<void> rollback_reload_batch(
+        std::span<const ScriptId> script_ids) override;
     snt::core::Expected<void> unload_script(ScriptId script_id) override;
     std::vector<std::string> callback_ids_for_script(ScriptId script_id) const override;
     void reset() override;
@@ -406,8 +413,8 @@ public:
     const MachineDefinition* find_machine(std::string_view id) const;
     const MachinePlacementDefinition* find_machine_placement_by_item(
         std::string_view item_id) const noexcept;
-    const MachinePlacementDefinition* find_machine_placement_by_material(
-        uint32_t material_id) const noexcept;
+    const MachinePlacementDefinition* find_machine_placement_by_material_key(
+        std::string_view material_key) const noexcept;
     [[nodiscard]] std::vector<MachinePlacementDefinition> machine_placement_definitions() const;
     // Machine placement data intentionally lives in its own registry. This
     // validates its references once all current content has been registered.
@@ -464,6 +471,11 @@ private:
         uint64_t item_content_revision = 1;
     };
 
+    struct ReloadBatch {
+        std::vector<ScriptId> script_ids;
+        uint64_t quest_content_revision = 1;
+    };
+
     snt::core::Expected<void> register_material(ScriptId owner,
                                                 GameMaterialDefinition definition,
                                                 bool builtin);
@@ -507,6 +519,8 @@ private:
     snt::core::Expected<void> erase_script_content(ScriptId script_id);
     ReloadSnapshot snapshot_script_content(ScriptId script_id) const;
     snt::core::Expected<void> restore_script_content(const ReloadSnapshot& snapshot);
+    [[nodiscard]] bool matches_active_reload_batch(
+        std::span<const ScriptId> script_ids) const noexcept;
     void sort_event_listeners(std::string_view event_name);
 
     // `backup_*` stores built-ins. `live_*` is the effective game definition
@@ -530,6 +544,7 @@ private:
     std::map<std::string, std::vector<EventListener>, std::less<>> event_listeners_;
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;
+    std::optional<ReloadBatch> reload_batch_;
     snt::core::RuntimeKeyIndex item_runtime_index_;
     uint64_t item_content_revision_ = 1;
     uint64_t quest_content_revision_ = 1;

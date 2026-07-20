@@ -11,8 +11,8 @@
 #include "core/expected.h"
 #include "script/content_host.h"
 
-#include <cstdint>
 #include <map>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,7 +22,10 @@ namespace snt::game {
 struct MachinePlacementDefinition {
     std::string item_id;
     std::string machine_id;
-    uint32_t material_id = 0;
+    // Authored content binds a placeable machine to a terrain StringKey.
+    // The worldgen snapshot resolves the compact runtime ID after all keys
+    // have been collected and sorted.
+    std::string material_key;
 };
 
 class MachinePlacementRegistry final {
@@ -40,8 +43,8 @@ public:
 
     [[nodiscard]] const MachinePlacementDefinition* find_by_item(
         std::string_view item_id) const noexcept;
-    [[nodiscard]] const MachinePlacementDefinition* find_by_material(
-        uint32_t material_id) const noexcept;
+    [[nodiscard]] const MachinePlacementDefinition* find_by_material_key(
+        std::string_view material_key) const noexcept;
     // Stable value snapshot for cross-registry startup validation. Callers
     // cannot mutate the registry through this returned collection.
     [[nodiscard]] std::vector<MachinePlacementDefinition> definitions() const;
@@ -49,6 +52,12 @@ public:
     [[nodiscard]] snt::core::Expected<void> begin_reload(snt::script::ScriptId script_id);
     [[nodiscard]] snt::core::Expected<void> commit_reload(snt::script::ScriptId script_id);
     [[nodiscard]] snt::core::Expected<void> rollback_reload(snt::script::ScriptId script_id);
+    [[nodiscard]] snt::core::Expected<void> begin_reload_batch(
+        std::span<const snt::script::ScriptId> script_ids);
+    [[nodiscard]] snt::core::Expected<void> commit_reload_batch(
+        std::span<const snt::script::ScriptId> script_ids);
+    [[nodiscard]] snt::core::Expected<void> rollback_reload_batch(
+        std::span<const snt::script::ScriptId> script_ids);
     [[nodiscard]] snt::core::Expected<void> unload_script(snt::script::ScriptId script_id);
     void reset() noexcept;
 

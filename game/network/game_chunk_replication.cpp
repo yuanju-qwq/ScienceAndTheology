@@ -15,7 +15,7 @@
 namespace snt::game::replication {
 namespace {
 
-constexpr uint8_t kGameTerrainChunkPayloadVersion = 1;
+constexpr uint8_t kGameTerrainChunkPayloadVersion = 2;
 constexpr size_t kMaxReplicatedMachineSlots = 64;
 constexpr size_t kMaxReplicatedMachineIdBytes = 512;
 constexpr size_t kMaxReplicatedItemIdBytes = 512;
@@ -45,6 +45,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     append_u32(bytes, std::bit_cast<uint32_t>(value));
 }
 
+void append_i16(std::vector<std::byte>& bytes, int16_t value) {
+    append_u16(bytes, std::bit_cast<uint16_t>(value));
+}
+
 [[nodiscard]] uint16_t read_u16(std::span<const std::byte> bytes, size_t offset) {
     return static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset])) << 8u |
            static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset + 1]));
@@ -60,6 +64,20 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 
 [[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
     return std::bit_cast<int32_t>(read_u32(bytes, offset));
+}
+
+[[nodiscard]] int16_t read_i16(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int16_t>(read_u16(bytes, offset));
+}
+
+[[nodiscard]] bool valid_fluid_fields(snt::voxel::CellFluidId fluid_type,
+                                      int16_t fluid_mass,
+                                      bool fluid_is_gas) noexcept {
+    if (fluid_mass < 0 || fluid_mass > snt::voxel::kCellFluidCapacity) return false;
+    if (fluid_mass == 0) {
+        return fluid_type == snt::voxel::kInvalidCellFluidId && !fluid_is_gas;
+    }
+    return fluid_type != snt::voxel::kInvalidCellFluidId;
 }
 
 [[nodiscard]] bool has_embedded_nul(std::string_view value) noexcept {
@@ -275,6 +293,12 @@ read_machine_stacks(std::span<const std::byte> bytes, size_t& offset, const char
         terrain.cells.size() != expected) {
         return protocol_error("Game terrain chunk cell count is invalid");
     }
+    for (const GameReplicatedTerrainCell& cell : terrain.cells) {
+        if (!valid_fluid_fields(cell.fluid_type, cell.fluid_mass,
+                                cell.fluid_is_gas)) {
+            return protocol_error("Game terrain chunk fluid cell is invalid");
+        }
+    }
     return {};
 }
 
@@ -295,7 +319,12 @@ bool GameChunkKeyLess::operator()(const snt::voxel::ChunkKey& left,
 
 bool same_game_replicated_terrain_cell(const GameReplicatedTerrainCell& left,
                                        const GameReplicatedTerrainCell& right) noexcept {
-    return left.material == right.material && left.flags == right.flags;
+    return left.material == right.material &&
+           left.flags == right.flags &&
+           left.fluid_type == right.fluid_type &&
+           left.fluid_mass == right.fluid_mass &&
+           left.fluid_temperature == right.fluid_temperature &&
+           left.fluid_is_gas == right.fluid_is_gas;
 }
 
 snt::core::Expected<GameReplicatedTerrainChunk>
@@ -307,7 +336,14 @@ make_game_replicated_terrain_chunk(const snt::voxel::VoxelChunk& chunk) {
     };
     terrain.cells.reserve(chunk.terrain.cells.size());
     for (const snt::voxel::TerrainCell& cell : chunk.terrain.cells) {
-        terrain.cells.push_back({.material = cell.material, .flags = cell.flags});
+        terrain.cells.push_back({
+            .material = cell.material,
+            .flags = cell.flags,
+            .fluid_type = cell.fluid_type,
+            .fluid_mass = cell.fluid_mass,
+            .fluid_temperature = cell.fluid_temperature,
+            .fluid_is_gas = cell.fluid_is_gas,
+        });
     }
     if (auto result = validate_terrain_chunk(terrain); !result) return result.error();
     return terrain;
@@ -327,6 +363,10 @@ make_voxel_chunk_from_game_replicated_terrain(const snt::voxel::ChunkKey& key,
     for (size_t index = 0; index < terrain.cells.size(); ++index) {
         chunk.terrain.cells[index].material = terrain.cells[index].material;
         chunk.terrain.cells[index].flags = terrain.cells[index].flags;
+        chunk.terrain.cells[index].fluid_type = terrain.cells[index].fluid_type;
+        chunk.terrain.cells[index].fluid_mass = terrain.cells[index].fluid_mass;
+        chunk.terrain.cells[index].fluid_temperature = terrain.cells[index].fluid_temperature;
+        chunk.terrain.cells[index].fluid_is_gas = terrain.cells[index].fluid_is_gas;
     }
     return chunk;
 }
@@ -337,7 +377,7 @@ encode_game_terrain_chunk_snapshot(const snt::voxel::VoxelChunk& chunk) {
     if (!terrain) return terrain.error();
 
     std::vector<std::byte> bytes;
-    bytes.reserve(6 + terrain->cells.size() * 2);
+    bytes.reserve(6 + terrain->cells.size() * 14);
     bytes.push_back(static_cast<std::byte>(kGameTerrainChunkPayloadVersion));
     bytes.push_back(static_cast<std::byte>(terrain->size_x));
     bytes.push_back(static_cast<std::byte>(terrain->size_y));
@@ -364,6 +404,10 @@ encode_game_terrain_chunk_snapshot(const snt::voxel::VoxelChunk& chunk) {
     for (const Run& run : runs) {
         bytes.push_back(static_cast<std::byte>(run.cell.material));
         append_u32(bytes, run.cell.flags);
+        append_u16(bytes, run.cell.fluid_type);
+        append_i16(bytes, run.cell.fluid_mass);
+        append_i16(bytes, run.cell.fluid_temperature);
+        bytes.push_back(static_cast<std::byte>(run.cell.fluid_is_gas ? 1 : 0));
         append_u16(bytes, run.length);
     }
     if (bytes.size() > kMaxGameChunkSnapshotPayloadBytes) {
@@ -375,7 +419,9 @@ encode_game_terrain_chunk_snapshot(const snt::voxel::VoxelChunk& chunk) {
 snt::core::Expected<GameReplicatedTerrainChunk>
 decode_game_terrain_chunk_snapshot(std::span<const std::byte> payload) {
     constexpr size_t kHeaderBytes = sizeof(uint8_t) * 4 + sizeof(uint16_t);
-    constexpr size_t kRunBytes = sizeof(uint8_t) + sizeof(uint32_t) + sizeof(uint16_t);
+    constexpr size_t kRunBytes = sizeof(uint8_t) + sizeof(uint32_t) +
+                                 sizeof(uint16_t) + sizeof(int16_t) +
+                                 sizeof(int16_t) + sizeof(uint8_t) + sizeof(uint16_t);
     if (payload.size() < kHeaderBytes ||
         std::to_integer<uint8_t>(payload[0]) != kGameTerrainChunkPayloadVersion) {
         return protocol_error("Game terrain chunk snapshot header is invalid");
@@ -406,8 +452,20 @@ decode_game_terrain_chunk_snapshot(std::span<const std::byte> payload) {
         const GameReplicatedTerrainCell cell{
             .material = std::to_integer<snt::voxel::TerrainMaterialId>(payload[offset]),
             .flags = read_u32(payload, offset + sizeof(uint8_t)),
+            .fluid_type = read_u16(payload, offset + sizeof(uint8_t) + sizeof(uint32_t)),
+            .fluid_mass = read_i16(payload, offset + sizeof(uint8_t) + sizeof(uint32_t) +
+                                   sizeof(uint16_t)),
+            .fluid_temperature = read_i16(
+                payload, offset + sizeof(uint8_t) + sizeof(uint32_t) +
+                             sizeof(uint16_t) + sizeof(int16_t)),
+            .fluid_is_gas = std::to_integer<uint8_t>(
+                payload[offset + sizeof(uint8_t) + sizeof(uint32_t) +
+                        sizeof(uint16_t) + sizeof(int16_t) + sizeof(int16_t)]) != 0,
         };
-        const size_t length = read_u16(payload, offset + sizeof(uint8_t) + sizeof(uint32_t));
+        const size_t length = read_u16(
+            payload, offset + sizeof(uint8_t) + sizeof(uint32_t) +
+                         sizeof(uint16_t) + sizeof(int16_t) + sizeof(int16_t) +
+                         sizeof(uint8_t));
         offset += kRunBytes;
         if (length == 0 || length > expected_cells - terrain.cells.size()) {
             return protocol_error("Game terrain chunk snapshot run length is invalid");
@@ -626,6 +684,10 @@ snt::core::Expected<void> GameClientRemoteChunkWorld::apply(const GameDelta& del
             snt::voxel::TerrainCell& cell = chunk->terrain.cells[block.local_index];
             cell.material = block.material;
             cell.flags = block.flags;
+            cell.fluid_type = block.fluid_type;
+            cell.fluid_mass = block.fluid_mass;
+            cell.fluid_temperature = block.fluid_temperature;
+            cell.fluid_is_gas = block.fluid_is_gas;
         }
         mark_dirty(chunk_delta.chunk);
     }

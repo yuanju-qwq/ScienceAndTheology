@@ -15,12 +15,14 @@
 #include "game/simulation/block_physics_events.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/world/game_chunk.h"
+#include "game/worldgen/default_worldgen_config.h"
 #include "voxel/data/chunk_registry.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <variant>
@@ -29,6 +31,7 @@ namespace {
 
 using snt::game::GameChunkSidecarRegistry;
 using snt::game::GameContentRegistry;
+using snt::game::GameItemDefinition;
 using snt::game::GamePlayerWorldPosition;
 using snt::game::MachineActivationRequirements;
 using snt::game::MachineDefinition;
@@ -69,6 +72,20 @@ GameAuthenticatedPeer make_peer(snt::network::PeerId peer_id, std::string name) 
 
 GamePlayerWorldPosition position(int x, int y, int z) {
     return {.dimension_id = "overworld", .position = {.x = x, .y = y, .z = z}};
+}
+
+const snt::game::WorldGenConfigSnapshot& interaction_worldgen_config() {
+    static const std::shared_ptr<const snt::game::WorldGenConfigSnapshot> config =
+        snt::game::make_default_game_worldgen_config();
+    return *config;
+}
+
+GameServerPlayerInteractionConfig interaction_config() {
+    return {.worldgen_config = &interaction_worldgen_config()};
+}
+
+uint16_t interaction_material_id(std::string_view key) {
+    return interaction_worldgen_config().material_id_or(std::string(key), 0);
 }
 
 void add_ground_chunk(snt::voxel::ChunkRegistry& chunks) {
@@ -176,6 +193,16 @@ MachineDefinition make_manual_machine() {
     return definition;
 }
 
+GameItemDefinition make_hammer_item() {
+    GameItemDefinition definition;
+    definition.id = "hammer";
+    definition.title_key = "item.hammer";
+    definition.max_stack = 1;
+    definition.presentation.category = snt::game::GameItemCategory::kTools;
+    definition.tool_tags = {"hammer"};
+    return definition;
+}
+
 }  // namespace
 
 TEST(GameBlockInteractionProtocolTest, EncodesTrustedClientHintsWithoutTerrainMutationValues) {
@@ -237,8 +264,9 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     MachineInteractionService machine_interactions(content);
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        nullptr, &checkpoint, {&events});
+        nullptr, &checkpoint, {&events}, interaction_config());
     ASSERT_TRUE(interactions) << interactions.error().format();
+    const uint16_t bed_material = interaction_material_id("snt:runtime.bed");
 
     const GameBlockInteractionCommand place{
         .action = GameBlockInteractionAction::kPlace,
@@ -252,7 +280,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     ASSERT_TRUE((*interactions)->apply_block_interaction(peer, place, 10));
     const auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(terrain, nullptr);
-    EXPECT_EQ(terrain->terrain.cell_at(3, 1, 2).material, 5u);
+    EXPECT_EQ(terrain->terrain.cell_at(3, 1, 2).material, bed_material);
     auto bed_present = (*beds)->has_bed_at(position(3, 1, 2));
     ASSERT_TRUE(bed_present) << bed_present.error().format();
     EXPECT_TRUE(*bed_present);
@@ -267,7 +295,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
         .block_x = 3,
         .block_y = 1,
         .block_z = 2,
-        .expected_material = 5,
+        .expected_material = bed_material,
     };
     ASSERT_TRUE((*interactions)->apply_block_interaction(peer, use_bed, 11));
     auto persistent = (*player_state)->capture_persistent_state(peer);
@@ -281,7 +309,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
         .block_x = 3,
         .block_y = 1,
         .block_z = 2,
-        .expected_material = 5,
+        .expected_material = bed_material,
     };
     ASSERT_TRUE((*interactions)->apply_block_interaction(peer, mine_bed, 12));
     EXPECT_EQ(terrain->terrain.cell_at(3, 1, 2).material, 0u);
@@ -325,11 +353,13 @@ TEST(GameServerPlayerInteractionTest, SchedulesPhysicsOnlyAfterHostTerrainCommit
     auto beds = GameServerPlayerBedService::create(*(*player_state), chunks, sidecars, &checkpoint);
     ASSERT_TRUE(beds) << beds.error().format();
     GameServerPlayerInteractionConfig config;
+    config.worldgen_config = &interaction_worldgen_config();
     config.block_physics_trigger = &physics_trigger;
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
         nullptr, &checkpoint, {}, std::move(config));
     ASSERT_TRUE(interactions) << interactions.error().format();
+    const uint16_t sand_material = interaction_material_id("snt:sand");
 
     const GameBlockInteractionCommand place{
         .action = GameBlockInteractionAction::kPlace,
@@ -354,7 +384,7 @@ TEST(GameServerPlayerInteractionTest, SchedulesPhysicsOnlyAfterHostTerrainCommit
         .block_x = 3,
         .block_y = 1,
         .block_z = 2,
-        .expected_material = 3,
+        .expected_material = sand_material,
     };
     ASSERT_TRUE((*interactions)->apply_block_interaction(peer, mine, 21));
     ASSERT_EQ(physics_trigger.calls.size(), 2u);
@@ -385,7 +415,8 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     GameContentRegistry content;
     ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
     ASSERT_TRUE(content.register_builtin_machine_placement(
-        {.item_id = "bloomery", .machine_id = "bloomery", .material_id = 10}));
+        {.item_id = "bloomery", .machine_id = "bloomery",
+         .material_key = "snt:runtime.machine.bloomery"}));
     MachineInteractionService machine_interactions(content);
     CheckpointSink checkpoint;
     EventSink events;
@@ -393,8 +424,9 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        nullptr, &checkpoint, {&events});
+        nullptr, &checkpoint, {&events}, interaction_config());
     ASSERT_TRUE(interactions) << interactions.error().format();
+    const uint16_t bloomery_material = interaction_material_id("snt:runtime.machine.bloomery");
 
     const GameBlockInteractionCommand place{
         .action = GameBlockInteractionAction::kPlace,
@@ -409,7 +441,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
 
     const auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(terrain, nullptr);
-    EXPECT_EQ(terrain->terrain.cell_at(3, 1, 2).material, 10u);
+    EXPECT_EQ(terrain->terrain.cell_at(3, 1, 2).material, bloomery_material);
     EXPECT_TRUE(terrain->terrain.cell_at(3, 1, 2).is_solid());
 
     const snt::voxel::ChunkKey key{"overworld", 0, 0, 0};
@@ -429,7 +461,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     ASSERT_EQ(events.events.size(), 1u);
     EXPECT_EQ(events.events.front().kind, GameServerPlayerInteractionEventKind::kMachinePlaced);
     EXPECT_EQ(events.events.front().machine_id, "bloomery");
-    EXPECT_EQ(events.events.front().current_material, 10u);
+    EXPECT_EQ(events.events.front().current_material, bloomery_material);
 
     const GameBlockInteractionCommand mine_machine{
         .action = GameBlockInteractionAction::kMine,
@@ -437,7 +469,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
         .block_x = 3,
         .block_y = 1,
         .block_z = 2,
-        .expected_material = 10,
+        .expected_material = bloomery_material,
     };
     EXPECT_FALSE((*interactions)->apply_block_interaction(peer, mine_machine, 31));
     (*player_state)->shutdown();
@@ -459,14 +491,15 @@ TEST(GameServerPlayerInteractionTest, RejectsUnknownMachinePlacementAtServiceCre
     ASSERT_TRUE(player_state) << player_state.error().format();
     GameContentRegistry content;
     ASSERT_TRUE(content.register_builtin_machine_placement(
-        {.item_id = "orphan_machine", .machine_id = "missing.machine", .material_id = 10}));
+        {.item_id = "orphan_machine", .machine_id = "missing.machine",
+         .material_key = "snt:runtime.machine.bloomery"}));
     MachineInteractionService machine_interactions(content);
     CheckpointSink checkpoint;
     auto beds = GameServerPlayerBedService::create(*(*player_state), chunks, sidecars, &checkpoint);
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        nullptr, &checkpoint);
+        nullptr, &checkpoint, {}, interaction_config());
     EXPECT_FALSE(interactions);
     (*player_state)->shutdown();
 }
@@ -488,8 +521,17 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     const GameAuthenticatedPeer peer = make_peer(602, "Machine Player");
     ASSERT_TRUE((*player_state)->on_peer_authenticated(
         peer, (*player_state)->default_persistent_state()));
+    const GameAuthenticatedPeer hammer_peer = make_peer(603, "Hammer Player");
+    auto hammer_persistent_state = (*player_state)->default_persistent_state();
+    hammer_persistent_state.equipment.slots[
+        static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] = {
+        .item_id = "hammer",
+        .count = 1,
+    };
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(hammer_peer, hammer_persistent_state));
 
     GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_hammer_item()));
     ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
     MachineInteractionService machine_interactions(content);
     const entt::entity machine_entity = world.create_entity();
@@ -526,10 +568,10 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     ASSERT_TRUE(beds) << beds.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        nullptr, &checkpoint);
+        nullptr, &checkpoint, {}, interaction_config());
     ASSERT_TRUE(interactions) << interactions.error().format();
 
-    const GameBlockInteractionCommand activate{
+    const GameBlockInteractionCommand forged_activate{
         .action = GameBlockInteractionAction::kActivateMachine,
         .dimension_id = "overworld",
         .block_x = 4,
@@ -540,9 +582,14 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
                         snt::game::replication::kGameBlockInteractionHintIgnition |
                         snt::game::replication::kGameBlockInteractionHintStructure,
     };
-    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, activate, 20));
+    EXPECT_FALSE((*interactions)->apply_block_interaction(peer, forged_activate, 20));
+    EXPECT_FALSE(runtime.activation_requested);
+
+    auto equipped_activate = forged_activate;
+    equipped_activate.selected_item_id = "client_forged_tool";
+    ASSERT_TRUE((*interactions)->apply_block_interaction(hammer_peer, equipped_activate, 21));
     EXPECT_TRUE(runtime.activation_requested);
-    EXPECT_EQ(runtime.job_owner_account_id, peer.identity.account_id);
+    EXPECT_EQ(runtime.job_owner_account_id, hammer_peer.identity.account_id);
 
     const GameBlockInteractionCommand collect{
         .action = GameBlockInteractionAction::kCollectMachineOutput,
@@ -551,9 +598,9 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
         .block_y = 1,
         .block_z = 2,
     };
-    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, collect, 21));
+    ASSERT_TRUE((*interactions)->apply_block_interaction(hammer_peer, collect, 22));
     EXPECT_TRUE(runtime.output_slots[0].empty());
-    auto inventory = (*player_state)->inventory_for_peer(peer);
+    auto inventory = (*player_state)->inventory_for_peer(hammer_peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0].item_id, "iron_bloom");
     EXPECT_EQ(inventory->slots[0].count, 2);
@@ -566,7 +613,7 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
         .block_z = 2,
         .expected_material = 1,
     };
-    EXPECT_FALSE((*interactions)->apply_block_interaction(peer, mine_machine, 22));
+    EXPECT_FALSE((*interactions)->apply_block_interaction(hammer_peer, mine_machine, 23));
     (*player_state)->shutdown();
 }
 
@@ -630,7 +677,7 @@ TEST(GameServerPlayerInteractionTest,
     ASSERT_TRUE(inventory_source) << inventory_source.error().format();
     auto interactions = GameServerPlayerInteractionService::create(
         world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
-        inventory_source->get(), &checkpoint);
+        inventory_source->get(), &checkpoint, {}, interaction_config());
     ASSERT_TRUE(interactions) << interactions.error().format();
 
     const snt::network::ReplicationTickContext context{

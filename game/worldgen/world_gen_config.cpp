@@ -1,7 +1,15 @@
 #include "world_gen_config.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
+#include <limits>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "core/error.h"
+#include "core/runtime_key_index.h"
 
 namespace snt::game {
 namespace {
@@ -10,7 +18,183 @@ void hash_combine(uint64_t& seed, uint64_t value) {
     seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
 }
 
+constexpr size_t kMaxTerrainMaterialKeyBytes = 256;
+
+[[nodiscard]] snt::core::Error invalid_argument(std::string message) {
+    return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
+}
+
+[[nodiscard]] snt::core::Expected<void> resolve_material_role(
+    WorldGenConfigSnapshot& config, std::string& key, TerrainMaterialId& id,
+    std::string_view role_name) {
+    if (key.empty()) {
+        id = 0;
+        return {};
+    }
+    auto normalized = normalize_terrain_material_key(key);
+    if (!normalized) return normalized.error();
+    key = std::move(*normalized);
+    const auto found = config.material_ids_by_key.find(key);
+    if (found == config.material_ids_by_key.end()) {
+        return invalid_argument("Terrain role '" + std::string(role_name) +
+                                "' refers to an unregistered material key '" + key + "'");
+    }
+    id = found->second;
+    return {};
+}
+
 } // namespace
+
+snt::core::Expected<std::string> normalize_terrain_material_key(std::string_view key) {
+    if (key.empty() || key.size() > kMaxTerrainMaterialKeyBytes) {
+        return invalid_argument("Terrain material key must contain 1 to 256 bytes");
+    }
+
+    std::string normalized;
+    normalized.reserve(key.size());
+    for (const unsigned char byte : key) {
+        if (byte >= 'A' && byte <= 'Z') {
+            normalized.push_back(static_cast<char>(byte - 'A' + 'a'));
+            continue;
+        }
+        const bool allowed =
+            (byte >= 'a' && byte <= 'z') ||
+            (byte >= '0' && byte <= '9') ||
+            byte == '.' || byte == '_' || byte == ':' || byte == '-';
+        if (!allowed) {
+            return invalid_argument(
+                "Terrain material key must use ASCII letters, digits, '.', '_', ':', or '-'");
+        }
+        normalized.push_back(static_cast<char>(byte));
+    }
+    return normalized;
+}
+
+snt::core::Expected<void> finalize_world_gen_config(WorldGenConfigSnapshot& config) {
+    constexpr size_t kMaxTerrainMaterialCount =
+        static_cast<size_t>(std::numeric_limits<TerrainMaterialId>::max()) + 1u;
+    if (config.materials.empty()) {
+        return invalid_argument("Terrain catalog must contain at least the air material");
+    }
+    if (config.materials.size() > kMaxTerrainMaterialCount) {
+        return invalid_argument("Terrain catalog exceeds the uint8 runtime material ID capacity");
+    }
+
+    // Terrain cells default to byte value zero, which is reserved for air.
+    // The remaining semantic keys are still sorted as one complete domain and
+    // receive the contiguous range [1, N].
+    bool has_air = false;
+    std::vector<std::string_view> non_air_keys;
+    non_air_keys.reserve(config.materials.size());
+    for (TerrainMaterialDef& material : config.materials) {
+        if (material.id != 0) {
+            return invalid_argument("Terrain material '" + material.key +
+                                    "' must not provide an authored runtime ID");
+        }
+        auto normalized = normalize_terrain_material_key(material.key);
+        if (!normalized) {
+            auto error = normalized.error();
+            error.with_context("finalize_world_gen_config(material)");
+            return error;
+        }
+        material.key = std::move(*normalized);
+        for (TerrainDropDef& drop : material.drops) {
+            auto normalized_drop_key = normalize_terrain_material_key(drop.item_key);
+            if (!normalized_drop_key || drop.count <= 0 || drop.min_count <= 0 ||
+                drop.max_count < drop.min_count || !std::isfinite(drop.chance) ||
+                drop.chance < 0.0f || drop.chance > 1.0f) {
+                return invalid_argument("Terrain material '" + material.key +
+                                        "' contains an invalid drop definition");
+            }
+            drop.item_key = std::move(*normalized_drop_key);
+        }
+        if (material.key == "snt:air") {
+            if (has_air) {
+                return invalid_argument("Terrain catalog contains duplicate key: snt:air");
+            }
+            has_air = true;
+        } else {
+            non_air_keys.emplace_back(material.key);
+        }
+    }
+    if (!has_air) {
+        return invalid_argument("Terrain catalog must register the reserved air key 'snt:air'");
+    }
+
+    snt::core::RuntimeKeyIndex runtime_index;
+    if (auto result = runtime_index.rebuild(non_air_keys); !result) {
+        auto error = result.error();
+        error.with_context("finalize_world_gen_config(runtime key assignment)");
+        return error;
+    }
+    const auto runtime_snapshot = runtime_index.snapshot();
+
+    std::sort(config.materials.begin(), config.materials.end(),
+              [](const TerrainMaterialDef& left, const TerrainMaterialDef& right) {
+                  return left.key < right.key;
+              });
+    config.material_ids_by_key.clear();
+    config.material_keys_by_id.clear();
+    config.material_ids_by_key.reserve(config.materials.size());
+    config.material_keys_by_id.reserve(config.materials.size());
+    for (TerrainMaterialDef& material : config.materials) {
+        if (material.key == "snt:air") {
+            material.id = 0;
+        } else {
+            const auto runtime_id = runtime_snapshot.find_id(material.key);
+            if (!runtime_id || *runtime_id == snt::core::kInvalidRuntimeKeyId ||
+                *runtime_id >= kMaxTerrainMaterialCount) {
+                return invalid_argument("Terrain material key did not receive a valid runtime ID: " +
+                                        material.key);
+            }
+            material.id = static_cast<TerrainMaterialId>(*runtime_id);
+        }
+        material.gravity_fall = (material.flags & TF_GRAVITY_FALL) != 0;
+        material.collapse_risk = (material.flags & TF_COLLAPSE_RISK) != 0;
+        config.material_ids_by_key.emplace(material.key, material.id);
+        config.material_keys_by_id.emplace(material.id, material.key);
+    }
+
+    if (auto result = resolve_material_role(config, config.role_keys.air, config.roles.air, "air"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.stone, config.roles.stone, "stone"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.dirt, config.roles.dirt, "dirt"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.sand, config.roles.sand, "sand"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.water, config.roles.water, "water"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.lava, config.roles.lava, "lava"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.ore_iron, config.roles.ore_iron, "ore_iron"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.ore_copper, config.roles.ore_copper, "ore_copper"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.ore_coal, config.roles.ore_coal, "ore_coal"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.wood, config.roles.wood, "wood"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.leaves, config.roles.leaves, "leaves"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.deepstone, config.roles.deepstone, "deepstone"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.core_barrier, config.roles.core_barrier, "core_barrier"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.snow, config.roles.snow, "snow"); !result) return result;
+    if (auto result = resolve_material_role(config, config.role_keys.ice, config.roles.ice, "ice"); !result) return result;
+    if (auto result = resolve_material_role(config, config.runtime_material_keys.ladder, config.runtime_ids.ladder, "runtime.ladder"); !result) return result;
+    if (auto result = resolve_material_role(config, config.runtime_material_keys.workbench, config.runtime_ids.workbench, "runtime.workbench"); !result) return result;
+    if (auto result = resolve_material_role(config, config.runtime_material_keys.fence, config.runtime_ids.fence, "runtime.fence"); !result) return result;
+    if (auto result = resolve_material_role(config, config.runtime_material_keys.farmland, config.runtime_ids.farmland, "runtime.farmland"); !result) return result;
+    if (auto result = resolve_material_role(config, config.runtime_material_keys.bloomery, config.runtime_ids.bloomery, "runtime.bloomery"); !result) return result;
+
+    for (TerrainMaterialVisualDef& visual : config.material_visuals) {
+        if (visual.material_id != 0) {
+            return invalid_argument("Terrain visual must not provide an authored material ID");
+        }
+        if (visual.material_key.empty()) {
+            continue;
+        }
+        auto normalized_key = normalize_terrain_material_key(visual.material_key);
+        if (!normalized_key) return normalized_key.error();
+        visual.material_key = std::move(*normalized_key);
+        const auto material_id = config.material_ids_by_key.find(visual.material_key);
+        if (material_id == config.material_ids_by_key.end()) {
+            return invalid_argument("Terrain visual refers to an unregistered material key: " +
+                                    visual.material_key);
+        }
+        visual.material_id = material_id->second;
+    }
+    return {};
+}
 
 const TerrainMaterialDef* WorldGenConfigSnapshot::find_material(
     TerrainMaterialId id) const {
@@ -105,8 +289,7 @@ uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config) {
         hash_combine(hash, static_cast<uint64_t>(material.support_radius));
         hash_combine(hash, string_hash(material.rock_layer_key));
         for (const auto& drop : material.drops) {
-            hash_combine(hash, string_hash(drop.item_key));
-            hash_combine(hash, static_cast<uint64_t>(drop.item_id));
+        hash_combine(hash, string_hash(drop.item_key));
             hash_combine(hash, static_cast<uint64_t>(drop.count));
             hash_combine(hash, static_cast<uint64_t>(drop.min_count));
             hash_combine(hash, static_cast<uint64_t>(drop.max_count));

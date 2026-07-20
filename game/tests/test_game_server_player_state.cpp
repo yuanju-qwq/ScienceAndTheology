@@ -107,7 +107,7 @@ TEST(GameServerPlayerStateTest, TransfersTakeoverButDestroysDisconnectedActor) {
     EXPECT_TRUE(world.find_entity_by_guid(guid) == entt::null);
 }
 
-TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndKeepsToolTagsTrusted) {
+TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOwnedMainHand) {
     snt::ecs::World world;
     auto state = snt::game::replication::GameServerPlayerState::create(
         world,
@@ -119,8 +119,13 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndKeepsToolTag
         });
     ASSERT_TRUE(state) << state.error().format();
     auto peer = make_peer(104, "Inventory Player");
-    ASSERT_TRUE((*state)->on_peer_authenticated(
-        peer, (*state)->default_persistent_state()));
+    auto persistent = (*state)->default_persistent_state();
+    persistent.equipment.slots[
+        static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] = {
+        .item_id = "iron_pickaxe",
+        .count = 1,
+    };
+    ASSERT_TRUE((*state)->on_peer_authenticated(peer, persistent));
 
     ASSERT_TRUE((*state)->apply_inventory_transaction(
         peer,
@@ -155,10 +160,9 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndKeepsToolTag
     EXPECT_EQ(updated_inventory->slots[0].item_id, "iron");
     EXPECT_EQ(updated_inventory->slots[0].count, 5);
 
-    ASSERT_TRUE((*state)->replace_trusted_held_tool_tags(peer, {"hammer", "axe", "hammer"}));
-    auto tags = (*state)->held_tool_tags_for_peer(peer);
-    ASSERT_TRUE(tags) << tags.error().format();
-    EXPECT_EQ(*tags, (std::vector<std::string>{"axe", "hammer"}));
+    auto main_hand_item_id = (*state)->main_hand_item_id_for_peer(peer);
+    ASSERT_TRUE(main_hand_item_id) << main_hand_item_id.error().format();
+    EXPECT_EQ(*main_hand_item_id, "iron_pickaxe");
 
     (*state)->on_peer_disconnected(peer, "test disconnect");
     const auto offline_mutation = (*state)->apply_inventory_transaction(

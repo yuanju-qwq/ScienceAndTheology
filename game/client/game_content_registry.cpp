@@ -549,20 +549,14 @@ void api_register_machine(const std::string& id,
 
 void api_register_machine_placement(const std::string& item_id,
                                     const std::string& machine_id,
-                                    int material_id) {
+                                    const std::string& material_key) {
     GameContentRegistry* registry = active_registry();
     if (!registry) return;
-    if (material_id <= 0 || material_id > std::numeric_limits<uint8_t>::max()) {
-        report_binding_error(snt::core::Error{
-            snt::core::ErrorCode::kInvalidArgument,
-            "Machine placement material id must be a non-air terrain material"});
-        return;
-    }
     if (auto result = registry->register_script_machine_placement(
             g_active_script_id,
             {.item_id = item_id,
              .machine_id = machine_id,
-             .material_id = static_cast<uint32_t>(material_id)});
+             .material_key = material_key});
         !result) {
         report_binding_error(result.error());
     }
@@ -807,7 +801,7 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             asFUNCTION(api_register_machine)); !result) return result;
     if (auto result = register_function(
             engine,
-            "void snt_register_machine_placement(const string &in, const string &in, int)",
+            "void snt_register_machine_placement(const string &in, const string &in, const string &in)",
             asFUNCTION(api_register_machine_placement)); !result) return result;
     if (auto result = register_function(
             engine,
@@ -1936,9 +1930,9 @@ const MachinePlacementDefinition* GameContentRegistry::find_machine_placement_by
     return machine_placements_.find_by_item(item_id);
 }
 
-const MachinePlacementDefinition* GameContentRegistry::find_machine_placement_by_material(
-    uint32_t material_id) const noexcept {
-    return machine_placements_.find_by_material(material_id);
+const MachinePlacementDefinition* GameContentRegistry::find_machine_placement_by_material_key(
+    std::string_view material_key) const noexcept {
+    return machine_placements_.find_by_material_key(material_key);
 }
 
 std::vector<MachinePlacementDefinition> GameContentRegistry::machine_placement_definitions() const {
@@ -2120,6 +2114,7 @@ std::optional<std::string> GameContentRegistry::get_state(ScriptId script_id,
 }
 
 snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) {
+    if (reload_batch_) return invalid_state("Cannot start a single-script reload during a reload batch");
     if (script_id == kBuiltinScriptId) return invalid_argument("Built-in content cannot be reloaded as a script");
     if (reloads_.contains(script_id)) return invalid_state("Reload is already active for script");
 
@@ -2141,6 +2136,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
 }
 
 snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id) {
+    if (reload_batch_) return invalid_state("Cannot commit a single-script reload during a reload batch");
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
     // All material changes made during a registration transaction become
@@ -2163,6 +2159,7 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
 }
 
 snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_id) {
+    if (reload_batch_) return invalid_state("Cannot roll back a single-script reload during a reload batch");
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
 
@@ -2178,7 +2175,126 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
+    std::span<const ScriptId> script_ids) {
+    if (reload_batch_) return invalid_state("A game content reload batch is already active");
+    if (script_ids.empty()) return invalid_argument("Game content reload batch must not be empty");
+
+    std::set<ScriptId> unique_ids;
+    for (const ScriptId script_id : script_ids) {
+        if (script_id == kBuiltinScriptId) {
+            return invalid_argument("Built-in content cannot be reloaded as a script");
+        }
+        if (!unique_ids.insert(script_id).second) {
+            return invalid_argument("Game content reload batch contains a duplicate ScriptId");
+        }
+        if (reloads_.contains(script_id)) {
+            return invalid_state("A game content script reload is already active");
+        }
+    }
+    if (auto result = machine_placements_.begin_reload_batch(script_ids); !result) {
+        return result.error();
+    }
+
+    std::vector<ScriptId> started;
+    started.reserve(script_ids.size());
+    for (const ScriptId script_id : script_ids) {
+        auto [reload, inserted] = reloads_.emplace(script_id, snapshot_script_content(script_id));
+        (void)reload;
+        if (!inserted) {
+            static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
+            for (auto it = started.rbegin(); it != started.rend(); ++it) {
+                const auto snapshot = reloads_.find(*it);
+                static_cast<void>(erase_script_content(*it));
+                static_cast<void>(restore_script_content(snapshot->second));
+                reloads_.erase(snapshot);
+            }
+            return invalid_state("Game content reload batch could not create a script snapshot");
+        }
+        if (auto result = erase_script_content(script_id); !result) {
+            auto error = result.error();
+            static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
+            for (auto it = started.rbegin(); it != started.rend(); ++it) {
+                const auto snapshot = reloads_.find(*it);
+                static_cast<void>(erase_script_content(*it));
+                static_cast<void>(restore_script_content(snapshot->second));
+                reloads_.erase(snapshot);
+            }
+            const auto failed_snapshot = reloads_.find(script_id);
+            if (failed_snapshot != reloads_.end()) {
+                static_cast<void>(restore_script_content(failed_snapshot->second));
+                reloads_.erase(failed_snapshot);
+            }
+            error.with_context("Game content reload batch could not remove prior script content");
+            return error;
+        }
+        started.push_back(script_id);
+    }
+
+    reload_batch_ = ReloadBatch{
+        .script_ids = std::vector<ScriptId>(script_ids.begin(), script_ids.end()),
+        .quest_content_revision = quest_content_revision_,
+    };
+    SNT_LOG_DEBUG("Game content began transactional reload batch with %zu script(s)",
+                  script_ids.size());
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
+    std::span<const ScriptId> script_ids) {
+    if (!matches_active_reload_batch(script_ids)) {
+        return invalid_state("No matching active game content reload batch");
+    }
+    if (auto result = rebuild_generated_material_items(); !result) return result.error();
+    if (auto result = validate_machine_placement_references(); !result) return result.error();
+    if (auto result = validate_machine_item_references(); !result) return result.error();
+    if (auto result = publish_item_runtime_index(); !result) return result.error();
+    if (auto result = machine_placements_.commit_reload_batch(script_ids); !result) {
+        return result.error();
+    }
+    for (const ScriptId script_id : script_ids) reloads_.erase(script_id);
+    reload_batch_.reset();
+    SNT_LOG_INFO("Game content committed reload batch with %zu script(s) item_generation=%llu",
+                 script_ids.size(),
+                 static_cast<unsigned long long>(item_runtime_index_.generation()));
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::rollback_reload_batch(
+    std::span<const ScriptId> script_ids) {
+    if (!matches_active_reload_batch(script_ids)) {
+        return invalid_state("No matching active game content reload batch");
+    }
+    const auto first_snapshot = reloads_.find(script_ids.front());
+    if (first_snapshot == reloads_.end()) {
+        return invalid_state("Game content reload batch lost its first script snapshot");
+    }
+    const auto item_runtime_index = first_snapshot->second.item_runtime_index;
+    const uint64_t item_content_revision = first_snapshot->second.item_content_revision;
+    const uint64_t quest_content_revision = reload_batch_->quest_content_revision;
+
+    if (auto result = machine_placements_.rollback_reload_batch(script_ids); !result) {
+        return result.error();
+    }
+    for (auto it = script_ids.rbegin(); it != script_ids.rend(); ++it) {
+        const auto snapshot = reloads_.find(*it);
+        if (snapshot == reloads_.end()) {
+            return invalid_state("Game content reload batch lost a script snapshot");
+        }
+        if (auto result = erase_script_content(*it); !result) return result.error();
+        if (auto result = restore_script_content(snapshot->second); !result) return result.error();
+    }
+    item_runtime_index_.restore(item_runtime_index);
+    item_content_revision_ = item_content_revision;
+    quest_content_revision_ = quest_content_revision;
+    for (const ScriptId script_id : script_ids) reloads_.erase(script_id);
+    reload_batch_.reset();
+    SNT_LOG_WARN("Game content rolled back reload batch with %zu script(s)", script_ids.size());
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id) {
+    if (reload_batch_) return invalid_state("Cannot unload a script during a game content reload batch");
     if (script_id == kBuiltinScriptId) return invalid_argument("Built-in content cannot be unloaded as a script");
     if (reloads_.contains(script_id)) return invalid_state("Cannot unload a script during its active reload");
 
@@ -2227,6 +2343,7 @@ void GameContentRegistry::reset() {
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();
+    reload_batch_.reset();
     const std::vector<std::string_view> no_item_keys;
     if (auto result = item_runtime_index_.rebuild(no_item_keys); !result) {
         SNT_LOG_ERROR("Failed to publish an empty game item runtime index during reset: %s",
@@ -2356,7 +2473,7 @@ snt::core::Expected<void> GameContentRegistry::erase_script_content(ScriptId scr
     return rebuild_generated_material_items();
 }
 
- snt::core::Expected<void> GameContentRegistry::restore_script_content(
+snt::core::Expected<void> GameContentRegistry::restore_script_content(
     const ReloadSnapshot& snapshot) {
     for (const auto& [id, entry] : snapshot.materials) live_materials_[id] = entry;
     for (const auto& [id, entry] : snapshot.items) live_items_[id] = entry;
@@ -2370,6 +2487,15 @@ snt::core::Expected<void> GameContentRegistry::erase_script_content(ScriptId scr
         sort_event_listeners(listener.event_name);
     }
     return rebuild_generated_material_items();
+}
+
+bool GameContentRegistry::matches_active_reload_batch(
+    std::span<const ScriptId> script_ids) const noexcept {
+    if (!reload_batch_ || reload_batch_->script_ids.size() != script_ids.size()) return false;
+    for (size_t index = 0; index < script_ids.size(); ++index) {
+        if (reload_batch_->script_ids[index] != script_ids[index]) return false;
+    }
+    return true;
 }
 
 void GameContentRegistry::sort_event_listeners(std::string_view event_name) {

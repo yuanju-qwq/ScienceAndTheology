@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace snt::ecs {
@@ -28,7 +29,10 @@ namespace snt::game {
 class GameChunkSidecarRegistry;
 class GameContentRegistry;
 class IBlockPhysicsTrigger;
+class IFluidTrigger;
 class MachineInteractionService;
+struct TerrainMaterialDef;
+struct WorldGenConfigSnapshot;
 }
 
 namespace snt::game::replication {
@@ -42,17 +46,22 @@ class GameServerInventoryReplication;
 // get to write arbitrary terrain material or flag combinations into saves.
 struct GameServerBlockDefinition {
     std::string item_id;
-    uint32_t material_id = 0;
-    uint32_t placement_flags = 0;
+    // Authored placement definitions use a semantic terrain key. The shared
+    // immutable worldgen snapshot resolves its compact runtime ID and flags.
+    std::string material_key;
     bool is_bed = false;
 };
 
 struct GameServerPlayerInteractionConfig {
-    uint32_t air_material_id = 0;
+    // The simulation session owns this immutable snapshot for the entire
+    // interaction-service lifetime. Every terrain mutation and mining rule
+    // derives from it instead of a second, partially duplicated catalog.
+    const WorldGenConfigSnapshot* worldgen_config = nullptr;
     uint32_t reserved_grave_material_id = 255;
     // The shared simulation owns delayed terrain physics. The interaction
     // transaction calls this only after its terrain and inventory commit.
     IBlockPhysicsTrigger* block_physics_trigger = nullptr;
+    IFluidTrigger* fluid_trigger = nullptr;
     std::vector<GameServerBlockDefinition> block_definitions;
 };
 
@@ -165,9 +174,11 @@ private:
         const std::string& item_id) const noexcept;
     [[nodiscard]] const GameServerBlockDefinition* find_block_by_material(
         uint32_t material_id) const noexcept;
+    [[nodiscard]] const TerrainMaterialDef* find_terrain_material(
+        std::string_view material_key) const noexcept;
     [[nodiscard]] snt::core::Expected<void> mark_player_state_dirty(
         const GameAuthenticatedPeer& peer);
-    void schedule_block_physics_after_commit(
+    void schedule_terrain_simulation_after_commit(
         const GameBlockInteractionCommand& command, uint64_t tick_index) const;
     void emit_event(GameServerPlayerInteractionEvent event) const;
 

@@ -3,9 +3,11 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
+#include "core/expected.h"
 #include "game/world/defs/crop_species_def.h"
 #include "game/world/defs/resource_types.h"
 #include "game/world/defs/tree_species_def.h"
@@ -15,7 +17,6 @@ namespace snt::game {
 
 struct TerrainDropDef {
     std::string item_key;
-    ItemId item_id = kInvalidItemId;
     int count = 1;
     int min_count = 1;
     int max_count = 1;
@@ -23,6 +24,9 @@ struct TerrainDropDef {
 };
 
 struct TerrainMaterialDef {
+    // Assigned only by finalize_world_gen_config(). A draft must leave this
+    // zero; content registration owns the semantic key and never chooses this
+    // transient runtime value.
     TerrainMaterialId id = 0;
     std::string key;
     std::string title_key;
@@ -68,6 +72,8 @@ struct TerrainOverlayLayer {
 
 // Visual definition for a single terrain material in 3D rendering.
 struct TerrainMaterialVisualDef {
+    // Derived from material_key by finalize_world_gen_config(). A draft must
+    // leave this zero so visual registration cannot inject a runtime ID.
     TerrainMaterialId material_id = 0;
     std::string material_key;
     std::string dimension_id = "overworld";
@@ -114,6 +120,26 @@ struct TerrainMaterialRoles {
     TerrainMaterialId ice = 0;
 };
 
+// Declarative role bindings authored by game content. Finalization resolves
+// them after the complete terrain key set has received deterministic IDs.
+struct TerrainMaterialRoleKeys {
+    std::string air;
+    std::string stone;
+    std::string dirt;
+    std::string sand;
+    std::string water;
+    std::string lava;
+    std::string ore_iron;
+    std::string ore_copper;
+    std::string ore_coal;
+    std::string wood;
+    std::string leaves;
+    std::string deepstone;
+    std::string core_barrier;
+    std::string snow;
+    std::string ice;
+};
+
 // Runtime material IDs for blocks placed by players, NOT by terrain generation.
 // These are resolved from the same material registry but are not consumed
 // by any terrain pass. The command server uses these to write terrain cells.
@@ -123,6 +149,17 @@ struct RuntimeMaterialIds {
     TerrainMaterialId fence = 0;
     TerrainMaterialId farmland = 0;
     TerrainMaterialId bloomery = 0;
+};
+
+// Runtime-only material roles still use semantic keys at registration time.
+// They are resolved with the ordinary terrain catalog, so player placement
+// cannot reserve or inject numeric terrain IDs.
+struct RuntimeMaterialKeyRoles {
+    std::string ladder;
+    std::string workbench;
+    std::string fence;
+    std::string farmland;
+    std::string bloomery;
 };
 
 struct BaseTerrainRule {
@@ -330,14 +367,16 @@ struct PlanetConfig {
 };
 
 struct WorldGenConfigSnapshot {
-    static constexpr uint32_t kSchemaVersion = 9;
+    static constexpr uint32_t kSchemaVersion = 10;
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
     std::vector<TerrainMaterialDef> materials;
     std::vector<TerrainMaterialVisualDef> material_visuals;
     TerrainMaterialRoles roles;
+    TerrainMaterialRoleKeys role_keys;
     RuntimeMaterialIds runtime_ids;
+    RuntimeMaterialKeyRoles runtime_material_keys;
     std::vector<BaseTerrainRule> base_terrain_rules;
     std::vector<BiomeRule> biome_rules;
     std::vector<OreVeinGroup> ore_vein_groups;
@@ -346,7 +385,7 @@ struct WorldGenConfigSnapshot {
     std::vector<TreeSpeciesDef> tree_species;
     std::vector<CropSpeciesDef> crop_species;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key;
-    std::unordered_map<int, std::string> material_keys_by_id;
+    std::unordered_map<TerrainMaterialId, std::string> material_keys_by_id;
 
     const TerrainMaterialDef* find_material(TerrainMaterialId id) const;
     const TerrainMaterialDef* find_material(const std::string& key) const;
@@ -381,6 +420,16 @@ struct WorldGenConfigSnapshot {
 };
 
 std::shared_ptr<const WorldGenConfigSnapshot> make_empty_world_gen_config();
+// Canonical terrain keys use the same ASCII content-key rules as item keys.
+// Registration supplies keys only; runtime IDs are generated after the
+// complete key set is known.
+[[nodiscard]] snt::core::Expected<std::string> normalize_terrain_material_key(
+    std::string_view key);
+// Freezes an unfinalized terrain catalog draft. It normalizes all keys, sorts
+// the complete set, assigns contiguous TerrainMaterialIds, and resolves all
+// semantic role bindings. Call this before publishing a snapshot.
+[[nodiscard]] snt::core::Expected<void> finalize_world_gen_config(
+    WorldGenConfigSnapshot& config);
 uint64_t hash_world_gen_config(const WorldGenConfigSnapshot& config);
 
-} // namespace science_and_theology
+}  // namespace snt::game

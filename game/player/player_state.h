@@ -73,15 +73,6 @@ struct GamePlayerEquipment {
                            const GamePlayerEquipment&) = default;
 };
 
-// Tool tags are resolved by trusted gameplay code from the equipped item;
-// clients never submit this value as part of an interaction command.
-struct GamePlayerToolState {
-    std::vector<std::string> held_tool_tags;
-
-    friend bool operator==(const GamePlayerToolState&,
-                           const GamePlayerToolState&) = default;
-};
-
 // The source-law subsystem owns interpretation of this payload. Keeping a
 // schema discriminator here lets player persistence preserve organs before a
 // concrete organ simulation exists, without exposing old source-law classes.

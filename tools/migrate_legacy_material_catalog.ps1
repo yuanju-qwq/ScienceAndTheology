@@ -68,6 +68,23 @@ $catalog = [regex]::Replace($catalog, '"gen_flags"\s*:\s*([^,}]+)', {
 $catalog = [regex]::Replace($catalog, ",\s*\]", "]")
 $materials = $catalog | ConvertFrom-Json
 
+$compoundStartMarker = "const _ALL_COMPOUNDS := ["
+$compoundEndMarker = "# Convenience constants"
+$compoundStart = $raw.IndexOf($compoundStartMarker, [System.StringComparison]::Ordinal)
+$compoundEnd = $raw.IndexOf($compoundEndMarker, [System.StringComparison]::Ordinal)
+if ($compoundStart -lt 0 -or $compoundEnd -le $compoundStart) {
+    throw "Could not locate the legacy material compound catalog."
+}
+
+$compoundCatalog = $raw.Substring(
+    $compoundStart + $compoundStartMarker.Length,
+    $compoundEnd - $compoundStart - $compoundStartMarker.Length)
+$compoundCatalog = "[" + $compoundCatalog.Substring(0, $compoundCatalog.LastIndexOf("]")) + "]"
+$compoundCatalog = [regex]::Replace($compoundCatalog, "(?m)^\s*#.*(?:\r?\n|$)", "")
+$compoundCatalog = [regex]::Replace($compoundCatalog, "(?m)\s+#.*$", "")
+$compoundCatalog = [regex]::Replace($compoundCatalog, ",\s*\]", "]")
+$compounds = $compoundCatalog | ConvertFrom-Json
+
 $invariant = [System.Globalization.CultureInfo]::InvariantCulture
 function Escape-AngelScriptString([string]$Value) {
     return $Value.Replace("\\", "\\\\").Replace('"', '\"')
@@ -78,7 +95,7 @@ function Format-Float([double]$Value) {
 
 $lines = [System.Collections.Generic.List[string]]::new()
 $lines.Add("// Generated from the retired Godot material catalog. This file is game-owned")
-$lines.Add("// AngelScript content: material physics and generated form definitions.")
+$lines.Add("// AngelScript content: material physics, generated forms, and compound item keys.")
 $lines.Add("void snt_register() {")
 foreach ($material in $materials) {
     $line = '    snt_register_material("{0}", "{1}", {2}, {3}, {4}, {5}, {6}, {7}, "{8}");' -f `
@@ -100,15 +117,42 @@ foreach ($material in $materials) {
     }
 }
 
+# Legacy compounds were registered as string-keyed dynamic items after the
+# material forms had been finalized. Preserve those keys in the game catalog
+# with a generic material presentation so MUI can render them without Godot.
+foreach ($compound in $compounds) {
+    $itemKey = [string]$compound[0]
+    $titleKey = ""
+    if ($compound.Count -gt 1) {
+        $titleKey = [string]$compound[1]
+    }
+    if ([string]::IsNullOrWhiteSpace($titleKey)) {
+        $titleKey = "item.compound." + $itemKey.Replace(".", "_")
+    }
+    $iconPath = if ($itemKey.StartsWith("crushed.", [System.StringComparison]::Ordinal)) {
+        "material_sets/generic/crushed_base_32.png"
+    } else {
+        "material_sets/generic/dust_base_32.png"
+    }
+    $lines.Add(('    snt_register_item("{0}", "{1}", 64);' -f `
+        (Escape-AngelScriptString $itemKey),
+        (Escape-AngelScriptString $titleKey)))
+    $lines.Add(('    snt_set_item_presentation("{0}", 0, "{1}", "", 11579568, true);' -f `
+        (Escape-AngelScriptString $itemKey),
+        (Escape-AngelScriptString $iconPath)))
+}
+
 # Legacy special forms used semantic icons rather than a generic tinted base.
 $lines.Add('    snt_set_material_form_presentation("wood", 0, "item.wood_log", 64, "materials/wood_log_icon_32.png", "", 16777215, false);')
 $lines.Add('    snt_set_material_form_presentation("wood", 16, "item.wood_plank", 64, "materials/wood_plank_icon_32.png", "", 16777215, false);')
 $lines.Add('    snt_set_material_form_presentation("wood", 19, "item.stick", 64, "materials/stick_icon_32.png", "", 16777215, false);')
 $lines.Add('    snt_set_material_form_presentation("coal", 8, "item.coal", 64, "material_sets/generic/gem_base_32.png", "", 1710618, true);')
-$lines.Add('    snt_log("Registered migrated material physics catalog: ' + $materials.Count + ' materials");')
+$lines.Add('    snt_log("Registered migrated material physics catalog: ' +
+    $materials.Count + ' materials and ' + $compounds.Count + ' compound items");')
 $lines.Add("}")
 
 $directory = Split-Path -Parent $Destination
 New-Item -ItemType Directory -Force -Path $directory | Out-Null
 Set-Content -LiteralPath $Destination -Value $lines -Encoding utf8
-Write-Output ("Generated {0} material definitions at {1}" -f $materials.Count, $Destination)
+Write-Output ("Generated {0} material definitions and {1} compound items at {2}" -f `
+    $materials.Count, $compounds.Count, $Destination)

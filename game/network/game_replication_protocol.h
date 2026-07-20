@@ -23,7 +23,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 13;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 14;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -289,6 +289,10 @@ struct GameBlockDelta {
     uint16_t local_index = 0;
     snt::voxel::TerrainMaterialId material = 0;
     uint32_t flags = 0;
+    snt::voxel::CellFluidId fluid_type = snt::voxel::kInvalidCellFluidId;
+    int16_t fluid_mass = 0;
+    int16_t fluid_temperature = 300;
+    bool fluid_is_gas = false;
 };
 
 struct GameChunkDelta {
