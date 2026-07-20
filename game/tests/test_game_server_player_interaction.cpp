@@ -15,12 +15,14 @@
 #include "game/simulation/block_physics_events.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/world/game_chunk.h"
-#include "game/worldgen/default_worldgen_config.h"
+#include "game/worldgen/world_gen_config.h"
+#include "game/tests/worldgen_script_test_util.h"
 #include "voxel/data/chunk_registry.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -75,8 +77,11 @@ GamePlayerWorldPosition position(int x, int y, int z) {
 }
 
 const snt::game::WorldGenConfigSnapshot& interaction_worldgen_config() {
-    static const std::shared_ptr<const snt::game::WorldGenConfigSnapshot> config =
-        snt::game::make_default_game_worldgen_config();
+    static const std::shared_ptr<const snt::game::WorldGenConfigSnapshot> config = [] {
+        auto built = snt::game::test::build_packaged_worldgen_config();
+        if (!built) throw std::runtime_error(built.error().format());
+        return *built;
+    }();
     return *config;
 }
 

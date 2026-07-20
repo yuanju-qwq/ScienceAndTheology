@@ -28,6 +28,8 @@ struct GameSceneConfig {
 };
 
 struct GameScriptConfig {
+    // World generation always loads `50_worldgen_catalog.as`; this controls
+    // the remaining gameplay content modules and their file watcher.
     bool enabled = true;
     bool watch_for_changes = true;
     std::string root = "scripts";

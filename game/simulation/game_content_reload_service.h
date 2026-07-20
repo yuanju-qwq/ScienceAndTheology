@@ -26,6 +26,7 @@ enum class GameContentReloadTarget : uint8_t {
     kMachines,
     kRecipes,
     kQuests,
+    kWorldGeneration,
 };
 
 struct GameContentReloadTargetInfo {

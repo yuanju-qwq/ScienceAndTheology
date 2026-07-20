@@ -10,8 +10,8 @@
 #include "game/simulation/game_fluid_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/simulation/tree_growth_system.h"
+#include "game/simulation/worldgen_script_content.h"
 #include "game/world/save/world_persistence_lifecycle.h"
-#include "game/worldgen/default_worldgen_config.h"
 
 #include "core/log.h"
 #include "engine/simulation_services.h"
@@ -129,8 +129,6 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
                 .universe_mode = config_.persistence.universe_mode,
             });
     }
-    if (!config_.scripts.enabled) return {};
-
     auto& scripts = services.scripts();
     if (auto result = scripts.set_content_host(content_registry_); !result) {
         auto error = result.error();
@@ -143,6 +141,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
         return error;
     }
     scripts_started_ = true;
+    gameplay_content_loaded_ = false;
 
     const std::filesystem::path root(services.paths().resolve_game(config_.scripts.root));
     if (auto result = content_reload_service_.configure(root); !result) {
@@ -153,18 +152,33 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::register_content(
     scripts.set_file_change_handler(&content_reload_service_);
     std::error_code error_code;
     if (!std::filesystem::is_directory(root, error_code) || error_code) {
-        SNT_LOG_INFO("Gameplay script root not present; no modules loaded: %s", root.string().c_str());
+        return snt::core::Error{
+            snt::core::ErrorCode::kFileNotFound,
+            "World-generation script root is unavailable: " + root.string()};
+    }
+
+    if (config_.scripts.enabled) {
+        const auto result = config_.scripts.watch_for_changes
+            ? scripts.watch_directory(root)
+            : scripts.load_directory(root.string());
+        if (!result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::register_content(gameplay scripts)");
+            return error;
+        }
+        gameplay_content_loaded_ = true;
         return {};
     }
 
-    const auto result = config_.scripts.watch_for_changes
-        ? scripts.watch_directory(root)
-        : scripts.load_directory(root.string());
-    if (!result) {
+    const std::filesystem::path worldgen_catalog = root / "50_worldgen_catalog.as";
+    if (auto result = scripts.load_file(worldgen_catalog.string()); !result) {
         auto error = result.error();
-        error.with_context("ScienceAndTheologySimulationSession::register_content(gameplay scripts)");
+        error.with_context(
+            "ScienceAndTheologySimulationSession::register_content(world-generation script)");
         return error;
     }
+    SNT_LOG_INFO("Loaded mandatory world-generation script while gameplay scripts are disabled");
     return {};
 }
 
@@ -181,7 +195,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         return error;
     }
 
-    if (scripts_started_) {
+    if (gameplay_content_loaded_) {
         machine_tick_system_ = std::make_shared<MachineTickSystem>(
             content_registry_, machine_tick_event_sink_);
         if (auto result = world_session.register_worker_system(machine_tick_system_); !result) {
@@ -201,11 +215,17 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
 
     world_ = &world_session.world();
     chunks_ = &world_session.chunks();
-    worldgen_config_ = make_default_game_worldgen_config();
-    if (!worldgen_config_) {
+    if (!scripts_started_) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
-                                "Game world-generation snapshot is unavailable"};
+                                "World-generation script runtime is unavailable"};
     }
+    auto worldgen_config = build_worldgen_config_from_script(services_->scripts());
+    if (!worldgen_config) {
+        auto error = worldgen_config.error();
+        error.with_context("ScienceAndTheologySimulationSession::create_world(worldgen script)");
+        return error;
+    }
+    worldgen_config_ = std::move(*worldgen_config);
     world_ready_ = false;
     bool loaded_existing_world = false;
     if (world_persistence_) {
@@ -353,6 +373,7 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
         services_->scripts().shutdown();
         scripts_started_ = false;
     }
+    gameplay_content_loaded_ = false;
     pending_content_reload_.reset();
     last_content_reload_result_.reset();
     last_content_reload_failure_.reset();

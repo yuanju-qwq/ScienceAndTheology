@@ -2,16 +2,21 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "game/chemistry/element_catalog.h"
 #include "game_content_registry.h"
 #include "game/simulation/game_content_reload_service.h"
+#include "game/simulation/worldgen_script_content.h"
+#include "game/worldgen/world_gen_config.h"
 #include "script/file_watcher.h"
 #include "script/script_manager.h"
 
@@ -22,6 +27,7 @@ namespace {
 using snt::game::GameContentRegistry;
 using snt::game::GameContentReloadService;
 using snt::game::GameContentReloadTarget;
+using snt::game::chemistry::ElementCatalog;
 using snt::script::FileChange;
 using snt::script::FileChangeKind;
 using snt::script::ScriptManager;
@@ -180,6 +186,72 @@ TEST(P7ScriptApiTest, RejectsLegacyMachineAndRecipeSignatures) {
     EXPECT_EQ(content.find_machine("legacy.machine"), nullptr);
     EXPECT_EQ(content.find_recipe("legacy.recipe"), nullptr);
     EXPECT_EQ(content.find_quest("legacy.quest"), nullptr);
+
+    scripts.shutdown();
+}
+
+TEST(P7ScriptApiTest, RejectsNonCanonicalMaterialElementSymbols) {
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+
+    EXPECT_FALSE(scripts.load_source(
+        "invalid_material_element",
+        "void snt_register() {\n"
+        "  snt_register_material(\"invalid_element\", \"material.invalid_element\", "
+        "0, 0, 0, 0, 0, 1.0f, \"Naq\");\n"
+        "  snt_add_material_element(\"invalid_element\", \"Naq\", 1);\n"
+        "}\n"));
+    EXPECT_EQ(content.find_material("invalid_element"), nullptr);
+
+    scripts.shutdown();
+}
+
+TEST(P7ScriptApiTest, RegistersImmutablePeriodicElementMaterialsBeforeScripts) {
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+
+    EXPECT_EQ(content.material_definitions().size(), 118u);
+    const auto expect_element_material = [&content](std::string_view id,
+                                                    std::string_view formula,
+                                                    uint8_t atom_count) {
+        const auto* material = content.find_material(id);
+        ASSERT_NE(material, nullptr) << id;
+        EXPECT_EQ(material->chemical_formula, formula);
+        ASSERT_EQ(material->composition.size(), 1u);
+        EXPECT_EQ(material->composition.front().count, atom_count);
+    };
+    expect_element_material("hydrogen", "H2", 2);
+    expect_element_material("carbon", "C", 1);
+    expect_element_material("chromium", "Cr", 1);
+    expect_element_material("caesium", "Cs", 1);
+    expect_element_material("iron", "Fe", 1);
+    expect_element_material("oganesson", "Og", 1);
+    EXPECT_EQ(content.find_material("chrome"), nullptr);
+    EXPECT_EQ(content.find_material("cesium"), nullptr);
+
+    scripts.shutdown();
+}
+
+TEST(P7ScriptApiTest, RejectsScriptOverrideOfImmutablePeriodicElementMaterial) {
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+
+    EXPECT_FALSE(scripts.load_source(
+        "periodic_element_override",
+        "void snt_register() {\n"
+        "  snt_register_material(\"iron\", \"material.override\", "
+        "0, 0, 0, 0, 0, 1.0f, \"Fe\");\n"
+        "}\n"));
+    EXPECT_EQ(content.material_definitions().size(), 118u);
+    const auto* iron = content.find_material("iron");
+    ASSERT_NE(iron, nullptr);
+    EXPECT_EQ(iron->title_key, "material.iron");
 
     scripts.shutdown();
 }
@@ -398,6 +470,10 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
         "  snt_register_quest(\"reload.quest\", \"reload.chapter\", \"Quest A\", \"Description\",\n"
         "                     0.0f, 0.0f, \"\", false, false);\n"
         "}\n");
+    directory.write(
+        "50_worldgen_catalog.as",
+        "void snt_register() {}\n"
+        "void snt_register_worldgen() {}\n");
 
     GameContentReloadService reload_service;
     ASSERT_TRUE(reload_service.configure(directory.root()));
@@ -419,6 +495,16 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
                   directory.root() / "20_machine_catalog.as",
                   directory.root() / "30_recipe_catalog.as",
                   directory.root() / "40_quest_catalog.as",
+              }));
+    const auto worldgen_plan = reload_service.plan(GameContentReloadTarget::kWorldGeneration);
+    ASSERT_TRUE(worldgen_plan);
+    EXPECT_EQ(worldgen_plan->expanded_targets,
+              (std::vector<GameContentReloadTarget>{
+                  GameContentReloadTarget::kWorldGeneration,
+              }));
+    EXPECT_EQ(worldgen_plan->files,
+              (std::vector<fs::path>{
+                  directory.root() / "50_worldgen_catalog.as",
               }));
 
     GameContentRegistry content;
@@ -468,9 +554,17 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
     ASSERT_NE(content.find_quest("reload.quest"), nullptr);
     EXPECT_EQ(content.find_quest("reload.quest")->title, "Quest A");
 
+    const auto worldgen_reload = reload_service.reload(
+        scripts, GameContentReloadTarget::kWorldGeneration);
+    ASSERT_TRUE(worldgen_reload);
+    EXPECT_EQ(worldgen_reload->plan.files,
+              (std::vector<fs::path>{
+                  directory.root() / "50_worldgen_catalog.as",
+              }));
+
     const auto all_reload = reload_service.reload(scripts, GameContentReloadTarget::kAll);
     ASSERT_TRUE(all_reload);
-    EXPECT_EQ(all_reload->plan.expanded_targets.size(), 5u);
+    EXPECT_EQ(all_reload->plan.expanded_targets.size(), 6u);
     ASSERT_NE(content.find_item("reload.input"), nullptr);
     EXPECT_EQ(content.find_item("reload.input")->title_key, "item.reload_input_b");
     ASSERT_NE(content.find_quest("reload.quest"), nullptr);
@@ -496,6 +590,48 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
     scripts.shutdown();
 }
 
+TEST(WorldgenScriptReloadTest, PublishesChangesOnlyToTheNextWorldSnapshot) {
+    const auto worldgen_source = [](float hardness) {
+        return "void snt_register() {}\n"
+               "void snt_register_worldgen() {\n"
+               "  snt_register_worldgen_material(\"snt:air\", \"terrain.air\", 0, 0.0f, \"\", 0, 0.3f, 5, \"\");\n"
+               "  snt_register_worldgen_material(\"snt:stone\", \"terrain.stone\", 10, " +
+               std::to_string(hardness) +
+               "f, \"pickaxe\", 0, 0.3f, 5, \"\");\n"
+               "  snt_register_worldgen_base_terrain_rule(\n"
+               "      \"overworld\", \"solid\", \"snt:stone\", \"snt:stone\", \"snt:stone\", \"snt:air\",\n"
+               "      0.02f, 4, 0.05f, 3, -0.25f, 0.3f, 0.55f, 0.04f, 4, 0.35f, 0.25f);\n"
+               "}\n";
+    };
+
+    TempScriptDirectory directory("worldgen_reload");
+    directory.write("50_worldgen_catalog.as", worldgen_source(1.0f));
+
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+    ASSERT_TRUE(scripts.load_directory(directory.root().string()));
+
+    auto first_snapshot = snt::game::build_worldgen_config_from_script(scripts);
+    ASSERT_TRUE(first_snapshot) << first_snapshot.error().format();
+    ASSERT_NE((*first_snapshot)->find_material("snt:stone"), nullptr);
+    EXPECT_FLOAT_EQ((*first_snapshot)->find_material("snt:stone")->hardness, 1.0f);
+
+    GameContentReloadService reload_service;
+    ASSERT_TRUE(reload_service.configure(directory.root()));
+    directory.write("50_worldgen_catalog.as", worldgen_source(2.0f));
+    ASSERT_TRUE(reload_service.reload(scripts, GameContentReloadTarget::kWorldGeneration));
+
+    auto second_snapshot = snt::game::build_worldgen_config_from_script(scripts);
+    ASSERT_TRUE(second_snapshot) << second_snapshot.error().format();
+    ASSERT_NE((*second_snapshot)->find_material("snt:stone"), nullptr);
+    EXPECT_FLOAT_EQ((*second_snapshot)->find_material("snt:stone")->hardness, 2.0f);
+    EXPECT_FLOAT_EQ((*first_snapshot)->find_material("snt:stone")->hardness, 1.0f);
+
+    scripts.shutdown();
+}
+
 TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
     GameContentRegistry content;
     ScriptManager scripts;
@@ -506,7 +642,46 @@ TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
     ASSERT_FALSE(source.empty());
     ASSERT_TRUE(scripts.load_source("material_catalog", source));
 
-    EXPECT_EQ(content.material_definitions().size(), 258u);
+    EXPECT_EQ(content.material_definitions().size(), 304u);
+
+    std::set<std::string> registered_element_symbols;
+    for (const auto& material : content.material_definitions()) {
+        for (const auto& element : material.composition) {
+            const auto* definition = ElementCatalog::find(element.element);
+            ASSERT_NE(definition, nullptr);
+            registered_element_symbols.emplace(definition->symbol);
+        }
+    }
+    EXPECT_EQ(registered_element_symbols.size(), 118u);
+
+    const std::array<std::pair<std::string_view, std::string_view>, 45>
+        completed_elements = {{
+            {"technetium", "Tc"}, {"cerium", "Ce"}, {"praseodymium", "Pr"},
+            {"neodymium", "Nd"}, {"promethium", "Pm"}, {"samarium", "Sm"},
+            {"europium", "Eu"}, {"gadolinium", "Gd"}, {"terbium", "Tb"},
+            {"dysprosium", "Dy"}, {"holmium", "Ho"}, {"erbium", "Er"},
+            {"thulium", "Tm"}, {"ytterbium", "Yb"}, {"lutetium", "Lu"},
+            {"astatine", "At"}, {"francium", "Fr"}, {"radium", "Ra"},
+            {"actinium", "Ac"}, {"protactinium", "Pa"}, {"neptunium", "Np"},
+            {"americium", "Am"}, {"curium", "Cm"}, {"berkelium", "Bk"},
+            {"californium", "Cf"}, {"einsteinium", "Es"}, {"fermium", "Fm"},
+            {"mendelevium", "Md"}, {"nobelium", "No"}, {"lawrencium", "Lr"},
+            {"rutherfordium", "Rf"}, {"dubnium", "Db"}, {"seaborgium", "Sg"},
+            {"bohrium", "Bh"}, {"hassium", "Hs"}, {"meitnerium", "Mt"},
+            {"darmstadtium", "Ds"}, {"roentgenium", "Rg"}, {"copernicium", "Cn"},
+            {"nihonium", "Nh"}, {"flerovium", "Fl"}, {"moscovium", "Mc"},
+            {"livermorium", "Lv"}, {"tennessine", "Ts"}, {"oganesson", "Og"},
+        }};
+    for (const auto& [id, symbol] : completed_elements) {
+        const auto* element = content.find_material(id);
+        ASSERT_NE(element, nullptr) << id;
+        EXPECT_EQ(element->chemical_formula, symbol);
+        ASSERT_EQ(element->composition.size(), 1u) << id;
+        const auto* definition = ElementCatalog::find(element->composition.front().element);
+        ASSERT_NE(definition, nullptr) << id;
+        EXPECT_EQ(definition->symbol, symbol) << id;
+        EXPECT_EQ(element->composition.front().count, 1u) << id;
+    }
 
     const auto* iron = content.find_material("iron");
     ASSERT_NE(iron, nullptr);
@@ -514,10 +689,12 @@ TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
     EXPECT_EQ(iron->color_rgb, 0xc8b0a0u);
     EXPECT_EQ(iron->melting_point_kelvin, 1811);
     EXPECT_EQ(iron->boiling_point_kelvin, 3134);
-    EXPECT_FLOAT_EQ(iron->mass, 55.8f);
+    EXPECT_FLOAT_EQ(iron->mass, 55.845f);
     EXPECT_EQ(iron->chemical_formula, "Fe");
     ASSERT_EQ(iron->composition.size(), 1u);
-    EXPECT_EQ(iron->composition.front().symbol, "Fe");
+    const auto* iron_element = ElementCatalog::find(iron->composition.front().element);
+    ASSERT_NE(iron_element, nullptr);
+    EXPECT_EQ(iron_element->symbol, "Fe");
     EXPECT_EQ(iron->composition.front().count, 1u);
 
     const auto* iron_ingot = content.find_item("ingot.iron");

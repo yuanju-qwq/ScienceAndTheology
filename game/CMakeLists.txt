@@ -20,9 +20,6 @@ target_link_libraries(snt_game_world_data PUBLIC
 )
 
 add_library(snt_game_worldgen STATIC
-    worldgen/builtin_terrain_content.cpp
-    worldgen/default_worldgen_config.cpp
-    worldgen/builtin_terrain_material_catalog.cpp
     worldgen/noise_generator.cpp
     worldgen/world_gen_config.cpp
     worldgen/terrain_generator.cpp
@@ -102,6 +99,19 @@ target_link_libraries(snt_game_localization PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# Canonical chemistry facts are immutable game data. Script-owned materials
+# and Mod content depend on this boundary but cannot mutate it.
+add_library(snt_game_chemistry STATIC
+    chemistry/element_catalog.cpp
+)
+target_include_directories(snt_game_chemistry PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_chemistry PUBLIC
+    snt_engine_settings
+    snt_core
+)
+
 # Game-owned authoritative replication semantics. This target stays headless:
 # snt_network owns transport framing while this module owns game message
 # versions, authenticated command admission, and AOI/snapshot value contracts.
@@ -132,6 +142,7 @@ target_link_libraries(snt_game_network PUBLIC
 # dedicated server link this target; it has no SDL, Vulkan, renderer, player,
 # scene, or UI dependency.
 add_library(snt_game_simulation STATIC
+    chemistry/builtin_element_material_catalog.cpp
     client/game_session_config.cpp
     client/demo_world_bootstrap.cpp
     client/game_content_registry.cpp
@@ -150,6 +161,7 @@ add_library(snt_game_simulation STATIC
     simulation/science_and_theology_simulation_session.cpp
     simulation/season_cycle.cpp
     simulation/tree_growth_system.cpp
+    simulation/worldgen_script_content.cpp
 )
 target_include_directories(snt_game_simulation PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -163,6 +175,7 @@ target_link_libraries(snt_game_simulation PUBLIC
     snt_voxel_data
     snt_game_world_data
     snt_game_worldgen
+    snt_game_chemistry
 )
 target_link_libraries(snt_game_simulation PRIVATE
     nlohmann_json::nlohmann_json
@@ -283,6 +296,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # Keep their tests on the same small closure so script/content reload work
     # can be validated without the client, transport, or server test sources.
     add_executable(snt_game_content_tests
+        tests/test_element_catalog.cpp
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp

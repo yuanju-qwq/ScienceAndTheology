@@ -174,6 +174,7 @@ private:
     snt::voxel::ChunkRegistry* chunks_ = nullptr;
     bool world_ready_ = false;
     bool scripts_started_ = false;
+    bool gameplay_content_loaded_ = false;
 };
 
 }  // namespace snt::game

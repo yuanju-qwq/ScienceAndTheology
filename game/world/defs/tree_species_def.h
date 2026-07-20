@@ -19,8 +19,8 @@ namespace snt::game {
 //   - What it produces (wood material, leaves material, fruit item)
 //   - How it grows (growth ticks per stage, whether it's evergreen)
 //
-// Species are registered by game/worldgen/builtin_terrain_content.cpp and
-// consumed by the C++ terrain generator and GameTreeGrowthSystem.
+// Species are authored by game/scripts/50_worldgen_catalog.as and consumed by
+// the C++ terrain generator and GameTreeGrowthSystem.
 
 // Canopy shape determines how pass_surface_objects places leaf blocks.
 enum class CanopyShape : uint8_t {

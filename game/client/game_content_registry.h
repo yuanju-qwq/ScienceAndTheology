@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "core/runtime_key_index.h"
+#include "game/chemistry/element_catalog.h"
 #include "game/simulation/machine_placement_registry.h"
 #include "script/content_host.h"
 
@@ -123,7 +124,9 @@ enum class GameToolType : uint8_t {
 };
 
 struct GameMaterialElement {
-    std::string symbol;
+    // The script boundary accepts a symbol, then resolves it once to this
+    // canonical atomic-number ID. Runtime content never stores that string.
+    chemistry::ElementId element;
     uint8_t count = 0;
 };
 
@@ -337,8 +340,10 @@ public:
     void reset() override;
 
     // Built-in registrations are fallback values restored when a script
-    // override unloads. Game bootstrapping code may use them before scripts.
-    snt::core::Expected<void> register_builtin_material(GameMaterialDefinition definition);
+    // override unloads. Materials are batched so one immutable catalog causes
+    // one generated-form rebuild and one runtime-index publication.
+    snt::core::Expected<void> register_builtin_materials(
+        std::span<const GameMaterialDefinition> definitions);
     snt::core::Expected<void> register_builtin_item(GameItemDefinition definition);
     snt::core::Expected<void> register_builtin_recipe(RecipeDefinition definition);
     snt::core::Expected<void> register_builtin_machine(MachineDefinition definition);

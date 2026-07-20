@@ -6,11 +6,10 @@
 #include "game/world/save/chunk_serializer.h"
 #include "game/world/save/save_manager.h"
 #include "game/world/save/world_persistence_lifecycle.h"
-#include "game/worldgen/builtin_terrain_content.h"
-#include "game/worldgen/default_worldgen_config.h"
 #include "game/worldgen/noise_generator.h"
 #include "game/worldgen/terrain_generator.h"
 #include "game/worldgen/world_gen_config.h"
+#include "game/tests/worldgen_script_test_util.h"
 #include "voxel/storage/region_file.h"
 
 #include <gtest/gtest.h>
@@ -140,10 +139,11 @@ TEST(WorldGenConfigFinalizationTest, RejectsAuthoredRuntimeMaterialIds) {
     EXPECT_FALSE(snt::game::finalize_world_gen_config(config));
 }
 
-TEST(DefaultGameWorldGenConfigTest, RegistersCompleteBuiltinTerrainContent) {
-    const auto config = snt::game::make_default_game_worldgen_config();
+TEST(WorldgenScriptContentTest, RegistersCompletePackagedTerrainContent) {
+    auto built = snt::game::test::build_packaged_worldgen_config();
+    ASSERT_TRUE(built) << built.error().format();
+    const auto& config = *built;
 
-    ASSERT_NE(config, nullptr);
     EXPECT_EQ(config->materials.size(), 159u);
     EXPECT_EQ(config->tree_species.size(), 8u);
     EXPECT_EQ(config->crop_species.size(), 6u);
@@ -164,27 +164,6 @@ TEST(DefaultGameWorldGenConfigTest, RegistersCompleteBuiltinTerrainContent) {
             EXPECT_TRUE(config->has_material_key(material_key)) << crop.species_key;
         }
     }
-}
-
-TEST(DefaultGameWorldGenConfigTest, AppendsPlanetRulesAfterMaterialFinalization) {
-    const auto default_config = snt::game::make_default_game_worldgen_config();
-    ASSERT_NE(default_config, nullptr);
-
-    snt::game::WorldGenConfigSnapshot config = *default_config;
-    snt::game::BuiltinTerrainPlanetInput input;
-    input.planet.dimension_id = "migration_test_planet";
-    input.planet.planet_radius = 512.0f;
-    input.planet.sea_level_fraction = 0.30f;
-    input.planet.atmosphere_type = snt::game::ATMO_BREATHABLE;
-    input.gravity_multiplier = 1.0f;
-
-    ASSERT_TRUE(snt::game::append_builtin_terrain_planet_content(config, input));
-    ASSERT_NE(config.find_base_rule("migration_test_planet"), nullptr);
-    ASSERT_NE(config.find_planet_config("migration_test_planet"), nullptr);
-    EXPECT_EQ(config.biome_rules.size(), 3u);
-    EXPECT_EQ(config.rock_layer_rules.size(), 3u);
-    EXPECT_EQ(config.ore_vein_groups.size(), 31u);
-    EXPECT_NE(config.content_hash, 0u);
 }
 
 TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {

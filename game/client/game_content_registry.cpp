@@ -18,6 +18,9 @@
 
 #include "core/error.h"
 #include "core/log.h"
+#include "game/chemistry/builtin_element_material_catalog.h"
+#include "game/chemistry/element_catalog.h"
+#include "game/simulation/worldgen_script_content.h"
 
 namespace snt::game {
 namespace {
@@ -386,9 +389,18 @@ void api_add_material_element(const std::string& material_id,
             "Material element count must fit in one positive byte"});
         return;
     }
+    const chemistry::ElementDefinition* canonical_element =
+        chemistry::ElementCatalog::find_by_symbol(symbol);
+    if (!canonical_element) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Material element symbol '" + symbol +
+                "' must be an exact canonical periodic-table symbol"});
+        return;
+    }
     if (auto result = registry->add_script_material_element(
             g_active_script_id, material_id,
-            {.symbol = symbol, .count = static_cast<uint8_t>(count)}); !result) {
+            {.element = canonical_element->id, .count = static_cast<uint8_t>(count)}); !result) {
         report_binding_error(result.error());
     }
 }
@@ -761,6 +773,9 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
         return snt::core::Error{snt::core::ErrorCode::kInvalidArgument,
                                 "GameContentRegistry received a null script engine"};
     }
+    if (auto result = chemistry::register_builtin_element_materials(*this); !result) {
+        return result.error();
+    }
 
     if (auto result = register_function(
             engine, "void snt_register_item(const string &in, const string &in, int)",
@@ -841,6 +856,7 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             asFUNCTION(api_get_state)); !result) return result;
     if (auto result = register_function(
             engine, "void snt_log(const string &in)", asFUNCTION(api_log)); !result) return result;
+    if (auto result = register_worldgen_script_api(engine); !result) return result;
 
     SNT_LOG_INFO("Registered ScienceAndTheology gameplay Script API");
     return {};
@@ -881,13 +897,9 @@ snt::core::Expected<std::string> GameContentRegistry::normalize_item_key(
 
 snt::core::Expected<void> GameContentRegistry::validate(
     const GameMaterialElement& element) {
-    if (element.symbol.empty() || element.symbol.size() > 2 || element.count == 0) {
-        return invalid_argument("Material element must use a one- or two-letter symbol and positive count");
-    }
-    if (element.symbol[0] < 'A' || element.symbol[0] > 'Z' ||
-        (element.symbol.size() == 2 &&
-         (element.symbol[1] < 'a' || element.symbol[1] > 'z'))) {
-        return invalid_argument("Material element symbol must use standard chemical capitalization");
+    if (!chemistry::ElementCatalog::find(element.element) || element.count == 0) {
+        return invalid_argument(
+            "Material element must use a canonical atomic number and positive count");
     }
     return {};
 }
@@ -939,10 +951,10 @@ snt::core::Expected<void> GameContentRegistry::validate(
     if (*normalized != definition.id) {
         return invalid_argument("Game material id must be normalized before registration");
     }
-    std::set<std::string, std::less<>> symbols;
+    std::set<chemistry::ElementId> elements;
     for (const GameMaterialElement& element : definition.composition) {
         if (auto result = validate(element); !result) return result.error();
-        if (!symbols.insert(element.symbol).second) {
+        if (!elements.insert(element.element).second) {
             return invalid_argument("Game material composition must not repeat an element");
         }
     }
@@ -1161,29 +1173,42 @@ snt::core::Expected<void> GameContentRegistry::validate(const EventListener& lis
     return {};
 }
 
-snt::core::Expected<void> GameContentRegistry::register_builtin_material(
-    GameMaterialDefinition definition) {
-    if (!reloads_.empty()) {
+snt::core::Expected<void> GameContentRegistry::register_builtin_materials(
+    std::span<const GameMaterialDefinition> definitions) {
+    if (!reloads_.empty() || reload_batch_) {
         return invalid_state("Built-in material registration is not allowed during a script reload");
     }
+    if (definitions.empty()) return {};
+
     MaterialMap previous_backup = backup_materials_;
     MaterialMap previous_live = live_materials_;
     ItemMap previous_generated = live_generated_material_items_;
-    if (auto result = register_material(kBuiltinScriptId, std::move(definition), true); !result) {
-        return result.error();
+    const auto previous_runtime_index = item_runtime_index_.snapshot();
+    const uint64_t previous_item_content_revision = item_content_revision_;
+    const auto rollback = [&]() {
+        backup_materials_ = previous_backup;
+        live_materials_ = previous_live;
+        live_generated_material_items_ = previous_generated;
+        item_runtime_index_.restore(previous_runtime_index);
+        item_content_revision_ = previous_item_content_revision;
+    };
+
+    for (const GameMaterialDefinition& definition : definitions) {
+        if (auto result = register_material(kBuiltinScriptId, definition, true); !result) {
+            rollback();
+            return result.error();
+        }
     }
     if (auto result = rebuild_generated_material_items(); !result) {
-        backup_materials_ = std::move(previous_backup);
-        live_materials_ = std::move(previous_live);
-        live_generated_material_items_ = std::move(previous_generated);
+        rollback();
         return result.error();
     }
     if (auto result = publish_item_runtime_index(); !result) {
-        backup_materials_ = std::move(previous_backup);
-        live_materials_ = std::move(previous_live);
-        live_generated_material_items_ = std::move(previous_generated);
+        rollback();
         return result.error();
     }
+    SNT_LOG_INFO("Registered %zu immutable C++ material definition(s) in one batch",
+                 definitions.size());
     return {};
 }
 
@@ -1254,6 +1279,13 @@ snt::core::Expected<void> GameContentRegistry::register_script_material(
     if (script_id == kBuiltinScriptId) {
         return invalid_argument("Material script registrations require a non-builtin ScriptId");
     }
+    const auto normalized_id = normalize_item_key(definition.id);
+    if (!normalized_id) return normalized_id.error();
+    if (chemistry::is_builtin_element_material_id(*normalized_id)) {
+        return invalid_state("Canonical periodic-table material cannot be overridden by a script: " +
+                             *normalized_id);
+    }
+    definition.id = *normalized_id;
     const bool staged_reload = reloads_.contains(script_id);
     MaterialMap previous_backup;
     MaterialMap previous_live;
@@ -1305,7 +1337,7 @@ snt::core::Expected<void> GameContentRegistry::add_script_material_element(
     auto& composition = found->second.definition.composition;
     if (composition.size() >= kMaxMaterialCompositionEntries ||
         std::any_of(composition.begin(), composition.end(), [&element](const auto& current) {
-            return current.symbol == element.symbol;
+            return current.element == element.element;
         })) {
         return invalid_state("Material composition cannot repeat an element or exceed its entry limit");
     }

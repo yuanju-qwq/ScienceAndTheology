@@ -27,6 +27,9 @@ std::filesystem::path make_runtime_root() {
     std::filesystem::create_directories(root / "engine");
     std::filesystem::create_directories(root / "game");
     std::filesystem::create_directories(root / "user");
+    std::filesystem::copy(
+        std::filesystem::path(SNT_GAME_TEST_ROOT) / "game/scripts",
+        root / "game/scripts", std::filesystem::copy_options::recursive);
     return root;
 }
 
