@@ -4,7 +4,7 @@
 #include "game/worldgen/default_worldgen_config.h"
 
 #include "core/log.h"
-#include "game/worldgen/legacy_terrain_material_catalog.h"
+#include "game/worldgen/builtin_terrain_content.h"
 
 #include <utility>
 
@@ -19,7 +19,7 @@ void add_runtime_material(WorldGenConfigSnapshot& config, TerrainMaterialDef mat
 
 std::shared_ptr<const WorldGenConfigSnapshot> make_default_game_worldgen_config() {
     auto config = std::make_shared<WorldGenConfigSnapshot>();
-    register_migrated_legacy_terrain_material_catalog(*config);
+    register_builtin_terrain_content(*config);
 
     const uint32_t solid_mineable_walkable = TF_SOLID | TF_MINEABLE | TF_WALKABLE;
     add_runtime_material(*config, {
@@ -66,30 +66,6 @@ std::shared_ptr<const WorldGenConfigSnapshot> make_default_game_worldgen_config(
         .hardness = 4.0f,
     });
 
-    config->role_keys = {
-        .air = "snt:air",
-        .stone = "snt:stone",
-        .dirt = "snt:dirt",
-        .sand = "snt:sand",
-        .water = "snt:water",
-        .lava = "snt:lava",
-        .ore_iron = "snt:ore_iron",
-        .ore_copper = "snt:ore_copper",
-        .ore_coal = "snt:ore_coal",
-        .wood = "snt:wood",
-        .leaves = "snt:leaves",
-        .deepstone = "snt:deepstone",
-        .core_barrier = "snt:core_barrier",
-        .snow = "snt:snow",
-        .ice = "snt:ice",
-    };
-    config->runtime_material_keys = {
-        .ladder = "snt:ladder",
-        .workbench = "snt:workbench",
-        .fence = "snt:fence",
-        .farmland = "snt:farmland",
-        .bloomery = "snt:runtime.machine.bloomery",
-    };
     if (auto result = finalize_world_gen_config(*config); !result) {
         SNT_LOG_ERROR("Failed to finalize default terrain catalog: %s",
                       result.error().format().c_str());

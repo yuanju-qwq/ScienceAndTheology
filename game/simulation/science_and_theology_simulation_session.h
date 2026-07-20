@@ -74,6 +74,9 @@ public:
     [[nodiscard]] const GameContentReloadResult* last_content_reload_result() const noexcept {
         return last_content_reload_result_ ? &*last_content_reload_result_ : nullptr;
     }
+    [[nodiscard]] const GameContentReloadFailure* last_content_reload_failure() const noexcept {
+        return last_content_reload_failure_ ? &*last_content_reload_failure_ : nullptr;
+    }
 
     // Client presentation may read immutable game definitions through this
     // narrow accessor. It never receives mutable QuestRegistry progress.
@@ -145,6 +148,7 @@ private:
     GameContentReloadService content_reload_service_;
     std::optional<GameContentReloadTarget> pending_content_reload_;
     std::optional<GameContentReloadResult> last_content_reload_result_;
+    std::optional<GameContentReloadFailure> last_content_reload_failure_;
     QuestRegistry quest_registry_;
     MachineInteractionService machine_interactions_;
     DayNightCycle day_night_cycle_;

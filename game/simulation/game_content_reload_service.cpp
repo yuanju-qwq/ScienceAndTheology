@@ -135,7 +135,15 @@ snt::core::Expected<GameContentReloadPlan> GameContentReloadService::plan(Target
 snt::core::Expected<GameContentReloadResult> GameContentReloadService::reload(
     snt::script::ScriptManager& scripts, Target target) {
     auto reload_plan = plan(target);
-    if (!reload_plan) return reload_plan.error();
+    if (!reload_plan) {
+        auto error = reload_plan.error();
+        error.with_context("GameContentReloadService::plan(" +
+                           std::string(target_id(target)) + ")");
+        SNT_LOG_WARN("Game content reload planning failed target=%.*s: %s",
+                     static_cast<int>(target_id(target).size()), target_id(target).data(),
+                     error.format().c_str());
+        return error;
+    }
 
     SNT_LOG_INFO("Game content reload requested target=%.*s modules=%zu",
                  static_cast<int>(target_id(target).size()), target_id(target).data(),
@@ -145,6 +153,12 @@ snt::core::Expected<GameContentReloadResult> GameContentReloadService::reload(
         auto error = result.error();
         error.with_context("GameContentReloadService::reload(" +
                            std::string(target_id(target)) + ")");
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started).count();
+        SNT_LOG_WARN("Game content reload failed target=%.*s modules=%zu elapsed_ms=%.2f: %s",
+                     static_cast<int>(target_id(target).size()), target_id(target).data(),
+                     reload_plan->files.size(), static_cast<double>(elapsed) / 1000.0,
+                     error.format().c_str());
         return error;
     }
 

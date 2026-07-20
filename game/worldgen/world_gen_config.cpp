@@ -135,9 +135,12 @@ snt::core::Expected<void> finalize_world_gen_config(WorldGenConfigSnapshot& conf
               });
     config.material_ids_by_key.clear();
     config.material_keys_by_id.clear();
+    config.material_indices_by_id.assign(
+        kMaxTerrainMaterialCount, WorldGenConfigSnapshot::kInvalidMaterialIndex);
     config.material_ids_by_key.reserve(config.materials.size());
     config.material_keys_by_id.reserve(config.materials.size());
-    for (TerrainMaterialDef& material : config.materials) {
+    for (size_t material_index = 0; material_index < config.materials.size(); ++material_index) {
+        TerrainMaterialDef& material = config.materials[material_index];
         if (material.key == "snt:air") {
             material.id = 0;
         } else {
@@ -151,6 +154,12 @@ snt::core::Expected<void> finalize_world_gen_config(WorldGenConfigSnapshot& conf
         }
         material.gravity_fall = (material.flags & TF_GRAVITY_FALL) != 0;
         material.collapse_risk = (material.flags & TF_COLLAPSE_RISK) != 0;
+        const size_t runtime_id = static_cast<size_t>(material.id);
+        if (config.material_indices_by_id[runtime_id] !=
+            WorldGenConfigSnapshot::kInvalidMaterialIndex) {
+            return invalid_argument("Terrain catalog contains duplicate runtime material ID");
+        }
+        config.material_indices_by_id[runtime_id] = static_cast<uint16_t>(material_index);
         config.material_ids_by_key.emplace(material.key, material.id);
         config.material_keys_by_id.emplace(material.id, material.key);
     }
@@ -198,11 +207,13 @@ snt::core::Expected<void> finalize_world_gen_config(WorldGenConfigSnapshot& conf
 
 const TerrainMaterialDef* WorldGenConfigSnapshot::find_material(
     TerrainMaterialId id) const {
-    auto it = std::find_if(materials.begin(), materials.end(),
-        [id](const TerrainMaterialDef& def) {
-            return def.id == id;
-        });
-    return it != materials.end() ? &(*it) : nullptr;
+    const size_t runtime_id = static_cast<size_t>(id);
+    if (runtime_id >= material_indices_by_id.size()) return nullptr;
+    const uint16_t material_index = material_indices_by_id[runtime_id];
+    if (material_index == kInvalidMaterialIndex || material_index >= materials.size()) {
+        return nullptr;
+    }
+    return &materials[material_index];
 }
 
 const TerrainMaterialDef* WorldGenConfigSnapshot::find_material(
@@ -231,7 +242,7 @@ uint32_t WorldGenConfigSnapshot::flags_for_material(TerrainMaterialId id) const 
 }
 
 bool WorldGenConfigSnapshot::has_material(TerrainMaterialId id) const {
-    return material_keys_by_id.find(id) != material_keys_by_id.end();
+    return find_material(id) != nullptr;
 }
 
 bool WorldGenConfigSnapshot::has_material_key(const std::string& key) const {

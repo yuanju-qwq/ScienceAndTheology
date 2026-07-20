@@ -73,6 +73,9 @@ public:
     [[nodiscard]] const GameContentReloadResult* last_content_reload_result() const noexcept {
         return simulation_session_.last_content_reload_result();
     }
+    [[nodiscard]] const GameContentReloadFailure* last_content_reload_failure() const noexcept {
+        return simulation_session_.last_content_reload_failure();
+    }
 
 private:
     [[nodiscard]] bool uses_network_presentation() const noexcept;

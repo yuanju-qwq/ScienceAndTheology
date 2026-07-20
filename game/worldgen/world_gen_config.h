@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -284,8 +285,8 @@ struct RockLayerRule {
     std::vector<TerrainMaterialId> associated_ores;
 };
 
-// Atmosphere type 鈥?determines gameplay effects of a planet's atmosphere.
-// Must match the AtmosphereType enum in PlanetDescriptor.gd.
+// Atmosphere type determines gameplay effects of a planet's atmosphere.
+// Game-owned planet inputs use these values when registering terrain rules.
 enum AtmosphereType {
     ATMO_NONE = 0,       // Vacuum 鈥?no atmosphere (e.g., Mercury, asteroids).
     ATMO_THIN = 1,       // Thin atmosphere 鈥?oxygen mask required (e.g., Mars).
@@ -368,6 +369,8 @@ struct PlanetConfig {
 
 struct WorldGenConfigSnapshot {
     static constexpr uint32_t kSchemaVersion = 10;
+    static constexpr uint16_t kInvalidMaterialIndex =
+        std::numeric_limits<uint16_t>::max();
 
     uint32_t schema_version = kSchemaVersion;
     uint64_t content_hash = 0;
@@ -386,6 +389,9 @@ struct WorldGenConfigSnapshot {
     std::vector<CropSpeciesDef> crop_species;
     std::unordered_map<std::string, TerrainMaterialId> material_ids_by_key;
     std::unordered_map<TerrainMaterialId, std::string> material_keys_by_id;
+    // Frozen direct lookup table for terrain hot paths. Entries are indices
+    // into materials, never pointers, so snapshot copies and moves stay valid.
+    std::vector<uint16_t> material_indices_by_id;
 
     const TerrainMaterialDef* find_material(TerrainMaterialId id) const;
     const TerrainMaterialDef* find_material(const std::string& key) const;

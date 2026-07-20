@@ -14,7 +14,6 @@ set(SOURCES
     network/gd_item_pipe_network.cpp
     world/gd_world_data.cpp
     world/gd_world_gen_config.cpp
-    world/gd_terrain_content_registry.cpp
     world/gd_terrain_generator.cpp
     world/gd_charcoal_pit.cpp
     world/gd_pit_kiln.cpp

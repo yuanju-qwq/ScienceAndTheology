@@ -6,6 +6,8 @@
 #include "game/world/save/chunk_serializer.h"
 #include "game/world/save/save_manager.h"
 #include "game/world/save/world_persistence_lifecycle.h"
+#include "game/worldgen/builtin_terrain_content.h"
+#include "game/worldgen/default_worldgen_config.h"
 #include "game/worldgen/noise_generator.h"
 #include "game/worldgen/terrain_generator.h"
 #include "game/worldgen/world_gen_config.h"
@@ -113,6 +115,18 @@ TEST(WorldGenConfigFinalizationTest, NormalizesSortsAndAssignsRuntimeIdsAfterCol
     EXPECT_EQ(config.materials[0].key, "snt:air");
     EXPECT_EQ(config.materials[1].key, "snt:alpha");
     EXPECT_EQ(config.materials[2].key, "snt:zinc");
+    EXPECT_EQ(config.find_material(static_cast<snt::game::TerrainMaterialId>(0)),
+              &config.materials[0]);
+    EXPECT_EQ(config.find_material(static_cast<snt::game::TerrainMaterialId>(1)),
+              &config.materials[1]);
+    EXPECT_EQ(config.find_material(static_cast<snt::game::TerrainMaterialId>(2)),
+              &config.materials[2]);
+    EXPECT_EQ(config.find_material(static_cast<snt::game::TerrainMaterialId>(3)), nullptr);
+
+    const snt::game::WorldGenConfigSnapshot copied = config;
+    ASSERT_NE(copied.find_material(static_cast<snt::game::TerrainMaterialId>(1)), nullptr);
+    EXPECT_EQ(copied.find_material(static_cast<snt::game::TerrainMaterialId>(1))->key,
+              "snt:alpha");
 }
 
 TEST(WorldGenConfigFinalizationTest, RejectsAuthoredRuntimeMaterialIds) {
@@ -124,6 +138,53 @@ TEST(WorldGenConfigFinalizationTest, RejectsAuthoredRuntimeMaterialIds) {
     config.role_keys.air = "snt:air";
 
     EXPECT_FALSE(snt::game::finalize_world_gen_config(config));
+}
+
+TEST(DefaultGameWorldGenConfigTest, RegistersCompleteBuiltinTerrainContent) {
+    const auto config = snt::game::make_default_game_worldgen_config();
+
+    ASSERT_NE(config, nullptr);
+    EXPECT_EQ(config->materials.size(), 159u);
+    EXPECT_EQ(config->tree_species.size(), 8u);
+    EXPECT_EQ(config->crop_species.size(), 6u);
+    EXPECT_NE(config->find_material("snt:ore_uranium"), nullptr);
+    EXPECT_NE(config->find_material("snt:runtime.machine.bloomery"), nullptr);
+    EXPECT_NE(config->find_tree_species("sequoia"), nullptr);
+    EXPECT_NE(config->find_crop_species("pumpkin"), nullptr);
+    EXPECT_EQ(config->roles.air, 0u);
+    EXPECT_EQ(config->runtime_ids.bloomery,
+              config->material_id_or("snt:runtime.machine.bloomery", 0));
+    for (const auto& tree : config->tree_species) {
+        EXPECT_TRUE(config->has_material_key(tree.wood_material_key)) << tree.species_key;
+        EXPECT_TRUE(config->has_material_key(tree.leaves_material_key)) << tree.species_key;
+        EXPECT_TRUE(config->has_material_key(tree.sapling_material_key)) << tree.species_key;
+    }
+    for (const auto& crop : config->crop_species) {
+        for (const auto& material_key : crop.stage_material_keys) {
+            EXPECT_TRUE(config->has_material_key(material_key)) << crop.species_key;
+        }
+    }
+}
+
+TEST(DefaultGameWorldGenConfigTest, AppendsPlanetRulesAfterMaterialFinalization) {
+    const auto default_config = snt::game::make_default_game_worldgen_config();
+    ASSERT_NE(default_config, nullptr);
+
+    snt::game::WorldGenConfigSnapshot config = *default_config;
+    snt::game::BuiltinTerrainPlanetInput input;
+    input.planet.dimension_id = "migration_test_planet";
+    input.planet.planet_radius = 512.0f;
+    input.planet.sea_level_fraction = 0.30f;
+    input.planet.atmosphere_type = snt::game::ATMO_BREATHABLE;
+    input.gravity_multiplier = 1.0f;
+
+    ASSERT_TRUE(snt::game::append_builtin_terrain_planet_content(config, input));
+    ASSERT_NE(config.find_base_rule("migration_test_planet"), nullptr);
+    ASSERT_NE(config.find_planet_config("migration_test_planet"), nullptr);
+    EXPECT_EQ(config.biome_rules.size(), 3u);
+    EXPECT_EQ(config.rock_layer_rules.size(), 3u);
+    EXPECT_EQ(config.ore_vein_groups.size(), 31u);
+    EXPECT_NE(config.content_hash, 0u);
 }
 
 TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {

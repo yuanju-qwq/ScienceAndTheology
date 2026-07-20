@@ -20,8 +20,9 @@ target_link_libraries(snt_game_world_data PUBLIC
 )
 
 add_library(snt_game_worldgen STATIC
+    worldgen/builtin_terrain_content.cpp
     worldgen/default_worldgen_config.cpp
-    worldgen/legacy_terrain_material_catalog.cpp
+    worldgen/builtin_terrain_material_catalog.cpp
     worldgen/noise_generator.cpp
     worldgen/world_gen_config.cpp
     worldgen/terrain_generator.cpp

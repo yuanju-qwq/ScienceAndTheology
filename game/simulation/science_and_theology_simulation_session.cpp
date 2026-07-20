@@ -282,11 +282,16 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
             pending_content_reload_.reset();
             auto reloaded = content_reload_service_.reload(context.services().scripts(), target);
             if (!reloaded) {
-                auto error = reloaded.error();
-                error.with_context("ScienceAndTheologySimulationSession::fixed_tick(content reload)");
-                return error;
+                // A malformed editor change must not stop the deterministic
+                // session. ScriptManager has already restored the previously
+                // committed batch; retain a value-only failure for the page.
+                last_content_reload_result_.reset();
+                last_content_reload_failure_ = GameContentReloadFailure{
+                    target, reloaded.error().format()};
+            } else {
+                last_content_reload_failure_.reset();
+                last_content_reload_result_ = std::move(*reloaded);
             }
-            last_content_reload_result_ = std::move(*reloaded);
         }
         context.services().scripts().update(context.delta_seconds());
     }
@@ -350,6 +355,7 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
     }
     pending_content_reload_.reset();
     last_content_reload_result_.reset();
+    last_content_reload_failure_.reset();
     content_reload_service_.reset();
     services_ = nullptr;
 }

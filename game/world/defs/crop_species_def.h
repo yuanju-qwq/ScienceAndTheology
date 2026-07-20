@@ -22,8 +22,8 @@ namespace snt::game {
 //   - How it looks (4 stage terrain materials)
 //
 // The current game runtime stores registered species in WorldGenConfigSnapshot.
-// GameCropGrowthSystem and the terrain generator consume that typed content.
-// The GDScript registration path remains only as a legacy migration reference.
+// GameCropGrowthSystem and the terrain generator consume this typed content,
+// which is registered by game/worldgen/builtin_terrain_content.cpp.
 
 // Crop growth stage. Herbaceous crops have 4 stages.
 enum class CropGrowthStage : uint8_t {

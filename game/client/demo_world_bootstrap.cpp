@@ -27,11 +27,11 @@ void paint_demo_surface_variants(snt::voxel::VoxelChunk& chunk,
                 const int world_z = chunk.chunk_z * snt::voxel::VoxelChunk::kChunkSize + z;
                 const int band = ((world_x / 8) + (world_z / 8)) & 3;
                 if (band == 1) {
-                    cell.material = config.material_ids_by_key.at("dirt");
+                    cell.material = config.roles.dirt;
                 } else if (band == 2) {
-                    cell.material = config.material_ids_by_key.at("sand");
+                    cell.material = config.roles.sand;
                 } else if (band == 3) {
-                    cell.material = config.material_ids_by_key.at("snow");
+                    cell.material = config.roles.snow;
                 }
                 break;
             }

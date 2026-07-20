@@ -17,7 +17,6 @@
 #include "machine/gd_machine_definition_registry.h"
 #include "world/gd_world_data.h"
 #include "world/gd_world_gen_config.h"
-#include "world/gd_terrain_content_registry.h"
 #include "world/gd_terrain_generator.h"
 #include "world/gd_charcoal_pit.h"
 #include "world/gd_pit_kiln.h"
@@ -120,7 +119,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDMachineDefinitionRegistry>();
     ClassDB::register_class<GDWorldData>();
     ClassDB::register_class<GDWorldGenConfig>();
-    ClassDB::register_class<GDTerrainContentRegistry>();
     ClassDB::register_class<GDTerrainGenerator>();
     ClassDB::register_class<GDCharcoalPitData>();
     ClassDB::register_class<GDCharcoalPitManager>();

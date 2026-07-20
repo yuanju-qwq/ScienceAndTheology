@@ -45,6 +45,14 @@ struct GameContentReloadResult {
     uint64_t elapsed_microseconds = 0;
 };
 
+// Value-only outcome for a rejected manual reload. The previous committed
+// content remains active, so presentation can show this without retaining an
+// Error object or a pointer into the failed script generation.
+struct GameContentReloadFailure {
+    GameContentReloadTarget target = GameContentReloadTarget::kAll;
+    std::string message;
+};
+
 class GameContentReloadService final : public snt::script::IScriptFileChangeHandler {
 public:
     GameContentReloadService() = default;
