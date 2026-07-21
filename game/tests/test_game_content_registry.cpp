@@ -1,6 +1,7 @@
 // ScienceAndTheology content-registry tests.
 
 #include <string>
+#include <optional>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -17,6 +18,7 @@ using snt::game::MachinePlacementDefinition;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
+using snt::game::ResourceKey;
 
 RecipeDefinition make_recipe(std::string id, std::string input) {
     RecipeDefinition recipe;
@@ -134,7 +136,7 @@ TEST(GameContentRegistryTest, EventListenersAreStableAndStateIsIsolatedByScript)
     EXPECT_EQ(content.get_state(9, "mode"), "expert");
 }
 
-TEST(GameContentRegistryTest, ItemRuntimeIdsAreNormalizedSortedAndContiguous) {
+TEST(GameContentRegistryTest, ResourceRuntimeKeysAreNormalizedSortedAndContiguous) {
     GameContentRegistry content;
     ASSERT_TRUE(content.register_builtin_item(make_item("Zinc.Ingot")));
     ASSERT_TRUE(content.register_builtin_item(make_item("charcoal")));
@@ -142,19 +144,30 @@ TEST(GameContentRegistryTest, ItemRuntimeIdsAreNormalizedSortedAndContiguous) {
 
     ASSERT_NE(content.find_item("zinc.ingot"), nullptr);
     EXPECT_EQ(content.find_item("zinc.ingot")->max_stack, 64);
-    EXPECT_EQ(content.find_item_runtime_id("anvil"), 1u);
-    EXPECT_EQ(content.find_item_runtime_id("charcoal"), 2u);
-    EXPECT_EQ(content.find_item_runtime_id("zinc.ingot"), 3u);
-    EXPECT_EQ(content.find_item_key(1u), "anvil");
-    EXPECT_EQ(content.find_item_key(2u), "charcoal");
-    EXPECT_EQ(content.find_item_key(3u), "zinc.ingot");
+    const auto anvil = content.find_resource_runtime_key(ResourceKey::item("anvil"));
+    const auto charcoal = content.find_resource_runtime_key(ResourceKey::item("charcoal"));
+    const auto zinc = content.find_resource_runtime_key(ResourceKey::item("zinc.ingot"));
+    ASSERT_TRUE(anvil);
+    ASSERT_TRUE(charcoal);
+    ASSERT_TRUE(zinc);
+    EXPECT_EQ(anvil->type_id, charcoal->type_id);
+    EXPECT_EQ(charcoal->type_id, zinc->type_id);
+    EXPECT_EQ(anvil->resource_id, 1u);
+    EXPECT_EQ(charcoal->resource_id, 2u);
+    EXPECT_EQ(zinc->resource_id, 3u);
+    EXPECT_EQ(content.find_resource_key(*anvil),
+              std::optional<ResourceKey>{ResourceKey::item("anvil")});
+    EXPECT_EQ(content.find_resource_key(*charcoal),
+              std::optional<ResourceKey>{ResourceKey::item("charcoal")});
+    EXPECT_EQ(content.find_resource_key(*zinc),
+              std::optional<ResourceKey>{ResourceKey::item("zinc.ingot")});
 }
 
-TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousRuntimeSnapshot) {
+TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousResourceRuntimeSnapshot) {
     GameContentRegistry content;
     ASSERT_TRUE(content.register_script_item(17, make_item("copper_ore")));
-    const auto before = content.item_runtime_index();
-    ASSERT_TRUE(before.find_id("copper_ore"));
+    const auto before = content.resource_runtime_index();
+    ASSERT_TRUE(before.resolve_runtime(ResourceKey::item("copper_ore")));
 
     ASSERT_TRUE(content.begin_reload(17));
     ASSERT_TRUE(content.register_script_item(17, make_item("zinc_ore")));
@@ -162,10 +175,11 @@ TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousRuntimeSnapsho
     EXPECT_FALSE(content.commit_reload(17));
     ASSERT_TRUE(content.rollback_reload(17));
 
-    const auto after = content.item_runtime_index();
+    const auto after = content.resource_runtime_index();
     EXPECT_EQ(after.generation(), before.generation());
-    EXPECT_EQ(after.find_id("copper_ore"), before.find_id("copper_ore"));
-    EXPECT_FALSE(after.find_id("zinc_ore"));
+    EXPECT_EQ(after.resolve_runtime(ResourceKey::item("copper_ore")),
+              before.resolve_runtime(ResourceKey::item("copper_ore")));
+    EXPECT_FALSE(after.resolve_runtime(ResourceKey::item("zinc_ore")));
     EXPECT_NE(content.find_item("copper_ore"), nullptr);
     EXPECT_EQ(content.find_item("zinc_ore"), nullptr);
 }

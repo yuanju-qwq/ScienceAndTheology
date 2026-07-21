@@ -43,6 +43,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     append_u32(bytes, std::bit_cast<uint32_t>(value));
 }
 
+void append_i64(std::vector<std::byte>& bytes, int64_t value) {
+    append_u64(bytes, std::bit_cast<uint64_t>(value));
+}
+
 [[nodiscard]] uint16_t read_u16(std::span<const std::byte> bytes, size_t offset) {
     return static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset])) << 8u |
            static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset + 1]));
@@ -70,6 +74,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 
 [[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
     return std::bit_cast<int32_t>(read_u32(bytes, offset));
+}
+
+[[nodiscard]] int64_t read_i64(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int64_t>(read_u64(bytes, offset));
 }
 
 [[nodiscard]] bool valid_fluid_fields(snt::voxel::CellFluidId fluid_type,
@@ -210,7 +218,7 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 }
 
 [[nodiscard]] bool is_empty_inventory_stack(const GamePlayerItemStack& stack) noexcept {
-    return stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty();
+    return stack.is_empty();
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_inventory_stack(
@@ -219,11 +227,14 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         if (allow_empty) return {};
         return protocol_error(std::string(field_name) + " must not be empty");
     }
-    if (stack.item_id.empty() || stack.item_id.size() > kMaxGameItemIdBytes ||
+    if (!stack.is_valid_item() ||
+        stack.resource.key.type.size() > kMaxGameResourceTypeBytes ||
+        stack.resource.key.id.size() > kMaxGameResourceIdBytes ||
+        stack.resource.key.variant.size() > kMaxGameResourceVariantBytes ||
         stack.instance_data.size() > kMaxGameInventoryItemInstanceBytes ||
-        has_embedded_nul(stack.item_id) || has_embedded_nul(stack.instance_data) ||
-        stack.count <= 0 || stack.count > kMaxGameInventoryStackSize ||
-        (!stack.instance_data.empty() && stack.count != 1)) {
+        has_embedded_nul(stack.resource.key.type) || has_embedded_nul(stack.resource.key.id) ||
+        has_embedded_nul(stack.resource.key.variant) || has_embedded_nul(stack.instance_data) ||
+        stack.resource.amount > kMaxGameInventoryStackSize) {
         return protocol_error(std::string(field_name) + " is invalid");
     }
     return {};
@@ -239,12 +250,25 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         return {};
     }
     bytes.push_back(std::byte{1});
-    if (auto result = append_short_string(bytes, stack.item_id, kMaxGameItemIdBytes,
-                                          "inventory item id", true);
+    if (auto result = append_short_string(bytes, stack.resource.key.type,
+                                          kMaxGameResourceTypeBytes,
+                                          "inventory resource type", true);
         !result) {
         return result.error();
     }
-    append_i32(bytes, stack.count);
+    if (auto result = append_short_string(bytes, stack.resource.key.id,
+                                          kMaxGameResourceIdBytes,
+                                          "inventory resource id", true);
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_short_string(bytes, stack.resource.key.variant,
+                                          kMaxGameResourceVariantBytes,
+                                          "inventory resource variant", false);
+        !result) {
+        return result.error();
+    }
+    append_i64(bytes, stack.resource.amount);
     if (auto result = append_short_string(bytes, stack.instance_data,
                                           kMaxGameInventoryItemInstanceBytes,
                                           "inventory item instance data", false);
@@ -263,21 +287,33 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     if (present == 0) return GamePlayerItemStack{};
     if (present != 1) return protocol_error(std::string(field_name) + " presence flag is invalid");
 
-    auto item_id = read_short_string(bytes, offset, kMaxGameItemIdBytes,
-                                     "inventory item id", true);
-    if (!item_id) return item_id.error();
-    if (bytes.size() - offset < sizeof(uint32_t)) {
-        return protocol_error(std::string(field_name) + " count is truncated");
+    auto resource_type = read_short_string(bytes, offset, kMaxGameResourceTypeBytes,
+                                           "inventory resource type", true);
+    if (!resource_type) return resource_type.error();
+    auto resource_id = read_short_string(bytes, offset, kMaxGameResourceIdBytes,
+                                         "inventory resource id", true);
+    if (!resource_id) return resource_id.error();
+    auto resource_variant = read_short_string(bytes, offset, kMaxGameResourceVariantBytes,
+                                              "inventory resource variant", false);
+    if (!resource_variant) return resource_variant.error();
+    if (bytes.size() - offset < sizeof(uint64_t)) {
+        return protocol_error(std::string(field_name) + " resource amount is truncated");
     }
-    const int32_t count = read_i32(bytes, offset);
-    offset += sizeof(uint32_t);
+    const int64_t amount = read_i64(bytes, offset);
+    offset += sizeof(uint64_t);
     auto instance_data = read_short_string(bytes, offset, kMaxGameInventoryItemInstanceBytes,
                                            "inventory item instance data", false);
     if (!instance_data) return instance_data.error();
 
     GamePlayerItemStack stack{
-        .item_id = std::move(*item_id),
-        .count = count,
+        .resource = {
+            .key = {
+                .type = std::move(*resource_type),
+                .id = std::move(*resource_id),
+                .variant = std::move(*resource_variant),
+            },
+            .amount = amount,
+        },
         .instance_data = std::move(*instance_data),
     };
     if (auto result = validate_inventory_stack(stack, false, field_name); !result) {
@@ -994,7 +1030,7 @@ snt::core::Expected<void> validate_game_inventory_slot_transfer_command(
         !result) {
         return result.error();
     }
-    if (command.count > command.expected_source.count) {
+    if (command.count > command.expected_source.resource.amount) {
         return protocol_error("Game inventory slot transfer count exceeds the expected source");
     }
     return {};
@@ -1013,9 +1049,13 @@ snt::core::Expected<GameClientCommand> make_game_inventory_slot_transfer_command
     encoded.client_sequence = client_sequence;
     encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kInventorySlotTransfer);
     encoded.payload.reserve(sizeof(uint64_t) * 2 + sizeof(uint16_t) * 2 + sizeof(uint32_t) +
-                            command.expected_source.item_id.size() +
+                            command.expected_source.resource.key.type.size() +
+                            command.expected_source.resource.key.id.size() +
+                            command.expected_source.resource.key.variant.size() +
                             command.expected_source.instance_data.size() +
-                            command.expected_target.item_id.size() +
+                            command.expected_target.resource.key.type.size() +
+                            command.expected_target.resource.key.id.size() +
+                            command.expected_target.resource.key.variant.size() +
                             command.expected_target.instance_data.size() + 16);
     append_u64(encoded.payload, command.request_id);
     append_u64(encoded.payload, command.expected_inventory_revision);
@@ -1104,8 +1144,8 @@ snt::core::Expected<void> validate_game_machine_input_slot_transfer_command(
     }
     const int32_t source_count = command.direction ==
             GameMachineInputSlotTransferDirection::kPlayerToMachineInput
-        ? command.expected_player_slot.count
-        : command.expected_machine_input_slot.count;
+        ? static_cast<int32_t>(command.expected_player_slot.resource.amount)
+        : static_cast<int32_t>(command.expected_machine_input_slot.resource.amount);
     if (command.count > source_count) {
         return protocol_error("Game machine input slot transfer count exceeds the expected source");
     }
@@ -1127,9 +1167,13 @@ snt::core::Expected<GameClientCommand> make_game_machine_input_slot_transfer_com
     encoded.payload.reserve(sizeof(uint64_t) * 2 + sizeof(uint8_t) +
                             command.dimension_id.size() + sizeof(uint16_t) * 4 +
                             sizeof(uint32_t) * 4 +
-                            command.expected_player_slot.item_id.size() +
+                            command.expected_player_slot.resource.key.type.size() +
+                            command.expected_player_slot.resource.key.id.size() +
+                            command.expected_player_slot.resource.key.variant.size() +
                             command.expected_player_slot.instance_data.size() +
-                            command.expected_machine_input_slot.item_id.size() + 20);
+                            command.expected_machine_input_slot.resource.key.type.size() +
+                            command.expected_machine_input_slot.resource.key.id.size() +
+                            command.expected_machine_input_slot.resource.key.variant.size() + 20);
     append_u64(encoded.payload, command.request_id);
     append_u64(encoded.payload, command.expected_inventory_revision);
     encoded.payload.push_back(static_cast<std::byte>(command.direction));

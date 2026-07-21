@@ -1064,11 +1064,17 @@ GameServerPlayerReplication::visible_machines(const GameReplicationInterest& int
             };
             state.input_slots.reserve(runtime.input_slots.size());
             for (const MachineItemStack& stack : runtime.input_slots) {
-                state.input_slots.push_back({.item_id = stack.item_id, .count = stack.count});
+                state.input_slots.push_back({
+                    .item_id = stack.resource.key.id,
+                    .count = static_cast<int32_t>(stack.resource.amount),
+                });
             }
             state.output_slots.reserve(runtime.output_slots.size());
             for (const MachineItemStack& stack : runtime.output_slots) {
-                state.output_slots.push_back({.item_id = stack.item_id, .count = stack.count});
+                state.output_slots.push_back({
+                    .item_id = stack.resource.key.id,
+                    .count = static_cast<int32_t>(stack.resource.amount),
+                });
             }
             if (!machines.emplace(entity_guid.value,
                                   VisibleMachine{.entity_guid = entity_guid,

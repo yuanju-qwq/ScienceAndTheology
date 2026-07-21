@@ -23,7 +23,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 16;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 17;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -34,6 +34,9 @@ inline constexpr size_t kMaxGameCommandPayloadBytes = 64u * 1024u;
 inline constexpr size_t kMaxGameQuestIdBytes = 512;
 inline constexpr size_t kMaxGameDimensionIdBytes = 128;
 inline constexpr size_t kMaxGameItemIdBytes = 256;
+inline constexpr size_t kMaxGameResourceTypeBytes = 64;
+inline constexpr size_t kMaxGameResourceIdBytes = 256;
+inline constexpr size_t kMaxGameResourceVariantBytes = 1024;
 inline constexpr size_t kMaxGameInventorySlots = 256;
 inline constexpr size_t kMaxGameMachineInputSlots = 64;
 inline constexpr int32_t kMaxGameInventoryStackSize = 65536;

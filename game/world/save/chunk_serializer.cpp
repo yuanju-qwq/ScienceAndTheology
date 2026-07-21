@@ -15,6 +15,13 @@ constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
 constexpr uint32_t kMaxMachineJobOwnerAccountBytes = 256;
+constexpr uint32_t kMaxOfflineNetworkIslands = 1024;
+constexpr uint32_t kMaxOfflineNetworkMemberChunks = 4096;
+constexpr uint32_t kMaxOfflineNetworkMachineGuids = 16384;
+constexpr uint32_t kMaxOfflineNetworkBoundaryPorts = 16384;
+constexpr uint32_t kMaxOfflineNetworkLedgers = 1024;
+constexpr uint32_t kMaxOfflineNetworkResourceIdBytes = 256;
+constexpr uint32_t kMaxOfflineNetworkDimensionIdBytes = 256;
 constexpr uint32_t kMaxTreeGrowthRecords = 4096;
 constexpr uint32_t kMaxTreeGrowthOwnedCells = 4096;
 constexpr uint32_t kMaxTreeGrowthSpeciesKeyBytes = 256;
@@ -96,6 +103,13 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     write_uint32(buf, static_cast<uint32_t>(chunk.machine_runtime_records.size()));
     for (const auto& record : chunk.machine_runtime_records) {
         write_machine_runtime_record(buf, record);
+    }
+
+    // Every network island is written only by its anchor sidecar. Member
+    // chunks reference it through MachineRuntimePersistenceRecord metadata.
+    write_uint32(buf, static_cast<uint32_t>(chunk.offline_network_islands.size()));
+    for (const OfflineNetworkIslandSnapshot& snapshot : chunk.offline_network_islands) {
+        write_offline_network_island_snapshot(buf, snapshot);
     }
 
     // Connector IDs.
@@ -279,6 +293,19 @@ bool GameChunkSerializer::deserialize(
         MachineRuntimePersistenceRecord record;
         if (!read_machine_runtime_record(data, offset, record)) return false;
         chunk.machine_runtime_records.push_back(std::move(record));
+    }
+
+    uint32_t offline_network_island_count;
+    if (!read_uint32(data, offset, offline_network_island_count) ||
+        offline_network_island_count > kMaxOfflineNetworkIslands) {
+        return false;
+    }
+    chunk.offline_network_islands.clear();
+    chunk.offline_network_islands.reserve(offline_network_island_count);
+    for (uint32_t i = 0; i < offline_network_island_count; ++i) {
+        OfflineNetworkIslandSnapshot snapshot;
+        if (!read_offline_network_island_snapshot(data, offset, snapshot)) return false;
+        chunk.offline_network_islands.push_back(std::move(snapshot));
     }
 
     // Connector IDs.
@@ -896,8 +923,10 @@ bool GameChunkSerializer::read_player_bed_record(
 void GameChunkSerializer::write_player_grave_item_stack(
     std::vector<uint8_t>& buf,
     const GamePlayerGraveItemStack& stack) {
-    write_string(buf, stack.item_id);
-    write_int32(buf, stack.count);
+    write_string(buf, stack.resource.key.type);
+    write_string(buf, stack.resource.key.id);
+    write_string(buf, stack.resource.key.variant);
+    write_int64(buf, stack.resource.amount);
     write_string(buf, stack.instance_data);
 }
 
@@ -905,8 +934,10 @@ bool GameChunkSerializer::read_player_grave_item_stack(
     const std::vector<uint8_t>& data,
     size_t& offset,
     GamePlayerGraveItemStack& stack) {
-    return read_string(data, offset, stack.item_id) &&
-           read_int32(data, offset, stack.count) &&
+    return read_string(data, offset, stack.resource.key.type) &&
+           read_string(data, offset, stack.resource.key.id) &&
+           read_string(data, offset, stack.resource.key.variant) &&
+           read_int64(data, offset, stack.resource.amount) &&
            read_string(data, offset, stack.instance_data);
 }
 
@@ -946,8 +977,9 @@ bool GameChunkSerializer::read_player_grave_record(
     record.items.reserve(item_count);
     for (uint32_t index = 0; index < item_count; ++index) {
         GamePlayerGraveItemStack item;
-        if (!read_player_grave_item_stack(data, offset, item) || item.item_id.empty() ||
-            item.count <= 0) {
+        if (!read_player_grave_item_stack(data, offset, item) ||
+            !item.resource.is_valid() || !item.resource.is_item() ||
+            (!item.instance_data.empty() && item.resource.amount != 1)) {
             return false;
         }
         record.items.push_back(std::move(item));
@@ -960,16 +992,20 @@ bool GameChunkSerializer::read_player_grave_record(
 void GameChunkSerializer::write_machine_runtime_item_stack(
     std::vector<uint8_t>& buf,
     const MachineRuntimeItemStack& stack) {
-    write_string(buf, stack.item_id);
-    write_int32(buf, stack.count);
+    write_string(buf, stack.resource.key.type);
+    write_string(buf, stack.resource.key.id);
+    write_string(buf, stack.resource.key.variant);
+    write_int64(buf, stack.resource.amount);
 }
 
 bool GameChunkSerializer::read_machine_runtime_item_stack(
     const std::vector<uint8_t>& data,
     size_t& offset,
     MachineRuntimeItemStack& stack) {
-    return read_string(data, offset, stack.item_id) &&
-           read_int32(data, offset, stack.count);
+    return read_string(data, offset, stack.resource.key.type) &&
+           read_string(data, offset, stack.resource.key.id) &&
+           read_string(data, offset, stack.resource.key.variant) &&
+           read_int64(data, offset, stack.resource.amount);
 }
 
 void GameChunkSerializer::write_machine_runtime_recipe_snapshot(
@@ -1142,6 +1178,158 @@ bool GameChunkSerializer::read_machine_runtime_record(
         return false;
     }
     record.residency = static_cast<MachineRuntimeResidency>(residency);
+    return true;
+}
+
+// --- Offline network-island sidecar helpers ---
+
+void GameChunkSerializer::write_chunk_key(std::vector<uint8_t>& buf,
+                                          const ChunkKey& key) {
+    write_string(buf, key.dimension_id);
+    write_int32(buf, key.chunk_x);
+    write_int32(buf, key.chunk_y);
+    write_int32(buf, key.chunk_z);
+}
+
+bool GameChunkSerializer::read_chunk_key(const std::vector<uint8_t>& data,
+                                         size_t& offset,
+                                         ChunkKey& key) {
+    return read_string(data, offset, key.dimension_id) &&
+           key.dimension_id.size() <= kMaxOfflineNetworkDimensionIdBytes &&
+           !key.dimension_id.empty() &&
+           key.dimension_id.find('\0') == std::string::npos &&
+           read_int32(data, offset, key.chunk_x) &&
+           read_int32(data, offset, key.chunk_y) &&
+           read_int32(data, offset, key.chunk_z);
+}
+
+void GameChunkSerializer::write_offline_network_island_snapshot(
+    std::vector<uint8_t>& buf,
+    const OfflineNetworkIslandSnapshot& snapshot) {
+    write_uint64(buf, snapshot.island_id);
+    write_uint64(buf, snapshot.ownership_epoch);
+    write_string(buf, snapshot.dimension_id);
+    write_chunk_key(buf, snapshot.anchor_chunk);
+    write_uint32(buf, static_cast<uint32_t>(snapshot.member_chunks.size()));
+    for (const ChunkKey& chunk_key : snapshot.member_chunks) {
+        write_chunk_key(buf, chunk_key);
+    }
+    write_uint64(buf, snapshot.topology_revision);
+    write_uint64(buf, snapshot.last_simulated_tick);
+    write_uint32(buf, static_cast<uint32_t>(snapshot.machine_guids.size()));
+    for (const uint64_t entity_guid : snapshot.machine_guids) {
+        write_uint64(buf, entity_guid);
+    }
+    write_uint32(buf, static_cast<uint32_t>(snapshot.boundary_ports.size()));
+    for (const OfflineNetworkBoundaryPort& port : snapshot.boundary_ports) {
+        write_uint64(buf, port.node_id);
+        write_chunk_key(buf, port.adjacent_chunk);
+        write_uint8(buf, port.direction);
+        write_uint64(buf, port.topology_revision);
+    }
+    write_uint32(buf, static_cast<uint32_t>(snapshot.ledgers.size()));
+    for (const OfflineNetworkResourceLedger& ledger : snapshot.ledgers) {
+        write_uint8(buf, static_cast<uint8_t>(ledger.kind));
+        write_string(buf, ledger.resource_id);
+        write_int64(buf, ledger.stored_amount);
+        write_int64(buf, ledger.capacity);
+    }
+}
+
+bool GameChunkSerializer::read_offline_network_island_snapshot(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    OfflineNetworkIslandSnapshot& snapshot) {
+    if (!read_uint64(data, offset, snapshot.island_id) || snapshot.island_id == 0 ||
+        !read_uint64(data, offset, snapshot.ownership_epoch) ||
+        snapshot.ownership_epoch == 0 ||
+        !read_string(data, offset, snapshot.dimension_id) ||
+        snapshot.dimension_id.empty() ||
+        snapshot.dimension_id.size() > kMaxOfflineNetworkDimensionIdBytes ||
+        snapshot.dimension_id.find('\0') != std::string::npos ||
+        !read_chunk_key(data, offset, snapshot.anchor_chunk) ||
+        snapshot.anchor_chunk.dimension_id != snapshot.dimension_id) {
+        return false;
+    }
+
+    uint32_t member_chunk_count = 0;
+    if (!read_uint32(data, offset, member_chunk_count) || member_chunk_count == 0 ||
+        member_chunk_count > kMaxOfflineNetworkMemberChunks) {
+        return false;
+    }
+    snapshot.member_chunks.clear();
+    snapshot.member_chunks.reserve(member_chunk_count);
+    for (uint32_t index = 0; index < member_chunk_count; ++index) {
+        ChunkKey member_chunk;
+        if (!read_chunk_key(data, offset, member_chunk) ||
+            member_chunk.dimension_id != snapshot.dimension_id) {
+            return false;
+        }
+        snapshot.member_chunks.push_back(std::move(member_chunk));
+    }
+
+    if (!read_uint64(data, offset, snapshot.topology_revision) ||
+        !read_uint64(data, offset, snapshot.last_simulated_tick)) {
+        return false;
+    }
+
+    uint32_t machine_guid_count = 0;
+    if (!read_uint32(data, offset, machine_guid_count) || machine_guid_count == 0 ||
+        machine_guid_count > kMaxOfflineNetworkMachineGuids) {
+        return false;
+    }
+    snapshot.machine_guids.clear();
+    snapshot.machine_guids.reserve(machine_guid_count);
+    for (uint32_t index = 0; index < machine_guid_count; ++index) {
+        uint64_t entity_guid = 0;
+        if (!read_uint64(data, offset, entity_guid) || entity_guid == 0) return false;
+        snapshot.machine_guids.push_back(entity_guid);
+    }
+
+    uint32_t boundary_port_count = 0;
+    if (!read_uint32(data, offset, boundary_port_count) ||
+        boundary_port_count > kMaxOfflineNetworkBoundaryPorts) {
+        return false;
+    }
+    snapshot.boundary_ports.clear();
+    snapshot.boundary_ports.reserve(boundary_port_count);
+    for (uint32_t index = 0; index < boundary_port_count; ++index) {
+        OfflineNetworkBoundaryPort port;
+        if (!read_uint64(data, offset, port.node_id) || port.node_id == 0 ||
+            !read_chunk_key(data, offset, port.adjacent_chunk) ||
+            port.adjacent_chunk.dimension_id != snapshot.dimension_id ||
+            !read_uint8(data, offset, port.direction) || port.direction >= 6 ||
+            !read_uint64(data, offset, port.topology_revision)) {
+            return false;
+        }
+        snapshot.boundary_ports.push_back(std::move(port));
+    }
+
+    uint32_t ledger_count = 0;
+    if (!read_uint32(data, offset, ledger_count) ||
+        ledger_count > kMaxOfflineNetworkLedgers) {
+        return false;
+    }
+    snapshot.ledgers.clear();
+    snapshot.ledgers.reserve(ledger_count);
+    for (uint32_t index = 0; index < ledger_count; ++index) {
+        uint8_t raw_kind = 0;
+        OfflineNetworkResourceLedger ledger;
+        if (!read_uint8(data, offset, raw_kind) ||
+            raw_kind > static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
+            !read_string(data, offset, ledger.resource_id) ||
+            ledger.resource_id.empty() ||
+            ledger.resource_id.size() > kMaxOfflineNetworkResourceIdBytes ||
+            ledger.resource_id.find('\0') != std::string::npos ||
+            !read_int64(data, offset, ledger.stored_amount) ||
+            !read_int64(data, offset, ledger.capacity) ||
+            ledger.stored_amount < 0 || ledger.capacity < 0 ||
+            ledger.stored_amount > ledger.capacity) {
+            return false;
+        }
+        ledger.kind = static_cast<OfflineNetworkResourceKind>(raw_kind);
+        snapshot.ledgers.push_back(std::move(ledger));
+    }
     return true;
 }
 

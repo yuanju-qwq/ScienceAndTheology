@@ -291,11 +291,13 @@ void hash_u64(uint64_t& value, uint64_t input) noexcept {
         const uint64_t range = static_cast<uint64_t>(drop.max_count - drop.min_count) + 1u;
         const int32_t count = drop.min_count + static_cast<int32_t>(amount_roll % range);
         auto existing = std::find_if(additions.begin(), additions.end(),
-            [&drop](const GamePlayerItemStack& stack) { return stack.item_id == drop.item_key; });
+            [&drop](const GamePlayerItemStack& stack) {
+                return stack.resource.key == ResourceKey::item(drop.item_key);
+            });
         if (existing == additions.end()) {
-            additions.push_back({.item_id = drop.item_key, .count = count});
+            additions.push_back(GamePlayerItemStack::item(drop.item_key, count));
         } else {
-            existing->count += count;
+            existing->resource.amount += count;
         }
     }
     if (additions.size() > kMaxCollectedMachineStacks) {
@@ -314,7 +316,7 @@ make_crop_harvest_transaction(const CropHarvestResult& harvest) {
             return invalid_state("Crop harvest has an invalid " + std::string(source) +
                                  " item key");
         }
-        transaction.additions.push_back({.item_id = std::string(item_id), .count = count});
+        transaction.additions.push_back(GamePlayerItemStack::item(std::string(item_id), count));
         return {};
     };
     if (auto result = append(harvest.crop_item_key, harvest.crop_count, "crop"); !result) {
@@ -531,7 +533,8 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
         .account_id = peer.identity.account_id,
         .tick_index = tick_index,
         .command = command,
-        .item_id = !transaction.additions.empty() ? transaction.additions.front().item_id :
+        .item_id = !transaction.additions.empty()
+            ? transaction.additions.front().resource.key.id :
             (definition != nullptr ? definition->item_id : terrain_material->key),
         .previous_material = material,
         .current_material = worldgen.roles.air,
@@ -574,7 +577,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
     }
 
     const GamePlayerInventoryTransaction transaction{
-        .removals = {{.item_id = definition->item_id, .count = 1}},
+        .removals = {GamePlayerItemStack::item(definition->item_id, 1)},
     };
     auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
     if (!can_apply) return can_apply.error();
@@ -659,7 +662,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
     }
 
     const GamePlayerInventoryTransaction transaction{
-        .removals = {{.item_id = placement->item_id, .count = 1}},
+        .removals = {GamePlayerItemStack::item(placement->item_id, 1)},
     };
     auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
     if (!can_apply) return can_apply.error();
@@ -844,8 +847,8 @@ GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
 
     std::vector<MachineItemStack> candidate_inputs = runtime.input_slots;
     for (const MachineItemStack& input : candidate_inputs) {
-        if (input.empty() || input.item_id.size() > kMaxGameItemIdBytes ||
-            input.count > runtime.max_stack_size) {
+        if (!input.is_valid_item() || input.resource.key.id.size() > kMaxGameItemIdBytes ||
+            input.resource.amount > runtime.max_stack_size) {
             return invalid_state("Machine input transfer target has invalid input storage");
         }
     }
@@ -863,61 +866,55 @@ GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
     GamePlayerItemStack candidate_player = player_inventory->slots[command.player_slot];
     MachineItemStack& candidate_machine = candidate_inputs[machine_slot_index];
     const GamePlayerItemStack observed_machine{
-        .item_id = candidate_machine.item_id,
-        .count = candidate_machine.count,
+        .resource = candidate_machine.resource,
     };
     if (observed_machine != command.expected_machine_input_slot) {
         return invalid_state("Machine input transfer input position changed before host commit");
     }
 
     const auto clear_player = [](GamePlayerItemStack& stack) {
-        stack.item_id.clear();
-        stack.count = 0;
-        stack.instance_data.clear();
+        stack.clear();
     };
     const auto clear_machine = [](MachineItemStack& stack) {
-        stack.item_id.clear();
-        stack.count = 0;
-        stack.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+        stack.resource = {};
+        stack.runtime_key = {};
     };
     const auto assign_machine = [](MachineItemStack& target,
                                    const GamePlayerItemStack& source) {
-        target.item_id = source.item_id;
-        target.count = source.count;
-        target.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+        target.resource = source.resource;
+        target.runtime_key = {};
     };
     const auto assign_player = [](GamePlayerItemStack& target,
                                   const MachineItemStack& source) {
-        target.item_id = source.item_id;
-        target.count = source.count;
+        target.resource = source.resource;
         target.instance_data.clear();
     };
 
     if (command.direction ==
         GameMachineInputSlotTransferDirection::kPlayerToMachineInput) {
-        if (candidate_player.item_id.empty() || candidate_player.count <= 0 ||
+        if (!candidate_player.is_valid_item() ||
             !candidate_player.instance_data.empty()) {
             return invalid_state("Machine input transfer cannot store a singular player item");
         }
         if (candidate_machine.empty()) {
             MachineItemStack moved;
             assign_machine(moved, candidate_player);
-            moved.count = command.count;
+            moved.resource.amount = command.count;
             candidate_machine = std::move(moved);
-            candidate_player.count -= command.count;
-            if (candidate_player.count == 0) clear_player(candidate_player);
-        } else if (candidate_machine.item_id == candidate_player.item_id) {
-            if (candidate_machine.count > runtime.max_stack_size - command.count) {
+            candidate_player.resource.amount -= command.count;
+            if (candidate_player.resource.amount == 0) clear_player(candidate_player);
+        } else if (candidate_machine.resource.has_same_key(candidate_player.resource)) {
+            if (candidate_machine.resource.amount > runtime.max_stack_size - command.count) {
                 return invalid_state("Machine input transfer does not fit the target stack");
             }
-            candidate_machine.count += command.count;
-            candidate_player.count -= command.count;
-            if (candidate_player.count == 0) clear_player(candidate_player);
+            candidate_machine.resource.amount += command.count;
+            candidate_player.resource.amount -= command.count;
+            if (candidate_player.resource.amount == 0) clear_player(candidate_player);
         } else {
-            if (command.count != candidate_player.count) {
+            if (command.count != candidate_player.resource.amount) {
                 return invalid_state("Machine input transfer can only swap a complete player stack");
             }
-            if (candidate_machine.count > player_inventory->max_stack_size) {
+            if (candidate_machine.resource.amount > player_inventory->max_stack_size) {
                 return invalid_state("Machine input transfer target stack exceeds player capacity");
             }
             const MachineItemStack previous_machine = candidate_machine;
@@ -928,27 +925,27 @@ GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
         if (candidate_machine.empty()) {
             return invalid_state("Machine input transfer source slot is empty");
         }
-        if (candidate_player.item_id.empty() || candidate_player.count <= 0) {
+        if (candidate_player.is_empty()) {
             GamePlayerItemStack moved;
             assign_player(moved, candidate_machine);
-            moved.count = command.count;
+            moved.resource.amount = command.count;
             candidate_player = std::move(moved);
-            candidate_machine.count -= command.count;
-            if (candidate_machine.count == 0) clear_machine(candidate_machine);
+            candidate_machine.resource.amount -= command.count;
+            if (candidate_machine.resource.amount == 0) clear_machine(candidate_machine);
         } else if (candidate_player.instance_data.empty() &&
-                   candidate_player.item_id == candidate_machine.item_id) {
-            if (candidate_player.count > player_inventory->max_stack_size - command.count) {
+                   candidate_player.resource.has_same_key(candidate_machine.resource)) {
+            if (candidate_player.resource.amount > player_inventory->max_stack_size - command.count) {
                 return invalid_state("Machine input transfer does not fit the player stack");
             }
-            candidate_player.count += command.count;
-            candidate_machine.count -= command.count;
-            if (candidate_machine.count == 0) clear_machine(candidate_machine);
+            candidate_player.resource.amount += command.count;
+            candidate_machine.resource.amount -= command.count;
+            if (candidate_machine.resource.amount == 0) clear_machine(candidate_machine);
         } else {
-            if (command.count != candidate_machine.count) {
+            if (command.count != candidate_machine.resource.amount) {
                 return invalid_state("Machine input transfer can only swap a complete machine stack");
             }
             if (!candidate_player.instance_data.empty() ||
-                candidate_player.count > runtime.max_stack_size) {
+                candidate_player.resource.amount > runtime.max_stack_size) {
                 return invalid_state("Machine input transfer player stack cannot enter the machine");
             }
             const GamePlayerItemStack previous_player = candidate_player;
@@ -996,11 +993,11 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_coll
     transaction.additions.reserve(runtime.output_slots.size());
     for (const MachineItemStack& output : runtime.output_slots) {
         if (output.empty()) continue;
-        if (output.item_id.size() > kMaxGameItemIdBytes ||
+        if (!output.is_valid_item() || output.resource.key.id.size() > kMaxGameItemIdBytes ||
             transaction.additions.size() == kMaxCollectedMachineStacks) {
             return invalid_state("Machine collect target has invalid output storage");
         }
-        transaction.additions.push_back({.item_id = output.item_id, .count = output.count});
+        transaction.additions.push_back({.resource = output.resource});
     }
     if (transaction.additions.empty()) {
         return invalid_state("Machine collect target has no output");
@@ -1015,8 +1012,8 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_coll
         return result.error();
     }
     for (MachineItemStack& output : runtime.output_slots) {
-        output.item_id.clear();
-        output.count = 0;
+        output.resource = {};
+        output.runtime_key = {};
     }
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kMachineOutputCollected,
@@ -1089,7 +1086,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_plant_crop(
     }
 
     const GamePlayerInventoryTransaction transaction{
-        .removals = {{.item_id = command.selected_item_id, .count = 1}},
+        .removals = {GamePlayerItemStack::item(command.selected_item_id, 1)},
     };
     auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
     if (!can_apply) return can_apply.error();
@@ -1141,7 +1138,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_fertilize_cr
     if (!target) return target.error();
     const uint32_t previous_material = static_cast<uint32_t>(target->cell->material);
     const GamePlayerInventoryTransaction transaction{
-        .removals = {{.item_id = command.selected_item_id, .count = 1}},
+        .removals = {GamePlayerItemStack::item(command.selected_item_id, 1)},
     };
     auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
     if (!can_apply) return can_apply.error();
@@ -1197,7 +1194,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_harvest_crop
     auto transaction = make_crop_harvest_transaction(*preview);
     if (!transaction) return transaction.error();
     for (const GamePlayerItemStack& addition : transaction->additions) {
-        if (content_->find_item(addition.item_id) == nullptr) {
+        if (content_->find_item(addition.resource.key.id) == nullptr) {
             return invalid_state("Crop harvest output is not registered in current item content");
         }
     }
@@ -1272,7 +1269,7 @@ GameServerPlayerInteractionService::validate_selected_inventory_item(
     const GameAuthenticatedPeer& peer, std::string_view item_id) const {
     if (item_id.empty()) return invalid_argument("Selected farming item id is empty");
     const GamePlayerInventoryTransaction transaction{
-        .removals = {{.item_id = std::string(item_id), .count = 1}},
+        .removals = {GamePlayerItemStack::item(std::string(item_id), 1)},
     };
     auto available = player_state_->can_apply_inventory_transaction(peer, transaction);
     if (!available) return available.error();

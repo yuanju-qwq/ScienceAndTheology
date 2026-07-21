@@ -150,7 +150,7 @@ ChunkKey GameServerPlayerGraveStore::chunk_key_for(const GamePlayerWorldPosition
 }
 
 bool GameServerPlayerGraveStore::is_nonempty_stack(const GamePlayerItemStack& stack) noexcept {
-    return !stack.item_id.empty() && stack.count > 0;
+    return stack.is_valid_item();
 }
 
 snt::core::Expected<GameServerPlayerGraveStore::PlacementCandidate>
@@ -211,13 +211,12 @@ snt::core::Expected<GamePlayerGraveId> GameServerPlayerGraveStore::create_indest
     std::vector<GamePlayerGraveItemStack> stored_items;
     stored_items.reserve(request.contents.slots.size());
     for (const GamePlayerItemStack& stack : request.contents.slots) {
-        if (stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty()) continue;
+        if (stack.is_empty()) continue;
         if (!is_nonempty_stack(stack)) {
             return invalid_argument("Player grave request contains an invalid inventory stack");
         }
         stored_items.push_back({
-            .item_id = stack.item_id,
-            .count = stack.count,
+            .resource = stack.resource,
             .instance_data = stack.instance_data,
         });
     }
@@ -327,8 +326,7 @@ snt::core::Expected<GamePlayerGraveContents> GameServerPlayerGraveStore::read_lo
     contents.items.reserve(record.items.size());
     for (const GamePlayerGraveItemStack& item : record.items) {
         contents.items.push_back({
-            .item_id = item.item_id,
-            .count = item.count,
+            .resource = item.resource,
             .instance_data = item.instance_data,
         });
     }
@@ -601,7 +599,7 @@ std::vector<GamePlayerItemStack> GameServerPlayerDeathService::nonempty_inventor
     std::vector<GamePlayerItemStack> items;
     items.reserve(inventory.slots.size());
     for (const GamePlayerItemStack& stack : inventory.slots) {
-        if (stack.item_id.empty()) continue;
+        if (stack.is_empty()) continue;
         items.push_back(stack);
     }
     return items;

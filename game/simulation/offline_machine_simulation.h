@@ -29,39 +29,6 @@ namespace snt::game {
 
 class IMachineTickEventSink;
 
-// Persistent network-island contracts. They intentionally contain only
-// compressed endpoints, resource ledgers, and chunk borders, never terrain or
-// per-pipe ECS state. A topology provider will own their construction later.
-enum class OfflineNetworkResourceKind : uint8_t {
-    kPower = 0,
-    kItem = 1,
-    kFluid = 2,
-};
-
-struct OfflineNetworkResourceLedger {
-    OfflineNetworkResourceKind kind = OfflineNetworkResourceKind::kPower;
-    std::string resource_id;
-    int64_t stored_amount = 0;
-    int64_t capacity = 0;
-};
-
-struct OfflineNetworkBoundaryPort {
-    uint64_t node_id = 0;
-    ChunkKey adjacent_chunk;
-    uint8_t direction = 0;
-    uint64_t topology_revision = 0;
-};
-
-struct OfflineNetworkIslandSnapshot {
-    uint64_t island_id = 0;
-    std::string dimension_id;
-    uint64_t topology_revision = 0;
-    uint64_t last_simulated_tick = 0;
-    std::vector<uint64_t> machine_guids;
-    std::vector<OfflineNetworkBoundaryPort> boundary_ports;
-    std::vector<OfflineNetworkResourceLedger> ledgers;
-};
-
 class IOfflineNetworkIslandProvider {
 public:
     virtual ~IOfflineNetworkIslandProvider() = default;

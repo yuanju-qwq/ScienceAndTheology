@@ -3,6 +3,20 @@
 # This module owns all game content and package assembly. The engine remains a
 # library: it receives explicit runtime paths and never reaches into this tree.
 
+# Current-only resource identity and storage contracts. The game owns this
+# domain; legacy src/Godot resource APIs are migration references only.
+add_library(snt_game_resources STATIC
+    resources/resource_key.cpp
+    resources/resource_runtime_index.cpp
+)
+target_include_directories(snt_game_resources PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_resources PUBLIC
+    snt_engine_settings
+    snt_core
+)
+
 # ScienceAndTheology world rules are game-owned. The engine supplies only
 # generic voxel/chunk primitives and raw region blob framing.
 add_library(snt_game_world_data STATIC
@@ -17,6 +31,7 @@ target_include_directories(snt_game_world_data PUBLIC
 target_link_libraries(snt_game_world_data PUBLIC
     snt_engine_settings
     snt_voxel_data
+    snt_game_resources
 )
 
 add_library(snt_game_worldgen STATIC
@@ -133,6 +148,7 @@ target_include_directories(snt_game_network PUBLIC
 target_link_libraries(snt_game_network PUBLIC
     snt_engine_settings
     snt_core
+    snt_game_resources
     snt_game_identity
     snt_network
     snt_ecs
@@ -162,6 +178,7 @@ add_library(snt_game_simulation STATIC
     simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
     simulation/offline_machine_simulation.cpp
+    simulation/offline_network_island_registry.cpp
     simulation/region_topology.cpp
     simulation/science_and_theology_simulation_session.cpp
     simulation/season_cycle.cpp
@@ -175,6 +192,7 @@ target_link_libraries(snt_game_simulation PUBLIC
     snt_engine_settings
     snt_simulation_runtime
     snt_core
+    snt_game_resources
     snt_ecs
     snt_script
     snt_voxel_data
@@ -192,6 +210,7 @@ add_executable(snt_game_client
     runtime/local_player_name_prompt.cpp
     runtime/runtime_package.cpp
     client/client_block_interaction.cpp
+    client/creature_interaction.cpp
     client/creature_presentation_world.cpp
     client/day_night_lighting.cpp
     client/inventory_slot_transaction.cpp
@@ -309,6 +328,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
+        tests/test_resource_key.cpp
     )
     target_include_directories(snt_game_content_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -324,8 +344,31 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         GTest::gtest_main
     )
 
+    # Creature presentation is intentionally a small authority/presentation
+    # closure. Keep its regression tests independent from persistence and the
+    # graphical runtime so protocol and AOI changes can be validated quickly.
+    add_executable(snt_game_creature_tests
+        client/creature_interaction.cpp
+        server/game_server_creature_replication.cpp
+        tests/test_client_creature_interaction.cpp
+        tests/test_game_creature_replication.cpp
+    )
+    target_include_directories(snt_game_creature_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        "${CMAKE_CURRENT_SOURCE_DIR}/client"
+    )
+    target_link_libraries(snt_game_creature_tests PRIVATE
+        snt_engine_settings
+        snt_core
+        snt_voxel_data
+        snt_game_world_data
+        snt_game_network
+        GTest::gtest_main
+    )
+
     add_executable(snt_game_tests
         client/client_block_interaction.cpp
+        client/creature_interaction.cpp
         client/creature_presentation_world.cpp
         client/day_night_lighting.cpp
         client/inventory_slot_transaction.cpp
@@ -360,6 +403,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
         tests/test_client_block_interaction.cpp
+        tests/test_client_creature_interaction.cpp
         tests/test_quest_book_ui.cpp
         tests/test_machine_interaction_service.cpp
         tests/test_machine_placement_registry.cpp
@@ -378,6 +422,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_server_player_state.cpp
         tests/test_game_quest_book_replication.cpp
         tests/test_game_inventory_replication.cpp
+        tests/test_game_creature_replication.cpp
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
@@ -417,6 +462,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
 
     include(GoogleTest)
     gtest_discover_tests(snt_game_content_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(snt_game_creature_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_tests DISCOVERY_MODE PRE_TEST)
 
     add_custom_command(TARGET snt_game_tests POST_BUILD

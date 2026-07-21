@@ -1217,13 +1217,13 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_materials(
     MaterialMap previous_backup = backup_materials_;
     MaterialMap previous_live = live_materials_;
     ItemMap previous_generated = live_generated_material_items_;
-    const auto previous_runtime_index = item_runtime_index_.snapshot();
+    const auto previous_runtime_index = resource_runtime_index_.snapshot();
     const uint64_t previous_item_content_revision = item_content_revision_;
     const auto rollback = [&]() {
         backup_materials_ = previous_backup;
         live_materials_ = previous_live;
         live_generated_material_items_ = previous_generated;
-        item_runtime_index_.restore(previous_runtime_index);
+        resource_runtime_index_.restore(previous_runtime_index);
         item_content_revision_ = previous_item_content_revision;
     };
 
@@ -1237,7 +1237,7 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_materials(
         rollback();
         return result.error();
     }
-    if (auto result = publish_item_runtime_index(); !result) {
+    if (auto result = publish_resource_runtime_index(); !result) {
         rollback();
         return result.error();
     }
@@ -1256,7 +1256,7 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_item(
     if (auto result = register_item(kBuiltinScriptId, std::move(definition), true); !result) {
         return result.error();
     }
-    if (auto result = publish_item_runtime_index(); !result) {
+    if (auto result = publish_resource_runtime_index(); !result) {
         backup_items_ = std::move(previous_backup);
         live_items_ = std::move(previous_live);
         return result.error();
@@ -1299,7 +1299,7 @@ snt::core::Expected<void> GameContentRegistry::register_script_item(
         return result.error();
     }
     if (!staged_reload) {
-        if (auto result = publish_item_runtime_index(); !result) {
+        if (auto result = publish_resource_runtime_index(); !result) {
             backup_items_ = std::move(previous_backup);
             live_items_ = std::move(previous_live);
             return result.error();
@@ -1343,7 +1343,7 @@ snt::core::Expected<void> GameContentRegistry::register_script_material(
         live_generated_material_items_ = std::move(previous_generated);
         return result.error();
     }
-    if (auto result = publish_item_runtime_index(); !result) {
+    if (auto result = publish_resource_runtime_index(); !result) {
         backup_materials_ = std::move(previous_backup);
         live_materials_ = std::move(previous_live);
         live_generated_material_items_ = std::move(previous_generated);
@@ -1381,7 +1381,7 @@ snt::core::Expected<void> GameContentRegistry::add_script_material_element(
         return result.error();
     }
     if (!staged_reload) {
-        if (auto result = publish_item_runtime_index(); !result) {
+        if (auto result = publish_resource_runtime_index(); !result) {
             live_materials_ = std::move(previous_live);
             return result.error();
         }
@@ -1420,7 +1420,7 @@ snt::core::Expected<void> GameContentRegistry::set_script_material_form_presenta
         live_generated_material_items_ = std::move(previous_generated);
         return result.error();
     }
-    if (auto result = publish_item_runtime_index(); !result) {
+    if (auto result = publish_resource_runtime_index(); !result) {
         live_materials_ = std::move(previous_live);
         live_generated_material_items_ = std::move(previous_generated);
         return result.error();
@@ -1449,7 +1449,7 @@ snt::core::Expected<void> GameContentRegistry::set_script_item_presentation(
         return result.error();
     }
     if (!staged_reload) {
-        if (auto result = publish_item_runtime_index(); !result) {
+        if (auto result = publish_resource_runtime_index(); !result) {
             live_items_ = std::move(previous_live);
             return result.error();
         }
@@ -1478,7 +1478,7 @@ snt::core::Expected<void> GameContentRegistry::set_script_item_tool(
         return result.error();
     }
     if (!staged_reload) {
-        if (auto result = publish_item_runtime_index(); !result) {
+        if (auto result = publish_resource_runtime_index(); !result) {
             live_items_ = std::move(previous_live);
             return result.error();
         }
@@ -1509,7 +1509,7 @@ snt::core::Expected<void> GameContentRegistry::add_script_item_tool_tag(
     }
     tags.push_back(std::move(*normalized_tag));
     if (!staged_reload) {
-        if (auto result = publish_item_runtime_index(); !result) {
+        if (auto result = publish_resource_runtime_index(); !result) {
             live_items_ = std::move(previous_live);
             return result.error();
         }
@@ -1905,22 +1905,22 @@ const GameMaterialDefinition* GameContentRegistry::find_material(std::string_vie
     return it == live_materials_.end() ? nullptr : &it->second.definition;
 }
 
-std::optional<GameItemRuntimeId> GameContentRegistry::find_item_runtime_id(
-    std::string_view id) const noexcept {
-    return item_runtime_index_.find_id(id);
+std::optional<RuntimeResourceKey> GameContentRegistry::find_resource_runtime_key(
+    const ResourceKey& key) const {
+    return resource_runtime_index_.snapshot().resolve_runtime(key);
 }
 
-std::optional<std::string_view> GameContentRegistry::find_item_key(
-    GameItemRuntimeId id) const noexcept {
-    return item_runtime_index_.find_key(id);
+std::optional<ResourceKey> GameContentRegistry::find_resource_key(
+    const RuntimeResourceKey& key) const {
+    return resource_runtime_index_.snapshot().resolve_semantic(key);
 }
 
-snt::core::RuntimeKeyIndex::Snapshot GameContentRegistry::item_runtime_index() const noexcept {
-    return item_runtime_index_.snapshot();
+ResourceRuntimeIndex::Snapshot GameContentRegistry::resource_runtime_index() const noexcept {
+    return resource_runtime_index_.snapshot();
 }
 
-uint64_t GameContentRegistry::item_runtime_generation() const noexcept {
-    return item_runtime_index_.generation();
+uint64_t GameContentRegistry::resource_runtime_generation() const noexcept {
+    return resource_runtime_index_.snapshot().generation();
 }
 
 std::vector<GameItemDefinition> GameContentRegistry::item_definitions() const {
@@ -1980,22 +1980,22 @@ bool GameContentRegistry::item_matches_tool_requirement(
         (item->tool.has_value() && item->tool->mining_level >= required_mining_level);
 }
 
-snt::core::Expected<void> GameContentRegistry::publish_item_runtime_index() {
-    std::vector<std::string_view> keys;
+snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() {
+    std::vector<ResourceKey> keys;
     keys.reserve(live_items_.size() + live_generated_material_items_.size());
     for (const auto& [id, entry] : live_items_) {
         (void)entry;
-        keys.push_back(id);
+        keys.push_back(ResourceKey::item(id));
     }
     for (const auto& [id, entry] : live_generated_material_items_) {
         (void)entry;
-        keys.push_back(id);
+        keys.push_back(ResourceKey::item(id));
     }
-    if (auto result = item_runtime_index_.rebuild(keys); !result) return result.error();
+    if (auto result = resource_runtime_index_.rebuild(keys); !result) return result.error();
     ++item_content_revision_;
-    SNT_LOG_INFO("Published %zu game item runtime id(s), generation=%llu, content_revision=%llu",
+    SNT_LOG_INFO("Published %zu game resource runtime key(s), generation=%llu, content_revision=%llu",
                  keys.size(),
-                 static_cast<unsigned long long>(item_runtime_index_.generation()),
+                 static_cast<unsigned long long>(resource_runtime_index_.snapshot().generation()),
                  static_cast<unsigned long long>(item_content_revision_));
     return {};
 }
@@ -2230,16 +2230,16 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
     if (auto result = rebuild_generated_material_items(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
-    if (auto result = publish_item_runtime_index(); !result) return result.error();
+    if (auto result = publish_resource_runtime_index(); !result) return result.error();
     if (auto result = machine_placements_.commit_reload(script_id); !result) {
-        item_runtime_index_.restore(it->second.item_runtime_index);
+        resource_runtime_index_.restore(it->second.resource_runtime_index);
         item_content_revision_ = it->second.item_content_revision;
         return result.error();
     }
     reloads_.erase(it);
-    SNT_LOG_INFO("Game content committed reload for script %llu item_generation=%llu",
+    SNT_LOG_INFO("Game content committed reload for script %llu resource_generation=%llu",
                  static_cast<unsigned long long>(script_id),
-                 static_cast<unsigned long long>(item_runtime_index_.generation()));
+                 static_cast<unsigned long long>(resource_runtime_index_.snapshot().generation()));
     return {};
 }
 
@@ -2252,7 +2252,7 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
 
     if (auto result = erase_script_content(script_id); !result) return result.error();
     if (auto result = restore_script_content(it->second); !result) return result.error();
-    item_runtime_index_.restore(it->second.item_runtime_index);
+    resource_runtime_index_.restore(it->second.resource_runtime_index);
     item_content_revision_ = it->second.item_content_revision;
     reloads_.erase(it);
     SNT_LOG_WARN("Game content rolled back reload for script %llu",
@@ -2333,15 +2333,15 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
     if (auto result = rebuild_generated_material_items(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
-    if (auto result = publish_item_runtime_index(); !result) return result.error();
+    if (auto result = publish_resource_runtime_index(); !result) return result.error();
     if (auto result = machine_placements_.commit_reload_batch(script_ids); !result) {
         return result.error();
     }
     for (const ScriptId script_id : script_ids) reloads_.erase(script_id);
     reload_batch_.reset();
-    SNT_LOG_INFO("Game content committed reload batch with %zu script(s) item_generation=%llu",
+    SNT_LOG_INFO("Game content committed reload batch with %zu script(s) resource_generation=%llu",
                  script_ids.size(),
-                 static_cast<unsigned long long>(item_runtime_index_.generation()));
+                 static_cast<unsigned long long>(resource_runtime_index_.snapshot().generation()));
     return {};
 }
 
@@ -2354,7 +2354,7 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload_batch(
     if (first_snapshot == reloads_.end()) {
         return invalid_state("Game content reload batch lost its first script snapshot");
     }
-    const auto item_runtime_index = first_snapshot->second.item_runtime_index;
+    const auto resource_runtime_index = first_snapshot->second.resource_runtime_index;
     const uint64_t item_content_revision = first_snapshot->second.item_content_revision;
     const uint64_t quest_content_revision = reload_batch_->quest_content_revision;
 
@@ -2369,7 +2369,7 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload_batch(
         if (auto result = erase_script_content(*it); !result) return result.error();
         if (auto result = restore_script_content(snapshot->second); !result) return result.error();
     }
-    item_runtime_index_.restore(item_runtime_index);
+    resource_runtime_index_.restore(resource_runtime_index);
     item_content_revision_ = item_content_revision;
     quest_content_revision_ = quest_content_revision;
     for (const ScriptId script_id : script_ids) reloads_.erase(script_id);
@@ -2429,9 +2429,9 @@ void GameContentRegistry::reset() {
     state_store_.clear();
     reloads_.clear();
     reload_batch_.reset();
-    const std::vector<std::string_view> no_item_keys;
-    if (auto result = item_runtime_index_.rebuild(no_item_keys); !result) {
-        SNT_LOG_ERROR("Failed to publish an empty game item runtime index during reset: %s",
+    const std::vector<ResourceKey> no_resource_keys;
+    if (auto result = resource_runtime_index_.rebuild(no_resource_keys); !result) {
+        SNT_LOG_ERROR("Failed to publish an empty game resource runtime index during reset: %s",
                       result.error().format().c_str());
     }
     ++item_content_revision_;
@@ -2441,7 +2441,7 @@ void GameContentRegistry::reset() {
 GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content(
     ScriptId script_id) const {
     ReloadSnapshot snapshot;
-    snapshot.item_runtime_index = item_runtime_index_.snapshot();
+    snapshot.resource_runtime_index = resource_runtime_index_.snapshot();
     snapshot.item_content_revision = item_content_revision_;
     for (const auto& [id, entry] : live_materials_) {
         if (entry.owner == script_id) snapshot.materials.emplace(id, entry);

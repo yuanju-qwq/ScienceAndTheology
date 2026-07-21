@@ -17,7 +17,9 @@ namespace snt::game::replication {
 namespace {
 
 constexpr size_t kMaxDimensionIdBytes = 128;
-constexpr size_t kMaxItemIdBytes = 256;
+constexpr size_t kMaxResourceTypeBytes = 64;
+constexpr size_t kMaxResourceIdBytes = 256;
+constexpr size_t kMaxResourceVariantBytes = 16u * 1024u;
 constexpr size_t kMaxItemInstanceDataBytes = 16u * 1024u;
 constexpr size_t kMaxOrganSchemaIdBytes = 128;
 constexpr size_t kMaxOrganPayloadBytes = 64u * 1024u;
@@ -34,15 +36,19 @@ constexpr size_t kMaxInventoryTransactionEntries = 128;
 }
 
 [[nodiscard]] bool is_empty_stack_value(const GamePlayerItemStack& stack) noexcept {
-    return stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty();
+    return stack.is_empty();
 }
 
 [[nodiscard]] bool has_valid_nonempty_stack_shape(const GamePlayerItemStack& stack) noexcept {
-    if (stack.item_id.empty() || stack.item_id.size() > kMaxItemIdBytes || stack.count <= 0 ||
-        stack.instance_data.size() > kMaxItemInstanceDataBytes) {
+    if (!stack.is_valid_item() ||
+        stack.resource.key.type.size() > kMaxResourceTypeBytes ||
+        stack.resource.key.id.size() > kMaxResourceIdBytes ||
+        stack.resource.key.variant.size() > kMaxResourceVariantBytes ||
+        stack.instance_data.size() > kMaxItemInstanceDataBytes ||
+        stack.instance_data.find('\0') != std::string::npos) {
         return false;
     }
-    return stack.instance_data.empty() || stack.count == 1;
+    return stack.instance_data.empty() || stack.resource.amount == 1;
 }
 
 }  // namespace
@@ -215,7 +221,8 @@ snt::core::Expected<std::string> GameServerPlayerState::main_hand_item_id_for_pe
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
     const auto& equipment = world_->get_component<GamePlayerEquipment>(*entity);
-    return equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)].item_id;
+    return equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)]
+        .resource.key.id;
 }
 
 snt::core::Expected<GameAuthenticatedPeer> GameServerPlayerState::active_peer_for_account(
@@ -532,7 +539,8 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory(
     }
     for (const GamePlayerItemStack& stack : inventory.slots) {
         if (is_empty_stack(stack)) continue;
-        if (!has_valid_nonempty_stack_shape(stack) || stack.count > inventory.max_stack_size) {
+        if (!has_valid_nonempty_stack_shape(stack) ||
+            stack.resource.amount > inventory.max_stack_size) {
             return invalid_state("Authoritative player inventory contains an invalid item stack");
         }
     }
@@ -543,7 +551,7 @@ snt::core::Expected<void> GameServerPlayerState::validate_equipment(
     const GamePlayerEquipment& equipment) const {
     for (const GamePlayerItemStack& stack : equipment.slots) {
         if (is_empty_stack(stack)) continue;
-        if (!has_valid_nonempty_stack_shape(stack) || stack.count != 1) {
+        if (!has_valid_nonempty_stack_shape(stack) || stack.resource.amount != 1) {
             return invalid_state("Authoritative player equipment contains an invalid item stack");
         }
     }
@@ -733,14 +741,12 @@ bool GameServerPlayerState::is_empty_stack(const GamePlayerItemStack& stack) noe
 }
 
 void GameServerPlayerState::clear_stack(GamePlayerItemStack& stack) noexcept {
-    stack.item_id.clear();
-    stack.count = 0;
-    stack.instance_data.clear();
+    stack.clear();
 }
 
 bool GameServerPlayerState::stacks_can_merge(const GamePlayerItemStack& left,
                                               const GamePlayerItemStack& right) noexcept {
-    return !left.item_id.empty() && left.item_id == right.item_id &&
+    return left.resource.is_valid() && left.resource.has_same_key(right.resource) &&
            left.instance_data.empty() && right.instance_data.empty();
 }
 
@@ -748,22 +754,24 @@ bool GameServerPlayerState::remove_items(GamePlayerInventory& inventory,
                                          const GamePlayerItemStack& stack) noexcept {
     int64_t available = 0;
     for (const GamePlayerItemStack& existing : inventory.slots) {
-        if (existing.item_id == stack.item_id && existing.instance_data == stack.instance_data) {
-            available += existing.count;
+        if (existing.resource.has_same_key(stack.resource) &&
+            existing.instance_data == stack.instance_data) {
+            available += existing.resource.amount;
         }
     }
-    if (available < stack.count) return false;
+    if (available < stack.resource.amount) return false;
 
-    int32_t remaining = stack.count;
+    int64_t remaining = stack.resource.amount;
     for (GamePlayerItemStack& existing : inventory.slots) {
-        if (existing.item_id != stack.item_id || existing.instance_data != stack.instance_data ||
+        if (!existing.resource.has_same_key(stack.resource) ||
+            existing.instance_data != stack.instance_data ||
             remaining == 0) {
             continue;
         }
-        const int32_t removed = std::min(existing.count, remaining);
-        existing.count -= removed;
+        const int64_t removed = std::min(existing.resource.amount, remaining);
+        existing.resource.amount -= removed;
         remaining -= removed;
-        if (existing.count == 0) clear_stack(existing);
+        if (existing.resource.amount == 0) clear_stack(existing);
     }
     return true;
 }
@@ -779,22 +787,28 @@ bool GameServerPlayerState::add_items(GamePlayerInventory& inventory,
         return false;
     }
 
-    int64_t remaining = stack.count;
+    int64_t remaining = stack.resource.amount;
     for (GamePlayerItemStack& existing : inventory.slots) {
-        if (!stacks_can_merge(existing, stack) || existing.count >= inventory.max_stack_size) {
+        if (!stacks_can_merge(existing, stack) ||
+            existing.resource.amount >= inventory.max_stack_size) {
             continue;
         }
-        const int32_t capacity = inventory.max_stack_size - existing.count;
-        const int32_t added = static_cast<int32_t>(std::min<int64_t>(remaining, capacity));
-        existing.count += added;
+        const int64_t capacity = inventory.max_stack_size - existing.resource.amount;
+        const int64_t added = std::min(remaining, capacity);
+        existing.resource.amount += added;
         remaining -= added;
         if (remaining == 0) return true;
     }
     for (GamePlayerItemStack& existing : inventory.slots) {
         if (!is_empty_stack(existing)) continue;
-        const int32_t added = static_cast<int32_t>(
-            std::min<int64_t>(remaining, inventory.max_stack_size));
-        existing = {.item_id = stack.item_id, .count = added, .instance_data = {}};
+        const int64_t added = std::min<int64_t>(remaining, inventory.max_stack_size);
+        existing = {
+            .resource = {
+                .key = stack.resource.key,
+                .amount = added,
+            },
+            .instance_data = {},
+        };
         remaining -= added;
         if (remaining == 0) return true;
     }
@@ -812,25 +826,25 @@ bool GameServerPlayerState::apply_slot_transfer(
     GamePlayerItemStack& source = inventory.slots[transfer.source_slot];
     GamePlayerItemStack& target = inventory.slots[transfer.target_slot];
     if (source != transfer.expected_source || target != transfer.expected_target ||
-        transfer.count > source.count) {
+        transfer.count > source.resource.amount) {
         return false;
     }
 
     if (is_empty_stack(target)) {
         target = source;
-        target.count = transfer.count;
-        source.count -= transfer.count;
-        if (source.count == 0) clear_stack(source);
+        target.resource.amount = transfer.count;
+        source.resource.amount -= transfer.count;
+        if (source.resource.amount == 0) clear_stack(source);
         return true;
     }
     if (stacks_can_merge(source, target)) {
-        if (target.count > inventory.max_stack_size - transfer.count) return false;
-        target.count += transfer.count;
-        source.count -= transfer.count;
-        if (source.count == 0) clear_stack(source);
+        if (target.resource.amount > inventory.max_stack_size - transfer.count) return false;
+        target.resource.amount += transfer.count;
+        source.resource.amount -= transfer.count;
+        if (source.resource.amount == 0) clear_stack(source);
         return true;
     }
-    if (transfer.count != source.count) return false;
+    if (transfer.count != source.resource.amount) return false;
     std::swap(source, target);
     return true;
 }

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "client_block_interaction.h"
+#include "creature_interaction.h"
 #include "engine/client_session.h"
 #include "game/network/game_chunk_replication.h"
 #include "game/network/game_client_replication_session.h"
@@ -96,8 +97,12 @@ private:
     void handle_gameplay_input(snt::engine::ClientFrameContext& context);
     [[nodiscard]] std::optional<GameClientBlockInteractionTarget>
     current_network_interaction_target() const;
+    [[nodiscard]] std::optional<GameClientCreatureInteractionTarget>
+    current_network_creature_interaction_target() const;
     [[nodiscard]] bool try_open_network_machine_panel();
     void refresh_open_machine_panel();
+    [[nodiscard]] bool handle_network_creature_interaction_input(
+        snt::engine::ClientFrameContext& context);
     void handle_network_block_interaction_input(snt::engine::ClientFrameContext& context);
     void set_quest_book_visible(bool visible);
     [[nodiscard]] snt::core::Expected<void> submit_quest_reward_claim(
@@ -108,6 +113,7 @@ private:
 
     GameSessionConfig config_;
     GameClientBlockInteractionController block_interaction_controller_;
+    GameClientCreatureInteractionController creature_interaction_controller_;
     std::shared_ptr<localization::LocalizationService> localization_;
     ScienceAndTheologySimulationSession simulation_session_;
     std::optional<PlayerIdentity> local_player_identity_;
@@ -137,6 +143,8 @@ private:
     bool replication_disconnect_reported_ = false;
     bool block_interaction_bindings_reported_ = false;
     bool block_interaction_submission_error_reported_ = false;
+    bool creature_interaction_bindings_reported_ = false;
+    bool creature_interaction_submission_error_reported_ = false;
     bool network_crafting_unavailable_reported_ = false;
     std::shared_ptr<LocalInventorySlotTransferAuthority> local_inventory_authority_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;

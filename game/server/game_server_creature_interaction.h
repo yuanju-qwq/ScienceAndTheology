@@ -7,7 +7,7 @@
 #pragma once
 
 #include "core/expected.h"
-#include "game/network/game_replication_protocol.h"
+#include "game/network/game_replication_services.h"
 #include "game/simulation/wild_creature_system.h"
 
 #include <cstdint>

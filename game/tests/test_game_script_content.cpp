@@ -309,7 +309,8 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs)
         const auto* item = content.find_item(id);
         ASSERT_NE(item, nullptr);
         EXPECT_EQ(item->max_stack, max_stack);
-        ASSERT_TRUE(content.find_item_runtime_id(id));
+        ASSERT_TRUE(content.find_resource_runtime_key(
+            snt::game::ResourceKey::item(std::string(id))));
     };
     assert_item("furnace", 1);
     assert_item("pit_kiln", 1);
@@ -713,7 +714,8 @@ TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
     EXPECT_EQ(wood_log->title_key, "item.wood_log");
     EXPECT_EQ(wood_log->presentation.icon_path, "materials/wood_log_icon_32.png");
     EXPECT_FALSE(wood_log->presentation.uses_tint);
-    EXPECT_TRUE(content.find_item_runtime_id("dust.wood").has_value());
+    EXPECT_TRUE(content.find_resource_runtime_key(
+        snt::game::ResourceKey::item("dust.wood")).has_value());
 
     size_t compound_count = 0;
     for (const auto& item : content.item_definitions()) {

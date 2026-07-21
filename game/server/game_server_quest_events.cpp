@@ -28,9 +28,12 @@ constexpr uint64_t kErrorLogIntervalTicks = 20;
                                            std::string_view item_id) noexcept {
     int64_t count = 0;
     for (const GamePlayerItemStack& stack : inventory.slots) {
-        if (stack.item_id != item_id || stack.count <= 0) continue;
+        if (stack.resource.key != ResourceKey::item(std::string(item_id)) ||
+            stack.resource.amount <= 0) {
+            continue;
+        }
         count = std::min<int64_t>(
-            count + stack.count, std::numeric_limits<int32_t>::max());
+            count + stack.resource.amount, std::numeric_limits<int32_t>::max());
     }
     return static_cast<int32_t>(count);
 }
@@ -115,8 +118,9 @@ void GameServerQuestEventService::on_machine_tick_event(const MachineTickEvent& 
     }
     for (const MachineItemStack& output : event.outputs) {
         if (output.empty()) continue;
-        record_progress(event.account_id, QuestObjectiveKind::kCraftItem, output.item_id,
-                        output.count, event.tick_index);
+        record_progress(event.account_id, QuestObjectiveKind::kCraftItem,
+                        output.resource.key.id,
+                        static_cast<int32_t>(output.resource.amount), event.tick_index);
     }
 }
 
@@ -140,7 +144,7 @@ snt::core::Expected<void> GameServerQuestEventService::grant_item_rewards(
         if (reward.item_id.empty() || reward.count <= 0) {
             return invalid_state("Quest reward service received an invalid item reward");
         }
-        transaction.additions.push_back({.item_id = reward.item_id, .count = reward.count});
+        transaction.additions.push_back(GamePlayerItemStack::item(reward.item_id, reward.count));
     }
     auto can_apply = player_state_->can_apply_inventory_transaction(*peer, transaction);
     if (!can_apply) return can_apply.error();

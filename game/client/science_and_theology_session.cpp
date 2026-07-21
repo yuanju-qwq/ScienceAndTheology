@@ -307,11 +307,65 @@ private:
     uint64_t* next_sequence_ = nullptr;
 };
 
+class ReplicationCreatureInteractionCommandSink final
+    : public IGameClientCreatureInteractionCommandSink {
+public:
+    ReplicationCreatureInteractionCommandSink(replication::GameClientReplicationSession& session,
+                                              uint64_t& next_sequence) noexcept
+        : session_(&session), next_sequence_(&next_sequence) {}
+
+    [[nodiscard]] snt::core::Expected<void> submit_creature_attack(
+        replication::GameCreatureAttackCommand command) override {
+        if (auto ready = validate_sequence(); !ready) return ready.error();
+        if (auto result = session_->enqueue_creature_attack(*next_sequence_, std::move(command));
+            !result) {
+            return result.error();
+        }
+        ++*next_sequence_;
+        return {};
+    }
+
+    [[nodiscard]] snt::core::Expected<void> submit_creature_capture(
+        replication::GameCreatureCaptureCommand command) override {
+        if (auto ready = validate_sequence(); !ready) return ready.error();
+        if (auto result = session_->enqueue_creature_capture(*next_sequence_, std::move(command));
+            !result) {
+            return result.error();
+        }
+        ++*next_sequence_;
+        return {};
+    }
+
+    [[nodiscard]] snt::core::Expected<void> submit_captive_creature_feed(
+        replication::GameCaptiveCreatureFeedCommand command) override {
+        if (auto ready = validate_sequence(); !ready) return ready.error();
+        if (auto result = session_->enqueue_captive_creature_feed(
+                *next_sequence_, std::move(command)); !result) {
+            return result.error();
+        }
+        ++*next_sequence_;
+        return {};
+    }
+
+private:
+    [[nodiscard]] snt::core::Expected<void> validate_sequence() const {
+        if (session_ == nullptr || next_sequence_ == nullptr || *next_sequence_ == 0 ||
+            *next_sequence_ == std::numeric_limits<uint64_t>::max()) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidState,
+                "Client creature interaction command sequence is unavailable"};
+        }
+        return {};
+    }
+
+    replication::GameClientReplicationSession* session_ = nullptr;
+    uint64_t* next_sequence_ = nullptr;
+};
+
 [[nodiscard]] GamePlayerItemStack to_replication_inventory_stack(
     const ItemStackState& stack) {
     return {
-        .item_id = stack.item_key,
-        .count = stack.count,
+        .resource = ResourceStack::item(stack.item_key, stack.count),
         .instance_data = stack.instance_data,
     };
 }
@@ -319,8 +373,8 @@ private:
 [[nodiscard]] ItemStackState from_replication_inventory_stack(
     const GamePlayerItemStack& stack) {
     return {
-        .item_key = stack.item_id,
-        .count = stack.count,
+        .item_key = stack.resource.key.id,
+        .count = static_cast<int32_t>(stack.resource.amount),
         .instance_data = stack.instance_data,
     };
 }
@@ -333,6 +387,17 @@ private:
         slots.push_back(from_replication_inventory_stack(stack));
     }
     return slots;
+}
+
+[[nodiscard]] std::string selected_hotbar_item_id(GameplayUiController* gameplay_ui) {
+    if (gameplay_ui == nullptr) return {};
+    const InventoryState& inventory = gameplay_ui->inventory().state();
+    const int32_t selected_index = gameplay_ui->hotbar().selected_index();
+    if (selected_index < 0 || selected_index >= static_cast<int32_t>(inventory.slots.size()) ||
+        inventory.slots[selected_index].empty()) {
+        return {};
+    }
+    return inventory.slots[selected_index].item_key;
 }
 
 // The retained UI can outlive a reconnect. It therefore follows the owning
@@ -1404,6 +1469,50 @@ ScienceAndTheologyClientSession::current_network_interaction_target() const {
     return target;
 }
 
+std::optional<GameClientCreatureInteractionTarget>
+ScienceAndTheologyClientSession::current_network_creature_interaction_target() const {
+    if (presentation_world_ == nullptr || presentation_chunks_ == nullptr ||
+        !remote_player_world_ || !remote_creature_world_) {
+        return std::nullopt;
+    }
+    const auto local_player = remote_player_world_->authoritative_local_player();
+    if (!local_player.has_value() || local_player->player.position.dimension_id.empty()) {
+        return std::nullopt;
+    }
+    const entt::entity camera_entity = presentation_world_->find_entity_by_guid(
+        snt::ecs::EntityGuid{config_.scene.active_camera_guid});
+    if (camera_entity == entt::null ||
+        !presentation_world_->registry().all_of<snt::render::Transform>(camera_entity)) {
+        return std::nullopt;
+    }
+
+    const snt::render::Transform& transform =
+        presentation_world_->registry().get<snt::render::Transform>(camera_entity);
+    const std::string& dimension_id = local_player->player.position.dimension_id;
+    const snt::player::Vec3 look_direction = camera_look_direction(transform);
+    const snt::player::CollisionWorldView collision_world(
+        presentation_chunks_, dimension_id, true);
+    const snt::player::RayCastResult terrain_hit = snt::player::ray_cast_voxels_dda(
+        collision_world,
+        {.x = transform.position[0], .y = transform.position[1], .z = transform.position[2]},
+        look_direction, config_.client_interaction.raycast_reach_blocks);
+    GameClientCreatureRaycast raycast{
+        .origin_x = transform.position[0],
+        .origin_y = transform.position[1],
+        .origin_z = transform.position[2],
+        .direction_x = look_direction.x,
+        .direction_y = look_direction.y,
+        .direction_z = look_direction.z,
+        .max_distance_blocks = config_.client_interaction.raycast_reach_blocks,
+    };
+    if (terrain_hit.hit) {
+        raycast.terrain_hit_distance_blocks = terrain_hit.distance;
+    }
+    const std::vector<GameCreaturePresentationState> creatures =
+        remote_creature_world_->creatures();
+    return pick_game_client_creature_interaction_target(creatures, dimension_id, raycast);
+}
+
 bool ScienceAndTheologyClientSession::try_open_network_machine_panel() {
     if (!gameplay_ui_ || !remote_machine_world_ || !replication_session_ ||
         replication_session_->status().state !=
@@ -1442,6 +1551,43 @@ void ScienceAndTheologyClientSession::refresh_open_machine_panel() {
     }
 }
 
+bool ScienceAndTheologyClientSession::handle_network_creature_interaction_input(
+    snt::engine::ClientFrameContext& context) {
+    if (!replication_session_ || presentation_world_ == nullptr || presentation_chunks_ == nullptr ||
+        !remote_player_world_ || !remote_creature_world_ ||
+        replication_session_->status().state !=
+            replication::GameClientConnectionState::kAuthenticated) {
+        return false;
+    }
+
+    const auto& input = context.input();
+    const GameClientCreatureInteractionInput interaction_input{
+        .attack_pressed = input.mouse_pressed[0],
+        .context_pressed = input.mouse_pressed[2],
+    };
+    if (!interaction_input.attack_pressed && !interaction_input.context_pressed) return false;
+
+    const auto target = current_network_creature_interaction_target();
+    if (!target.has_value()) return false;
+    ReplicationCreatureInteractionCommandSink sink(*replication_session_, next_movement_sequence_);
+    auto handled = creature_interaction_controller_.handle_input(
+        interaction_input, target, selected_hotbar_item_id(gameplay_ui_.get()), sink);
+    if (!handled) {
+        if (!creature_interaction_submission_error_reported_) {
+            SNT_LOG_WARN("Client creature interaction command was not queued: %s",
+                         handled.error().format().c_str());
+            creature_interaction_submission_error_reported_ = true;
+        }
+        return true;
+    }
+    creature_interaction_submission_error_reported_ = false;
+    if (*handled && !creature_interaction_bindings_reported_) {
+        SNT_LOG_INFO("Graphical client creature interactions use terrain-occluded ray selection and host-authoritative commits");
+        creature_interaction_bindings_reported_ = true;
+    }
+    return *handled;
+}
+
 void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
     snt::engine::ClientFrameContext& context) {
     if (!replication_session_ || presentation_world_ == nullptr || presentation_chunks_ == nullptr ||
@@ -1462,16 +1608,7 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
     GameClientBlockInteractionTarget target = *target_value;
     const std::string& dimension_id = target.dimension_id;
 
-    std::string selected_item_id;
-    if (gameplay_ui_) {
-        const InventoryState& inventory = gameplay_ui_->inventory().state();
-        const int32_t selected_index = gameplay_ui_->hotbar().selected_index();
-        if (selected_index >= 0 &&
-            selected_index < static_cast<int32_t>(inventory.slots.size()) &&
-            !inventory.slots[selected_index].empty()) {
-            selected_item_id = inventory.slots[selected_index].item_key;
-        }
-    }
+    std::string selected_item_id = selected_hotbar_item_id(gameplay_ui_.get());
 
     target.farming = make_farming_interaction_target(
         simulation_session_.content(), config_.client_interaction,
@@ -1658,7 +1795,9 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         context.set_mouse_locked(true);
     }
     if (mouse_was_locked && !ui_open) {
-        handle_network_block_interaction_input(context);
+        if (!handle_network_creature_interaction_input(context)) {
+            handle_network_block_interaction_input(context);
+        }
     }
 }
 

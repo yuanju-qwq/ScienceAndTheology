@@ -118,9 +118,14 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
 
 [[nodiscard]] bool is_valid_stack(const MachineRuntimeItemStack& stack,
                                   bool allow_empty) {
-    if (stack.count < 0 || stack.count > kMaxMachineStackSize) return false;
-    if (stack.count == 0) return allow_empty && stack.item_id.empty();
-    return !stack.item_id.empty();
+    if (stack.resource.amount < 0 || stack.resource.amount > kMaxMachineStackSize) {
+        return false;
+    }
+    if (stack.resource.amount == 0) {
+        return allow_empty && stack.resource.key.type.empty() && stack.resource.key.id.empty() &&
+               stack.resource.key.variant.empty();
+    }
+    return stack.resource.is_valid();
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_recipe(
@@ -132,9 +137,10 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         recipe.outputs.size() > kMaxMachineRecipeOutputs) {
         return invalid_argument("Machine persistence recipe snapshot is invalid");
     }
-    std::unordered_set<std::string> input_ids;
+    std::unordered_set<ResourceKey, ResourceKey::Hash> input_keys;
     for (const MachineRuntimeItemStack& input : recipe.inputs) {
-        if (!is_valid_stack(input, false) || !input_ids.insert(input.item_id).second) {
+        if (!is_valid_stack(input, false) ||
+            !input_keys.insert(input.resource.key).second) {
             return invalid_argument("Machine persistence recipe input is invalid");
         }
     }
@@ -172,13 +178,13 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         return invalid_argument("Machine persistence residency is invalid in chunk " +
                                 describe_chunk(chunk_key));
     }
-    if (record.residency == MachineRuntimeResidency::kOfflineStandalone &&
+    if (record.residency != MachineRuntimeResidency::kOfflineNetworkIsland &&
         record.offline_island_id != 0) {
-        return invalid_argument("Standalone offline machine must not reference a network island");
+        return invalid_argument("Only offline network machines may reference a network island");
     }
     if (record.residency == MachineRuntimeResidency::kOfflineNetworkIsland &&
-        record.offline_island_id == 0) {
-        return invalid_argument("Offline network machine is missing its island id");
+        (record.offline_island_id == 0 || record.offline_epoch == 0)) {
+        return invalid_argument("Offline network machine is missing island ownership metadata");
     }
     if (record.input_slots.size() > static_cast<size_t>(record.max_input_slots)) {
         return invalid_argument("Machine persistence input slot count exceeds its configured limit");
@@ -187,12 +193,14 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         return invalid_argument("Machine persistence output slot count exceeds its configured limit");
     }
     for (const MachineRuntimeItemStack& input : record.input_slots) {
-        if (!is_valid_stack(input, false) || input.count > record.max_stack_size) {
+        if (!is_valid_stack(input, false) ||
+            input.resource.amount > record.max_stack_size) {
             return invalid_argument("Machine persistence input slot is invalid");
         }
     }
     for (const MachineRuntimeItemStack& output : record.output_slots) {
-        if (!is_valid_stack(output, false) || output.count > record.max_stack_size) {
+        if (!is_valid_stack(output, false) ||
+            output.resource.amount > record.max_stack_size) {
             return invalid_argument("Machine persistence output slot is invalid");
         }
     }
@@ -216,11 +224,11 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
 }
 
 [[nodiscard]] MachineRuntimeItemStack to_persisted_stack(const MachineItemStack& stack) {
-    return {stack.item_id, stack.count};
+    return {.resource = stack.resource};
 }
 
 [[nodiscard]] MachineItemStack to_runtime_stack(const MachineRuntimeItemStack& stack) {
-    return {stack.item_id, stack.count};
+    return {.resource = stack.resource};
 }
 
 [[nodiscard]] MachineRuntimeRecipeSnapshot to_persisted_recipe(
@@ -641,6 +649,27 @@ snt::core::Expected<void> GameMachineRuntimePersistence::destroy_chunk_runtimes(
         if (entity == entt::null ||
             !world.registry().all_of<MachineRuntimeComponent>(entity)) {
             return invalid_state("Chunk machine runtime is unavailable during destruction");
+        }
+        entities.push_back(entity);
+    }
+    for (const entt::entity entity : entities) world.destroy_entity(entity);
+    return {};
+}
+
+snt::core::Expected<void> GameMachineRuntimePersistence::destroy_runtimes(
+    snt::ecs::World& world,
+    std::span<const uint64_t> entity_guids) {
+    std::unordered_set<uint64_t> seen_guids;
+    std::vector<entt::entity> entities;
+    entities.reserve(entity_guids.size());
+    for (const uint64_t raw_guid : entity_guids) {
+        if (raw_guid == 0 || !seen_guids.insert(raw_guid).second) {
+            return invalid_argument("Machine runtime destruction requires unique non-zero EntityGuids");
+        }
+        const entt::entity entity = world.find_entity_by_guid(snt::ecs::EntityGuid{raw_guid});
+        if (entity == entt::null ||
+            !world.registry().all_of<MachineRuntimeComponent>(entity)) {
+            return invalid_state("Selected machine runtime is unavailable during destruction");
         }
         entities.push_back(entity);
     }

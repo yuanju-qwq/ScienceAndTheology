@@ -27,9 +27,9 @@
 #include <vector>
 
 #include "core/expected.h"
-#include "core/runtime_key_index.h"
 #include "ecs/entity_guid.h"
 #include "ecs/system.h"
+#include "game/resources/resource_runtime_index.h"
 
 namespace snt::ecs {
 class World;
@@ -40,14 +40,24 @@ namespace snt::game {
 class GameContentRegistry;
 
 struct MachineItemStack {
-    std::string item_id;
-    int32_t count = 0;
+    // Machine slots persist semantic resource identity and quantity. The
+    // worker receives runtime_key from an immutable content snapshot and
+    // never compares the strings inside resource.key.
+    ResourceStack resource;
     // Filled only on the main-thread capture boundary. Persistent storage,
-    // command payloads, and events retain item_id; worker calculations use
-    // item_runtime_id from one immutable RuntimeKeyIndex snapshot.
-    snt::core::RuntimeKeyId item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+    // command payloads, and events retain ResourceStack; worker calculations use
+    // runtime_key from one immutable ResourceRuntimeIndex snapshot.
+    RuntimeResourceKey runtime_key;
 
-    bool empty() const { return item_id.empty() || count <= 0; }
+    [[nodiscard]] static MachineItemStack item(std::string id, int64_t count,
+                                               std::string variant = {}) {
+        return {.resource = ResourceStack::item(std::move(id), count, std::move(variant))};
+    }
+
+    [[nodiscard]] bool empty() const noexcept { return resource.is_empty(); }
+    [[nodiscard]] bool is_valid_item() const noexcept {
+        return resource.is_valid() && resource.is_item();
+    }
 };
 
 // Game-owned recipe copy. It deliberately mirrors only the data needed by
@@ -61,8 +71,8 @@ struct MachineRecipeSnapshot {
     // An active job keeps this immutable mapping across a content reload so
     // it never combines IDs from different generations. Persistence excludes
     // the snapshot and restores it from the current catalog on first capture.
-    snt::core::RuntimeKeyIndex::Snapshot item_runtime_index;
-    uint64_t item_runtime_generation = 0;
+    ResourceRuntimeIndex::Snapshot resource_runtime_index;
+    uint64_t resource_runtime_generation = 0;
 };
 
 enum class MachineRunState : uint8_t {

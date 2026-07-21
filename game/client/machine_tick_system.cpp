@@ -51,57 +51,61 @@ const char* state_name(MachineRunState state) {
     return "unknown";
 }
 
-bool resolve_stack_runtime_id(
+bool resolve_stack_runtime_key(
     MachineItemStack& stack,
-    const snt::core::RuntimeKeyIndex::Snapshot& item_index,
+    const ResourceRuntimeIndex::Snapshot& resource_index,
     std::string& unresolved_item_key) {
-    if (stack.count <= 0 || stack.item_id.empty()) {
-        stack.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+    if (stack.empty()) {
+        stack.runtime_key = {};
         return true;
     }
-    const auto item_runtime_id = item_index.find_id(stack.item_id);
-    if (!item_runtime_id) {
-        unresolved_item_key = stack.item_id;
+    if (!stack.resource.is_valid()) {
+        unresolved_item_key = stack.resource.key.id;
         return false;
     }
-    stack.item_runtime_id = *item_runtime_id;
+    const auto runtime_key = resource_index.resolve_runtime(stack.resource.key);
+    if (!runtime_key) {
+        unresolved_item_key = stack.resource.key.id;
+        return false;
+    }
+    stack.runtime_key = *runtime_key;
     return true;
 }
 
-bool resolve_recipe_runtime_ids(
+bool resolve_recipe_runtime_keys(
     MachineRecipeSnapshot& recipe,
-    const snt::core::RuntimeKeyIndex::Snapshot& item_index,
+    const ResourceRuntimeIndex::Snapshot& resource_index,
     std::string& unresolved_item_key) {
     for (MachineItemStack& input : recipe.inputs) {
-        if (!resolve_stack_runtime_id(input, item_index, unresolved_item_key)) return false;
+        if (!resolve_stack_runtime_key(input, resource_index, unresolved_item_key)) return false;
     }
     for (MachineItemStack& output : recipe.outputs) {
-        if (!resolve_stack_runtime_id(output, item_index, unresolved_item_key)) return false;
+        if (!resolve_stack_runtime_key(output, resource_index, unresolved_item_key)) return false;
     }
-    recipe.item_runtime_index = item_index;
-    recipe.item_runtime_generation = item_index.generation();
+    recipe.resource_runtime_index = resource_index;
+    recipe.resource_runtime_generation = resource_index.generation();
     return true;
 }
 
-bool resolve_machine_runtime_ids(
+bool resolve_machine_runtime_keys(
     MachineRuntimeComponent& machine,
-    const snt::core::RuntimeKeyIndex::Snapshot& current_item_index,
+    const ResourceRuntimeIndex::Snapshot& current_resource_index,
     std::string& unresolved_item_key) {
     // An active recipe owns the mapping with which it was started. This keeps
     // its worker-only IDs coherent when a successful script reload publishes
     // a different current item table before the job completes.
-    const auto& item_index =
-        machine.active_recipe && !machine.active_recipe->item_runtime_index.empty()
-            ? machine.active_recipe->item_runtime_index
-            : current_item_index;
+    const auto& resource_index =
+        machine.active_recipe && !machine.active_recipe->resource_runtime_index.empty()
+            ? machine.active_recipe->resource_runtime_index
+            : current_resource_index;
     for (MachineItemStack& input : machine.input_slots) {
-        if (!resolve_stack_runtime_id(input, item_index, unresolved_item_key)) return false;
+        if (!resolve_stack_runtime_key(input, resource_index, unresolved_item_key)) return false;
     }
     for (MachineItemStack& output : machine.output_slots) {
-        if (!resolve_stack_runtime_id(output, item_index, unresolved_item_key)) return false;
+        if (!resolve_stack_runtime_key(output, resource_index, unresolved_item_key)) return false;
     }
     if (machine.active_recipe &&
-        !resolve_recipe_runtime_ids(*machine.active_recipe, item_index, unresolved_item_key)) {
+        !resolve_recipe_runtime_keys(*machine.active_recipe, resource_index, unresolved_item_key)) {
         return false;
     }
     return true;
@@ -109,38 +113,37 @@ bool resolve_machine_runtime_ids(
 
 std::optional<MachineRecipeSnapshot> make_snapshot(
     const RecipeDefinition& recipe,
-    const snt::core::RuntimeKeyIndex::Snapshot& item_index,
+    const ResourceRuntimeIndex::Snapshot& resource_index,
     std::string& unresolved_item_key) {
     MachineRecipeSnapshot snapshot;
     snapshot.id = recipe.id;
     snapshot.inputs.reserve(recipe.inputs.size());
     for (const auto& input : recipe.inputs) {
-        snapshot.inputs.push_back({input.item_id, input.count});
+        snapshot.inputs.push_back(MachineItemStack::item(input.item_id, input.count));
     }
     snapshot.duration_ticks = recipe.duration_ticks;
     snapshot.energy_per_tick = recipe.energy_per_tick;
     snapshot.outputs.reserve(recipe.outputs.size());
     for (const auto& output : recipe.outputs) {
-        snapshot.outputs.push_back({output.item_id, output.count});
+        snapshot.outputs.push_back(MachineItemStack::item(output.item_id, output.count));
     }
-    if (!resolve_recipe_runtime_ids(snapshot, item_index, unresolved_item_key)) {
+    if (!resolve_recipe_runtime_keys(snapshot, resource_index, unresolved_item_key)) {
         return std::nullopt;
     }
     return snapshot;
 }
 
 void normalize_stack(MachineItemStack& stack) {
-    if (stack.count <= 0 || stack.item_id.empty() ||
-        stack.item_runtime_id == snt::core::kInvalidRuntimeKeyId) {
-        stack.item_id.clear();
-        stack.count = 0;
-        stack.item_runtime_id = snt::core::kInvalidRuntimeKeyId;
+    if (!stack.resource.is_valid() ||
+        !stack.runtime_key.is_valid()) {
+        stack.resource = {};
+        stack.runtime_key = {};
     }
 }
 
 bool runtime_empty(const MachineItemStack& stack) {
-    return stack.count <= 0 ||
-           stack.item_runtime_id == snt::core::kInvalidRuntimeKeyId;
+    return !stack.resource.is_valid() ||
+           !stack.runtime_key.is_valid();
 }
 
 void normalize_output_slots(MachineRuntimeComponent& machine) {
@@ -163,9 +166,9 @@ bool has_required_inputs(const std::vector<MachineItemStack>& slots,
         if (runtime_empty(requirement)) return false;
         int64_t available = 0;
         for (const MachineItemStack& slot : slots) {
-            if (slot.item_runtime_id == requirement.item_runtime_id) available += slot.count;
+            if (slot.runtime_key == requirement.runtime_key) available += slot.resource.amount;
         }
-        if (available < requirement.count) return false;
+        if (available < requirement.resource.amount) return false;
     }
     return true;
 }
@@ -174,11 +177,11 @@ bool reserve_inputs(MachineRuntimeComponent& machine,
                     const std::vector<MachineItemStack>& requirements) {
     if (!has_required_inputs(machine.input_slots, requirements)) return false;
     for (const MachineItemStack& requirement : requirements) {
-        int32_t remaining = requirement.count;
+        int64_t remaining = requirement.resource.amount;
         for (MachineItemStack& slot : machine.input_slots) {
-            if (slot.item_runtime_id != requirement.item_runtime_id || remaining == 0) continue;
-            const int32_t consumed = std::min(slot.count, remaining);
-            slot.count -= consumed;
+            if (slot.runtime_key != requirement.runtime_key || remaining == 0) continue;
+            const int64_t consumed = std::min(slot.resource.amount, remaining);
+            slot.resource.amount -= consumed;
             remaining -= consumed;
         }
     }
@@ -195,14 +198,15 @@ bool insert_outputs(std::vector<MachineItemStack>& slots,
     for (const auto& output : outputs) {
         if (runtime_empty(output)) return false;
         auto existing = std::find_if(slots.begin(), slots.end(), [&output](const auto& slot) {
-            return slot.item_runtime_id == output.item_runtime_id;
+            return slot.runtime_key == output.runtime_key;
         });
         if (existing != slots.end()) {
-            if (output.count > max_stack_size - existing->count) return false;
-            existing->count += output.count;
+            if (output.resource.amount > max_stack_size - existing->resource.amount) return false;
+            existing->resource.amount += output.resource.amount;
             continue;
         }
-        if (slots.size() >= static_cast<size_t>(max_slots) || output.count > max_stack_size) {
+        if (slots.size() >= static_cast<size_t>(max_slots) ||
+            output.resource.amount > max_stack_size) {
             return false;
         }
         slots.push_back(output);
@@ -463,10 +467,10 @@ snt::core::Expected<MachineExecutionInput> make_machine_execution_input(
         .entity_guid = entity_guid,
         .machine = std::move(machine),
     };
-    const snt::core::RuntimeKeyIndex::Snapshot item_index =
-        content_registry.item_runtime_index();
+    const ResourceRuntimeIndex::Snapshot resource_index =
+        content_registry.resource_runtime_index();
     std::string unresolved_item_key;
-    if (!resolve_machine_runtime_ids(input.machine, item_index, unresolved_item_key)) {
+    if (!resolve_machine_runtime_keys(input.machine, resource_index, unresolved_item_key)) {
         return snt::core::Error{
             snt::core::ErrorCode::kInvalidState,
             "Machine execution has an unresolved item key: " + unresolved_item_key};
@@ -475,7 +479,7 @@ snt::core::Expected<MachineExecutionInput> make_machine_execution_input(
     if (!input.machine.active_recipe && !input.machine.input_slots.empty()) {
         for (const RecipeDefinition& recipe :
              content_registry.recipes_for_machine(input.machine.machine_id)) {
-            const auto snapshot = make_snapshot(recipe, item_index, unresolved_item_key);
+            const auto snapshot = make_snapshot(recipe, resource_index, unresolved_item_key);
             if (!snapshot) {
                 return snt::core::Error{
                     snt::core::ErrorCode::kInvalidState,
@@ -549,8 +553,8 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
 
     std::vector<MachineWorkItem> work_items;
     work_items.reserve(entities.size());
-    const snt::core::RuntimeKeyIndex::Snapshot current_item_index =
-        content_registry_.item_runtime_index();
+    const ResourceRuntimeIndex::Snapshot current_resource_index =
+        content_registry_.resource_runtime_index();
     for (const entt::entity entity : entities) {
         const MachineRuntimeComponent& machine =
             world.get_component<MachineRuntimeComponent>(entity);
@@ -561,13 +565,13 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
             false,
         };
         std::string unresolved_item_key;
-        if (!resolve_machine_runtime_ids(
-                work_item.machine, current_item_index, unresolved_item_key)) {
+        if (!resolve_machine_runtime_keys(
+                work_item.machine, current_resource_index, unresolved_item_key)) {
             const uint64_t generation =
                 work_item.machine.active_recipe &&
-                !work_item.machine.active_recipe->item_runtime_index.empty()
-                    ? work_item.machine.active_recipe->item_runtime_generation
-                    : current_item_index.generation();
+                !work_item.machine.active_recipe->resource_runtime_index.empty()
+                    ? work_item.machine.active_recipe->resource_runtime_generation
+                    : current_resource_index.generation();
             log_unresolved_item_key(generation, unresolved_item_key);
             continue;
         }
@@ -579,9 +583,9 @@ std::unique_ptr<snt::ecs::IWorkerTask> MachineTickSystem::capture(
             for (const RecipeDefinition& recipe :
                  content_registry_.recipes_for_machine(work_item.machine.machine_id)) {
                 const auto snapshot = make_snapshot(
-                    recipe, current_item_index, unresolved_item_key);
+                    recipe, current_resource_index, unresolved_item_key);
                 if (!snapshot) {
-                    log_unresolved_item_key(current_item_index.generation(), unresolved_item_key);
+                    log_unresolved_item_key(current_resource_index.generation(), unresolved_item_key);
                     continue;
                 }
                 work_item.recipes.push_back(*snapshot);

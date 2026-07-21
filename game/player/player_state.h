@@ -10,6 +10,7 @@
 #include "core/expected.h"
 #include "ecs/core_components.h"
 #include "game/player/player_identity.h"
+#include "game/resources/resource_key.h"
 
 #include <array>
 #include <cstddef>
@@ -29,12 +30,37 @@ struct GamePlayerWorldPosition {
 };
 
 struct GamePlayerItemStack {
-    std::string item_id;
-    int32_t count = 0;
+    // Player inventory is item-only today, but its identity and amount use
+    // the generic resource contract. Containers that later accept fluids use
+    // the same ResourceStack value without inheriting player instance rules.
+    ResourceStack resource;
     // Empty means a normal content-defined stack. Non-empty instance data is
     // item-owned and makes the stack singular, covering durability and future
     // custom item state without carrying the legacy secondary-id API forward.
     std::string instance_data;
+
+    [[nodiscard]] static GamePlayerItemStack item(std::string id, int64_t count,
+                                                  std::string variant = {},
+                                                  std::string instance_data = {}) {
+        return {
+            .resource = ResourceStack::item(std::move(id), count, std::move(variant)),
+            .instance_data = std::move(instance_data),
+        };
+    }
+
+    [[nodiscard]] bool is_empty() const noexcept {
+        return resource.key.type.empty() && resource.key.id.empty() &&
+               resource.key.variant.empty() && resource.amount == 0 &&
+               instance_data.empty();
+    }
+    [[nodiscard]] bool is_valid_item() const noexcept {
+        return resource.is_valid() && resource.is_item() &&
+               (instance_data.empty() || resource.amount == 1);
+    }
+    void clear() noexcept {
+        resource = {};
+        instance_data.clear();
+    }
 
     friend bool operator==(const GamePlayerItemStack&,
                            const GamePlayerItemStack&) = default;

@@ -12,6 +12,7 @@
 #include "game/world/defs/crop_species_def.h"
 #include "game/world/defs/entity_data.h"
 #include "game/world/defs/population_cell.h"
+#include "game/resources/resource_key.h"
 #include "game/world/voxel_primitives.h"
 
 #include <cstdint>
@@ -65,8 +66,7 @@ struct MechanismPlacement {
 // same chunk sidecar. These values deliberately mirror only durable machine
 // state: they do not include ECS handles, script VM objects, or callbacks.
 struct MachineRuntimeItemStack {
-    std::string item_id;
-    int32_t count = 0;
+    ResourceStack resource;
 };
 
 struct MachineRuntimeRecipeSnapshot {
@@ -123,6 +123,47 @@ struct MachineRuntimePersistenceRecord {
     uint64_t offline_last_simulated_tick = 0;
     uint64_t offline_island_id = 0;
     uint64_t offline_epoch = 0;
+};
+
+// A network island is anchored by its lexicographically first member chunk.
+// The anchor sidecar owns the complete compressed network state; every other
+// member chunk retains only the machine-level island id and ownership epoch.
+// This keeps per-chunk saves independent without duplicating a mutable
+// resource ledger across region blobs.
+enum class OfflineNetworkResourceKind : uint8_t {
+    kPower = 0,
+    kItem = 1,
+    kFluid = 2,
+};
+
+struct OfflineNetworkResourceLedger {
+    OfflineNetworkResourceKind kind = OfflineNetworkResourceKind::kPower;
+    std::string resource_id;
+    int64_t stored_amount = 0;
+    int64_t capacity = 0;
+};
+
+struct OfflineNetworkBoundaryPort {
+    uint64_t node_id = 0;
+    ChunkKey adjacent_chunk;
+    uint8_t direction = 0;
+    uint64_t topology_revision = 0;
+};
+
+// The snapshot contains value-only topology compression. It never owns a
+// terrain chunk, ECS entity, pipe segment, or cable segment; those remain
+// reconstructible from normal chunk sidecars when the island materializes.
+struct OfflineNetworkIslandSnapshot {
+    uint64_t island_id = 0;
+    uint64_t ownership_epoch = 0;
+    std::string dimension_id;
+    ChunkKey anchor_chunk;
+    std::vector<ChunkKey> member_chunks;
+    uint64_t topology_revision = 0;
+    uint64_t last_simulated_tick = 0;
+    std::vector<uint64_t> machine_guids;
+    std::vector<OfflineNetworkBoundaryPort> boundary_ports;
+    std::vector<OfflineNetworkResourceLedger> ledgers;
 };
 
 // Tree growth uses a typed sidecar record instead of the legacy
@@ -189,8 +230,7 @@ struct GamePlayerBedRecord {
 };
 
 struct GamePlayerGraveItemStack {
-    std::string item_id;
-    int32_t count = 0;
+    ResourceStack resource;
     std::string instance_data;
 };
 
@@ -209,6 +249,9 @@ struct GameChunkSidecar {
     std::vector<MechanismPlacement> mechanisms;
     std::vector<EntityId> entities;
     std::vector<MachineRuntimePersistenceRecord> machine_runtime_records;
+    // Only an island's anchor chunk contains a record here. The registry
+    // validates this against member machine ownership during world startup.
+    std::vector<OfflineNetworkIslandSnapshot> offline_network_islands;
     std::vector<BlockEntityPlacement> block_entities;
     std::vector<TreeGrowthPersistenceRecord> tree_growth_records;
     std::vector<FarmlandPersistenceRecord> farmland_records;

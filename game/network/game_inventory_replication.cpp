@@ -39,6 +39,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     append_u32(bytes, std::bit_cast<uint32_t>(value));
 }
 
+void append_i64(std::vector<std::byte>& bytes, int64_t value) {
+    append_u64(bytes, std::bit_cast<uint64_t>(value));
+}
+
 [[nodiscard]] uint16_t read_u16(std::span<const std::byte> bytes, size_t offset) {
     return static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset])) << 8u |
            static_cast<uint16_t>(std::to_integer<uint8_t>(bytes[offset + 1]));
@@ -62,6 +66,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 
 [[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
     return std::bit_cast<int32_t>(read_u32(bytes, offset));
+}
+
+[[nodiscard]] int64_t read_i64(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int64_t>(read_u64(bytes, offset));
 }
 
 [[nodiscard]] bool has_embedded_nul(std::string_view value) noexcept {
@@ -106,7 +114,7 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
 }
 
 [[nodiscard]] bool is_empty_stack(const GamePlayerItemStack& stack) noexcept {
-    return stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty();
+    return stack.is_empty();
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_stack(
@@ -116,11 +124,14 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         if (allow_empty) return {};
         return protocol_error(std::string("Player inventory ") + field_name + " must not be empty");
     }
-    if (stack.item_id.empty() || stack.item_id.size() > kMaxGameItemIdBytes ||
+    if (!stack.is_valid_item() ||
+        stack.resource.key.type.size() > kMaxGameResourceTypeBytes ||
+        stack.resource.key.id.size() > kMaxGameResourceIdBytes ||
+        stack.resource.key.variant.size() > kMaxGameResourceVariantBytes ||
         stack.instance_data.size() > kMaxGameInventoryItemInstanceBytes ||
-        has_embedded_nul(stack.item_id) || has_embedded_nul(stack.instance_data) ||
-        stack.count <= 0 || stack.count > max_stack_size ||
-        (!stack.instance_data.empty() && stack.count != 1)) {
+        has_embedded_nul(stack.resource.key.type) || has_embedded_nul(stack.resource.key.id) ||
+        has_embedded_nul(stack.resource.key.variant) || has_embedded_nul(stack.instance_data) ||
+        stack.resource.amount > max_stack_size) {
         return protocol_error(std::string("Player inventory ") + field_name + " is invalid");
     }
     return {};
@@ -178,11 +189,25 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         return {};
     }
     bytes.push_back(std::byte{1});
-    if (auto result = append_short_string(bytes, stack.item_id, kMaxGameItemIdBytes, "item id", true);
+    if (auto result = append_short_string(bytes, stack.resource.key.type,
+                                          kMaxGameResourceTypeBytes,
+                                          "resource type", true);
         !result) {
         return result.error();
     }
-    append_i32(bytes, stack.count);
+    if (auto result = append_short_string(bytes, stack.resource.key.id,
+                                          kMaxGameResourceIdBytes,
+                                          "resource id", true);
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_short_string(bytes, stack.resource.key.variant,
+                                          kMaxGameResourceVariantBytes,
+                                          "resource variant", false);
+        !result) {
+        return result.error();
+    }
+    append_i64(bytes, stack.resource.amount);
     return append_short_string(bytes, stack.instance_data, kMaxGameInventoryItemInstanceBytes,
                                "item instance data", false);
 }
@@ -193,19 +218,32 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     const uint8_t present = std::to_integer<uint8_t>(bytes[offset++]);
     if (present == 0) return GamePlayerItemStack{};
     if (present != 1) return protocol_error("Player inventory stack presence flag is invalid");
-    auto item_id = read_short_string(bytes, offset, kMaxGameItemIdBytes, "item id", true);
-    if (!item_id) return item_id.error();
-    if (bytes.size() - offset < sizeof(uint32_t)) {
-        return protocol_error("Player inventory stack count is truncated");
+    auto resource_type = read_short_string(bytes, offset, kMaxGameResourceTypeBytes,
+                                           "resource type", true);
+    if (!resource_type) return resource_type.error();
+    auto resource_id = read_short_string(bytes, offset, kMaxGameResourceIdBytes,
+                                         "resource id", true);
+    if (!resource_id) return resource_id.error();
+    auto resource_variant = read_short_string(bytes, offset, kMaxGameResourceVariantBytes,
+                                              "resource variant", false);
+    if (!resource_variant) return resource_variant.error();
+    if (bytes.size() - offset < sizeof(uint64_t)) {
+        return protocol_error("Player inventory resource amount is truncated");
     }
-    const int32_t count = read_i32(bytes, offset);
-    offset += sizeof(uint32_t);
+    const int64_t amount = read_i64(bytes, offset);
+    offset += sizeof(uint64_t);
     auto instance_data = read_short_string(bytes, offset, kMaxGameInventoryItemInstanceBytes,
                                            "item instance data", false);
     if (!instance_data) return instance_data.error();
     GamePlayerItemStack stack{
-        .item_id = std::move(*item_id),
-        .count = count,
+        .resource = {
+            .key = {
+                .type = std::move(*resource_type),
+                .id = std::move(*resource_id),
+                .variant = std::move(*resource_variant),
+            },
+            .amount = amount,
+        },
         .instance_data = std::move(*instance_data),
     };
     if (auto result = validate_stack(stack, max_stack_size, false, "stack"); !result) {

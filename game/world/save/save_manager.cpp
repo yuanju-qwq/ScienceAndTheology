@@ -104,7 +104,9 @@ constexpr uint32_t kMaxQuestIdBytes = 512;
 constexpr uint32_t kMaxQuestObjectiveIdBytes = 512;
 constexpr uint32_t kMaxQuestObjectivesPerRecord = 256;
 constexpr size_t kMaxPlayerStateDimensionIdBytes = 128;
-constexpr size_t kMaxPlayerStateItemIdBytes = 256;
+constexpr size_t kMaxPlayerStateResourceTypeBytes = 64;
+constexpr size_t kMaxPlayerStateResourceIdBytes = 256;
+constexpr size_t kMaxPlayerStateResourceVariantBytes = 16u * 1024u;
 constexpr size_t kMaxPlayerStateItemInstanceBytes = 16u * 1024u;
 constexpr uint32_t kMaxPlayerStateInventorySlots = 256;
 constexpr int32_t kMaxPlayerStateStackSize = 65536;
@@ -346,19 +348,22 @@ snt::core::Expected<void> validate_player_state_request(std::string_view save_di
 }
 
 bool is_empty_player_state_stack(const GamePlayerItemStack& stack) noexcept {
-    return stack.item_id.empty() && stack.count == 0 && stack.instance_data.empty();
+    return stack.is_empty();
 }
 
 bool is_valid_player_state_stack(const GamePlayerItemStack& stack,
                                  int32_t max_stack_size,
                                  bool equipment_slot) noexcept {
     if (is_empty_player_state_stack(stack)) return true;
-    if (stack.item_id.empty() || stack.item_id.size() > kMaxPlayerStateItemIdBytes ||
-        stack.count <= 0 || stack.instance_data.size() > kMaxPlayerStateItemInstanceBytes) {
+    if (!stack.is_valid_item() ||
+        stack.resource.key.type.size() > kMaxPlayerStateResourceTypeBytes ||
+        stack.resource.key.id.size() > kMaxPlayerStateResourceIdBytes ||
+        stack.resource.key.variant.size() > kMaxPlayerStateResourceVariantBytes ||
+        stack.instance_data.size() > kMaxPlayerStateItemInstanceBytes) {
         return false;
     }
-    if (equipment_slot || !stack.instance_data.empty()) return stack.count == 1;
-    return stack.count <= max_stack_size;
+    if (equipment_slot || !stack.instance_data.empty()) return stack.resource.amount == 1;
+    return stack.resource.amount <= max_stack_size;
 }
 
 snt::core::Expected<void> validate_player_state_position(const GamePlayerWorldPosition& position) {
@@ -435,9 +440,13 @@ bool read_player_state_position(std::ifstream& file, GamePlayerWorldPosition& po
 bool write_player_state_stack(std::ofstream& file, const GamePlayerItemStack& stack) {
     const uint8_t present = is_empty_player_state_stack(stack) ? 0 : 1;
     if (!write_value(file, present) || present == 0) return file.good();
-    return write_quest_string(file, stack.item_id,
-                              static_cast<uint32_t>(kMaxPlayerStateItemIdBytes)) &&
-           write_value(file, stack.count) &&
+    return write_quest_string(file, stack.resource.key.type,
+                              static_cast<uint32_t>(kMaxPlayerStateResourceTypeBytes)) &&
+           write_quest_string(file, stack.resource.key.id,
+                              static_cast<uint32_t>(kMaxPlayerStateResourceIdBytes)) &&
+           write_quest_string(file, stack.resource.key.variant,
+                              static_cast<uint32_t>(kMaxPlayerStateResourceVariantBytes)) &&
+           write_value(file, stack.resource.amount) &&
            write_quest_string(file, stack.instance_data,
                               static_cast<uint32_t>(kMaxPlayerStateItemInstanceBytes));
 }
@@ -450,11 +459,15 @@ bool read_player_state_stack(std::ifstream& file, GamePlayerItemStack& stack) {
         return true;
     }
     GamePlayerItemStack restored;
-    if (!read_quest_string(file, restored.item_id,
-                           static_cast<uint32_t>(kMaxPlayerStateItemIdBytes)) ||
-        !read_value(file, restored.count) ||
+    if (!read_quest_string(file, restored.resource.key.type,
+                           static_cast<uint32_t>(kMaxPlayerStateResourceTypeBytes)) ||
+        !read_quest_string(file, restored.resource.key.id,
+                           static_cast<uint32_t>(kMaxPlayerStateResourceIdBytes)) ||
+        !read_quest_string(file, restored.resource.key.variant,
+                           static_cast<uint32_t>(kMaxPlayerStateResourceVariantBytes)) ||
+        !read_value(file, restored.resource.amount) ||
         !read_quest_string(file, restored.instance_data,
-                           static_cast<uint32_t>(kMaxPlayerStateItemInstanceBytes))) {
+                            static_cast<uint32_t>(kMaxPlayerStateItemInstanceBytes))) {
         return false;
     }
     stack = std::move(restored);

@@ -18,6 +18,7 @@
 #include "game/world/game_chunk.h"
 
 #include <cstdint>
+#include <span>
 
 namespace snt::ecs {
 class World;
@@ -93,6 +94,13 @@ public:
         snt::ecs::World& world,
         const GameChunkSidecarRegistry& sidecars,
         const ChunkKey& chunk_key);
+
+    // Removes a prevalidated selection of materialized runtimes. Offline
+    // network-island ownership uses this after it has atomically captured all
+    // member chunks and updated their sidecar ownership records.
+    [[nodiscard]] static snt::core::Expected<void> destroy_runtimes(
+        snt::ecs::World& world,
+        std::span<const uint64_t> entity_guids);
 
     // Value conversion used by the offline service. These functions never
     // allocate entities or alter residency metadata.

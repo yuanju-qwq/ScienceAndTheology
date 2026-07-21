@@ -23,8 +23,8 @@
 #include <string_view>
 #include <vector>
 
-#include "core/runtime_key_index.h"
 #include "game/chemistry/element_catalog.h"
+#include "game/resources/resource_runtime_index.h"
 #include "game/simulation/machine_placement_registry.h"
 #include "script/content_host.h"
 
@@ -32,10 +32,6 @@ namespace snt::game {
 
 using ScriptId = snt::script::ScriptId;
 inline constexpr ScriptId kBuiltinScriptId = snt::script::kBuiltinScriptId;
-using GameItemRuntimeId = snt::core::RuntimeKeyId;
-inline constexpr GameItemRuntimeId kInvalidGameItemRuntimeId =
-    snt::core::kInvalidRuntimeKeyId;
-
 // Material, item-presentation, and tool definitions are game content rather
 // than engine state. The registry owns their script-reload transaction so a
 // worker snapshot never observes generated material forms from a partial
@@ -180,8 +176,8 @@ struct GameToolDefinition {
 
 // Game item definitions own stable semantic keys, presentation metadata, and
 // optional material/tool behavior. Durable game state refers to `id`; worker
-// systems capture the immutable RuntimeKeyIndex snapshot and use
-// GameItemRuntimeId for their hot paths.
+// systems capture the immutable ResourceRuntimeIndex snapshot and use
+// RuntimeResourceKey for their hot paths.
 struct GameItemDefinition {
     std::string id;
     std::string title_key;
@@ -418,12 +414,12 @@ public:
 
     const GameItemDefinition* find_item(std::string_view id) const;
     const GameMaterialDefinition* find_material(std::string_view id) const;
-    [[nodiscard]] std::optional<GameItemRuntimeId> find_item_runtime_id(
-        std::string_view id) const noexcept;
-    [[nodiscard]] std::optional<std::string_view> find_item_key(
-        GameItemRuntimeId id) const noexcept;
-    [[nodiscard]] snt::core::RuntimeKeyIndex::Snapshot item_runtime_index() const noexcept;
-    [[nodiscard]] uint64_t item_runtime_generation() const noexcept;
+    [[nodiscard]] std::optional<RuntimeResourceKey> find_resource_runtime_key(
+        const ResourceKey& key) const;
+    [[nodiscard]] std::optional<ResourceKey> find_resource_key(
+        const RuntimeResourceKey& key) const;
+    [[nodiscard]] ResourceRuntimeIndex::Snapshot resource_runtime_index() const noexcept;
+    [[nodiscard]] uint64_t resource_runtime_generation() const noexcept;
     [[nodiscard]] std::vector<GameItemDefinition> item_definitions() const;
     [[nodiscard]] std::vector<GameMaterialDefinition> material_definitions() const;
     // The content revision changes for presentation, material, generated-form,
@@ -496,7 +492,7 @@ private:
         QuestChapterMap quest_chapters;
         QuestMap quests;
         std::vector<EventListener> event_listeners;
-        snt::core::RuntimeKeyIndex::Snapshot item_runtime_index;
+        ResourceRuntimeIndex::Snapshot resource_runtime_index;
         uint64_t item_content_revision = 1;
     };
 
@@ -542,7 +538,7 @@ private:
     static snt::core::Expected<std::string> normalize_item_key(std::string_view key);
 
     snt::core::Expected<void> rebuild_generated_material_items();
-    snt::core::Expected<void> publish_item_runtime_index();
+    snt::core::Expected<void> publish_resource_runtime_index();
     snt::core::Expected<void> validate_machine_item_references() const;
 
     snt::core::Expected<void> erase_script_content(ScriptId script_id);
@@ -574,7 +570,7 @@ private:
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;
     std::optional<ReloadBatch> reload_batch_;
-    snt::core::RuntimeKeyIndex item_runtime_index_;
+    ResourceRuntimeIndex resource_runtime_index_;
     uint64_t item_content_revision_ = 1;
     uint64_t quest_content_revision_ = 1;
 };

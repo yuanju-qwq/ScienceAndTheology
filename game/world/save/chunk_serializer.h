@@ -18,9 +18,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v18 adds machine offline-residency
-    // metadata so an unloaded machine has one durable simulation owner.
-    static constexpr uint8_t kCurrentVersion = 18;
+    // Current binary format version. v20 writes player grave stacks as
+    // ResourceStack values so type and stack variant survive persistence.
+    static constexpr uint8_t kCurrentVersion = 20;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current
@@ -191,6 +191,20 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         MachineRuntimeRecipeSnapshot& recipe);
+
+    // --- Offline network-island sidecar serialization ---
+
+    static void write_offline_network_island_snapshot(
+        std::vector<uint8_t>& buf,
+        const OfflineNetworkIslandSnapshot& snapshot);
+    static bool read_offline_network_island_snapshot(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        OfflineNetworkIslandSnapshot& snapshot);
+    static void write_chunk_key(std::vector<uint8_t>& buf, const ChunkKey& key);
+    static bool read_chunk_key(const std::vector<uint8_t>& data,
+                               size_t& offset,
+                               ChunkKey& key);
 
     // --- Population cell serialization ---
 

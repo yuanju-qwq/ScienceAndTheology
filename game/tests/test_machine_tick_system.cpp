@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,6 +36,7 @@ using snt::game::MachineTickSystem;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
+using snt::game::ResourceKey;
 
 RecipeDefinition make_recipe(std::string id,
                              std::string input,
@@ -232,11 +234,13 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
     ASSERT_TRUE(tick_machine(world, system));  // Starts the copied copper_ingot snapshot.
     ASSERT_TRUE(machine.active_recipe.has_value());
     EXPECT_EQ(machine.active_recipe->outputs[0].item_id, "copper_ingot");
-    EXPECT_NE(machine.active_recipe->outputs[0].item_runtime_id,
-              snt::core::kInvalidRuntimeKeyId);
-    EXPECT_EQ(machine.active_recipe->item_runtime_index.find_id("copper_ingot"),
-              machine.active_recipe->outputs[0].item_runtime_id);
-    const uint64_t active_item_generation = machine.active_recipe->item_runtime_generation;
+    EXPECT_TRUE(machine.active_recipe->outputs[0].runtime_key.is_valid());
+    EXPECT_EQ(machine.active_recipe->resource_runtime_index.resolve_runtime(
+                  ResourceKey::item("copper_ingot")),
+              std::optional<snt::game::RuntimeResourceKey>{
+                  machine.active_recipe->outputs[0].runtime_key});
+    const uint64_t active_resource_generation =
+        machine.active_recipe->resource_runtime_generation;
 
     ASSERT_TRUE(content.begin_reload(7));
     ASSERT_TRUE(content.register_script_item(
@@ -244,7 +248,7 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
     ASSERT_TRUE(content.register_script_recipe(
         7, make_recipe("snt.furnace.snapshot", "copper_ore", "bronze_ingot", 2)));
     ASSERT_TRUE(content.commit_reload(7));
-    EXPECT_GT(content.item_runtime_generation(), active_item_generation);
+    EXPECT_GT(content.resource_runtime_generation(), active_resource_generation);
 
     ASSERT_TRUE(tick_machine(world, system));
     ASSERT_EQ(machine.output_slots.size(), 1U);

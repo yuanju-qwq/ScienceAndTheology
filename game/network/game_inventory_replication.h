@@ -21,7 +21,7 @@
 
 namespace snt::game::replication {
 
-inline constexpr uint8_t kGameInventoryReplicationVersion = 1;
+inline constexpr uint8_t kGameInventoryReplicationVersion = 2;
 inline constexpr size_t kMaxGameInventoryResponseReasonBytes = 512;
 
 enum class GameInventoryReplicationPayloadKind : uint8_t {
