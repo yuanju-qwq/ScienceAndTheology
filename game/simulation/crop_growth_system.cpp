@@ -602,6 +602,55 @@ snt::core::Expected<CropHarvestResult> GameCropGrowthSystem::harvest_crop(
     return result;
 }
 
+snt::core::Expected<CropHarvestResult> GameCropGrowthSystem::preview_harvest_crop(
+    const CropHarvestRequest& request,
+    uint64_t source_tick) {
+    if (chunks_ == nullptr || sidecars_ == nullptr || worldgen_config_ == nullptr) {
+        return invalid_state("Crop growth is not initialized");
+    }
+    if (request.dimension_id.empty()) {
+        return invalid_argument("Crop harvest requires a dimension id");
+    }
+    auto crop = find_crop_at(*sidecars_, request.dimension_id,
+                             request.block_x, request.block_y, request.block_z);
+    if (!crop.has_value() || !crop_layout_matches_anchor(*crop->record, *crop->anchor)) {
+        return invalid_state("Crop harvest target has no valid typed crop record");
+    }
+    const CropGrowthPersistenceRecord& record = *crop->record;
+    if (record.growth_stage != CropGrowthStage::MATURE) {
+        return invalid_state("Crop harvest requires a mature crop");
+    }
+    if (source_tick < record.last_growth_tick) {
+        return invalid_state("Crop harvest tick predates the crop state");
+    }
+    const CropSpeciesDef* species = worldgen_config_->find_crop_species(record.species_key);
+    if (species == nullptr) return invalid_state("Crop harvest species is not registered");
+
+    if (record.farmland_anchor_entity_id.id != 0) {
+        int32_t below_y = 0;
+        if (!offset_coordinate(crop->anchor->root_y, -1, below_y)) {
+            return invalid_state("Crop harvest has no valid supporting cell");
+        }
+        const auto farmland = find_farmland_at(*sidecars_, request.dimension_id,
+                                               crop->anchor->root_x, below_y,
+                                               crop->anchor->root_z);
+        if (!farmland.has_value() ||
+            farmland->anchor->id != record.farmland_anchor_entity_id) {
+            return invalid_state("Crop harvest supporting farmland state is invalid");
+        }
+    }
+
+    return CropHarvestResult{
+        .crop_anchor_id = crop->anchor->id,
+        .species_key = species->species_key,
+        .crop_item_key = species->crop_item_key,
+        .crop_count = std::max(0, species->crop_min),
+        .byproduct_item_key = species->byproduct_item_key,
+        .byproduct_count = std::max(0, species->byproduct_count),
+        .regrowing = species->repeat_harvest,
+    };
+}
+
 snt::core::Expected<CropGrowthStage> GameCropGrowthSystem::fertilize_crop(
     const CropFertilizationRequest& request,
     uint64_t source_tick) {

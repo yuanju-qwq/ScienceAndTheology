@@ -45,6 +45,8 @@ class GameServerPlayerState;
 
 namespace snt::game {
 
+class ServerEcosystemInterestProvider;
+
 // Server-only startup inputs. The password is deliberately outside
 // GameSessionConfig because the latter is loaded from a package also shipped
 // to clients. An empty password leaves the server open.
@@ -70,6 +72,7 @@ private:
     bool server_password_required_ = false;
     ScienceAndTheologySimulationSession simulation_session_;
     snt::engine::SimulationServices* services_ = nullptr;
+    std::unique_ptr<ServerEcosystemInterestProvider> ecosystem_interest_provider_;
     std::unique_ptr<replication::GameServerCommandSink> command_sink_;
     std::unique_ptr<replication::GameServerPlayerState> player_state_;
     std::unique_ptr<replication::GameServerPlayerMovement> player_movement_;

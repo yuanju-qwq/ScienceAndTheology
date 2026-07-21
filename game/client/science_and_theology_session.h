@@ -40,6 +40,9 @@ class ChunkRenderSystem;
 
 namespace snt::game {
 
+class GameCreaturePresentationWorld;
+class IGameEcosystemInterestProvider;
+
 class ScienceAndTheologyClientSession final : public snt::engine::IClientSession,
                                               public IQuestBookCommandSink {
 public:
@@ -116,6 +119,8 @@ private:
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
     std::unique_ptr<QuestBookViewModel> quest_book_ui_;
+    std::unique_ptr<GameCreaturePresentationWorld> creature_presentation_world_;
+    std::unique_ptr<IGameEcosystemInterestProvider> local_ecosystem_interest_provider_;
     snt::ecs::World* presentation_world_ = nullptr;
     snt::voxel::ChunkRegistry* presentation_chunks_ = nullptr;
     snt::voxel::ChunkRenderSystem* chunk_render_system_ = nullptr;

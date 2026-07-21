@@ -77,6 +77,16 @@ struct MachineRuntimeRecipeSnapshot {
     int32_t energy_per_tick = 0;
 };
 
+// A machine's durable record has exactly one writer. kLoaded is owned by its
+// materialized ECS runtime, while the remaining modes are owned by the chunk
+// sidecar/offline service after that runtime has been removed.
+enum class MachineRuntimeResidency : uint8_t {
+    kLoaded = 0,
+    kPaused = 1,
+    kOfflineStandalone = 2,
+    kOfflineNetworkIsland = 3,
+};
+
 struct MachineRuntimePersistenceRecord {
     // Must name a BlockEntityPlacement with entity_type == MACHINE in this
     // sidecar. The placement's root cell establishes chunk ownership.
@@ -105,6 +115,14 @@ struct MachineRuntimePersistenceRecord {
     // the correct player without storing a transport peer or ECS handle.
     std::string job_owner_account_id;
     uint8_t run_state = 0;
+
+    // Offline ownership metadata. A non-loaded mode must never have a live
+    // MachineRuntimeComponent at the same time. Network-island fields remain
+    // zero for standalone machines and reserve a stable cross-chunk boundary.
+    MachineRuntimeResidency residency = MachineRuntimeResidency::kLoaded;
+    uint64_t offline_last_simulated_tick = 0;
+    uint64_t offline_island_id = 0;
+    uint64_t offline_epoch = 0;
 };
 
 // Tree growth uses a typed sidecar record instead of the legacy

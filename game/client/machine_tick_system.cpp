@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/error.h"
 #include "core/log.h"
 #include "ecs/world_command_queue.h"
 #include "ecs/world.h"
@@ -268,6 +269,7 @@ void publish_completion(MachineTickResult& result,
         .recipe_id = recipe.id,
         .account_id = result.machine.job_owner_account_id,
         .outputs = recipe.outputs,
+        .completed_jobs = 1,
         .previous_state = result.machine.state,
         .state = result.machine.state,
     });
@@ -452,6 +454,70 @@ private:
 };
 
 }  // namespace
+
+snt::core::Expected<MachineExecutionInput> make_machine_execution_input(
+    GameContentRegistry& content_registry,
+    snt::ecs::EntityGuid entity_guid,
+    MachineRuntimeComponent machine) {
+    MachineExecutionInput input{
+        .entity_guid = entity_guid,
+        .machine = std::move(machine),
+    };
+    const snt::core::RuntimeKeyIndex::Snapshot item_index =
+        content_registry.item_runtime_index();
+    std::string unresolved_item_key;
+    if (!resolve_machine_runtime_ids(input.machine, item_index, unresolved_item_key)) {
+        return snt::core::Error{
+            snt::core::ErrorCode::kInvalidState,
+            "Machine execution has an unresolved item key: " + unresolved_item_key};
+    }
+
+    if (!input.machine.active_recipe && !input.machine.input_slots.empty()) {
+        for (const RecipeDefinition& recipe :
+             content_registry.recipes_for_machine(input.machine.machine_id)) {
+            const auto snapshot = make_snapshot(recipe, item_index, unresolved_item_key);
+            if (!snapshot) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kInvalidState,
+                    "Machine execution recipe has an unresolved item key: " + unresolved_item_key};
+            }
+            input.recipes.push_back(*snapshot);
+        }
+    }
+    if (const MachineDefinition* definition =
+            content_registry.find_machine(input.machine.machine_id)) {
+        input.requires_manual_activation = definition->requires_manual_activation;
+    }
+    return input;
+}
+
+MachineExecutionResult advance_machine_execution(
+    MachineExecutionInput input, uint64_t first_tick_index, uint64_t tick_count) {
+    MachineTickResult result{
+        .entity_guid = input.entity_guid,
+        .machine = std::move(input.machine),
+    };
+    const bool started_with_active_recipe = result.machine.active_recipe.has_value();
+    uint64_t advanced_ticks = 0;
+    for (uint64_t offset = 0; offset < tick_count; ++offset) {
+        // A manual machine may finish an already-reserved job offline, but it
+        // never starts another one without a new authoritative activation.
+        if (!input.allow_new_jobs && !result.machine.active_recipe) break;
+        tick_machine(result, input.recipes, input.requires_manual_activation,
+                     first_tick_index + offset);
+        ++advanced_ticks;
+        // An active recipe can carry an older item-runtime snapshot across a
+        // content reload. Stop at its completion so a later execution input
+        // rebuilds candidate recipes against the current snapshot instead of
+        // mixing the two generations in one batch.
+        if (started_with_active_recipe && !result.machine.active_recipe) break;
+    }
+    return {
+        .machine = std::move(result.machine),
+        .events = std::move(result.events),
+        .advanced_ticks = advanced_ticks,
+    };
+}
 
 MachineTickSystem::MachineTickSystem(GameContentRegistry& content_registry,
                                      IMachineTickEventSink* event_sink)

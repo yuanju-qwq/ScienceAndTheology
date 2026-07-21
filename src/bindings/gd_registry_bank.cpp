@@ -18,8 +18,6 @@
 #include "core/source_law/elixir_registry.hpp"
 #include "core/source_law/sublimation_path_registry.hpp"
 #include "core/source_law/dropped_organ_registry.hpp"
-#include "core/simulation/creature_species.hpp"
-#include "core/simulation/ecosystem_system.hpp"
 
 namespace science_and_theology {
 
@@ -61,10 +59,6 @@ void GDRegistryBank::reset_all() {
     source_law::SublimationPathRegistry::reset();
     source_law::DroppedOrganRegistry::reset();
 
-    // 生态系统（science_and_theology 命名空间，直接调用）
-    CreatureSpeciesRegistry::reset();
-    EcosystemSystem::reset_biome_staging();
-
     // 清空共享字符串池（必须在所有 registry reset 之后）
     gt::clear_string_pool();
 }
@@ -92,10 +86,6 @@ void GDRegistryBank::reset_one(const String& registry_name) {
         source_law::SublimationPathRegistry::reset();
     } else if (name == "dropped_organ") {
         source_law::DroppedOrganRegistry::reset();
-    } else if (name == "species") {
-        CreatureSpeciesRegistry::reset();
-    } else if (name == "biome_override") {
-        EcosystemSystem::reset_biome_staging();
     }
 }
 

@@ -14,10 +14,12 @@
 #include "game/server/game_server_quest_events.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/ecosystem_system.h"
 #include "game/worldgen/world_gen_config.h"
 #include "network/lan_discovery.h"
 #include "network/replication.h"
 #include "network/tcp_udp_transport.h"
+#include "voxel/data/voxel_chunk.h"
 
 #include "core/error.h"
 #include "core/log.h"
@@ -26,8 +28,63 @@
 #include <limits>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace snt::game {
+namespace {
+
+[[nodiscard]] int32_t chunk_coordinate_for_block(int32_t block_coordinate) noexcept {
+    constexpr int32_t kChunkSize = snt::voxel::VoxelChunk::kChunkSize;
+    const int64_t value = block_coordinate;
+    return static_cast<int32_t>(value >= 0
+        ? value / kChunkSize
+        : -(((-value) + kChunkSize - 1) / kChunkSize));
+}
+
+}  // namespace
+
+// Server composition translates authoritative player positions into the
+// simulation's value-only ecology-interest contract. It deliberately does
+// not expose peers or ECS handles to the ecosystem module.
+class ServerEcosystemInterestProvider final : public IGameEcosystemInterestProvider {
+public:
+    explicit ServerEcosystemInterestProvider(
+        const replication::GameServerPlayerState& player_state) noexcept
+        : player_state_(&player_state) {}
+
+    void collect_ecosystem_interest_centers(
+        uint64_t /*current_tick*/,
+        std::vector<GameEcosystemInterestCenter>& out_centers) const override {
+        if (player_state_ == nullptr) return;
+        auto snapshots = player_state_->active_player_snapshots();
+        if (!snapshots) {
+            if (!snapshot_failure_reported_) {
+                SNT_LOG_WARN("Unable to collect player ecology interests: %s",
+                             snapshots.error().format().c_str());
+                snapshot_failure_reported_ = true;
+            }
+            return;
+        }
+        snapshot_failure_reported_ = false;
+        out_centers.reserve(out_centers.size() + snapshots->size());
+        for (const replication::GameServerPlayerSnapshot& snapshot : *snapshots) {
+            const GamePlayerWorldPosition& position = snapshot.position;
+            if (position.dimension_id.empty()) continue;
+            out_centers.push_back({
+                .chunk = {
+                    position.dimension_id,
+                    chunk_coordinate_for_block(position.position.x),
+                    chunk_coordinate_for_block(position.position.y),
+                    chunk_coordinate_for_block(position.position.z),
+                },
+            });
+        }
+    }
+
+private:
+    const replication::GameServerPlayerState* player_state_ = nullptr;
+    mutable bool snapshot_failure_reported_ = false;
+};
 
 ScienceAndTheologyServerSession::ScienceAndTheologyServerSession(GameServerSessionOptions options)
     : config_(std::move(options.config)),
@@ -134,6 +191,10 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_state_ = std::move(*player_state);
+    ecosystem_interest_provider_ = std::make_unique<ServerEcosystemInterestProvider>(
+        *player_state_);
+    simulation_session_.set_ecosystem_interest_provider(
+        ecosystem_interest_provider_.get());
     auto player_movement = replication::GameServerPlayerMovement::create(
         *player_state_, world.chunks(),
         {
@@ -265,6 +326,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
             .reserved_grave_material_id = config_.server_player.grave_material_id,
             .block_physics_trigger = &simulation_session_,
             .fluid_trigger = &simulation_session_,
+            .crop_growth_system = simulation_session_.crop_growth_system(),
         });
     if (!player_interactions) {
         auto error = player_interactions.error();
@@ -417,6 +479,8 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     transport_.reset();
     replication_handler_.reset();
     command_sink_.reset();
+    simulation_session_.set_ecosystem_interest_provider(nullptr);
+    ecosystem_interest_provider_.reset();
     simulation_session_.set_tree_growth_mutation_sink(nullptr);
     simulation_session_.set_crop_growth_mutation_sink(nullptr);
     simulation_session_.set_block_physics_mutation_sink(nullptr);

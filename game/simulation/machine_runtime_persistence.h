@@ -65,12 +65,42 @@ public:
         snt::ecs::World& world,
         const GameChunkSidecarRegistry& sidecars);
 
+    // Materializes only kLoaded records owned by one chunk. A streaming
+    // coordinator calls this after terrain and its sidecar are available.
+    [[nodiscard]] static snt::core::Expected<void> restore_chunk(
+        snt::ecs::World& world,
+        const GameChunkSidecarRegistry& sidecars,
+        const ChunkKey& chunk_key);
+
     // Copies every anchored ECS machine back into its sidecar record before a
     // controlled world save. It rejects an unanchored live component so a
     // caller cannot silently lose machine state.
     [[nodiscard]] static snt::core::Expected<void> capture(
         const snt::ecs::World& world,
         GameChunkSidecarRegistry& sidecars);
+
+    // Captures the materialized machine values in one chunk without touching
+    // other active chunks. It leaves residency ownership unchanged.
+    [[nodiscard]] static snt::core::Expected<void> capture_chunk(
+        const snt::ecs::World& world,
+        GameChunkSidecarRegistry& sidecars,
+        const ChunkKey& chunk_key);
+
+    // Removes the ECS runtimes for kLoaded records after capture_chunk has
+    // succeeded. The caller must change those records to a non-loaded owner
+    // only after this operation completes.
+    [[nodiscard]] static snt::core::Expected<void> destroy_chunk_runtimes(
+        snt::ecs::World& world,
+        const GameChunkSidecarRegistry& sidecars,
+        const ChunkKey& chunk_key);
+
+    // Value conversion used by the offline service. These functions never
+    // allocate entities or alter residency metadata.
+    [[nodiscard]] static MachineRuntimeComponent make_runtime_component(
+        const MachineRuntimePersistenceRecord& record);
+    static void copy_runtime_to_record(
+        MachineRuntimePersistenceRecord& record,
+        const MachineRuntimeComponent& runtime);
 };
 
 }  // namespace snt::game

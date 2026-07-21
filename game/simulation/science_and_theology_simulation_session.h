@@ -19,6 +19,7 @@
 #include "game/simulation/game_content_reload_service.h"
 #include "game/simulation/game_fluid_system_events.h"
 #include "game/simulation/machine_interaction_service.h"
+#include "game/simulation/offline_machine_simulation.h"
 #include "game/simulation/region_topology.h"
 #include "game/simulation/season_cycle.h"
 #include "game/simulation/tree_growth_events.h"
@@ -47,11 +48,18 @@ namespace snt::game {
 class GameWorldPersistenceLifecycle;
 class GameBlockPhysicsSystem;
 class GameCropGrowthSystem;
+class GameEcosystemSystem;
+class GameWildCreatureSystem;
 class GameFluidSystem;
 class GameTreeGrowthSystem;
+class IGameEcosystemEnvironmentProvider;
+class IGameEcosystemInterestProvider;
+class IGameEcosystemMutationSink;
+class IGameCreaturePresentationSink;
 class IFluidComputeBackend;
 class IMachineTickEventSink;
 class MachineTickSystem;
+class OfflineMachineSimulationService;
 struct WorldGenConfigSnapshot;
 
 class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession,
@@ -86,6 +94,29 @@ public:
     // cannot mutate content after the session has published the snapshot.
     [[nodiscard]] const WorldGenConfigSnapshot* worldgen_config() const noexcept {
         return worldgen_config_.get();
+    }
+    // The server interaction composition may invoke immediate player farming
+    // mutations through this authoritative, session-owned system. It remains
+    // null before world creation and after shutdown.
+    [[nodiscard]] GameCropGrowthSystem* crop_growth_system() noexcept {
+        return crop_growth_system_.get();
+    }
+    [[nodiscard]] const GameCropGrowthSystem* crop_growth_system() const noexcept {
+        return crop_growth_system_.get();
+    }
+    // Ecosystem state is session-owned just like crops. Server combat and
+    // future presentation adapters access it through this typed boundary.
+    [[nodiscard]] GameEcosystemSystem* ecosystem_system() noexcept {
+        return ecosystem_system_.get();
+    }
+    [[nodiscard]] const GameEcosystemSystem* ecosystem_system() const noexcept {
+        return ecosystem_system_.get();
+    }
+    [[nodiscard]] GameWildCreatureSystem* wild_creature_system() noexcept {
+        return wild_creature_system_.get();
+    }
+    [[nodiscard]] const GameWildCreatureSystem* wild_creature_system() const noexcept {
+        return wild_creature_system_.get();
     }
     QuestRegistry& quests() noexcept { return quest_registry_; }
     MachineInteractionService& machine_interactions() noexcept {
@@ -129,6 +160,21 @@ public:
     // Crop and farmland changes use the same narrow host composition boundary
     // as tree growth, while keeping crop simulation transport-neutral.
     void set_crop_growth_mutation_sink(ICropGrowthMutationSink* mutation_sink) noexcept;
+    // Ecosystem composition accepts value-only observers. An external
+    // environment provider supersedes the session's GameplayConfig/day-night
+    // adapter and therefore owns every field in its returned sample.
+    void set_ecosystem_environment_provider(
+        const IGameEcosystemEnvironmentProvider* environment_provider) noexcept;
+    // The authoritative host supplies player-centered ecology circles here.
+    // Without a provider, wild population and proxies deliberately remain
+    // inactive rather than silently simulating every loaded chunk.
+    void set_ecosystem_interest_provider(
+        const IGameEcosystemInterestProvider* interest_provider) noexcept;
+    void set_ecosystem_mutation_sink(IGameEcosystemMutationSink* mutation_sink) noexcept;
+    // Presentation receives creature values/events, never a raw ecosystem
+    // proxy plan. The native wildlife system remains the sole owner of
+    // interactive wild representatives and captive projection.
+    void set_creature_presentation_sink(IGameCreaturePresentationSink* sink) noexcept;
     void schedule_block_physics_after_terrain_mutation(
         std::string_view dimension_id, int32_t block_x, int32_t block_y,
         int32_t block_z, uint64_t source_tick) override;
@@ -141,7 +187,16 @@ public:
     GameChunkSidecarRegistry& world_sidecars() noexcept { return chunk_sidecars_; }
     const GameChunkSidecarRegistry& world_sidecars() const noexcept { return chunk_sidecars_; }
 
+    // Chunk streaming calls these only at an authoritative fixed-tick barrier.
+    // They transfer machine ownership before terrain is removed or restored.
+    [[nodiscard]] snt::core::Expected<OfflineChunkMachineTransition>
+    dematerialize_chunk_machines(const ChunkKey& chunk_key, uint64_t current_tick);
+    [[nodiscard]] snt::core::Expected<void>
+    materialize_chunk_machines(const ChunkKey& chunk_key, uint64_t current_tick);
+
 private:
+    class SessionEcosystemEnvironmentProvider;
+
     GameSessionConfig config_;
     snt::engine::SimulationServices* services_ = nullptr;
     GameContentRegistry content_registry_;
@@ -166,9 +221,18 @@ private:
     ITreeGrowthMutationSink* tree_growth_mutation_sink_ = nullptr;
     std::unique_ptr<GameCropGrowthSystem> crop_growth_system_;
     ICropGrowthMutationSink* crop_growth_mutation_sink_ = nullptr;
+    std::unique_ptr<GameEcosystemSystem> ecosystem_system_;
+    std::unique_ptr<SessionEcosystemEnvironmentProvider>
+        session_ecosystem_environment_provider_;
+    const IGameEcosystemEnvironmentProvider* ecosystem_environment_provider_ = nullptr;
+    const IGameEcosystemInterestProvider* ecosystem_interest_provider_ = nullptr;
+    IGameEcosystemMutationSink* ecosystem_mutation_sink_ = nullptr;
+    std::unique_ptr<GameWildCreatureSystem> wild_creature_system_;
+    IGameCreaturePresentationSink* creature_presentation_sink_ = nullptr;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
     std::shared_ptr<MachineTickSystem> machine_tick_system_;
+    std::unique_ptr<OfflineMachineSimulationService> offline_machine_simulation_;
     IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;
     snt::voxel::ChunkRegistry* chunks_ = nullptr;

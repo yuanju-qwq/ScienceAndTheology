@@ -5,6 +5,9 @@
 
 #include "game/world/defs/creature_species.h"
 
+#include <algorithm>
+#include <stdexcept>
+
 namespace snt::game {
 
 // --- CreatureSpeciesRegistry ---
@@ -50,6 +53,7 @@ std::vector<uint16_t> CreatureSpeciesRegistry::all_species_ids() const {
     for (const auto& [id, _] : species_by_id_) {
         ids.push_back(id);
     }
+    std::sort(ids.begin(), ids.end());
     return ids;
 }
 
@@ -58,26 +62,135 @@ void CreatureSpeciesRegistry::clear() {
     id_by_key_.clear();
 }
 
-void CreatureSpeciesRegistry::reset() {
-    // Full reset: clears staging registration data.
-    // species_id is now explicitly allocated by the GD side, no internal
-    // ID counter to reset.
-    staging().clear();
-}
+const CreatureSpeciesRegistry& builtin_creature_species() {
+    static const CreatureSpeciesRegistry catalog = [] {
+        CreatureSpeciesRegistry result;
+        const auto add = [&result](CreatureSpeciesDef definition) {
+            if (!result.register_species(definition)) {
+                throw std::logic_error("Invalid built-in creature species definition");
+            }
+        };
 
-void CreatureSpeciesRegistry::import_from(
-    const CreatureSpeciesRegistry& other) {
-    for (const auto& [id, def] : other.species_by_id_) {
-        if (species_by_id_.find(id) == species_by_id_.end()) {
-            species_by_id_[id] = def;
-            id_by_key_[def.species_key] = id;
-        }
-    }
-}
-
-CreatureSpeciesRegistry& CreatureSpeciesRegistry::staging() {
-    static CreatureSpeciesRegistry g_staging;
-    return g_staging;
+        add({
+            .species_id = 1,
+            .species_key = "glow_deer",
+            .title_key = "creature.glow_deer",
+            .role = CreatureRole::HERBIVORE,
+            .model_key = "glow_deer",
+            .move_speed = 0.12f,
+            .base_health = 0.8f,
+            .flee_detection_radius = 12.0f,
+            .wander_radius = 10.0f,
+            .model_scale = 1.2f,
+            .biomes = {0},
+            .drops = {
+                {"snt:glow_deer_antler", 0.7f, 1, 2},
+                {"snt:purifying_pollen", 0.5f, 1, 1},
+                {"snt:raw_meat.glow_deer", 1.0f, 1, 2},
+            },
+        });
+        add({
+            .species_id = 2,
+            .species_key = "rock_lizard",
+            .title_key = "creature.rock_lizard",
+            .role = CreatureRole::HERBIVORE,
+            .model_key = "rock_lizard",
+            .move_speed = 0.08f,
+            .base_health = 1.0f,
+            .flee_detection_radius = 8.0f,
+            .wander_radius = 6.0f,
+            .model_scale = 0.7f,
+            .biomes = {0, 1, 2},
+            .drops = {
+                {"snt:rock_lizard_scale", 0.8f, 1, 3},
+                {"snt:crystallized_bone_powder", 0.4f, 1, 1},
+                {"snt:raw_meat.rock_lizard", 1.0f, 1, 2},
+            },
+        });
+        add({
+            .species_id = 129,
+            .species_key = "thunderbird",
+            .title_key = "creature.thunderbird",
+            .role = CreatureRole::PREDATOR,
+            .model_key = "thunderbird",
+            .move_speed = 0.18f,
+            .base_health = 0.9f,
+            .wander_radius = 14.0f,
+            .model_scale = 1.0f,
+            .biomes = {0, 1, 2},
+            .drops = {
+                {"snt:thunderbird_feather", 0.7f, 1, 2},
+                {"snt:magnetic_crystal_shard", 0.3f, 1, 1},
+                {"snt:raw_meat.thunderbird", 1.0f, 1, 1},
+            },
+        });
+        add({
+            .species_id = 130,
+            .species_key = "sea_serpent",
+            .title_key = "creature.sea_serpent",
+            .role = CreatureRole::PREDATOR,
+            .model_key = "sea_serpent",
+            .move_speed = 0.14f,
+            .base_health = 1.0f,
+            .wander_radius = 10.0f,
+            .model_scale = 1.3f,
+            .biomes = {3},
+            .drops = {
+                {"snt:sea_serpent_scale", 0.7f, 1, 2},
+                {"snt:tidal_gland", 0.3f, 1, 1},
+                {"snt:raw_meat.sea_serpent", 1.0f, 1, 3},
+            },
+        });
+        add({
+            .species_id = 131,
+            .species_key = "blaze_beast",
+            .title_key = "creature.blaze_beast",
+            .role = CreatureRole::PREDATOR,
+            .model_key = "blaze_beast",
+            .move_speed = 0.10f,
+            .base_health = 1.2f,
+            .wander_radius = 8.0f,
+            .model_scale = 1.4f,
+            .biomes = {0, 2},
+            .drops = {
+                {"snt:blazing_core", 0.5f, 1, 1},
+                {"snt:molten_blood_sample", 0.4f, 1, 1},
+                {"snt:raw_meat.blaze_beast", 1.0f, 1, 2},
+            },
+        });
+        add({
+            .species_id = 132,
+            .species_key = "aether_wraith",
+            .title_key = "creature.aether_wraith",
+            .role = CreatureRole::PREDATOR,
+            .model_key = "aether_wraith",
+            .move_speed = 0.15f,
+            .base_health = 1.5f,
+            .wander_radius = 12.0f,
+            .model_scale = 1.0f,
+            .drops = {
+                {"snt:aether_fragment", 0.6f, 1, 2},
+                {"snt:blueprint_shard", 0.2f, 1, 1},
+            },
+        });
+        add({
+            .species_id = 133,
+            .species_key = "aberrant_ascended",
+            .title_key = "creature.aberrant_ascended",
+            .role = CreatureRole::PREDATOR,
+            .model_key = "aberrant_ascended",
+            .move_speed = 0.13f,
+            .base_health = 2.0f,
+            .wander_radius = 10.0f,
+            .model_scale = 1.2f,
+            .drops = {
+                {"snt:aberrant_organ", 0.5f, 1, 2},
+                {"snt:polluted_source_essence", 0.4f, 1, 1},
+            },
+        });
+        return result;
+    }();
+    return catalog;
 }
 
 } // namespace snt::game

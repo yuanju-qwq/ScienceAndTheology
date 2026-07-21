@@ -7,8 +7,11 @@
 #include "game/client/machine_tick_system.h"
 #include "game/simulation/block_physics_system.h"
 #include "game/simulation/crop_growth_system.h"
+#include "game/simulation/ecosystem_system.h"
+#include "game/simulation/wild_creature_system.h"
 #include "game/simulation/game_fluid_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
+#include "game/simulation/offline_machine_simulation.h"
 #include "game/simulation/tree_growth_system.h"
 #include "game/simulation/worldgen_script_content.h"
 #include "game/world/save/world_persistence_lifecycle.h"
@@ -23,10 +26,33 @@
 
 namespace snt::game {
 
+class ScienceAndTheologySimulationSession::SessionEcosystemEnvironmentProvider final
+    : public IGameEcosystemEnvironmentProvider {
+public:
+    explicit SessionEcosystemEnvironmentProvider(
+        const ScienceAndTheologySimulationSession& session) noexcept
+        : session_(&session) {}
+
+    bool sample_ecosystem_environment(
+        const ChunkKey& chunk, GameEcosystemEnvironmentSample& out_sample) const override {
+        if (session_ == nullptr) return false;
+        out_sample.enabled = session_->config_.gameplay.is_ecosystem_enabled(chunk.dimension_id);
+        out_sample.rate_multiplier = session_->config_.gameplay.get_ecosystem_rate_multiplier(
+            chunk.dimension_id);
+        out_sample.is_daytime = session_->day_night_state().is_daytime;
+        return true;
+    }
+
+private:
+    const ScienceAndTheologySimulationSession* session_ = nullptr;
+};
+
 ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSessionConfig config)
     : config_(std::move(config)),
       quest_registry_(content_registry_),
       machine_interactions_(content_registry_) {
+    session_ecosystem_environment_provider_ =
+        std::make_unique<SessionEcosystemEnvironmentProvider>(*this);
     day_night_cycle_.update(0, 0.05f, config_.gameplay,
                             config_.persistence.world_dimension_id);
     season_cycle_.update(0, 0.05f, config_.gameplay,
@@ -49,6 +75,7 @@ void ScienceAndTheologySimulationSession::set_machine_tick_event_sink(
     IMachineTickEventSink* event_sink) noexcept {
     machine_tick_event_sink_ = event_sink;
     if (machine_tick_system_) machine_tick_system_->set_event_sink(event_sink);
+    if (offline_machine_simulation_) offline_machine_simulation_->set_event_sink(event_sink);
 }
 
 void ScienceAndTheologySimulationSession::set_block_physics_mutation_sink(
@@ -91,6 +118,34 @@ void ScienceAndTheologySimulationSession::set_crop_growth_mutation_sink(
     ICropGrowthMutationSink* mutation_sink) noexcept {
     crop_growth_mutation_sink_ = mutation_sink;
     if (crop_growth_system_) crop_growth_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_ecosystem_environment_provider(
+    const IGameEcosystemEnvironmentProvider* environment_provider) noexcept {
+    ecosystem_environment_provider_ = environment_provider;
+    if (ecosystem_system_) {
+        ecosystem_system_->set_environment_provider(
+            environment_provider != nullptr ? environment_provider
+                                            : session_ecosystem_environment_provider_.get());
+    }
+}
+
+void ScienceAndTheologySimulationSession::set_ecosystem_interest_provider(
+    const IGameEcosystemInterestProvider* interest_provider) noexcept {
+    ecosystem_interest_provider_ = interest_provider;
+    if (ecosystem_system_) ecosystem_system_->set_interest_provider(interest_provider);
+}
+
+void ScienceAndTheologySimulationSession::set_ecosystem_mutation_sink(
+    IGameEcosystemMutationSink* mutation_sink) noexcept {
+    ecosystem_mutation_sink_ = mutation_sink;
+    if (ecosystem_system_) ecosystem_system_->set_mutation_sink(mutation_sink);
+}
+
+void ScienceAndTheologySimulationSession::set_creature_presentation_sink(
+    IGameCreaturePresentationSink* sink) noexcept {
+    creature_presentation_sink_ = sink;
+    if (wild_creature_system_) wild_creature_system_->set_presentation_sink(sink);
 }
 
 void ScienceAndTheologySimulationSession::set_region_topology_event_sink(
@@ -254,6 +309,15 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         error.with_context("ScienceAndTheologySimulationSession::create_world(restore machines)");
         return error;
     }
+    offline_machine_simulation_ = std::make_unique<OfflineMachineSimulationService>(
+        content_registry_, chunk_sidecars_);
+    offline_machine_simulation_->set_event_sink(machine_tick_event_sink_);
+    if (auto result = offline_machine_simulation_->initialize(0); !result) {
+        offline_machine_simulation_.reset();
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::create_world(offline machines)");
+        return error;
+    }
     block_physics_system_ = std::make_unique<GameBlockPhysicsSystem>(
         *chunks_, *worldgen_config_, config_.gameplay);
     block_physics_system_->set_mutation_sink(block_physics_mutation_sink_);
@@ -269,12 +333,26 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     crop_growth_system_ = std::make_unique<GameCropGrowthSystem>(
         *chunks_, chunk_sidecars_, *worldgen_config_);
     crop_growth_system_->set_mutation_sink(crop_growth_mutation_sink_);
+    ecosystem_system_ = std::make_unique<GameEcosystemSystem>(
+        *chunks_, chunk_sidecars_, *worldgen_config_);
+    ecosystem_system_->set_environment_provider(
+        ecosystem_environment_provider_ != nullptr ? ecosystem_environment_provider_
+                                                   : session_ecosystem_environment_provider_.get());
+    ecosystem_system_->set_interest_provider(ecosystem_interest_provider_);
+    ecosystem_system_->set_mutation_sink(ecosystem_mutation_sink_);
+    wild_creature_system_ = std::make_unique<GameWildCreatureSystem>(
+        *ecosystem_system_, *chunks_, chunk_sidecars_, ecosystem_system_->species_catalog());
+    wild_creature_system_->set_presentation_sink(creature_presentation_sink_);
+    ecosystem_system_->set_wild_proxy_sink(wild_creature_system_.get());
+    ecosystem_system_->set_far_visual_sink(wild_creature_system_.get());
+    ecosystem_system_->set_captive_lifecycle_sink(wild_creature_system_.get());
     world_ready_ = true;
 
     SNT_LOG_INFO("Game block physics initialized with the current world-generation snapshot");
     SNT_LOG_INFO("Game hybrid fluid simulation initialized with sparse, dense, and equilibrium layers");
     SNT_LOG_INFO("Game tree growth initialized with typed chunk-sidecar state");
     SNT_LOG_INFO("Game crop growth initialized with typed chunk-sidecar state");
+    SNT_LOG_INFO("Game ecosystem initialized with typed chunk-sidecar population state");
     SNT_LOG_INFO("Game region topology initialized for authoritative fixed ticks");
     SNT_LOG_INFO("ScienceAndTheology simulation world initialized");
     return {};
@@ -287,6 +365,16 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
     season_cycle_.update(context.tick_index(), context.delta_seconds(), config_.gameplay,
                          config_.persistence.world_dimension_id);
     (void)region_topology_.fixed_tick(context.tick_index());
+    if (offline_machine_simulation_) {
+        if (auto result = offline_machine_simulation_->tick(context.tick_index()); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologySimulationSession::fixed_tick(offline machines)");
+            return error;
+        }
+    }
+    if (ecosystem_system_) {
+        ecosystem_system_->tick(context.tick_index(), season_cycle_.state().season);
+    }
     if (block_physics_system_) block_physics_system_->tick(context.tick_index());
     if (fluid_system_) fluid_system_->tick(context.tick_index());
     if (tree_growth_system_) tree_growth_system_->tick(context.tick_index());
@@ -328,9 +416,43 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
     return {};
 }
 
+snt::core::Expected<OfflineChunkMachineTransition>
+ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
+    const ChunkKey& chunk_key, uint64_t current_tick) {
+    if (world_ == nullptr || offline_machine_simulation_ == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Offline machine simulation is unavailable"};
+    }
+    return offline_machine_simulation_->dematerialize_chunk(*world_, chunk_key, current_tick);
+}
+
+snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk_machines(
+    const ChunkKey& chunk_key, uint64_t current_tick) {
+    if (world_ == nullptr || offline_machine_simulation_ == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Offline machine simulation is unavailable"};
+    }
+    return offline_machine_simulation_->materialize_chunk(*world_, chunk_key, current_tick);
+}
+
 void ScienceAndTheologySimulationSession::shutdown() noexcept {
     region_topology_.set_event_sink(nullptr);
     region_topology_.clear();
+    if (ecosystem_system_) {
+        ecosystem_system_->set_environment_provider(nullptr);
+        ecosystem_system_->set_interest_provider(nullptr);
+        ecosystem_system_->set_mutation_sink(nullptr);
+        ecosystem_system_->set_wild_proxy_sink(nullptr);
+        ecosystem_system_->set_far_visual_sink(nullptr);
+        ecosystem_system_->set_captive_lifecycle_sink(nullptr);
+    }
+    if (wild_creature_system_) wild_creature_system_->set_presentation_sink(nullptr);
+    wild_creature_system_.reset();
+    ecosystem_system_.reset();
+    ecosystem_environment_provider_ = nullptr;
+    ecosystem_interest_provider_ = nullptr;
+    ecosystem_mutation_sink_ = nullptr;
+    creature_presentation_sink_ = nullptr;
     if (crop_growth_system_) crop_growth_system_->set_mutation_sink(nullptr);
     crop_growth_system_.reset();
     crop_growth_mutation_sink_ = nullptr;
@@ -353,6 +475,15 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
     fluid_compute_backend_ = nullptr;
     if (machine_tick_system_) machine_tick_system_->set_event_sink(nullptr);
     machine_tick_system_.reset();
+    if (offline_machine_simulation_) {
+        if (auto result = offline_machine_simulation_->flush(
+                offline_machine_simulation_->last_tick()); !result) {
+            SNT_LOG_ERROR("Offline machine flush during session shutdown failed: %s",
+                          result.error().format().c_str());
+        }
+        offline_machine_simulation_->set_event_sink(nullptr);
+        offline_machine_simulation_.reset();
+    }
     if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
         if (auto result = GameMachineRuntimePersistence::capture(*world_, chunk_sidecars_); !result) {
             SNT_LOG_ERROR("Game machine runtime capture during session shutdown failed: %s",

@@ -167,6 +167,19 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         return invalid_argument("Machine persistence record is invalid in chunk " +
                                 describe_chunk(chunk_key));
     }
+    const uint8_t residency = static_cast<uint8_t>(record.residency);
+    if (residency > static_cast<uint8_t>(MachineRuntimeResidency::kOfflineNetworkIsland)) {
+        return invalid_argument("Machine persistence residency is invalid in chunk " +
+                                describe_chunk(chunk_key));
+    }
+    if (record.residency == MachineRuntimeResidency::kOfflineStandalone &&
+        record.offline_island_id != 0) {
+        return invalid_argument("Standalone offline machine must not reference a network island");
+    }
+    if (record.residency == MachineRuntimeResidency::kOfflineNetworkIsland &&
+        record.offline_island_id == 0) {
+        return invalid_argument("Offline network machine is missing its island id");
+    }
     if (record.input_slots.size() > static_cast<size_t>(record.max_input_slots)) {
         return invalid_argument("Machine persistence input slot count exceeds its configured limit");
     }
@@ -244,6 +257,34 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     return result;
 }
 
+void copy_runtime_fields(MachineRuntimePersistenceRecord& record,
+                         const MachineRuntimeComponent& runtime) {
+    record.machine_id = runtime.machine_id;
+    record.input_slots.clear();
+    record.input_slots.reserve(runtime.input_slots.size());
+    for (const MachineItemStack& input : runtime.input_slots) {
+        record.input_slots.push_back(to_persisted_stack(input));
+    }
+    record.output_slots.clear();
+    record.output_slots.reserve(runtime.output_slots.size());
+    for (const MachineItemStack& output : runtime.output_slots) {
+        record.output_slots.push_back(to_persisted_stack(output));
+    }
+    record.stored_energy = runtime.stored_energy;
+    record.energy_capacity = runtime.energy_capacity;
+    record.max_input_slots = runtime.max_input_slots;
+    record.max_output_slots = runtime.max_output_slots;
+    record.max_stack_size = runtime.max_stack_size;
+    record.progress_ticks = runtime.progress_ticks;
+    record.active_recipe.reset();
+    if (runtime.active_recipe) {
+        record.active_recipe = to_persisted_recipe(*runtime.active_recipe);
+    }
+    record.activation_requested = runtime.activation_requested;
+    record.job_owner_account_id = runtime.job_owner_account_id;
+    record.run_state = static_cast<uint8_t>(runtime.state);
+}
+
 [[nodiscard]] MachineRuntimePersistenceRecord make_record(
     EntityId anchor_entity_id,
     snt::ecs::EntityGuid entity_guid,
@@ -251,27 +292,7 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     MachineRuntimePersistenceRecord result;
     result.anchor_entity_id = anchor_entity_id;
     result.entity_guid = entity_guid.value;
-    result.machine_id = runtime.machine_id;
-    result.input_slots.reserve(runtime.input_slots.size());
-    for (const MachineItemStack& input : runtime.input_slots) {
-        result.input_slots.push_back(to_persisted_stack(input));
-    }
-    result.output_slots.reserve(runtime.output_slots.size());
-    for (const MachineItemStack& output : runtime.output_slots) {
-        result.output_slots.push_back(to_persisted_stack(output));
-    }
-    result.stored_energy = runtime.stored_energy;
-    result.energy_capacity = runtime.energy_capacity;
-    result.max_input_slots = runtime.max_input_slots;
-    result.max_output_slots = runtime.max_output_slots;
-    result.max_stack_size = runtime.max_stack_size;
-    result.progress_ticks = runtime.progress_ticks;
-    if (runtime.active_recipe) {
-        result.active_recipe = to_persisted_recipe(*runtime.active_recipe);
-    }
-    result.activation_requested = runtime.activation_requested;
-    result.job_owner_account_id = runtime.job_owner_account_id;
-    result.run_state = static_cast<uint8_t>(runtime.state);
+    copy_runtime_fields(result, runtime);
     return result;
 }
 
@@ -430,6 +451,7 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore(
     std::vector<const MachineRuntimePersistenceRecord*> records;
     std::unordered_set<uint64_t> seen_guids;
     std::unordered_set<uint64_t> seen_anchors;
+    std::unordered_set<uint64_t> loaded_guids;
     std::optional<snt::core::Error> error;
 
     sidecars.for_each([&](const ChunkKey& key, const GameChunkSidecar& sidecar) {
@@ -446,6 +468,9 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore(
             if (!seen_anchors.insert(record.anchor_entity_id.id).second) {
                 error = invalid_state("Duplicate persisted machine block-entity anchor across chunk sidecars");
                 return;
+            }
+            if (record.residency != MachineRuntimeResidency::kLoaded) {
+                continue;
             }
             if (world.find_entity_by_guid(snt::ecs::EntityGuid{record.entity_guid}) != entt::null) {
                 error = invalid_state("Persisted machine EntityGuid collides with an existing ECS entity");
@@ -493,12 +518,154 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore(
     return {};
 }
 
+snt::core::Expected<void> GameMachineRuntimePersistence::restore_chunk(
+    snt::ecs::World& world,
+    const GameChunkSidecarRegistry& sidecars,
+    const ChunkKey& chunk_key) {
+    const GameChunkSidecar* sidecar = sidecars.get(chunk_key);
+    if (sidecar == nullptr) {
+        return invalid_state("Cannot restore machine runtimes without a chunk sidecar");
+    }
+
+    std::vector<const MachineRuntimePersistenceRecord*> records;
+    std::unordered_set<uint64_t> seen_guids;
+    std::unordered_set<uint64_t> seen_anchors;
+    for (const MachineRuntimePersistenceRecord& record : sidecar->machine_runtime_records) {
+        if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
+            return result.error();
+        }
+        if (!seen_guids.insert(record.entity_guid).second ||
+            !seen_anchors.insert(record.anchor_entity_id.id).second) {
+            return invalid_state("Chunk has duplicate persisted machine identities");
+        }
+        if (record.residency != MachineRuntimeResidency::kLoaded) continue;
+        if (world.find_entity_by_guid(snt::ecs::EntityGuid{record.entity_guid}) != entt::null) {
+            return invalid_state("Chunk machine EntityGuid collides with an existing ECS entity");
+        }
+        records.push_back(&record);
+    }
+
+    std::sort(records.begin(), records.end(), [](const auto* left, const auto* right) {
+        return left->entity_guid < right->entity_guid;
+    });
+    std::vector<entt::entity> created;
+    created.reserve(records.size());
+    for (const MachineRuntimePersistenceRecord* record : records) {
+        const entt::entity entity = world.create_entity_with_guid(
+            snt::ecs::EntityGuid{record->entity_guid});
+        if (entity == entt::null) {
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return invalid_state("Failed to recreate a chunk machine EntityGuid");
+        }
+        try {
+            world.add_component<MachineRuntimeComponent>(
+                entity, make_runtime_component(*record));
+            created.push_back(entity);
+        } catch (const std::exception& exception) {
+            world.destroy_entity(entity);
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return invalid_state("Failed to restore a chunk machine runtime: " +
+                                 std::string(exception.what()));
+        } catch (...) {
+            world.destroy_entity(entity);
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return invalid_state("Failed to restore a chunk machine runtime");
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameMachineRuntimePersistence::capture_chunk(
+    const snt::ecs::World& world,
+    GameChunkSidecarRegistry& sidecars,
+    const ChunkKey& chunk_key) {
+    GameChunkSidecar* sidecar = sidecars.get(chunk_key);
+    if (sidecar == nullptr) {
+        return invalid_state("Cannot capture machine runtimes without a chunk sidecar");
+    }
+
+    std::unordered_set<uint64_t> seen_guids;
+    std::unordered_set<uint64_t> seen_anchors;
+    std::vector<std::pair<size_t, MachineRuntimePersistenceRecord>> updates;
+    for (size_t index = 0; index < sidecar->machine_runtime_records.size(); ++index) {
+        const MachineRuntimePersistenceRecord& record = sidecar->machine_runtime_records[index];
+        if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
+            return result.error();
+        }
+        if (!seen_guids.insert(record.entity_guid).second ||
+            !seen_anchors.insert(record.anchor_entity_id.id).second) {
+            return invalid_state("Chunk has duplicate persisted machine identities");
+        }
+        if (record.residency != MachineRuntimeResidency::kLoaded) continue;
+
+        const snt::ecs::EntityGuid entity_guid{record.entity_guid};
+        const entt::entity entity = world.find_entity_by_guid(entity_guid);
+        if (entity == entt::null ||
+            !world.registry().all_of<MachineRuntimeComponent>(entity)) {
+            return invalid_state("Chunk machine runtime is unavailable during capture");
+        }
+        MachineRuntimePersistenceRecord updated = record;
+        copy_runtime_to_record(updated, world.get_component<MachineRuntimeComponent>(entity));
+        if (auto result = validate_record(chunk_key, *sidecar, updated); !result) {
+            return result.error();
+        }
+        updates.emplace_back(index, std::move(updated));
+    }
+    for (auto& [index, record] : updates) {
+        sidecar->machine_runtime_records[index] = std::move(record);
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameMachineRuntimePersistence::destroy_chunk_runtimes(
+    snt::ecs::World& world,
+    const GameChunkSidecarRegistry& sidecars,
+    const ChunkKey& chunk_key) {
+    const GameChunkSidecar* sidecar = sidecars.get(chunk_key);
+    if (sidecar == nullptr) {
+        return invalid_state("Cannot destroy machine runtimes without a chunk sidecar");
+    }
+
+    std::vector<entt::entity> entities;
+    std::unordered_set<uint64_t> seen_guids;
+    for (const MachineRuntimePersistenceRecord& record : sidecar->machine_runtime_records) {
+        if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
+            return result.error();
+        }
+        if (!seen_guids.insert(record.entity_guid).second) {
+            return invalid_state("Chunk has duplicate persisted machine EntityGuids");
+        }
+        if (record.residency != MachineRuntimeResidency::kLoaded) continue;
+        const entt::entity entity = world.find_entity_by_guid(
+            snt::ecs::EntityGuid{record.entity_guid});
+        if (entity == entt::null ||
+            !world.registry().all_of<MachineRuntimeComponent>(entity)) {
+            return invalid_state("Chunk machine runtime is unavailable during destruction");
+        }
+        entities.push_back(entity);
+    }
+    for (const entt::entity entity : entities) world.destroy_entity(entity);
+    return {};
+}
+
+MachineRuntimeComponent GameMachineRuntimePersistence::make_runtime_component(
+    const MachineRuntimePersistenceRecord& record) {
+    return make_runtime(record);
+}
+
+void GameMachineRuntimePersistence::copy_runtime_to_record(
+    MachineRuntimePersistenceRecord& record,
+    const MachineRuntimeComponent& runtime) {
+    copy_runtime_fields(record, runtime);
+}
+
 snt::core::Expected<void> GameMachineRuntimePersistence::capture(
     const snt::ecs::World& world,
     GameChunkSidecarRegistry& sidecars) {
     std::vector<RecordLocation> locations = collect_record_locations(sidecars);
     std::unordered_set<uint64_t> seen_guids;
     std::unordered_set<uint64_t> seen_anchors;
+    std::unordered_set<uint64_t> loaded_guids;
     std::vector<MachineRuntimePersistenceRecord> updated_records;
     updated_records.reserve(locations.size());
 
@@ -513,16 +680,20 @@ snt::core::Expected<void> GameMachineRuntimePersistence::capture(
             return invalid_state("Duplicate machine persistence record encountered during capture");
         }
 
+        if (existing.residency != MachineRuntimeResidency::kLoaded) {
+            updated_records.push_back(existing);
+            continue;
+        }
+        loaded_guids.insert(existing.entity_guid);
+
         const snt::ecs::EntityGuid entity_guid{existing.entity_guid};
         const entt::entity entity = world.find_entity_by_guid(entity_guid);
         if (entity == entt::null ||
             !world.registry().all_of<MachineRuntimeComponent>(entity)) {
             return invalid_state("Anchored machine runtime entity is unavailable during capture");
         }
-        const MachineRuntimePersistenceRecord updated = make_record(
-            existing.anchor_entity_id,
-            entity_guid,
-            world.get_component<MachineRuntimeComponent>(entity));
+        MachineRuntimePersistenceRecord updated = existing;
+        copy_runtime_fields(updated, world.get_component<MachineRuntimeComponent>(entity));
         if (auto result = validate_record(*location.chunk_key, *location.sidecar, updated); !result) {
             return result.error();
         }
@@ -532,7 +703,7 @@ snt::core::Expected<void> GameMachineRuntimePersistence::capture(
     const auto live_machines = world.registry().view<MachineRuntimeComponent>();
     for (const entt::entity entity : live_machines) {
         const snt::ecs::EntityGuid entity_guid = world.guid_of(entity);
-        if (!entity_guid.valid() || !seen_guids.contains(entity_guid.value)) {
+        if (!entity_guid.valid() || !loaded_guids.contains(entity_guid.value)) {
             return invalid_state("Live MachineRuntimeComponent is not anchored in a chunk sidecar");
         }
     }

@@ -59,6 +59,36 @@ snt::core::Expected<void> GameClientBlockInteractionController::handle_input(
         return sink.submit_block_interaction(
             make_hit_command(replication::GameBlockInteractionAction::kUse, *target));
     }
+
+    if (target->farming.has_value()) {
+        const GameClientBlockInteractionTarget::FarmingTarget& farming = *target->farming;
+        if (farming.can_till) {
+            auto command = make_hit_command(
+                replication::GameBlockInteractionAction::kTillFarmland, *target);
+            command.selected_item_id = std::move(selected_item_id);
+            return sink.submit_block_interaction(std::move(command));
+        }
+        if (farming.can_plant) {
+            auto command = make_hit_command(
+                replication::GameBlockInteractionAction::kPlantCrop, *target);
+            command.block_x = farming.planting_x;
+            command.block_y = farming.planting_y;
+            command.block_z = farming.planting_z;
+            command.expected_material = farming.planting_expected_material;
+            command.selected_item_id = std::move(selected_item_id);
+            return sink.submit_block_interaction(std::move(command));
+        }
+        if (farming.can_fertilize) {
+            auto command = make_hit_command(
+                replication::GameBlockInteractionAction::kFertilizeCrop, *target);
+            command.selected_item_id = std::move(selected_item_id);
+            return sink.submit_block_interaction(std::move(command));
+        }
+        if (farming.can_harvest) {
+            return sink.submit_block_interaction(make_hit_command(
+                replication::GameBlockInteractionAction::kHarvestCrop, *target));
+        }
+    }
     if (selected_item_id.empty() || !target->placement.has_value()) return {};
 
     const GameClientBlockInteractionTarget::PlacementCell& placement = *target->placement;

@@ -217,6 +217,26 @@ struct MachineActivationRequirements {
     }
 };
 
+// Controls whether a machine can continue advancing after its owning chunk
+// leaves the active simulation set. NetworkIsland is declared now so content
+// can express the intended policy before the pipe/cable topology producer is
+// implemented; the runtime conservatively pauses that mode until then.
+enum class MachineOfflineSimulationMode : uint8_t {
+    kDisabled = 0,
+    kStandalone = 1,
+    kNetworkIsland = 2,
+};
+
+struct MachineOfflineSimulationProfile {
+    MachineOfflineSimulationMode mode = MachineOfflineSimulationMode::kDisabled;
+    // The offline scheduler advances a standalone machine in bounded batches
+    // instead of retaining a per-machine fixed-tick task while no player is nearby.
+    uint32_t max_batch_ticks = 1200;
+    // Manual machines still require a player command to begin a new job. The
+    // flag applies to automatic machines and is reserved for future networks.
+    bool can_start_new_jobs = true;
+};
+
 struct RecipeDefinition {
     std::string id;
     std::string machine_id;
@@ -238,6 +258,7 @@ struct MachineDefinition {
     // tools, and structure validation; worker ticks only consume this flag.
     bool requires_manual_activation = false;
     MachineActivationRequirements activation_requirements;
+    MachineOfflineSimulationProfile offline_simulation;
 };
 
 // Quest objectives are content data, while their counters and state belong to
@@ -387,6 +408,9 @@ public:
     snt::core::Expected<void> set_script_machine_activation_requirements(
         ScriptId script_id, std::string machine_id,
         MachineActivationRequirements requirements);
+    snt::core::Expected<void> set_script_machine_offline_simulation(
+        ScriptId script_id, std::string machine_id,
+        MachineOfflineSimulationProfile profile);
     snt::core::Expected<void> add_script_quest_objective(
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
     snt::core::Expected<void> add_script_quest_reward(

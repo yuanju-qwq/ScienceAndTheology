@@ -13,6 +13,7 @@
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/simulation/crop_growth_system.h"
 #include "game/simulation/game_fluid_system_events.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/simulation/machine_runtime_persistence.h"
@@ -303,6 +304,30 @@ void hash_u64(uint64_t& value, uint64_t input) noexcept {
     return additions;
 }
 
+[[nodiscard]] snt::core::Expected<GamePlayerInventoryTransaction>
+make_crop_harvest_transaction(const CropHarvestResult& harvest) {
+    GamePlayerInventoryTransaction transaction;
+    const auto append = [&transaction](std::string_view item_id, int32_t count,
+                                       std::string_view source) -> snt::core::Expected<void> {
+        if (count <= 0) return {};
+        if (item_id.empty() || item_id.size() > kMaxGameItemIdBytes) {
+            return invalid_state("Crop harvest has an invalid " + std::string(source) +
+                                 " item key");
+        }
+        transaction.additions.push_back({.item_id = std::string(item_id), .count = count});
+        return {};
+    };
+    if (auto result = append(harvest.crop_item_key, harvest.crop_count, "crop"); !result) {
+        return result.error();
+    }
+    if (auto result = append(harvest.byproduct_item_key, harvest.byproduct_count,
+                             "byproduct");
+        !result) {
+        return result.error();
+    }
+    return transaction;
+}
+
 }  // namespace
 
 std::vector<GameServerBlockDefinition>
@@ -383,6 +408,14 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_block_intera
             return apply_machine_activation(peer, command, tick_index);
         case GameBlockInteractionAction::kCollectMachineOutput:
             return apply_machine_collect(peer, command, tick_index);
+        case GameBlockInteractionAction::kTillFarmland:
+            return apply_till_farmland(peer, command, tick_index);
+        case GameBlockInteractionAction::kPlantCrop:
+            return apply_plant_crop(peer, command, tick_index);
+        case GameBlockInteractionAction::kFertilizeCrop:
+            return apply_fertilize_crop(peer, command, tick_index);
+        case GameBlockInteractionAction::kHarvestCrop:
+            return apply_harvest_crop(peer, command, tick_index);
     }
     return invalid_argument("Game server player interaction action is invalid");
 }
@@ -994,6 +1027,211 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_coll
     return {};
 }
 
+snt::core::Expected<void> GameServerPlayerInteractionService::apply_till_farmland(
+    const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    if (config_.crop_growth_system == nullptr || config_.worldgen_config == nullptr) {
+        return invalid_state("Game server farmland interaction has no crop growth authority");
+    }
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
+    const TerrainMaterialDef* terrain = worldgen.find_material(
+        static_cast<TerrainMaterialId>(target->cell->material));
+    if (terrain == nullptr || target->cell->material != worldgen.roles.dirt ||
+        terrain->required_tool_tag.empty() ||
+        !content_->item_matches_tool_requirement(command.selected_item_id,
+                                                  terrain->required_tool_tag,
+                                                  terrain->required_mining_level)) {
+        return invalid_state("Farmland tilling requires the configured dirt tool");
+    }
+    if (auto result = validate_selected_inventory_item(peer, command.selected_item_id); !result) {
+        return result.error();
+    }
+
+    const uint32_t previous_material = static_cast<uint32_t>(target->cell->material);
+    auto tilled = config_.crop_growth_system->till_farmland({
+        .dimension_id = command.dimension_id,
+        .block_x = command.block_x,
+        .block_y = command.block_y,
+        .block_z = command.block_z,
+    }, tick_index);
+    if (!tilled) return tilled.error();
+
+    schedule_terrain_simulation_after_commit(command, tick_index);
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kFarmlandTilled,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = command.selected_item_id,
+        .previous_material = previous_material,
+        .current_material = worldgen.runtime_ids.farmland,
+    });
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerInteractionService::apply_plant_crop(
+    const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    if (config_.crop_growth_system == nullptr || config_.worldgen_config == nullptr) {
+        return invalid_state("Game server crop planting has no crop growth authority");
+    }
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
+    const CropSpeciesDef* species = worldgen.find_crop_by_seed(command.selected_item_id);
+    if (species == nullptr || content_->find_item(command.selected_item_id) == nullptr) {
+        return invalid_state("Crop planting selected item is not a registered seed");
+    }
+    if (target->cell->material != worldgen.roles.air || target->cell->has_fluid()) {
+        return invalid_state("Crop planting target is not an empty host terrain cell");
+    }
+
+    const GamePlayerInventoryTransaction transaction{
+        .removals = {{.item_id = command.selected_item_id, .count = 1}},
+    };
+    auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
+    if (!can_apply) return can_apply.error();
+    if (!*can_apply) return invalid_state("Crop planting seed is absent from the host inventory");
+    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+    if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+        return result.error();
+    }
+
+    auto planted = config_.crop_growth_system->plant_crop({
+        .dimension_id = command.dimension_id,
+        .block_x = command.block_x,
+        .block_y = command.block_y,
+        .block_z = command.block_z,
+        .species_key = species->species_key,
+    }, tick_index);
+    if (!planted) {
+        rollback_inventory_transaction(peer, transaction, "crop planting");
+        return planted.error();
+    }
+
+    schedule_terrain_simulation_after_commit(command, tick_index);
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kCropPlanted,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = command.selected_item_id,
+        .previous_material = worldgen.roles.air,
+        .current_material = worldgen.material_id_or(
+            species->stage_material_keys[static_cast<size_t>(CropGrowthStage::SEED)],
+            worldgen.roles.air),
+    });
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerInteractionService::apply_fertilize_crop(
+    const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    if (config_.crop_growth_system == nullptr || config_.worldgen_config == nullptr) {
+        return invalid_state("Game server crop fertilization has no crop growth authority");
+    }
+    if (config_.fertilizer_item_id.empty() ||
+        command.selected_item_id != config_.fertilizer_item_id ||
+        content_->find_item(command.selected_item_id) == nullptr) {
+        return invalid_state("Crop fertilization requires the configured fertilizer item");
+    }
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    const uint32_t previous_material = static_cast<uint32_t>(target->cell->material);
+    const GamePlayerInventoryTransaction transaction{
+        .removals = {{.item_id = command.selected_item_id, .count = 1}},
+    };
+    auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
+    if (!can_apply) return can_apply.error();
+    if (!*can_apply) {
+        return invalid_state("Crop fertilization item is absent from the host inventory");
+    }
+    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+    if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+        return result.error();
+    }
+
+    auto stage = config_.crop_growth_system->fertilize_crop({
+        .dimension_id = command.dimension_id,
+        .block_x = command.block_x,
+        .block_y = command.block_y,
+        .block_z = command.block_z,
+    }, tick_index);
+    if (!stage) {
+        rollback_inventory_transaction(peer, transaction, "crop fertilization");
+        return stage.error();
+    }
+
+    schedule_terrain_simulation_after_commit(command, tick_index);
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kCropFertilized,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = command.selected_item_id,
+        .previous_material = previous_material,
+        .current_material = static_cast<uint32_t>(target->cell->material),
+    });
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerInteractionService::apply_harvest_crop(
+    const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    if (config_.crop_growth_system == nullptr) {
+        return invalid_state("Game server crop harvest has no crop growth authority");
+    }
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    const uint32_t previous_material = static_cast<uint32_t>(target->cell->material);
+    const CropHarvestRequest request{
+        .dimension_id = command.dimension_id,
+        .block_x = command.block_x,
+        .block_y = command.block_y,
+        .block_z = command.block_z,
+    };
+    auto preview = config_.crop_growth_system->preview_harvest_crop(request, tick_index);
+    if (!preview) return preview.error();
+    auto transaction = make_crop_harvest_transaction(*preview);
+    if (!transaction) return transaction.error();
+    for (const GamePlayerItemStack& addition : transaction->additions) {
+        if (content_->find_item(addition.item_id) == nullptr) {
+            return invalid_state("Crop harvest output is not registered in current item content");
+        }
+    }
+    auto can_apply = player_state_->can_apply_inventory_transaction(peer, *transaction);
+    if (!can_apply) return can_apply.error();
+    if (!*can_apply) return invalid_state("Crop harvest output does not fit the host inventory");
+    if (!transaction->additions.empty()) {
+        if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+        if (auto result = player_state_->apply_inventory_transaction(peer, *transaction); !result) {
+            return result.error();
+        }
+    }
+
+    auto harvested = config_.crop_growth_system->harvest_crop(request, tick_index);
+    if (!harvested) {
+        if (!transaction->additions.empty()) {
+            rollback_inventory_transaction(peer, *transaction, "crop harvest");
+        }
+        return harvested.error();
+    }
+
+    schedule_terrain_simulation_after_commit(command, tick_index);
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kCropHarvested,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = harvested->crop_item_key,
+        .previous_material = previous_material,
+        .current_material = static_cast<uint32_t>(target->cell->material),
+    });
+    return {};
+}
+
 const GameServerBlockDefinition* GameServerPlayerInteractionService::find_block_by_item(
     const std::string& item_id) const noexcept {
     const auto found = std::find_if(
@@ -1027,6 +1265,36 @@ snt::core::Expected<void> GameServerPlayerInteractionService::mark_player_state_
     const GameAuthenticatedPeer& peer) {
     if (checkpoint_sink_ == nullptr) return {};
     return checkpoint_sink_->mark_player_state_dirty(peer);
+}
+
+snt::core::Expected<void>
+GameServerPlayerInteractionService::validate_selected_inventory_item(
+    const GameAuthenticatedPeer& peer, std::string_view item_id) const {
+    if (item_id.empty()) return invalid_argument("Selected farming item id is empty");
+    const GamePlayerInventoryTransaction transaction{
+        .removals = {{.item_id = std::string(item_id), .count = 1}},
+    };
+    auto available = player_state_->can_apply_inventory_transaction(peer, transaction);
+    if (!available) return available.error();
+    if (!*available) {
+        return invalid_state("Selected farming item is absent from the host inventory");
+    }
+    return {};
+}
+
+void GameServerPlayerInteractionService::rollback_inventory_transaction(
+    const GameAuthenticatedPeer& peer, const GamePlayerInventoryTransaction& transaction,
+    std::string_view operation) const noexcept {
+    if (player_state_ == nullptr) return;
+    const GamePlayerInventoryTransaction inverse{
+        .removals = transaction.additions,
+        .additions = transaction.removals,
+    };
+    if (auto result = player_state_->apply_inventory_transaction(peer, inverse); !result) {
+        SNT_LOG_ERROR("Inventory rollback failed after %.*s world mutation rejection for account '%s': %s",
+                      static_cast<int>(operation.size()), operation.data(),
+                      peer.identity.account_id.c_str(), result.error().format().c_str());
+    }
 }
 
 void GameServerPlayerInteractionService::schedule_terrain_simulation_after_commit(

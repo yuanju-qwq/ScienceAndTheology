@@ -27,9 +27,7 @@ set(SOURCES
     world/gd_planet_build_frame.cpp
     world/gd_custom_block_entity_registry.cpp
     simulation/gd_game_command_server.cpp
-    simulation/gd_species_registry.cpp
     simulation/gd_tick_system.cpp
-    simulation/gd_biome_config_registry.cpp
     mobile_structure/gd_ship_command_bridge.cpp
     player/gd_player_inventory.cpp
     player/gd_player_equipment.cpp

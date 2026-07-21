@@ -11,10 +11,6 @@ const COMMAND_ADD_INVENTORY_ITEM: StringName = &"add_inventory_item"
 const COMMAND_REMOVE_INVENTORY_ITEM: StringName = &"remove_inventory_item"
 const COMMAND_CRAFT_RECIPE: StringName = &"craft_recipe"
 const COMMAND_PLACE_OBJECT: StringName = &"place_object"
-const COMMAND_TILL_FARMLAND: StringName = &"till_farmland"
-const COMMAND_PLANT_CROP: StringName = &"plant_crop"
-const COMMAND_HARVEST_CROP: StringName = &"harvest_crop"
-const COMMAND_FERTILIZE: StringName = &"fertilize"
 
 # TFC expansion commands
 const COMMAND_FORAGE_WILD: StringName = &"forage_wild"

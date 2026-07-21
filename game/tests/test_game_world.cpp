@@ -1,6 +1,7 @@
 // Tests for ScienceAndTheology-owned world rules and persistence sidecars.
 
 #include "game/world/defs/block_entity_registry.h"
+#include "game/world/defs/creature_species.h"
 #include "game/world/defs/machine_collision_overlay.h"
 #include "game/world/game_chunk.h"
 #include "game/world/save/chunk_serializer.h"
@@ -181,6 +182,20 @@ TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {
     original.connectors.push_back({.connector_id = 42, .from_dimension = "overworld"});
     original.has_population_cell = true;
     original.population_cell.vegetation_density = 0.75f;
+    original.population_cell.last_macro_simulation_tick = 12345;
+    original.has_captive_creatures = true;
+    original.captive_creatures.push_back({
+        .runtime_id = 77,
+        .species_id = 2,
+        .role = snt::game::CreatureRole::HERBIVORE,
+        .age_stage = snt::game::CreatureAgeStage::ADULT,
+        .pos_x = 4.5f,
+        .pos_y = 2.0f,
+        .pos_z = -1.0f,
+        .health = 0.8f,
+        .is_tamed = true,
+        .partner_species_id = 2,
+    });
 
     const snt::game::GameChunkSerializer serializer;
     const std::vector<uint8_t> payload = serializer.serialize("overworld", original);
@@ -198,6 +213,16 @@ TEST(GameChunkSerializerTest, RoundTripsTerrainAndSidecar) {
     EXPECT_TRUE(restored.terrain.cell_at(1, 1, 1).fluid_is_gas);
     EXPECT_TRUE(restored.has_population_cell);
     EXPECT_FLOAT_EQ(restored.population_cell.vegetation_density, 0.75f);
+    EXPECT_EQ(restored.population_cell.last_macro_simulation_tick, 12345u);
+    ASSERT_TRUE(restored.has_captive_creatures);
+    ASSERT_EQ(restored.captive_creatures.size(), 1u);
+    const auto& captive = restored.captive_creatures.front();
+    EXPECT_EQ(captive.runtime_id, 0u);
+    EXPECT_EQ(captive.species_id, 2u);
+    EXPECT_EQ(captive.partner_species_id, 2u);
+    EXPECT_EQ(captive.role, snt::game::CreatureRole::HERBIVORE);
+    EXPECT_TRUE(captive.is_tamed);
+    EXPECT_FLOAT_EQ(captive.pos_x, 4.5f);
 }
 
 TEST(GameChunkSerializerTest, RoundTripsPersistentPlayerBedsAndGraves) {
@@ -234,6 +259,37 @@ TEST(GameChunkSerializerTest, RoundTripsPersistentPlayerBedsAndGraves) {
     EXPECT_EQ(grave.death_tick, 1234u);
     ASSERT_EQ(grave.items.size(), 2u);
     EXPECT_EQ(grave.items[1].instance_data, "unique");
+}
+
+TEST(GameChunkSerializerTest, UsesProvidedCreatureSpeciesCatalog) {
+    snt::game::CreatureSpeciesRegistry catalog;
+    snt::game::CreatureSpeciesDef species{
+        .species_id = 77,
+        .species_key = "test_creature",
+        .title_key = "creature.test_creature",
+        .role = snt::game::CreatureRole::HERBIVORE,
+        .model_key = "test_creature",
+        .biomes = {snt::game::ecosystem_biome::kPlains},
+    };
+    ASSERT_TRUE(catalog.register_species(species));
+
+    snt::game::GameChunk original;
+    original.terrain.resize(1, 1, 1);
+    original.has_captive_creatures = true;
+    original.captive_creatures.push_back({
+        .species_id = 77,
+        .role = snt::game::CreatureRole::HERBIVORE,
+        .partner_species_id = 77,
+    });
+    const snt::game::GameChunkSerializer serializer(&catalog);
+    const auto payload = serializer.serialize("overworld", original);
+
+    snt::game::GameChunk restored;
+    std::string dimension;
+    ASSERT_TRUE(serializer.deserialize(payload, dimension, restored));
+    ASSERT_EQ(restored.captive_creatures.size(), 1u);
+    EXPECT_EQ(restored.captive_creatures.front().species_id, 77u);
+    EXPECT_EQ(restored.captive_creatures.front().partner_species_id, 77u);
 }
 
 TEST(GameChunkSerializerTest, RejectsNonCurrentPayload) {

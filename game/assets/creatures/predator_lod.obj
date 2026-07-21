@@ -1,0 +1,12 @@
+# Render-only silhouette for distant predators.
+o predator_lod
+v -1.20 0.10 -0.32
+v 0.90 0.10 -0.32
+v 0.90 0.10 0.32
+v -1.20 0.10 0.32
+v 0.20 1.05 0.00
+f 1 2 5
+f 2 3 5
+f 3 4 5
+f 4 1 5
+f 1 4 3 2

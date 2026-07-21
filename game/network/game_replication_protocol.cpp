@@ -190,6 +190,10 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         case GameBlockInteractionAction::kUse:
         case GameBlockInteractionAction::kActivateMachine:
         case GameBlockInteractionAction::kCollectMachineOutput:
+        case GameBlockInteractionAction::kTillFarmland:
+        case GameBlockInteractionAction::kPlantCrop:
+        case GameBlockInteractionAction::kFertilizeCrop:
+        case GameBlockInteractionAction::kHarvestCrop:
             return true;
     }
     return false;
@@ -880,9 +884,12 @@ snt::core::Expected<void> validate_game_block_interaction_command(
     if ((command.client_hints & ~kGameBlockInteractionKnownHints) != 0) {
         return protocol_error("Game block interaction hints are invalid");
     }
-    if (command.action == GameBlockInteractionAction::kPlace &&
+    if ((command.action == GameBlockInteractionAction::kPlace ||
+         command.action == GameBlockInteractionAction::kTillFarmland ||
+         command.action == GameBlockInteractionAction::kPlantCrop ||
+         command.action == GameBlockInteractionAction::kFertilizeCrop) &&
         command.selected_item_id.empty()) {
-        return protocol_error("Game block placement requires a selected item id");
+        return protocol_error("Game block interaction action requires a selected item id");
     }
     if (command.action != GameBlockInteractionAction::kActivateMachine &&
         command.client_hints != 0) {

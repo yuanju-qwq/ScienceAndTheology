@@ -5,10 +5,10 @@
 
 #pragma once
 
+#include <unordered_map>
 #include <cstdint>
 #include <string>
 #include <vector>
-#include <unordered_map>
 
 namespace snt::game {
 
@@ -75,15 +75,17 @@ struct CreatureSpeciesDef {
     // Behavioral role: determines AI state machine.
     CreatureRole role = CreatureRole::HERBIVORE;
 
-    // 3D model resource key for rendering (e.g. "rock_lizard").
-    // Godot side resolves this to a scene/resource path.
+    // Native presentation model key (e.g. "rock_lizard"). Client asset
+    // catalogs map this value to full-detail and simplified mesh resources;
+    // headless simulation treats it as opaque content data.
     std::string model_key;
 
     // Movement speed in blocks per tick (overrides EcosystemParams).
     // 0.0 = use global default from EcosystemParams.
     float move_speed = 0.0f;
 
-    // Maximum health [0, 1]. 1.0 = full health.
+    // Positive maximum health. Gameplay and presentation preserve values
+    // above 1.0 for tougher species rather than normalizing them.
     float base_health = 1.0f;
 
     // Flee detection radius in blocks (herbivores only).
@@ -110,16 +112,17 @@ struct CreatureSpeciesDef {
 // CreatureSpeciesRegistry — global registry of species definitions
 // ============================================================
 //
-// Provides O(1) lookup by species_id and by species_key.
-// Built-in species are registered from GDScript via GDSpeciesRegistry.
-// Additional species can be loaded from JSON (future).
+// Provides O(1) lookup by species_id and by species_key. The registry is an
+// explicit game-owned content value; it has no process-global script staging
+// or Godot registration path. The immutable built-in catalog below is the
+// current runtime default, while future content reloads can supply another
+// registry snapshot at the owning game boundary.
 
 class CreatureSpeciesRegistry {
 public:
     CreatureSpeciesRegistry() = default;
 
-    // Register a species definition.
-    // If def.species_id == 0, auto-assigns the next sequential ID.
+    // Register a species definition with an explicit non-zero ID.
     // Idempotent: if species_key is already registered, returns true and
     // updates def.species_id to the existing ID (no duplicate registration).
     bool register_species(CreatureSpeciesDef& def);
@@ -140,21 +143,14 @@ public:
     // Clear all registered species.
     void clear();
 
-    // Full reset: clears all registration data and resets the species ID
-    // counter. Used for tests or hot-reload scenarios.
-    static void reset();
-
-    // Import species from another registry (skips duplicates).
-    void import_from(const CreatureSpeciesRegistry& other);
-
-    // Global instance for GDScript registration.
-    // GDSpeciesRegistry writes here; EcosystemSystem imports from here
-    // on initialization if its own registry is empty.
-    static CreatureSpeciesRegistry& staging();
-
 private:
     std::unordered_map<uint16_t, CreatureSpeciesDef> species_by_id_;
     std::unordered_map<std::string, uint16_t> id_by_key_;
 };
+
+// Immutable current-runtime catalog with stable explicit IDs and stable
+// species keys for save data, simulation, and future proxy presentation.
+// It never depends on Godot registration order.
+[[nodiscard]] const CreatureSpeciesRegistry& builtin_creature_species();
 
 } // namespace snt::game

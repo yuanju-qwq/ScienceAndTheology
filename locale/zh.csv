@@ -949,12 +949,6 @@ quest.stone_age.macerator_hint.title,粉碎机在等待
 quest.stone_age.macerator_hint.desc,你现在有了机器外壳和马达。粉碎机可以让矿石产量翻倍！\n\n制作粉碎机以进入矿石增产的世界。
 quest.stone_age.wild_foraging.title,野外采集
 quest.stone_age.wild_foraging.desc,你发现了野生作物！挖掘它以收集种子。\n\n野生作物在任何生长阶段都会掉落种子——成熟作物还会掉落作物本身。
-quest.stone_age.first_farm.title,第一片农场
-quest.stone_age.first_farm.desc,用锹翻耕泥土块以创建农田，然后在上面种植种子。\n\n右键点击泥土使用锹翻耕。右键点击农田种植种子。
-quest.stone_age.bone_meal.title,骨粉肥料
-quest.stone_age.bone_meal.desc,对作物使用骨粉以立即推进一个生长阶段。\n\n右键点击作物使用骨粉施肥。
-quest.stone_age.first_harvest.title,第一次收获
-quest.stone_age.first_harvest.desc,等待作物成熟，然后右键点击收获。\n\n作物经过四个阶段：种子→幼苗→生长→成熟。只有成熟作物可以收获。
 quest.stone_age.bread_making.title,面包制作
 quest.stone_age.bread_making.desc,在工作台将小麦磨成面粉，然后在熔炉中烤制成面包。\n\n面包是你冒险旅途中可靠的食物来源。
 quest.bronze_age.bronze_smelting.title,青铜冶炼

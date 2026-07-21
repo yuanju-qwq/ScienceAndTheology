@@ -173,6 +173,13 @@ enum class GameBlockInteractionAction : uint8_t {
     kUse = 3,
     kActivateMachine = 4,
     kCollectMachineOutput = 5,
+    // Farming remains a typed block interaction instead of a generic
+    // command payload. The authenticated host resolves all item, crop, and
+    // sidecar semantics from its current content snapshot.
+    kTillFarmland = 6,
+    kPlantCrop = 7,
+    kFertilizeCrop = 8,
+    kHarvestCrop = 9,
 };
 
 inline constexpr uint8_t kGameBlockInteractionHintCover = 1u << 0u;

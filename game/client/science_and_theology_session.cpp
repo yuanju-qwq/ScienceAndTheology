@@ -3,6 +3,7 @@
 #define SNT_LOG_CHANNEL "game.client_session"
 #include "science_and_theology_session.h"
 
+#include "game/client/creature_presentation_world.h"
 #include "game/client/day_night_lighting.h"
 #include "assets/asset_manager.h"
 #include "core/error.h"
@@ -17,6 +18,7 @@
 #include "game/network/game_inventory_replication.h"
 #include "game/network/game_quest_book_replication.h"
 #include "game/player/player_replication.h"
+#include "game/simulation/ecosystem_system.h"
 #include "game/world/defs/machine_structure_validator.h"
 #include "game/worldgen/world_gen_config.h"
 #include "network/tcp_udp_transport.h"
@@ -48,6 +50,59 @@ namespace {
 
 constexpr uint64_t kMovementInputHeartbeatTicks = 4;
 constexpr float kPi = 3.14159265358979323846f;
+
+[[nodiscard]] std::optional<int32_t> floor_to_block_coordinate(float value) noexcept {
+    if (!std::isfinite(value) ||
+        value < static_cast<float>(std::numeric_limits<int32_t>::min()) ||
+        value > static_cast<float>(std::numeric_limits<int32_t>::max())) {
+        return std::nullopt;
+    }
+    return static_cast<int32_t>(std::floor(value));
+}
+
+// Offline play has no server player-state service, so this adapter makes the
+// local camera/player transform the authoritative ecology center. Networked
+// clients intentionally do not install it; their dedicated server supplies
+// the corresponding player centers to its own simulation session.
+class ClientEcosystemInterestProvider final : public IGameEcosystemInterestProvider {
+public:
+    ClientEcosystemInterestProvider(const snt::ecs::World& world,
+                                    snt::ecs::EntityGuid camera_guid,
+                                    std::string dimension_id) noexcept
+        : world_(&world), camera_guid_(camera_guid), dimension_id_(std::move(dimension_id)) {}
+
+    void collect_ecosystem_interest_centers(
+        uint64_t /*current_tick*/,
+        std::vector<GameEcosystemInterestCenter>& out_centers) const override {
+        if (world_ == nullptr || dimension_id_.empty()) return;
+        const entt::entity camera = world_->find_entity_by_guid(camera_guid_);
+        if (camera == entt::null ||
+            !world_->registry().all_of<snt::render::Transform>(camera)) {
+            return;
+        }
+        const snt::render::Transform& transform =
+            world_->registry().get<snt::render::Transform>(camera);
+        const auto block_x = floor_to_block_coordinate(transform.position[0]);
+        const auto block_y = floor_to_block_coordinate(transform.position[1]);
+        const auto block_z = floor_to_block_coordinate(transform.position[2]);
+        if (!block_x.has_value() || !block_y.has_value() || !block_z.has_value()) return;
+
+        constexpr int32_t kChunkSize = snt::voxel::VoxelChunk::kChunkSize;
+        out_centers.push_back({
+            .chunk = {
+                dimension_id_,
+                snt::player::floor_div_i32(*block_x, kChunkSize),
+                snt::player::floor_div_i32(*block_y, kChunkSize),
+                snt::player::floor_div_i32(*block_z, kChunkSize),
+            },
+        });
+    }
+
+private:
+    const snt::ecs::World* world_ = nullptr;
+    snt::ecs::EntityGuid camera_guid_;
+    std::string dimension_id_;
+};
 
 struct LocalTerrainCell {
     uint16_t material = 0;
@@ -163,6 +218,64 @@ struct LocalTerrainCell {
         }
     }
     return hints;
+}
+
+[[nodiscard]] std::optional<GameClientBlockInteractionTarget::FarmingTarget>
+make_farming_interaction_target(
+    const GameContentRegistry& content, const GameClientInteractionConfig& config,
+    const WorldGenConfigSnapshot* worldgen_config,
+    const snt::voxel::ChunkRegistry& chunks,
+    const GameClientBlockInteractionTarget& target,
+    const std::string& selected_item_id) {
+    if (worldgen_config == nullptr) return std::nullopt;
+    const TerrainMaterialId hit_material = static_cast<TerrainMaterialId>(target.hit_material);
+    const TerrainMaterialDef* hit = worldgen_config->find_material(hit_material);
+    if (hit == nullptr) return std::nullopt;
+
+    GameClientBlockInteractionTarget::FarmingTarget farming;
+    if (hit_material == worldgen_config->roles.dirt && !hit->required_tool_tag.empty() &&
+        content.item_matches_tool_requirement(selected_item_id, hit->required_tool_tag,
+                                              hit->required_mining_level)) {
+        farming.can_till = true;
+    }
+
+    if (hit_material == worldgen_config->runtime_ids.farmland &&
+        worldgen_config->find_crop_by_seed(selected_item_id) != nullptr &&
+        target.hit_y < std::numeric_limits<int32_t>::max()) {
+        const int32_t planting_y = target.hit_y + 1;
+        const auto above = find_local_terrain_cell(
+            chunks, target.dimension_id, target.hit_x, planting_y, target.hit_z);
+        if (above.has_value() && above->material == worldgen_config->roles.air) {
+            farming.can_plant = true;
+            farming.planting_x = target.hit_x;
+            farming.planting_y = planting_y;
+            farming.planting_z = target.hit_z;
+            farming.planting_expected_material = above->material;
+        }
+    }
+
+    bool is_crop = false;
+    for (const CropSpeciesDef& crop : worldgen_config->crop_species) {
+        for (const std::string& stage_material_key : crop.stage_material_keys) {
+            const TerrainMaterialId stage_material = worldgen_config->material_id_or(
+                stage_material_key, worldgen_config->roles.air);
+            if (stage_material != worldgen_config->roles.air && stage_material == hit_material) {
+                is_crop = true;
+                break;
+            }
+        }
+        if (is_crop) break;
+    }
+    if (is_crop) {
+        farming.can_harvest = true;
+        farming.can_fertilize = !config.fertilizer_item_id.empty() &&
+            selected_item_id == config.fertilizer_item_id;
+    }
+
+    return farming.can_till || farming.can_plant || farming.can_fertilize ||
+            farming.can_harvest
+        ? std::optional<GameClientBlockInteractionTarget::FarmingTarget>{std::move(farming)}
+        : std::nullopt;
 }
 
 class ReplicationBlockInteractionCommandSink final
@@ -653,18 +766,42 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         world_session.chunk_render_system().mark_dirty(key);
     }
 
+    auto& simulation = world_session.simulation();
+    const bool has_authoritative_network_player = uses_network_presentation();
+    presentation_world_ = &world;
+    presentation_chunks_ = &world_session.chunks();
+    chunk_render_system_ = &world_session.chunk_render_system();
+    const GameEcosystemSystem* const ecosystem = simulation_session_.ecosystem_system();
+    if (ecosystem == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Client simulation has no ecosystem system"};
+    }
+    auto creature_visuals = make_default_creature_presentation_visual_catalog(
+        world_session.assets(), ecosystem->species_catalog());
+    if (!creature_visuals) {
+        auto error = creature_visuals.error();
+        error.with_context(
+            "ScienceAndTheologyClientSession::create_client_world(creature visuals)");
+        return error;
+    }
+    creature_presentation_world_ = std::make_unique<GameCreaturePresentationWorld>(
+        world, std::move(*creature_visuals));
+
     snt::player::PlayerControllerTuning tuning;
     tuning.move_speed = config_.camera.move_speed;
     tuning.look_speed = config_.camera.look_speed;
-    auto& simulation = world_session.simulation();
-    const bool has_authoritative_network_player = uses_network_presentation();
     if (!has_authoritative_network_player) {
+        local_ecosystem_interest_provider_ = std::make_unique<ClientEcosystemInterestProvider>(
+            world, camera_guid, config_.persistence.world_dimension_id);
+        simulation_session_.set_ecosystem_interest_provider(
+            local_ecosystem_interest_provider_.get());
+        simulation_session_.set_creature_presentation_sink(creature_presentation_world_.get());
         auto player = std::make_shared<snt::player::PlayerControllerSystem>();
         player->set_input(&world_session.input());
         player->set_chunk_registry(&world_session.chunks());
         player->set_chunk_render_system(&world_session.chunk_render_system());
         player->set_camera_entity(camera_entity);
-        player->set_dimension_id("overworld");
+        player->set_dimension_id(config_.persistence.world_dimension_id);
         player->set_spawn_feet_position({config_.camera.initial_feet_position[0],
                                          config_.camera.initial_feet_position[1],
                                          config_.camera.initial_feet_position[2]});
@@ -686,9 +823,8 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         simulation.events().sink<snt::core::MouseLockChanged>()
             .connect<&snt::player::PlayerControllerSystem::on_mouse_lock_changed>(player.get());
     } else {
-        presentation_world_ = &world;
-        presentation_chunks_ = &world_session.chunks();
-        chunk_render_system_ = &world_session.chunk_render_system();
+        simulation_session_.set_ecosystem_interest_provider(nullptr);
+        simulation_session_.set_creature_presentation_sink(nullptr);
         remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
             world_session.chunks());
         remote_machine_world_ = std::make_unique<replication::GameRemoteMachineWorld>();
@@ -1093,6 +1229,11 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
         ui_layers_ = nullptr;
     }
     expected_ui_screen_count_ = 0;
+    simulation_session_.set_creature_presentation_sink(nullptr);
+    simulation_session_.set_ecosystem_interest_provider(nullptr);
+    local_ecosystem_interest_provider_.reset();
+    if (creature_presentation_world_) creature_presentation_world_->clear();
+    creature_presentation_world_.reset();
     presentation_world_ = nullptr;
     presentation_chunks_ = nullptr;
     clear_remote_replication_state();
@@ -1273,7 +1414,7 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
 
     const auto target_value = current_network_interaction_target();
     if (!target_value) return;
-    const GameClientBlockInteractionTarget& target = *target_value;
+    GameClientBlockInteractionTarget target = *target_value;
     const std::string& dimension_id = target.dimension_id;
 
     std::string selected_item_id;
@@ -1286,6 +1427,10 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
             selected_item_id = inventory.slots[selected_index].item_key;
         }
     }
+
+    target.farming = make_farming_interaction_target(
+        simulation_session_.content(), config_.client_interaction,
+        simulation_session_.worldgen_config(), *presentation_chunks_, target, selected_item_id);
 
     std::optional<GameClientMachineInteractionTarget> machine_target;
     if (remote_machine_world_) {
@@ -1309,7 +1454,7 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
 
     ReplicationBlockInteractionCommandSink sink(*replication_session_, next_movement_sequence_);
     if (auto result = block_interaction_controller_.handle_input(
-            interaction_input, target_value, std::move(selected_item_id), machine_target, sink);
+            interaction_input, target, std::move(selected_item_id), machine_target, sink);
         !result) {
         if (!block_interaction_submission_error_reported_) {
             SNT_LOG_WARN("Client block interaction command was not queued: %s",

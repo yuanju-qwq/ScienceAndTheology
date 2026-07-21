@@ -1,5 +1,9 @@
 {
   "assets": [
-    { "id": "cube", "path": "assets/dev/cube.obj" }
+    { "id": "cube", "path": "assets/dev/cube.obj" },
+    { "id": "creature.herbivore.full", "path": "assets/creatures/herbivore_full.obj" },
+    { "id": "creature.herbivore.lod", "path": "assets/creatures/herbivore_lod.obj" },
+    { "id": "creature.predator.full", "path": "assets/creatures/predator_full.obj" },
+    { "id": "creature.predator.lod", "path": "assets/creatures/predator_lod.obj" }
   ]
 }

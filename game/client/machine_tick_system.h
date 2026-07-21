@@ -26,6 +26,7 @@
 #include <string_view>
 #include <vector>
 
+#include "core/expected.h"
 #include "core/runtime_key_index.h"
 #include "ecs/entity_guid.h"
 #include "ecs/system.h"
@@ -116,6 +117,9 @@ struct MachineTickEvent {
     std::string recipe_id;
     std::string account_id;
     std::vector<MachineItemStack> outputs;
+    // Online ticks emit one completed job. Offline simulation may coalesce
+    // several identical jobs while retaining the aggregate output count.
+    uint64_t completed_jobs = 0;
     MachineRunState previous_state = MachineRunState::Idle;
     MachineRunState state = MachineRunState::Idle;
 };
@@ -125,6 +129,31 @@ public:
     virtual ~IMachineTickEventSink() = default;
     virtual void on_machine_tick_event(const MachineTickEvent& event) = 0;
 };
+
+// Value-only execution request shared by the worker system and offline
+// machine simulation. GameContentRegistry access happens before construction;
+// advance_machine_execution itself is deterministic and thread-safe.
+struct MachineExecutionInput {
+    snt::ecs::EntityGuid entity_guid;
+    MachineRuntimeComponent machine;
+    std::vector<MachineRecipeSnapshot> recipes;
+    bool requires_manual_activation = false;
+    bool allow_new_jobs = true;
+};
+
+struct MachineExecutionResult {
+    MachineRuntimeComponent machine;
+    std::vector<MachineTickEvent> events;
+    uint64_t advanced_ticks = 0;
+};
+
+[[nodiscard]] snt::core::Expected<MachineExecutionInput> make_machine_execution_input(
+    GameContentRegistry& content_registry,
+    snt::ecs::EntityGuid entity_guid,
+    MachineRuntimeComponent machine);
+
+[[nodiscard]] MachineExecutionResult advance_machine_execution(
+    MachineExecutionInput input, uint64_t first_tick_index, uint64_t tick_count);
 
 class MachineTickSystem final : public snt::ecs::IWorkerSystem {
 public:

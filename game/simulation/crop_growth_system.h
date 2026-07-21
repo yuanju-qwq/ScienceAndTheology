@@ -94,6 +94,13 @@ public:
     [[nodiscard]] snt::core::Expected<CropHarvestResult> harvest_crop(
         const CropHarvestRequest& request,
         uint64_t source_tick);
+    // Resolves the exact mature-crop yield without mutating terrain or
+    // sidecars. Player interaction services use this to prove that a harvest
+    // inventory transaction can fit before either side of the operation is
+    // committed.
+    [[nodiscard]] snt::core::Expected<CropHarvestResult> preview_harvest_crop(
+        const CropHarvestRequest& request,
+        uint64_t source_tick);
     [[nodiscard]] snt::core::Expected<CropGrowthStage> fertilize_crop(
         const CropFertilizationRequest& request,
         uint64_t source_tick);

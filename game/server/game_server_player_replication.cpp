@@ -867,6 +867,10 @@ void GameServerPlayerReplication::on_player_interaction(
         case GameServerPlayerInteractionEventKind::kBlockMined:
         case GameServerPlayerInteractionEventKind::kBlockPlaced:
         case GameServerPlayerInteractionEventKind::kMachinePlaced:
+        case GameServerPlayerInteractionEventKind::kFarmlandTilled:
+        case GameServerPlayerInteractionEventKind::kCropPlanted:
+        case GameServerPlayerInteractionEventKind::kCropFertilized:
+        case GameServerPlayerInteractionEventKind::kCropHarvested:
             mark_block_dirty(event.command.dimension_id, event.command.block_x,
                              event.command.block_y, event.command.block_z);
             return;

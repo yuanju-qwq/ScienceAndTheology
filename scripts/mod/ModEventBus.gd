@@ -158,7 +158,6 @@ func _known_events() -> Array:
 		"creature_spawned",
 		"creature_killed",
 		"creature_moved",
-		"crop_planted",
 		"crop_harvested",
 		"tree_planted",
 		"tree_grown",

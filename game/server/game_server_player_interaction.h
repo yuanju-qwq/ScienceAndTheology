@@ -28,6 +28,7 @@ class ChunkRegistry;
 namespace snt::game {
 class GameChunkSidecarRegistry;
 class GameContentRegistry;
+class GameCropGrowthSystem;
 class IBlockPhysicsTrigger;
 class IFluidTrigger;
 class MachineInteractionService;
@@ -62,6 +63,13 @@ struct GameServerPlayerInteractionConfig {
     // transaction calls this only after its terrain and inventory commit.
     IBlockPhysicsTrigger* block_physics_trigger = nullptr;
     IFluidTrigger* fluid_trigger = nullptr;
+    // Session-owned crop mutation authority. A null pointer leaves unrelated
+    // block/machine commands usable, while every farming action is rejected.
+    GameCropGrowthSystem* crop_growth_system = nullptr;
+    // Item-key semantics are explicit here until farming content has its own
+    // immutable registration snapshot. The host validates both content and
+    // authoritative inventory before consuming this item.
+    std::string fertilizer_item_id = "bone_meal";
     std::vector<GameServerBlockDefinition> block_definitions;
 };
 
@@ -72,6 +80,10 @@ enum class GameServerPlayerInteractionEventKind : uint8_t {
     kBedUsed,
     kMachineActivated,
     kMachineOutputCollected,
+    kFarmlandTilled,
+    kCropPlanted,
+    kCropFertilized,
+    kCropHarvested,
 };
 
 // Value-only event seam for task producers, chunk replication, UI notices,
@@ -165,6 +177,18 @@ private:
     [[nodiscard]] snt::core::Expected<void> apply_machine_collect(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_till_farmland(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_plant_crop(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_fertilize_crop(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_harvest_crop(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> apply_machine_input_slot_transfer(
         const GameAuthenticatedPeer& peer,
         const GameMachineInputSlotTransferCommand& command,
@@ -178,6 +202,11 @@ private:
         std::string_view material_key) const noexcept;
     [[nodiscard]] snt::core::Expected<void> mark_player_state_dirty(
         const GameAuthenticatedPeer& peer);
+    [[nodiscard]] snt::core::Expected<void> validate_selected_inventory_item(
+        const GameAuthenticatedPeer& peer, std::string_view item_id) const;
+    void rollback_inventory_transaction(const GameAuthenticatedPeer& peer,
+                                        const GamePlayerInventoryTransaction& transaction,
+                                        std::string_view operation) const noexcept;
     void schedule_terrain_simulation_after_commit(
         const GameBlockInteractionCommand& command, uint64_t tick_index) const;
     void emit_event(GameServerPlayerInteractionEvent event) const;

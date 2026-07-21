@@ -34,6 +34,23 @@ struct GameClientBlockInteractionTarget {
     };
 
     std::optional<PlacementCell> placement;
+
+    // Farming classification is calculated from the currently presented
+    // worldgen/content snapshots before the controller receives the input.
+    // It is only a local command-selection hint; the server repeats every
+    // material, item, reach, and sidecar validation before committing.
+    struct FarmingTarget {
+        bool can_till = false;
+        bool can_plant = false;
+        bool can_fertilize = false;
+        bool can_harvest = false;
+        int32_t planting_x = 0;
+        int32_t planting_y = 0;
+        int32_t planting_z = 0;
+        uint16_t planting_expected_material = replication::kGameNoExpectedTerrainMaterial;
+    };
+
+    std::optional<FarmingTarget> farming;
 };
 
 // The remote-machine cache supplies only presentation values. This distilled

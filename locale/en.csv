@@ -950,12 +950,6 @@ quest.stone_age.macerator_hint.title,The Macerator Awaits
 quest.stone_age.macerator_hint.desc,"You now have a machine hull and a motor. The macerator doubles your ore output!\n\nCraft a macerator to enter the world of ore multiplication."
 quest.stone_age.wild_foraging.title,Wild Foraging
 quest.stone_age.wild_foraging.desc,"You found a wild crop! Mine it to collect seeds.\n\nWild crops drop seeds at any growth stage — mature crops also drop the crop itself."
-quest.stone_age.first_farm.title,First Farm
-quest.stone_age.first_farm.desc,"Till a dirt block with a shovel to create farmland, then plant seeds on top.\n\nRight-click dirt with a shovel to till. Right-click farmland with seeds to plant."
-quest.stone_age.bone_meal.title,Bone Meal Fertilizer
-quest.stone_age.bone_meal.desc,"Use bone meal on a crop to instantly advance it one growth stage.\n\nRight-click a crop with bone meal to fertilize it."
-quest.stone_age.first_harvest.title,First Harvest
-quest.stone_age.first_harvest.desc,"Wait for your crop to mature, then right-click it to harvest.\n\nCrops grow through four stages: seed → sprout → growing → mature. Only mature crops can be harvested."
 quest.stone_age.bread_making.title,Bread Making
 quest.stone_age.bread_making.desc,"Mill wheat into flour at a workbench, then bake bread in a furnace.\n\nBread is a reliable food source for your adventures."
 quest.bronze_age.bronze_smelting.title,Bronze Smelting

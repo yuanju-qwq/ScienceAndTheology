@@ -47,13 +47,9 @@ namespace ecosystem_biome {
 // providing a smooth and ecologically sound feedback loop
 // instead of directly mutating density values.
 //
-// PopulationCell is owned by EcosystemSystem at runtime (not GameChunk) to
-// keep world data concerns separate from simulation concerns.
-// See design decision Q1 (option B) in ecosystem design doc.
-//
-// For persistence, PopulationCell is serialized into GameChunk (v6 format)
-// by EcosystemSystem::sync_population_to_chunk() before save, and restored
-// by ensure_population_cell() or restore_populations_from_chunks() on load.
+// PopulationCell is owned directly by the matching GameChunkSidecar. The
+// ecosystem system mutates that durable value in place, so world persistence
+// never needs a legacy runtime-map synchronization pass.
 
 struct PopulationCell {
     // Ground vegetation cover [0, 1].
@@ -97,6 +93,13 @@ struct PopulationCell {
 
     // Biome type index for parameter lookup in EcosystemParams.
     uint8_t biome_type = 0;
+
+    // Authoritative tick at which this cell last received a macro ecosystem
+    // integration step. Cells outside every player ecology circle do not
+    // advance every fixed tick; when one becomes relevant again the
+    // ecosystem uses this durable marker for a bounded deterministic catch-up.
+    // Zero means the cell has not yet been activated by the current runtime.
+    uint64_t last_macro_simulation_tick = 0;
 
     // Clamp all density values to [0, 1].
     void clamp_all() {

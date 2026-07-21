@@ -35,8 +35,6 @@ func load_content() -> void:
 	BuiltinSublimationPaths.register_all()
 	BuiltinElixirs.register_all()
 	BuiltinDroppedOrgans.register_all()
-	_register_species()
-	BuiltinBiomeOverrides.register_all()
 	_register_machine_types()
 	_print_perf("ContentDatabase.register_builtin_content", stage_started_usec)
 
@@ -71,7 +69,7 @@ func load_content() -> void:
 # MaterialDefinitions._ALL_MATERIALS 顺序不变即保持稳定。
 func reload_content() -> void:
 	print("ContentDatabase: reload_content start")
-	# 1. 复位所有 C++ registry（material/item/fluid/fuel/magic/source_law/species/biome）
+	# 1. 复位所有 C++ registry（material/item/fluid/fuel/magic/source_law）
 	GDRegistryBank.reset_all()
 	# 2. 清空 recipe 缓存
 	GDCraftingManager.clear()
@@ -137,11 +135,6 @@ func _register_fluid_fuels() -> void:
 	# --- Gaseous fuels (category 2) ---
 	_reg.call("natural_gas", "natural_gas_fuel", "fuel.natural_gas", 3000, 2)
 	_reg.call("hydrogen", "hydrogen_fuel", "fuel.hydrogen", 1000, 2)
-
-
-# Register all built-in creature species via GDScript.
-func _register_species() -> void:
-	BuiltinSpecies.register_all()
 
 
 # Register machine type metadata for built-in machines.

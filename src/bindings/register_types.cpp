@@ -31,7 +31,6 @@
 #include "world/gd_custom_block_entity_registry.h"
 #include "simulation/gd_game_command_server.h"
 #include "simulation/gd_tick_system.h"
-#include "simulation/gd_species_registry.hpp"
 #include "mobile_structure/gd_ship_command_bridge.h"
 #include "player/gd_player_inventory.h"
 #include "player/gd_player_equipment.h"
@@ -59,7 +58,6 @@
 #include "source_law/gd_elixir_registry.hpp"
 #include "source_law/gd_sublimation_path_registry.hpp"
 #include "source_law/gd_dropped_organ_registry.hpp"
-#include "simulation/gd_biome_config_registry.hpp"
 #include "gd_registry_bank.hpp"
 
 #include "core/fluid/fluid_registry.hpp"
@@ -139,9 +137,7 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDAutocraftingCPU>();
     ClassDB::register_class<GDAutocraftingService>();
     ClassDB::register_class<GDMENetwork>();
-    ClassDB::register_class<GDSpeciesRegistry>();
     ClassDB::register_class<GDTickSystem>();
-    ClassDB::register_class<GDBiomeConfigRegistry>();
     ClassDB::register_class<GDRegistryBank>();
     ClassDB::register_class<GDPlayerInventory>();
     ClassDB::register_class<GDPlayerEquipment>();

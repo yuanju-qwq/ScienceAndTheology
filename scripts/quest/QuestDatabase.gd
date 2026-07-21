@@ -285,46 +285,13 @@ func _register_stone_age_quests() -> void:
 		true,  # is_hidden
 	))
 
-	# --- First Farm (till farmland + plant a crop) ---
-	_quest_system.register_quest(_quest(
-		"stone_age.first_farm", chapter,
-		"quest.stone_age.first_farm.title",
-		"quest.stone_age.first_farm.desc",
-		"terrain.farmland", 13,
-		["stone_age.wild_foraging"],
-		[_cond(CT_MINE_BLOCK, "crop_planted", 1)],
-		[_reward_item("bone_meal", 4)],
-	))
-
-	# --- Bone Meal (fertilize a crop to speed up growth) ---
-	_quest_system.register_quest(_quest(
-		"stone_age.bone_meal", chapter,
-		"quest.stone_age.bone_meal.title",
-		"quest.stone_age.bone_meal.desc",
-		"item.bone_meal", 14,
-		["stone_age.first_farm"],
-		[_cond(CT_MINE_BLOCK, "crop_fertilized", 1)],
-		[_reward_item("seed.potato", 4)],
-	))
-
-	# --- First Harvest (harvest a mature crop) ---
-	_quest_system.register_quest(_quest(
-		"stone_age.first_harvest", chapter,
-		"quest.stone_age.first_harvest.title",
-		"quest.stone_age.first_harvest.desc",
-		"crop.wheat", 15,
-		["stone_age.first_farm"],
-		[_cond(CT_HAS_ITEM, "crop.wheat", 1)],
-		[_reward_item("seed.carrot", 4)],
-	))
-
 	# --- Bread Making (craft bread from flour) ---
 	_quest_system.register_quest(_quest(
 		"stone_age.bread_making", chapter,
 		"quest.stone_age.bread_making.title",
 		"quest.stone_age.bread_making.desc",
 		"item.bread", 16,
-		["stone_age.first_harvest"],
+		["stone_age.wild_foraging"],
 		[_cond(CT_CRAFT_ITEM, "bread", 1)],
 		[_reward_item("flour", 8)],
 	))

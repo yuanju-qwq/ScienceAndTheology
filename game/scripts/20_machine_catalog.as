@@ -6,6 +6,7 @@
 
 void snt_register() {
     snt_register_machine("furnace", "Furnace", 1, 0, false);
+    snt_set_machine_offline_simulation("furnace", 1, 1200, true);
     snt_register_machine_placement("furnace", "furnace", "snt:runtime.machine.furnace");
 
     snt_register_machine("pit_kiln", "Pit Kiln", 1, 0, true);

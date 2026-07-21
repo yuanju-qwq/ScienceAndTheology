@@ -195,6 +195,7 @@ void from_json(const json& object, GameClientInteractionConfig& value) {
     read_optional(object, "raycast_reach_blocks", value.raycast_reach_blocks);
     read_optional(object, "bed_material_id", value.bed_material_id);
     read_optional(object, "ignition_item_id", value.ignition_item_id);
+    read_optional(object, "fertilizer_item_id", value.fertilizer_item_id);
 }
 
 void from_json(const json& object, GameSessionConfig& value) {

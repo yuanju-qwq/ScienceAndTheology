@@ -4,6 +4,7 @@
 #include "engine/simulation_services.h"
 #include "game/client/machine_tick_system.h"
 #include "game/client/game_session_config.h"
+#include "game/simulation/ecosystem_system.h"
 #include "game/simulation/region_topology.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
 #include "game/world/save/world_persistence_lifecycle.h"
@@ -61,6 +62,40 @@ TEST(GameSimulationSessionTest, InitializesTerrainAndTicksWithoutClientRuntime) 
     EXPECT_TRUE(ticks) << ticks.error().format();
     runtime.shutdown();
 
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameSimulationSessionTest, AppliesGameplayEcosystemEnablementToEveryFixedTick) {
+    const auto root = make_runtime_root();
+
+    snt::core::RuntimeConfig runtime_config;
+    runtime_config.assets.manifest_path = "missing_manifest.json";
+    snt::game::GameSessionConfig session_config;
+    session_config.scripts.enabled = false;
+    session_config.demo.bootstrap_chunks = true;
+    session_config.gameplay.enable_ecosystem = false;
+
+    auto session = std::make_unique<snt::game::ScienceAndTheologySimulationSession>(
+        std::move(session_config));
+    auto* session_view = session.get();
+    snt::engine::SimulationRuntime runtime;
+    ASSERT_TRUE(runtime.init(
+        runtime_config,
+        {
+            .engine_root = (root / "engine").string(),
+            .game_root = (root / "game").string(),
+            .user_root = (root / "user").string(),
+        },
+        std::move(session)));
+
+    auto* ecosystem = session_view->ecosystem_system();
+    ASSERT_NE(ecosystem, nullptr);
+    ASSERT_TRUE(runtime.run_fixed_ticks(3));
+    EXPECT_EQ(ecosystem->population_cell_count(), 0u);
+
+    runtime.shutdown();
     std::error_code error;
     std::filesystem::remove_all(root, error);
     EXPECT_FALSE(error) << error.message();

@@ -1053,6 +1053,10 @@ void GameChunkSerializer::write_machine_runtime_record(
     write_uint8(buf, record.activation_requested ? 1 : 0);
     write_string(buf, record.job_owner_account_id);
     write_uint8(buf, record.run_state);
+    write_uint8(buf, static_cast<uint8_t>(record.residency));
+    write_uint64(buf, record.offline_last_simulated_tick);
+    write_uint64(buf, record.offline_island_id);
+    write_uint64(buf, record.offline_epoch);
 }
 
 bool GameChunkSerializer::read_machine_runtime_record(
@@ -1129,6 +1133,15 @@ bool GameChunkSerializer::read_machine_runtime_record(
         record.run_state >= kMachineRunStateCount) {
         return false;
     }
+    uint8_t residency;
+    if (!read_uint8(data, offset, residency) ||
+        residency > static_cast<uint8_t>(MachineRuntimeResidency::kOfflineNetworkIsland) ||
+        !read_uint64(data, offset, record.offline_last_simulated_tick) ||
+        !read_uint64(data, offset, record.offline_island_id) ||
+        !read_uint64(data, offset, record.offline_epoch)) {
+        return false;
+    }
+    record.residency = static_cast<MachineRuntimeResidency>(residency);
     return true;
 }
 
@@ -1146,6 +1159,7 @@ void GameChunkSerializer::write_population_cell(
     write_uint8(buf, cell.biome_type);
     write_float(buf, cell.hunting_pressure_herb);
     write_float(buf, cell.hunting_pressure_pred);
+    write_uint64(buf, cell.last_macro_simulation_tick);
 }
 
 bool GameChunkSerializer::read_population_cell(
@@ -1162,18 +1176,19 @@ bool GameChunkSerializer::read_population_cell(
     if (!read_uint8(data, offset, biome)) return false;
     cell.biome_type = biome;
     if (!read_float(data, offset, cell.hunting_pressure_herb)) return false;
-    return read_float(data, offset, cell.hunting_pressure_pred);
+    return read_float(data, offset, cell.hunting_pressure_pred) &&
+           read_uint64(data, offset, cell.last_macro_simulation_tick);
 }
 
 // --- Captive creature helpers ---
 
 void GameChunkSerializer::write_captive_creature(
     std::vector<uint8_t>& buf,
-    const CaptiveCreature& cc) {
+    const CaptiveCreature& cc) const {
     // Runtime IDs are remapped through stable species keys.
     std::string species_key;
     std::string partner_key;
-    const auto& registry = CreatureSpeciesRegistry::staging();
+    const auto& registry = species_catalog();
     const CreatureSpeciesDef* def = registry.get_species(cc.species_id);
     if (def) species_key = def->species_key;
     const CreatureSpeciesDef* partner_def = registry.get_species(cc.partner_species_id);
@@ -1210,14 +1225,14 @@ void GameChunkSerializer::write_captive_creature(
 bool GameChunkSerializer::read_captive_creature(
     const std::vector<uint8_t>& data,
     size_t& offset,
-    CaptiveCreature& cc) {
+    CaptiveCreature& cc) const {
     std::string species_key;
     if (!read_string(data, offset, species_key)) return false;
     if (species_key.empty()) {
         cc.species_id = 0;
     } else {
         const CreatureSpeciesDef* def =
-            CreatureSpeciesRegistry::staging().get_species_by_key(species_key);
+            species_catalog().get_species_by_key(species_key);
         cc.species_id = def ? def->species_id : 0;
     }
 
@@ -1260,7 +1275,7 @@ bool GameChunkSerializer::read_captive_creature(
         cc.partner_species_id = 0;
     } else {
         const CreatureSpeciesDef* partner_def =
-            CreatureSpeciesRegistry::staging().get_species_by_key(partner_key);
+            species_catalog().get_species_by_key(partner_key);
         cc.partner_species_id = partner_def ? partner_def->species_id : 0;
     }
     return true;

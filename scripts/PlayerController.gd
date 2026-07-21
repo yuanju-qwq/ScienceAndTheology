@@ -1495,15 +1495,6 @@ func _connect_quest_system() -> void:
 	if interaction and not interaction.machine_placed.is_connected(_on_quest_machine_placed):
 		interaction.machine_placed.connect(_on_quest_machine_placed)
 
-	# Wire crop planted signal via PlayerInteraction (tracked as block_mined event).
-	if interaction and not interaction.crop_planted.is_connected(_on_quest_crop_planted):
-		interaction.crop_planted.connect(_on_quest_crop_planted)
-
-	# Wire crop fertilized signal via PlayerInteraction (tracked as block_mined event).
-	if interaction and not interaction.crop_fertilized.is_connected(_on_quest_crop_fertilized):
-		interaction.crop_fertilized.connect(_on_quest_crop_fertilized)
-
-
 func _quest_inventory_query(item_key: String) -> int:
 	if inventory == null:
 		return 0
@@ -1539,17 +1530,3 @@ func _on_quest_machine_placed(machine_type: String) -> void:
 	if quest_system == null:
 		return
 	quest_system.on_machine_placed(machine_type, 1)
-
-
-# Crop planted event — tracked via on_block_mined with synthetic key "crop_planted".
-func _on_quest_crop_planted(_species_key: String) -> void:
-	if quest_system == null:
-		return
-	quest_system.on_block_mined("crop_planted", 1)
-
-
-# Crop fertilized event — tracked via on_block_mined with synthetic key "crop_fertilized".
-func _on_quest_crop_fertilized(_species_key: String) -> void:
-	if quest_system == null:
-		return
-	quest_system.on_block_mined("crop_fertilized", 1)

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "game/world/defs/creature_species.h"
 #include "game/world/game_chunk_sidecar_serializer.h"
 
 namespace snt::game {
@@ -17,9 +18,28 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v16 persists complete per-cell fluid
-    // state for the game-owned hybrid fluid simulation.
-    static constexpr uint8_t kCurrentVersion = 16;
+    // Current binary format version. v18 adds machine offline-residency
+    // metadata so an unloaded machine has one durable simulation owner.
+    static constexpr uint8_t kCurrentVersion = 18;
+
+    // The caller retains a custom catalog for this serializer's lifetime.
+    // nullptr selects the immutable built-in catalog used by the current
+    // runtime. Persistence and ecosystem projection can therefore share a
+    // future content snapshot without reintroducing global registration.
+    explicit GameChunkSerializer(
+        const CreatureSpeciesRegistry* species_catalog = nullptr) noexcept
+        : species_catalog_(species_catalog != nullptr
+              ? species_catalog
+              : &builtin_creature_species()) {}
+
+    void set_species_catalog(const CreatureSpeciesRegistry* species_catalog) noexcept {
+        species_catalog_ = species_catalog != nullptr
+            ? species_catalog
+            : &builtin_creature_species();
+    }
+    [[nodiscard]] const CreatureSpeciesRegistry& species_catalog() const noexcept {
+        return *species_catalog_;
+    }
 
     std::vector<uint8_t> serialize(
         const std::string& dimension_id, const GameChunk& chunk) const override;
@@ -182,11 +202,13 @@ private:
 
     // --- Captive creature serialization ---
 
-    static void write_captive_creature(std::vector<uint8_t>& buf,
-                                       const CaptiveCreature& cc);
-    static bool read_captive_creature(const std::vector<uint8_t>& data,
-                                      size_t& offset,
-                                      CaptiveCreature& cc);
+    void write_captive_creature(std::vector<uint8_t>& buf,
+                                const CaptiveCreature& cc) const;
+    bool read_captive_creature(const std::vector<uint8_t>& data,
+                               size_t& offset,
+                               CaptiveCreature& cc) const;
+
+    const CreatureSpeciesRegistry* species_catalog_ = nullptr;
 };
 
 } // namespace snt::game

@@ -137,6 +137,10 @@ struct GameClientInteractionConfig {
     float raycast_reach_blocks = 5.0f;
     uint16_t bed_material_id = 5;
     std::string ignition_item_id = "flint_and_steel";
+    // The host independently validates this semantic item key against its
+    // current farming rules. It only lets the local mapper choose a typed
+    // fertilize command instead of a generic placement action.
+    std::string fertilizer_item_id = "bone_meal";
 };
 
 struct GameSessionConfig {

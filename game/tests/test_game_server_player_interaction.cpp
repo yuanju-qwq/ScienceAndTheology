@@ -13,6 +13,7 @@
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/simulation/crop_growth_system.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/world/game_chunk.h"
 #include "game/worldgen/world_gen_config.h"
@@ -32,9 +33,13 @@
 namespace {
 
 using snt::game::GameChunkSidecarRegistry;
+using snt::game::GameChunkSidecar;
 using snt::game::GameContentRegistry;
+using snt::game::GameCropGrowthSystem;
 using snt::game::GameItemDefinition;
 using snt::game::GamePlayerWorldPosition;
+using snt::game::GameToolDefinition;
+using snt::game::GameToolType;
 using snt::game::MachineActivationRequirements;
 using snt::game::MachineDefinition;
 using snt::game::MachineInteractionService;
@@ -208,6 +213,18 @@ GameItemDefinition make_hammer_item() {
     return definition;
 }
 
+GameItemDefinition make_farming_item(std::string id,
+                                     GameToolType tool_type = GameToolType::kNone) {
+    GameItemDefinition definition;
+    definition.id = std::move(id);
+    definition.title_key = "item.test";
+    definition.max_stack = tool_type == GameToolType::kNone ? 64 : 1;
+    if (tool_type != GameToolType::kNone) {
+        definition.tool = GameToolDefinition{.type = tool_type};
+    }
+    return definition;
+}
+
 }  // namespace
 
 TEST(GameBlockInteractionProtocolTest, EncodesTrustedClientHintsWithoutTerrainMutationValues) {
@@ -328,6 +345,146 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     EXPECT_EQ(checkpoint.marks, 3);
     ASSERT_EQ(events.events.size(), 3u);
     EXPECT_EQ(events.events.front().tick_index, 10u);
+    (*player_state)->shutdown();
+}
+
+TEST(GameServerPlayerInteractionTest,
+     CommitsTypedFarmlandPlantFertilizeAndHarvestTransactions) {
+    snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    GameChunkSidecarRegistry sidecars;
+    add_ground_chunk(chunks);
+    const snt::game::WorldGenConfigSnapshot& worldgen = interaction_worldgen_config();
+    snt::voxel::VoxelChunk* const chunk = chunks.get_chunk("overworld", 0, 0, 0);
+    ASSERT_NE(chunk, nullptr);
+    const auto* dirt = worldgen.find_material(worldgen.roles.dirt);
+    ASSERT_NE(dirt, nullptr);
+    chunk->terrain.set_cell(2, 0, 2,
+                            static_cast<snt::voxel::TerrainMaterial>(worldgen.roles.dirt),
+                            dirt->flags);
+    sidecars.set({"overworld", 0, 0, 0}, {});
+
+    auto player_state = GameServerPlayerState::create(
+        world,
+        {
+            .spawn = position(2, 1, 2),
+            .inventory_slots = 6,
+            .inventory_max_stack_size = 8,
+            .interaction_reach_blocks = 5,
+        });
+    ASSERT_TRUE(player_state) << player_state.error().format();
+    const GameAuthenticatedPeer peer = make_peer(605, "Farming Player");
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(
+        peer, (*player_state)->default_persistent_state()));
+    ASSERT_TRUE((*player_state)->apply_inventory_transaction(
+        peer, {.additions = {
+            {.item_id = "wooden_shovel", .count = 1},
+            {.item_id = "seed.wheat", .count = 1},
+            {.item_id = "bone_meal", .count = 3},
+        }}));
+
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(
+        make_farming_item("wooden_shovel", GameToolType::kShovel)));
+    ASSERT_TRUE(content.register_builtin_item(make_farming_item("seed.wheat")));
+    ASSERT_TRUE(content.register_builtin_item(make_farming_item("bone_meal")));
+    ASSERT_TRUE(content.register_builtin_item(make_farming_item("crop.wheat")));
+    MachineInteractionService machine_interactions(content);
+    CheckpointSink checkpoint;
+    EventSink events;
+    auto beds = GameServerPlayerBedService::create(*(*player_state), chunks, sidecars, &checkpoint);
+    ASSERT_TRUE(beds) << beds.error().format();
+    GameCropGrowthSystem crops(chunks, sidecars, worldgen);
+    auto config = interaction_config();
+    config.crop_growth_system = &crops;
+    auto interactions = GameServerPlayerInteractionService::create(
+        world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
+        nullptr, &checkpoint, {&events}, std::move(config));
+    ASSERT_TRUE(interactions) << interactions.error().format();
+
+    const GameBlockInteractionCommand till{
+        .action = GameBlockInteractionAction::kTillFarmland,
+        .dimension_id = "overworld",
+        .block_x = 2,
+        .block_y = 0,
+        .block_z = 2,
+        .expected_material = worldgen.roles.dirt,
+        .selected_item_id = "wooden_shovel",
+    };
+    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, till, 1));
+    EXPECT_EQ(chunk->terrain.cell_at(2, 0, 2).material, worldgen.runtime_ids.farmland);
+
+    const auto* wheat = worldgen.find_crop_species("wheat");
+    ASSERT_NE(wheat, nullptr);
+    const auto material_for_stage = [&worldgen, wheat](snt::game::CropGrowthStage stage) {
+        return worldgen.material_id_or(
+            wheat->stage_material_keys[static_cast<size_t>(stage)], worldgen.roles.air);
+    };
+    const GameBlockInteractionCommand plant{
+        .action = GameBlockInteractionAction::kPlantCrop,
+        .dimension_id = "overworld",
+        .block_x = 2,
+        .block_y = 1,
+        .block_z = 2,
+        .expected_material = worldgen.roles.air,
+        .selected_item_id = "seed.wheat",
+    };
+    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, plant, 2));
+    EXPECT_EQ(chunk->terrain.cell_at(2, 1, 2).material,
+              material_for_stage(snt::game::CropGrowthStage::SEED));
+
+    for (int stage = static_cast<int>(snt::game::CropGrowthStage::SEED);
+         stage < static_cast<int>(snt::game::CropGrowthStage::MATURE); ++stage) {
+        const GameBlockInteractionCommand fertilize{
+            .action = GameBlockInteractionAction::kFertilizeCrop,
+            .dimension_id = "overworld",
+            .block_x = 2,
+            .block_y = 1,
+            .block_z = 2,
+            .expected_material = material_for_stage(
+                static_cast<snt::game::CropGrowthStage>(stage)),
+            .selected_item_id = "bone_meal",
+        };
+        ASSERT_TRUE((*interactions)->apply_block_interaction(
+            peer, fertilize, static_cast<uint64_t>(3 + stage)));
+    }
+    EXPECT_EQ(chunk->terrain.cell_at(2, 1, 2).material,
+              material_for_stage(snt::game::CropGrowthStage::MATURE));
+
+    const GameBlockInteractionCommand harvest{
+        .action = GameBlockInteractionAction::kHarvestCrop,
+        .dimension_id = "overworld",
+        .block_x = 2,
+        .block_y = 1,
+        .block_z = 2,
+        .expected_material = material_for_stage(snt::game::CropGrowthStage::MATURE),
+    };
+    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, harvest, 6));
+    EXPECT_EQ(chunk->terrain.cell_at(2, 1, 2).material, worldgen.roles.air);
+
+    const snt::voxel::ChunkKey key{"overworld", 0, 0, 0};
+    const GameChunkSidecar* const sidecar = sidecars.get(key);
+    ASSERT_NE(sidecar, nullptr);
+    ASSERT_EQ(sidecar->farmland_records.size(), 1u);
+    EXPECT_TRUE(sidecar->crop_growth_records.empty());
+    const auto inventory = (*player_state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    const auto count_item = [&inventory](std::string_view item_id) {
+        int32_t count = 0;
+        for (const auto& stack : inventory->slots) {
+            if (stack.item_id == item_id) count += stack.count;
+        }
+        return count;
+    };
+    EXPECT_EQ(count_item("wooden_shovel"), 1);
+    EXPECT_EQ(count_item("bone_meal"), 0);
+    EXPECT_EQ(count_item("seed.wheat"), wheat->byproduct_count);
+    EXPECT_EQ(count_item("crop.wheat"), wheat->crop_min);
+    ASSERT_EQ(events.events.size(), 6u);
+    EXPECT_EQ(events.events.front().kind, GameServerPlayerInteractionEventKind::kFarmlandTilled);
+    EXPECT_EQ(events.events[1].kind, GameServerPlayerInteractionEventKind::kCropPlanted);
+    EXPECT_EQ(events.events.back().kind, GameServerPlayerInteractionEventKind::kCropHarvested);
+    EXPECT_GE(checkpoint.marks, 5);
     (*player_state)->shutdown();
 }
 

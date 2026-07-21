@@ -151,12 +151,15 @@ add_library(snt_game_simulation STATIC
     simulation/day_night_cycle.cpp
     simulation/block_physics_system.cpp
     simulation/crop_growth_system.cpp
+    simulation/ecosystem_system.cpp
+    simulation/wild_creature_system.cpp
     simulation/fluid_lattice_boltzmann.cpp
     simulation/game_content_reload_service.cpp
     simulation/game_fluid_system.cpp
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
     simulation/machine_runtime_persistence.cpp
+    simulation/offline_machine_simulation.cpp
     simulation/region_topology.cpp
     simulation/science_and_theology_simulation_session.cpp
     simulation/season_cycle.cpp
@@ -187,6 +190,7 @@ add_executable(snt_game_client
     runtime/local_player_name_prompt.cpp
     runtime/runtime_package.cpp
     client/client_block_interaction.cpp
+    client/creature_presentation_world.cpp
     client/day_night_lighting.cpp
     client/inventory_slot_transaction.cpp
     client/gameplay_ui.cpp
@@ -317,6 +321,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
 
     add_executable(snt_game_tests
         client/client_block_interaction.cpp
+        client/creature_presentation_world.cpp
         client/day_night_lighting.cpp
         client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
@@ -340,6 +345,9 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_season_cycle.cpp
         tests/test_region_topology.cpp
         tests/test_crop_growth_system.cpp
+        tests/test_creature_presentation_world.cpp
+        tests/test_ecosystem_system.cpp
+        tests/test_wild_creature_system.cpp
         tests/test_tree_growth_system.cpp
         tests/test_localization.cpp
         tests/test_gameplay_ui.cpp
@@ -349,6 +357,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_machine_placement_registry.cpp
         tests/test_machine_structure_validator.cpp
         tests/test_machine_runtime_persistence.cpp
+        tests/test_offline_machine_simulation.cpp
         tests/test_mobile_structure.cpp
         tests/test_game_components.cpp
         tests/test_player_identity.cpp
@@ -392,6 +401,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_network
         snt_engine_settings
         snt_render_components
+        snt_gpu_assets
         snt_third_party
         GTest::gtest_main
     )

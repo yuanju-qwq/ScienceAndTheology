@@ -139,6 +139,59 @@ TEST(GameClientBlockInteractionControllerTest, ContextPlacesSelectedItemIntoAdja
     EXPECT_EQ(command.selected_item_id, "stone");
 }
 
+TEST(GameClientBlockInteractionControllerTest, ContextMapsClassifiedFarmingTargetsToTypedCommands) {
+    GameClientBlockInteractionController controller(GameClientInteractionConfig{});
+    RecordingBlockInteractionSink sink;
+
+    auto till_target = make_target(8);
+    till_target.farming = GameClientBlockInteractionTarget::FarmingTarget{
+        .can_till = true,
+    };
+    ASSERT_TRUE(controller.handle_input(
+        {.context_pressed = true}, till_target, "wooden_shovel", std::nullopt, sink));
+    ASSERT_EQ(sink.commands.size(), 1u);
+    EXPECT_EQ(sink.commands.back().action, GameBlockInteractionAction::kTillFarmland);
+    EXPECT_EQ(sink.commands.back().selected_item_id, "wooden_shovel");
+    EXPECT_EQ(sink.commands.back().block_y, 64);
+
+    auto plant_target = make_target(9);
+    plant_target.farming = GameClientBlockInteractionTarget::FarmingTarget{
+        .can_plant = true,
+        .planting_x = 12,
+        .planting_y = 65,
+        .planting_z = -3,
+        .planting_expected_material = 0,
+    };
+    ASSERT_TRUE(controller.handle_input(
+        {.context_pressed = true}, plant_target, "seed.wheat", std::nullopt, sink));
+    ASSERT_EQ(sink.commands.size(), 2u);
+    EXPECT_EQ(sink.commands.back().action, GameBlockInteractionAction::kPlantCrop);
+    EXPECT_EQ(sink.commands.back().selected_item_id, "seed.wheat");
+    EXPECT_EQ(sink.commands.back().block_y, 65);
+    EXPECT_EQ(sink.commands.back().expected_material, 0);
+
+    auto fertilize_target = make_target(10);
+    fertilize_target.farming = GameClientBlockInteractionTarget::FarmingTarget{
+        .can_fertilize = true,
+        .can_harvest = true,
+    };
+    ASSERT_TRUE(controller.handle_input(
+        {.context_pressed = true}, fertilize_target, "bone_meal", std::nullopt, sink));
+    ASSERT_EQ(sink.commands.size(), 3u);
+    EXPECT_EQ(sink.commands.back().action, GameBlockInteractionAction::kFertilizeCrop);
+    EXPECT_EQ(sink.commands.back().selected_item_id, "bone_meal");
+
+    auto harvest_target = make_target(11);
+    harvest_target.farming = GameClientBlockInteractionTarget::FarmingTarget{
+        .can_harvest = true,
+    };
+    ASSERT_TRUE(controller.handle_input(
+        {.context_pressed = true}, harvest_target, "", std::nullopt, sink));
+    ASSERT_EQ(sink.commands.size(), 4u);
+    EXPECT_EQ(sink.commands.back().action, GameBlockInteractionAction::kHarvestCrop);
+    EXPECT_TRUE(sink.commands.back().selected_item_id.empty());
+}
+
 TEST(GameClientBlockInteractionControllerTest, MissingTargetAndUnsupportedMachineDoNotSubmit) {
     GameClientBlockInteractionController controller(GameClientInteractionConfig{});
     RecordingBlockInteractionSink sink;

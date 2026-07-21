@@ -594,6 +594,26 @@ void api_set_machine_activation_requirements(
     }
 }
 
+void api_set_machine_offline_simulation(
+    const std::string& machine_id,
+    int mode,
+    int max_batch_ticks,
+    bool can_start_new_jobs) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    MachineOfflineSimulationProfile profile;
+    profile.mode = static_cast<MachineOfflineSimulationMode>(mode);
+    profile.max_batch_ticks = max_batch_ticks > 0
+        ? static_cast<uint32_t>(max_batch_ticks)
+        : 0;
+    profile.can_start_new_jobs = can_start_new_jobs;
+    if (auto result = registry->set_script_machine_offline_simulation(
+            g_active_script_id, machine_id, std::move(profile)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_quest_chapter(const std::string& id,
                                 const std::string& title,
                                 const std::string& description,
@@ -822,6 +842,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             engine,
             "void snt_set_machine_activation_requirements(const string &in, bool, bool, bool, const string &in)",
             asFUNCTION(api_set_machine_activation_requirements)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_machine_offline_simulation(const string &in, int, int, bool)",
+            asFUNCTION(api_set_machine_offline_simulation)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_register_quest_chapter(const string &in, const string &in, const string &in, const string &in, int)",
@@ -1068,6 +1092,16 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
     if (!definition.requires_manual_activation && !definition.activation_requirements.empty()) {
         return invalid_argument(
             "Machine activation requirements require manual activation to be enabled");
+    }
+    const uint8_t offline_mode = static_cast<uint8_t>(definition.offline_simulation.mode);
+    if (offline_mode > static_cast<uint8_t>(MachineOfflineSimulationMode::kNetworkIsland)) {
+        return invalid_argument("Machine offline simulation mode is invalid");
+    }
+    if (definition.offline_simulation.mode != MachineOfflineSimulationMode::kDisabled &&
+        (definition.offline_simulation.max_batch_ticks == 0 ||
+         definition.offline_simulation.max_batch_ticks > 72000)) {
+        return invalid_argument(
+            "Offline machine simulation batch ticks must be between 1 and 72000");
     }
     return {};
 }
@@ -1574,6 +1608,25 @@ snt::core::Expected<void> GameContentRegistry::set_script_machine_activation_req
             "Machine activation requirements require manual activation to be enabled");
     }
     found->second.definition.activation_requirements = std::move(requirements);
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_simulation(
+    ScriptId script_id,
+    std::string machine_id,
+    MachineOfflineSimulationProfile profile) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Machine script mutations require a non-builtin ScriptId");
+    }
+
+    const auto found = live_machines_.find(machine_id);
+    if (found == live_machines_.end() || found->second.owner != script_id) {
+        return invalid_state("Machine offline simulation can only modify a machine owned by the active script");
+    }
+    MachineDefinition candidate = found->second.definition;
+    candidate.offline_simulation = std::move(profile);
+    if (auto result = validate(candidate); !result) return result.error();
+    found->second.definition.offline_simulation = std::move(candidate.offline_simulation);
     return {};
 }
 

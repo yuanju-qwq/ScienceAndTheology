@@ -1,0 +1,12 @@
+# Render-only silhouette for distant herbivores.
+o herbivore_lod
+v -0.75 0.10 -0.35
+v 0.80 0.10 -0.35
+v 0.80 0.10 0.35
+v -0.75 0.10 0.35
+v 0.20 1.00 0.00
+f 1 2 5
+f 2 3 5
+f 3 4 5
+f 4 1 5
+f 1 4 3 2

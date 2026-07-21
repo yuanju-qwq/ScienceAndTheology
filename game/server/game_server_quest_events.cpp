@@ -77,6 +77,31 @@ void GameServerQuestEventService::on_player_interaction(
             record_progress(event.account_id, QuestObjectiveKind::kPlaceMachine, event.machine_id, 1,
                             event.tick_index);
             break;
+        case GameServerPlayerInteractionEventKind::kFarmlandTilled:
+            record_progress(event.account_id, QuestObjectiveKind::kCustomEvent,
+                            "farmland_tilled", 1, event.tick_index);
+            break;
+        case GameServerPlayerInteractionEventKind::kCropPlanted:
+            if (auto result = update_inventory_objectives(event.account_id, event.tick_index); !result) {
+                record_error(event.tick_index, "crop planting inventory", result.error());
+            }
+            record_progress(event.account_id, QuestObjectiveKind::kCustomEvent,
+                            "crop_planted", 1, event.tick_index);
+            break;
+        case GameServerPlayerInteractionEventKind::kCropFertilized:
+            if (auto result = update_inventory_objectives(event.account_id, event.tick_index); !result) {
+                record_error(event.tick_index, "crop fertilization inventory", result.error());
+            }
+            record_progress(event.account_id, QuestObjectiveKind::kCustomEvent,
+                            "crop_fertilized", 1, event.tick_index);
+            break;
+        case GameServerPlayerInteractionEventKind::kCropHarvested:
+            if (auto result = update_inventory_objectives(event.account_id, event.tick_index); !result) {
+                record_error(event.tick_index, "crop harvest inventory", result.error());
+            }
+            record_progress(event.account_id, QuestObjectiveKind::kCustomEvent,
+                            "crop_harvested", 1, event.tick_index);
+            break;
         case GameServerPlayerInteractionEventKind::kBedUsed:
         case GameServerPlayerInteractionEventKind::kMachineActivated:
             break;
