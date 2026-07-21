@@ -340,6 +340,34 @@ void api_register_item(const std::string& id,
     }
 }
 
+void api_register_fluid(const std::string& id,
+                        const std::string& title_key,
+                        const std::string& chemical_formula,
+                        int64_t default_temperature_kelvin,
+                        bool is_gas,
+                        const std::string& evaporation_target_id,
+                        int64_t evaporation_temperature_kelvin,
+                        const std::string& condensation_target_id,
+                        int64_t condensation_temperature_kelvin) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+
+    GameFluidDefinition definition;
+    definition.id = id;
+    definition.title_key = title_key;
+    definition.chemical_formula = chemical_formula;
+    definition.default_temperature_kelvin = default_temperature_kelvin;
+    definition.is_gas = is_gas;
+    definition.evaporation_target_id = evaporation_target_id;
+    definition.evaporation_temperature_kelvin = evaporation_temperature_kelvin;
+    definition.condensation_target_id = condensation_target_id;
+    definition.condensation_temperature_kelvin = condensation_temperature_kelvin;
+    if (auto result = registry->register_script_fluid(
+            g_active_script_id, std::move(definition)); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_material(const std::string& id,
                            const std::string& title_key,
                            int generation_flags,
@@ -627,6 +655,19 @@ void api_set_machine_offline_power_transfer(
     }
 }
 
+void api_set_machine_offline_item_transfer(
+    const std::string& machine_id,
+    int max_import_per_tick,
+    int max_export_per_tick) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (auto result = registry->set_script_machine_offline_item_transfer(
+            g_active_script_id, machine_id, max_import_per_tick,
+            max_export_per_tick); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_quest_chapter(const std::string& id,
                                 const std::string& title,
                                 const std::string& description,
@@ -815,6 +856,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             asFUNCTION(api_register_item)); !result) return result;
     if (auto result = register_function(
             engine,
+            "void snt_register_fluid(const string &in, const string &in, const string &in, int64, bool, const string &in, int64, const string &in, int64)",
+            asFUNCTION(api_register_fluid)); !result) return result;
+    if (auto result = register_function(
+            engine,
             "void snt_register_material(const string &in, const string &in, int, int, int, int, int, float, const string &in)",
             asFUNCTION(api_register_material)); !result) return result;
     if (auto result = register_function(
@@ -863,6 +908,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             engine,
             "void snt_set_machine_offline_power_transfer(const string &in, int, int)",
             asFUNCTION(api_set_machine_offline_power_transfer)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_machine_offline_item_transfer(const string &in, int, int)",
+            asFUNCTION(api_set_machine_offline_item_transfer)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_register_quest_chapter(const string &in, const string &in, const string &in, const string &in, int)",
@@ -1063,6 +1112,49 @@ snt::core::Expected<void> GameContentRegistry::validate(
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::validate(
+    const GameFluidDefinition& definition) {
+    if (definition.id.empty() || definition.id.size() > kMaxGameItemKeyBytes ||
+        definition.title_key.empty() || definition.title_key.size() > kMaxGameItemKeyBytes ||
+        definition.title_key.find('\0') != std::string::npos ||
+        definition.chemical_formula.empty() ||
+        definition.chemical_formula.size() > kMaxGameItemKeyBytes ||
+        definition.chemical_formula.find('\0') != std::string::npos ||
+        definition.default_temperature_kelvin < 0) {
+        return invalid_argument("Game fluid definition contains an invalid physical property");
+    }
+    const auto normalized_id = normalize_item_key(definition.id);
+    if (!normalized_id) return normalized_id.error();
+    if (*normalized_id != definition.id) {
+        return invalid_argument("Game fluid id must be normalized before registration");
+    }
+
+    const auto validate_transition = [&definition](std::string_view label,
+                                                   const std::string& target_id,
+                                                   int64_t temperature)
+        -> snt::core::Expected<void> {
+        if (temperature < 0 || (target_id.empty() != (temperature == 0))) {
+            return invalid_argument("Game fluid " + std::string(label) +
+                                    " transition must have both a target and positive temperature");
+        }
+        if (target_id.empty()) return {};
+        const auto normalized_target = normalize_item_key(target_id);
+        if (!normalized_target) return normalized_target.error();
+        if (*normalized_target != target_id || target_id == definition.id) {
+            return invalid_argument("Game fluid " + std::string(label) +
+                                    " transition target must be a distinct normalized content key");
+        }
+        return {};
+    };
+    if (auto result = validate_transition("evaporation", definition.evaporation_target_id,
+                                          definition.evaporation_temperature_kelvin);
+        !result) {
+        return result.error();
+    }
+    return validate_transition("condensation", definition.condensation_target_id,
+                               definition.condensation_temperature_kelvin);
+}
+
 snt::core::Expected<void> GameContentRegistry::validate(const RecipeDefinition& definition) {
     if (definition.id.empty()) return invalid_argument("Recipe id must not be empty");
     if (definition.machine_id.empty()) return invalid_argument("Recipe machine_id must not be empty");
@@ -1126,10 +1218,18 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
         definition.offline_simulation.max_power_export_per_tick > 1'000'000'000) {
         return invalid_argument("Offline machine power transfer limits are invalid");
     }
+    if (definition.offline_simulation.max_item_import_per_tick < 0 ||
+        definition.offline_simulation.max_item_export_per_tick < 0 ||
+        definition.offline_simulation.max_item_import_per_tick > 1'000'000'000 ||
+        definition.offline_simulation.max_item_export_per_tick > 1'000'000'000) {
+        return invalid_argument("Offline machine item transfer limits are invalid");
+    }
     if (definition.offline_simulation.mode != MachineOfflineSimulationMode::kNetworkIsland &&
         (definition.offline_simulation.max_power_import_per_tick != 0 ||
-         definition.offline_simulation.max_power_export_per_tick != 0)) {
-        return invalid_argument("Offline machine power transfer requires network-island mode");
+         definition.offline_simulation.max_power_export_per_tick != 0 ||
+         definition.offline_simulation.max_item_import_per_tick != 0 ||
+         definition.offline_simulation.max_item_export_per_tick != 0)) {
+        return invalid_argument("Offline machine network transfer requires network-island mode");
     }
     return {};
 }
@@ -1292,6 +1392,28 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_item(
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_fluid(
+    GameFluidDefinition definition) {
+    if (!reloads_.empty() || reload_batch_) {
+        return invalid_state("Built-in fluid registration is not allowed during a script reload");
+    }
+    FluidMap previous_backup = backup_fluids_;
+    FluidMap previous_live = live_fluids_;
+    const auto previous_runtime_index = resource_runtime_index_.snapshot();
+    const uint64_t previous_item_content_revision = item_content_revision_;
+    if (auto result = register_fluid(kBuiltinScriptId, std::move(definition), true); !result) {
+        return result.error();
+    }
+    if (auto result = publish_resource_runtime_index(); !result) {
+        backup_fluids_ = std::move(previous_backup);
+        live_fluids_ = std::move(previous_live);
+        resource_runtime_index_.restore(previous_runtime_index);
+        item_content_revision_ = previous_item_content_revision;
+        return result.error();
+    }
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_recipe(RecipeDefinition definition) {
     return register_recipe(kBuiltinScriptId, std::move(definition), true);
 }
@@ -1330,6 +1452,32 @@ snt::core::Expected<void> GameContentRegistry::register_script_item(
         if (auto result = publish_resource_runtime_index(); !result) {
             backup_items_ = std::move(previous_backup);
             live_items_ = std::move(previous_live);
+            return result.error();
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::register_script_fluid(
+    ScriptId script_id, GameFluidDefinition definition) {
+    const bool staged_reload = reloads_.contains(script_id);
+    FluidMap previous_backup;
+    FluidMap previous_live;
+    const auto previous_runtime_index = resource_runtime_index_.snapshot();
+    const uint64_t previous_item_content_revision = item_content_revision_;
+    if (!staged_reload) {
+        previous_backup = backup_fluids_;
+        previous_live = live_fluids_;
+    }
+    if (auto result = register_fluid(script_id, std::move(definition), false); !result) {
+        return result.error();
+    }
+    if (!staged_reload) {
+        if (auto result = publish_resource_runtime_index(); !result) {
+            backup_fluids_ = std::move(previous_backup);
+            live_fluids_ = std::move(previous_live);
+            resource_runtime_index_.restore(previous_runtime_index);
+            item_content_revision_ = previous_item_content_revision;
             return result.error();
         }
     }
@@ -1678,6 +1826,26 @@ snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_power_
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_item_transfer(
+    ScriptId script_id,
+    std::string machine_id,
+    int32_t max_import_per_tick,
+    int32_t max_export_per_tick) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Machine script mutations require a non-builtin ScriptId");
+    }
+    const auto found = live_machines_.find(machine_id);
+    if (found == live_machines_.end() || found->second.owner != script_id) {
+        return invalid_state("Machine item transfer can only modify a machine owned by the active script");
+    }
+    MachineDefinition candidate = found->second.definition;
+    candidate.offline_simulation.max_item_import_per_tick = max_import_per_tick;
+    candidate.offline_simulation.max_item_export_per_tick = max_export_per_tick;
+    if (auto result = validate(candidate); !result) return result.error();
+    found->second.definition.offline_simulation = std::move(candidate.offline_simulation);
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::add_script_quest_objective(
     ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective) {
     if (script_id == kBuiltinScriptId) {
@@ -1790,6 +1958,40 @@ snt::core::Expected<void> GameContentRegistry::register_item(
     OwnedDefinition<GameItemDefinition> entry{owner, std::move(definition)};
     if (builtin) backup_items_[id] = entry;
     live_items_[id] = std::move(entry);
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::register_fluid(
+    ScriptId owner, GameFluidDefinition definition, bool builtin) {
+    const auto normalized_id = normalize_item_key(definition.id);
+    if (!normalized_id) return normalized_id.error();
+    definition.id = *normalized_id;
+    if (auto valid = validate(definition); !valid) return valid.error();
+    if (builtin != (owner == kBuiltinScriptId)) {
+        return invalid_argument("Built-in registrations must use ScriptId 0");
+    }
+
+    const std::string id = definition.id;
+    const auto existing = live_fluids_.find(id);
+    if (!builtin && existing != live_fluids_.end() &&
+        existing->second.owner != kBuiltinScriptId && existing->second.owner != owner) {
+        return invalid_state("Game fluid id is already owned by another script: " + id);
+    }
+    if (builtin && existing != live_fluids_.end() &&
+        existing->second.owner != kBuiltinScriptId) {
+        return invalid_state("Cannot replace a live script fluid with a built-in fluid: " + id);
+    }
+    for (const auto& [reloading_script_id, snapshot] : reloads_) {
+        if (reloading_script_id == owner) continue;
+        if (snapshot.fluids.contains(id)) {
+            return invalid_state(
+                "Game fluid id is reserved by another active script reload: " + id);
+        }
+    }
+
+    OwnedDefinition<GameFluidDefinition> entry{owner, std::move(definition)};
+    if (builtin) backup_fluids_[id] = entry;
+    live_fluids_[id] = std::move(entry);
     return {};
 }
 
@@ -1948,6 +2150,11 @@ const GameItemDefinition* GameContentRegistry::find_item(std::string_view id) co
         &generated->second.definition;
 }
 
+const GameFluidDefinition* GameContentRegistry::find_fluid(std::string_view id) const {
+    const auto it = live_fluids_.find(id);
+    return it == live_fluids_.end() ? nullptr : &it->second.definition;
+}
+
 const GameMaterialDefinition* GameContentRegistry::find_material(std::string_view id) const {
     const auto it = live_materials_.find(id);
     return it == live_materials_.end() ? nullptr : &it->second.definition;
@@ -1985,6 +2192,16 @@ std::vector<GameItemDefinition> GameContentRegistry::item_definitions() const {
     std::sort(definitions.begin(), definitions.end(), [](const auto& lhs, const auto& rhs) {
         return lhs.id < rhs.id;
     });
+    return definitions;
+}
+
+std::vector<GameFluidDefinition> GameContentRegistry::fluid_definitions() const {
+    std::vector<GameFluidDefinition> definitions;
+    definitions.reserve(live_fluids_.size());
+    for (const auto& [id, entry] : live_fluids_) {
+        (void)id;
+        definitions.push_back(entry.definition);
+    }
     return definitions;
 }
 
@@ -2030,7 +2247,8 @@ bool GameContentRegistry::item_matches_tool_requirement(
 
 snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() {
     std::vector<ResourceKey> keys;
-    keys.reserve(live_items_.size() + live_generated_material_items_.size());
+    keys.reserve(live_items_.size() + live_generated_material_items_.size() +
+                 live_fluids_.size());
     for (const auto& [id, entry] : live_items_) {
         (void)entry;
         keys.push_back(ResourceKey::item(id));
@@ -2039,12 +2257,64 @@ snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() 
         (void)entry;
         keys.push_back(ResourceKey::item(id));
     }
+    for (const auto& [id, entry] : live_fluids_) {
+        (void)entry;
+        keys.push_back(ResourceKey::fluid(id));
+    }
     if (auto result = resource_runtime_index_.rebuild(keys); !result) return result.error();
     ++item_content_revision_;
     SNT_LOG_INFO("Published %zu game resource runtime key(s), generation=%llu, content_revision=%llu",
                  keys.size(),
                  static_cast<unsigned long long>(resource_runtime_index_.snapshot().generation()),
                  static_cast<unsigned long long>(item_content_revision_));
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::validate_fluid_references() const {
+    const auto validate_transition = [this](const GameFluidDefinition& source,
+                                            std::string_view label,
+                                            const std::string& target_id,
+                                            bool expected_gas)
+        -> snt::core::Expected<void> {
+        if (target_id.empty()) return {};
+        const GameFluidDefinition* const target = find_fluid(target_id);
+        if (target == nullptr) {
+            return invalid_state("Game fluid '" + source.id + "' " + std::string(label) +
+                                 " target is not registered: " + target_id);
+        }
+        if (target->is_gas != expected_gas) {
+            return invalid_state("Game fluid '" + source.id + "' " + std::string(label) +
+                                 " target has an incompatible phase: " + target_id);
+        }
+        return {};
+    };
+
+    for (const auto& [id, entry] : live_fluids_) {
+        (void)id;
+        const GameFluidDefinition& fluid = entry.definition;
+        if (!fluid.evaporation_target_id.empty()) {
+            if (fluid.is_gas) {
+                return invalid_state("Gaseous game fluid '" + fluid.id +
+                                     " cannot define an evaporation transition");
+            }
+            if (auto result = validate_transition(fluid, "evaporation",
+                                                  fluid.evaporation_target_id, true);
+                !result) {
+                return result.error();
+            }
+        }
+        if (!fluid.condensation_target_id.empty()) {
+            if (!fluid.is_gas) {
+                return invalid_state("Non-gaseous game fluid '" + fluid.id +
+                                     " cannot define a condensation transition");
+            }
+            if (auto result = validate_transition(fluid, "condensation",
+                                                  fluid.condensation_target_id, false);
+                !result) {
+                return result.error();
+            }
+        }
+    }
     return {};
 }
 
@@ -2276,6 +2546,7 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
     // visible together. This preserves the worker snapshot boundary and
     // avoids regenerating the complete form catalog for every API call.
     if (auto result = rebuild_generated_material_items(); !result) return result.error();
+    if (auto result = validate_fluid_references(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
     if (auto result = publish_resource_runtime_index(); !result) return result.error();
@@ -2379,6 +2650,7 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
         return invalid_state("No matching active game content reload batch");
     }
     if (auto result = rebuild_generated_material_items(); !result) return result.error();
+    if (auto result = validate_fluid_references(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
     if (auto result = publish_resource_runtime_index(); !result) return result.error();
@@ -2461,12 +2733,14 @@ void GameContentRegistry::reset() {
         !live_quest_chapters_.empty() || !backup_quests_.empty() || !live_quests_.empty();
     backup_materials_.clear();
     backup_items_.clear();
+    backup_fluids_.clear();
     backup_recipes_.clear();
     backup_machines_.clear();
     backup_quest_chapters_.clear();
     backup_quests_.clear();
     live_materials_.clear();
     live_items_.clear();
+    live_fluids_.clear();
     live_generated_material_items_.clear();
     live_recipes_.clear();
     live_machines_.clear();
@@ -2496,6 +2770,9 @@ GameContentRegistry::ReloadSnapshot GameContentRegistry::snapshot_script_content
     }
     for (const auto& [id, entry] : live_items_) {
         if (entry.owner == script_id) snapshot.items.emplace(id, entry);
+    }
+    for (const auto& [id, entry] : live_fluids_) {
+        if (entry.owner == script_id) snapshot.fluids.emplace(id, entry);
     }
     for (const auto& [id, entry] : live_recipes_) {
         if (entry.owner == script_id) snapshot.recipes.emplace(id, entry);
@@ -2538,6 +2815,18 @@ snt::core::Expected<void> GameContentRegistry::erase_script_content(ScriptId scr
         }
         auto backup = backup_items_.find(it->first);
         if (backup == backup_items_.end()) it = live_items_.erase(it);
+        else {
+            it->second = backup->second;
+            ++it;
+        }
+    }
+    for (auto it = live_fluids_.begin(); it != live_fluids_.end();) {
+        if (it->second.owner != script_id) {
+            ++it;
+            continue;
+        }
+        auto backup = backup_fluids_.find(it->first);
+        if (backup == backup_fluids_.end()) it = live_fluids_.erase(it);
         else {
             it->second = backup->second;
             ++it;
@@ -2610,6 +2899,7 @@ snt::core::Expected<void> GameContentRegistry::restore_script_content(
     const ReloadSnapshot& snapshot) {
     for (const auto& [id, entry] : snapshot.materials) live_materials_[id] = entry;
     for (const auto& [id, entry] : snapshot.items) live_items_[id] = entry;
+    for (const auto& [id, entry] : snapshot.fluids) live_fluids_[id] = entry;
     for (const auto& [id, entry] : snapshot.recipes) live_recipes_[id] = entry;
     for (const auto& [id, entry] : snapshot.machines) live_machines_[id] = entry;
     for (const auto& [id, entry] : snapshot.quest_chapters) live_quest_chapters_[id] = entry;

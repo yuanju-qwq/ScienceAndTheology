@@ -141,9 +141,27 @@ enum class OfflineNetworkResourceKind : uint8_t {
     kFluid = 2,
 };
 
-struct OfflineNetworkResourceLedger {
+// A resource segment is a connected subgraph within one atomic offline
+// island. A machine may bridge power, item, and fluid networks, but only the
+// machines listed here may exchange the segment's resource. This prevents a
+// pipe edge from accidentally joining two otherwise separate power grids.
+struct OfflineNetworkTransportSegment {
+    uint64_t segment_id = 0;
     OfflineNetworkResourceKind kind = OfflineNetworkResourceKind::kPower;
-    std::string resource_id;
+    std::vector<uint64_t> machine_guids;
+    int64_t capacity = 0;
+    int64_t max_transfer_per_tick = 0;
+};
+
+struct OfflineNetworkResourceLedger {
+    // A ledger belongs to exactly one transport segment. `resource` is a
+    // durable AEKey identity, while segment_id preserves the topology
+    // boundary when several same-kind subnetworks are joined only by a
+    // machine bridge. RuntimeResourceKey is intentionally never persisted
+    // here because its numeric IDs are scoped to one content snapshot.
+    uint64_t segment_id = 0;
+    OfflineNetworkResourceKind kind = OfflineNetworkResourceKind::kPower;
+    ResourceKey resource;
     int64_t stored_amount = 0;
     int64_t capacity = 0;
     // A topology provider derives this from the narrowest durable edge. Zero
@@ -152,6 +170,7 @@ struct OfflineNetworkResourceLedger {
 };
 
 struct OfflineNetworkBoundaryPort {
+    uint64_t segment_id = 0;
     uint64_t node_id = 0;
     ChunkKey adjacent_chunk;
     uint8_t direction = 0;
@@ -170,6 +189,7 @@ struct OfflineNetworkIslandSnapshot {
     uint64_t topology_revision = 0;
     uint64_t last_simulated_tick = 0;
     std::vector<uint64_t> machine_guids;
+    std::vector<OfflineNetworkTransportSegment> transport_segments;
     std::vector<OfflineNetworkBoundaryPort> boundary_ports;
     std::vector<OfflineNetworkResourceLedger> ledgers;
 };

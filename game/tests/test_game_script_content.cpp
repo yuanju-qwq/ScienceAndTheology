@@ -338,6 +338,21 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs)
     assert_item("crop.wheat", 64);
     assert_item("meat.raw.glow_deer", 64);
 
+    ASSERT_EQ(content.fluid_definitions().size(), 29u);
+    const auto* water = content.find_fluid("water");
+    ASSERT_NE(water, nullptr);
+    EXPECT_FALSE(water->is_gas);
+    EXPECT_EQ(water->default_temperature_kelvin, 300);
+    EXPECT_EQ(water->evaporation_target_id, "steam");
+    EXPECT_EQ(water->evaporation_temperature_kelvin, 373);
+    const auto* steam = content.find_fluid("steam");
+    ASSERT_NE(steam, nullptr);
+    EXPECT_TRUE(steam->is_gas);
+    EXPECT_EQ(steam->condensation_target_id, "water");
+    EXPECT_EQ(steam->condensation_temperature_kelvin, 373);
+    EXPECT_TRUE(content.find_resource_runtime_key(
+        snt::game::ResourceKey::fluid("water")).has_value());
+
     const auto* iron_pickaxe = content.find_item("iron_pickaxe");
     ASSERT_NE(iron_pickaxe, nullptr);
     ASSERT_TRUE(iron_pickaxe->tool.has_value());

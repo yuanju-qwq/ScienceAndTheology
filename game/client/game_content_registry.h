@@ -188,6 +188,22 @@ struct GameItemDefinition {
     std::optional<GameMaterialFormReference> material_form;
 };
 
+// Fluids are game content with the same durable semantic-key policy as
+// items. Their compact RuntimeResourceKey is published with the item keys;
+// temperature and phase metadata remain content-facing data rather than part
+// of a generic storage identity.
+struct GameFluidDefinition {
+    std::string id;
+    std::string title_key;
+    std::string chemical_formula;
+    int64_t default_temperature_kelvin = 300;
+    bool is_gas = false;
+    std::string evaporation_target_id;
+    int64_t evaporation_temperature_kelvin = 0;
+    std::string condensation_target_id;
+    int64_t condensation_temperature_kelvin = 0;
+};
+
 struct RecipeOutputDefinition {
     std::string item_id;
     int32_t count = 1;
@@ -236,6 +252,11 @@ struct MachineOfflineSimulationProfile {
     // content mechanic and cannot be inferred from a cable connection.
     int32_t max_power_import_per_tick = 0;
     int32_t max_power_export_per_tick = 0;
+    // Item transfer is measured in semantic stack units, not slot count. A
+    // zero value keeps the corresponding machine side isolated while its
+    // chunk is simulated as an offline network island.
+    int32_t max_item_import_per_tick = 0;
+    int32_t max_item_export_per_tick = 0;
 };
 
 struct RecipeDefinition {
@@ -367,6 +388,7 @@ public:
     snt::core::Expected<void> register_builtin_materials(
         std::span<const GameMaterialDefinition> definitions);
     snt::core::Expected<void> register_builtin_item(GameItemDefinition definition);
+    snt::core::Expected<void> register_builtin_fluid(GameFluidDefinition definition);
     snt::core::Expected<void> register_builtin_recipe(RecipeDefinition definition);
     snt::core::Expected<void> register_builtin_machine(MachineDefinition definition);
     snt::core::Expected<void> register_builtin_machine_placement(
@@ -381,6 +403,8 @@ public:
         ScriptId script_id, GameMaterialDefinition definition);
     snt::core::Expected<void> register_script_item(ScriptId script_id,
                                                    GameItemDefinition definition);
+    snt::core::Expected<void> register_script_fluid(ScriptId script_id,
+                                                    GameFluidDefinition definition);
     snt::core::Expected<void> add_script_material_element(
         ScriptId script_id, std::string material_id, GameMaterialElement element);
     snt::core::Expected<void> set_script_material_form_presentation(
@@ -415,12 +439,16 @@ public:
     snt::core::Expected<void> set_script_machine_offline_power_transfer(
         ScriptId script_id, std::string machine_id,
         int32_t max_import_per_tick, int32_t max_export_per_tick);
+    snt::core::Expected<void> set_script_machine_offline_item_transfer(
+        ScriptId script_id, std::string machine_id,
+        int32_t max_import_per_tick, int32_t max_export_per_tick);
     snt::core::Expected<void> add_script_quest_objective(
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
     snt::core::Expected<void> add_script_quest_reward(
         ScriptId script_id, std::string quest_id, QuestRewardDefinition reward);
 
     const GameItemDefinition* find_item(std::string_view id) const;
+    const GameFluidDefinition* find_fluid(std::string_view id) const;
     const GameMaterialDefinition* find_material(std::string_view id) const;
     [[nodiscard]] std::optional<RuntimeResourceKey> find_resource_runtime_key(
         const ResourceKey& key) const;
@@ -429,6 +457,7 @@ public:
     [[nodiscard]] ResourceRuntimeIndex::Snapshot resource_runtime_index() const noexcept;
     [[nodiscard]] uint64_t resource_runtime_generation() const noexcept;
     [[nodiscard]] std::vector<GameItemDefinition> item_definitions() const;
+    [[nodiscard]] std::vector<GameFluidDefinition> fluid_definitions() const;
     [[nodiscard]] std::vector<GameMaterialDefinition> material_definitions() const;
     // The content revision changes for presentation, material, generated-form,
     // or authored-item changes. Retained MUI uses it to rebuild only when
@@ -484,6 +513,7 @@ private:
     };
 
     using ItemMap = std::map<std::string, OwnedDefinition<GameItemDefinition>, std::less<>>;
+    using FluidMap = std::map<std::string, OwnedDefinition<GameFluidDefinition>, std::less<>>;
     using MaterialMap = std::map<std::string,
                                  OwnedDefinition<GameMaterialDefinition>, std::less<>>;
     using RecipeMap = std::map<std::string, OwnedDefinition<RecipeDefinition>, std::less<>>;
@@ -495,6 +525,7 @@ private:
     struct ReloadSnapshot {
         MaterialMap materials;
         ItemMap items;
+        FluidMap fluids;
         RecipeMap recipes;
         MachineMap machines;
         QuestChapterMap quest_chapters;
@@ -515,6 +546,9 @@ private:
     snt::core::Expected<void> register_item(ScriptId owner,
                                             GameItemDefinition definition,
                                             bool builtin);
+    snt::core::Expected<void> register_fluid(ScriptId owner,
+                                             GameFluidDefinition definition,
+                                             bool builtin);
     snt::core::Expected<void> register_recipe(ScriptId owner,
                                               RecipeDefinition definition,
                                               bool builtin);
@@ -533,6 +567,7 @@ private:
     static snt::core::Expected<void> validate(const GameMaterialFormPresentation& presentation);
     static snt::core::Expected<void> validate(const GameToolDefinition& definition);
     static snt::core::Expected<void> validate(const GameItemDefinition& definition);
+    static snt::core::Expected<void> validate(const GameFluidDefinition& definition);
     static snt::core::Expected<void> validate(const RecipeDefinition& definition);
     static snt::core::Expected<void> validate(const RecipeInputDefinition& input);
     static snt::core::Expected<void> validate(
@@ -547,6 +582,7 @@ private:
 
     snt::core::Expected<void> rebuild_generated_material_items();
     snt::core::Expected<void> publish_resource_runtime_index();
+    snt::core::Expected<void> validate_fluid_references() const;
     snt::core::Expected<void> validate_machine_item_references() const;
 
     snt::core::Expected<void> erase_script_content(ScriptId script_id);
@@ -560,12 +596,14 @@ private:
     // after an optional script override. Ordered maps make iteration stable.
     MaterialMap backup_materials_;
     ItemMap backup_items_;
+    FluidMap backup_fluids_;
     RecipeMap backup_recipes_;
     MachineMap backup_machines_;
     QuestChapterMap backup_quest_chapters_;
     QuestMap backup_quests_;
     MaterialMap live_materials_;
     ItemMap live_items_;
+    FluidMap live_fluids_;
     // Rebuilt from `live_materials_`; it is deliberately not script-owned
     // state and therefore is reconstructed after every material transition.
     ItemMap live_generated_material_items_;

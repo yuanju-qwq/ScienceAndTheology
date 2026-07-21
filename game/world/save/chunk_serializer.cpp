@@ -18,9 +18,13 @@ constexpr uint32_t kMaxMachineJobOwnerAccountBytes = 256;
 constexpr uint32_t kMaxOfflineNetworkIslands = 1024;
 constexpr uint32_t kMaxOfflineNetworkMemberChunks = 4096;
 constexpr uint32_t kMaxOfflineNetworkMachineGuids = 16384;
+constexpr uint32_t kMaxOfflineNetworkTransportSegments = 16384;
+constexpr uint32_t kMaxOfflineNetworkSegmentMachineGuids = 16384;
 constexpr uint32_t kMaxOfflineNetworkBoundaryPorts = 16384;
 constexpr uint32_t kMaxOfflineNetworkLedgers = 1024;
+constexpr uint32_t kMaxOfflineNetworkResourceTypeBytes = 64;
 constexpr uint32_t kMaxOfflineNetworkResourceIdBytes = 256;
+constexpr uint32_t kMaxOfflineNetworkResourceVariantBytes = 256;
 constexpr uint32_t kMaxOfflineNetworkDimensionIdBytes = 256;
 constexpr uint32_t kMaxTreeGrowthRecords = 4096;
 constexpr uint32_t kMaxTreeGrowthOwnedCells = 4096;
@@ -1220,8 +1224,20 @@ void GameChunkSerializer::write_offline_network_island_snapshot(
     for (const uint64_t entity_guid : snapshot.machine_guids) {
         write_uint64(buf, entity_guid);
     }
+    write_uint32(buf, static_cast<uint32_t>(snapshot.transport_segments.size()));
+    for (const OfflineNetworkTransportSegment& segment : snapshot.transport_segments) {
+        write_uint64(buf, segment.segment_id);
+        write_uint8(buf, static_cast<uint8_t>(segment.kind));
+        write_int64(buf, segment.capacity);
+        write_int64(buf, segment.max_transfer_per_tick);
+        write_uint32(buf, static_cast<uint32_t>(segment.machine_guids.size()));
+        for (const uint64_t entity_guid : segment.machine_guids) {
+            write_uint64(buf, entity_guid);
+        }
+    }
     write_uint32(buf, static_cast<uint32_t>(snapshot.boundary_ports.size()));
     for (const OfflineNetworkBoundaryPort& port : snapshot.boundary_ports) {
+        write_uint64(buf, port.segment_id);
         write_uint64(buf, port.node_id);
         write_chunk_key(buf, port.adjacent_chunk);
         write_uint8(buf, port.direction);
@@ -1229,8 +1245,11 @@ void GameChunkSerializer::write_offline_network_island_snapshot(
     }
     write_uint32(buf, static_cast<uint32_t>(snapshot.ledgers.size()));
     for (const OfflineNetworkResourceLedger& ledger : snapshot.ledgers) {
+        write_uint64(buf, ledger.segment_id);
         write_uint8(buf, static_cast<uint8_t>(ledger.kind));
-        write_string(buf, ledger.resource_id);
+        write_string(buf, ledger.resource.type);
+        write_string(buf, ledger.resource.id);
+        write_string(buf, ledger.resource.variant);
         write_int64(buf, ledger.stored_amount);
         write_int64(buf, ledger.capacity);
         write_int64(buf, ledger.max_transfer_per_tick);
@@ -1287,6 +1306,40 @@ bool GameChunkSerializer::read_offline_network_island_snapshot(
         snapshot.machine_guids.push_back(entity_guid);
     }
 
+    uint32_t transport_segment_count = 0;
+    if (!read_uint32(data, offset, transport_segment_count) ||
+        transport_segment_count > kMaxOfflineNetworkTransportSegments) {
+        return false;
+    }
+    snapshot.transport_segments.clear();
+    snapshot.transport_segments.reserve(transport_segment_count);
+    for (uint32_t index = 0; index < transport_segment_count; ++index) {
+        uint8_t raw_kind = 0;
+        OfflineNetworkTransportSegment segment;
+        uint32_t segment_machine_count = 0;
+        if (!read_uint64(data, offset, segment.segment_id) || segment.segment_id == 0 ||
+            !read_uint8(data, offset, raw_kind) ||
+            raw_kind > static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
+            !read_int64(data, offset, segment.capacity) ||
+            !read_int64(data, offset, segment.max_transfer_per_tick) ||
+            segment.capacity < 0 || segment.max_transfer_per_tick < 0 ||
+            !read_uint32(data, offset, segment_machine_count) ||
+            segment_machine_count == 0 ||
+            segment_machine_count > kMaxOfflineNetworkSegmentMachineGuids) {
+            return false;
+        }
+        segment.kind = static_cast<OfflineNetworkResourceKind>(raw_kind);
+        segment.machine_guids.clear();
+        segment.machine_guids.reserve(segment_machine_count);
+        for (uint32_t machine_index = 0; machine_index < segment_machine_count;
+             ++machine_index) {
+            uint64_t entity_guid = 0;
+            if (!read_uint64(data, offset, entity_guid) || entity_guid == 0) return false;
+            segment.machine_guids.push_back(entity_guid);
+        }
+        snapshot.transport_segments.push_back(std::move(segment));
+    }
+
     uint32_t boundary_port_count = 0;
     if (!read_uint32(data, offset, boundary_port_count) ||
         boundary_port_count > kMaxOfflineNetworkBoundaryPorts) {
@@ -1296,7 +1349,8 @@ bool GameChunkSerializer::read_offline_network_island_snapshot(
     snapshot.boundary_ports.reserve(boundary_port_count);
     for (uint32_t index = 0; index < boundary_port_count; ++index) {
         OfflineNetworkBoundaryPort port;
-        if (!read_uint64(data, offset, port.node_id) || port.node_id == 0 ||
+        if (!read_uint64(data, offset, port.segment_id) || port.segment_id == 0 ||
+            !read_uint64(data, offset, port.node_id) || port.node_id == 0 ||
             !read_chunk_key(data, offset, port.adjacent_chunk) ||
             port.adjacent_chunk.dimension_id != snapshot.dimension_id ||
             !read_uint8(data, offset, port.direction) || port.direction >= 6 ||
@@ -1316,12 +1370,16 @@ bool GameChunkSerializer::read_offline_network_island_snapshot(
     for (uint32_t index = 0; index < ledger_count; ++index) {
         uint8_t raw_kind = 0;
         OfflineNetworkResourceLedger ledger;
-        if (!read_uint8(data, offset, raw_kind) ||
+        if (!read_uint64(data, offset, ledger.segment_id) || ledger.segment_id == 0 ||
+            !read_uint8(data, offset, raw_kind) ||
             raw_kind > static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
-            !read_string(data, offset, ledger.resource_id) ||
-            ledger.resource_id.empty() ||
-            ledger.resource_id.size() > kMaxOfflineNetworkResourceIdBytes ||
-            ledger.resource_id.find('\0') != std::string::npos ||
+            !read_string(data, offset, ledger.resource.type) ||
+            ledger.resource.type.size() > kMaxOfflineNetworkResourceTypeBytes ||
+            !read_string(data, offset, ledger.resource.id) ||
+            ledger.resource.id.size() > kMaxOfflineNetworkResourceIdBytes ||
+            !read_string(data, offset, ledger.resource.variant) ||
+            ledger.resource.variant.size() > kMaxOfflineNetworkResourceVariantBytes ||
+            !ledger.resource.is_valid() ||
             !read_int64(data, offset, ledger.stored_amount) ||
             !read_int64(data, offset, ledger.capacity) ||
             !read_int64(data, offset, ledger.max_transfer_per_tick) ||

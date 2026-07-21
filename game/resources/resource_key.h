@@ -20,6 +20,10 @@ namespace snt::game {
 
 inline constexpr std::string_view kResourceTypeItem = "item";
 inline constexpr std::string_view kResourceTypeFluid = "fluid";
+// Power is a semantic network resource rather than an inventory item. It
+// gives durable energy ledgers the same type/id/variant identity contract as
+// item and fluid ledgers without persisting a runtime numeric ID.
+inline constexpr std::string_view kResourceTypePower = "power";
 
 // A persistent semantic resource identity. `type` is deliberately a stable
 // string instead of a closed enum so future game-owned resource categories
@@ -35,10 +39,13 @@ struct ResourceKey {
                                           std::string variant = {});
     [[nodiscard]] static ResourceKey fluid(std::string id,
                                            std::string variant = {});
+    [[nodiscard]] static ResourceKey power(std::string id,
+                                           std::string variant = {});
 
     [[nodiscard]] bool is_valid() const noexcept;
     [[nodiscard]] bool is_item() const noexcept;
     [[nodiscard]] bool is_fluid() const noexcept;
+    [[nodiscard]] bool is_power() const noexcept;
     [[nodiscard]] ResourceKey without_variant() const;
 
     friend bool operator==(const ResourceKey&, const ResourceKey&) = default;

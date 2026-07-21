@@ -11,7 +11,7 @@
 #include "game/simulation/wild_creature_system.h"
 #include "game/simulation/game_fluid_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
-#include "game/simulation/offline_power_network_island.h"
+#include "game/simulation/offline_industrial_network_island.h"
 #include "game/simulation/offline_machine_simulation.h"
 #include "game/simulation/tree_growth_system.h"
 #include "game/simulation/worldgen_script_content.h"
@@ -310,16 +310,18 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         error.with_context("ScienceAndTheologySimulationSession::create_world(restore machines)");
         return error;
     }
-    offline_power_network_provider_ = std::make_unique<OfflinePowerNetworkIslandProvider>(
+    offline_industrial_network_provider_ =
+        std::make_unique<OfflineIndustrialNetworkIslandProvider>(
         content_registry_, chunk_sidecars_);
-    offline_power_network_simulator_ = std::make_unique<OfflinePowerNetworkIslandSimulator>();
+    offline_industrial_network_simulator_ =
+        std::make_unique<OfflineIndustrialNetworkIslandSimulator>();
     offline_machine_simulation_ = std::make_unique<OfflineMachineSimulationService>(
         content_registry_, chunk_sidecars_);
     offline_machine_simulation_->set_event_sink(machine_tick_event_sink_);
     offline_machine_simulation_->set_network_island_provider(
-        offline_power_network_provider_.get());
+        offline_industrial_network_provider_.get());
     offline_machine_simulation_->set_network_island_simulator(
-        offline_power_network_simulator_.get());
+        offline_industrial_network_simulator_.get());
     if (auto result = offline_machine_simulation_->initialize(0); !result) {
         offline_machine_simulation_.reset();
         auto error = result.error();
@@ -505,8 +507,8 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
         offline_machine_simulation_->set_network_island_simulator(nullptr);
         offline_machine_simulation_.reset();
     }
-    offline_power_network_simulator_.reset();
-    offline_power_network_provider_.reset();
+    offline_industrial_network_simulator_.reset();
+    offline_industrial_network_provider_.reset();
     if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
         if (auto result = GameMachineRuntimePersistence::capture(*world_, chunk_sidecars_); !result) {
             SNT_LOG_ERROR("Game machine runtime capture during session shutdown failed: %s",

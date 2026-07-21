@@ -24,6 +24,10 @@ ResourceKey ResourceKey::fluid(std::string id, std::string variant) {
     return {std::string(kResourceTypeFluid), std::move(id), std::move(variant)};
 }
 
+ResourceKey ResourceKey::power(std::string id, std::string variant) {
+    return {std::string(kResourceTypePower), std::move(id), std::move(variant)};
+}
+
 bool ResourceKey::is_valid() const noexcept {
     return is_valid_component(type) && is_valid_component(id) &&
            variant.find('\0') == std::string::npos;
@@ -35,6 +39,10 @@ bool ResourceKey::is_item() const noexcept {
 
 bool ResourceKey::is_fluid() const noexcept {
     return type == kResourceTypeFluid;
+}
+
+bool ResourceKey::is_power() const noexcept {
+    return type == kResourceTypePower;
 }
 
 ResourceKey ResourceKey::without_variant() const {

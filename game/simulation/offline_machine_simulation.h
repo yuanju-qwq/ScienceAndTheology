@@ -1,9 +1,9 @@
 // Offline coarse machine simulation.
 //
 // This module owns the non-ECS state of machines whose chunks are no longer
-// active. It advances only content-approved standalone machines today; the
-// network-island value types below reserve the durable boundary for future
-// power, item, and fluid topology producers.
+// active. It advances content-approved standalone machines and delegates
+// complete industrial network islands to resource-aware topology/simulation
+// providers.
 
 #pragma once
 
@@ -101,8 +101,9 @@ public:
                         uint64_t current_tick);
 
     // Transitions a complete non-ticketed chunk set in one transaction. This
-    // is the network-safe entry point used by residency controllers: a power
-    // island may be claimed only when every member chunk belongs to this set.
+    // is the network-safe entry point used by residency controllers: an
+    // industrial island may be claimed only when every member chunk belongs
+    // to this set.
     [[nodiscard]] snt::core::Expected<OfflineChunkMachineTransition>
     dematerialize_chunks(snt::ecs::World& world,
                          std::span<const ChunkKey> chunk_keys,

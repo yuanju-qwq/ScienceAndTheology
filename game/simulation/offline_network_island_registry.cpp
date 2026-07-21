@@ -39,21 +39,54 @@ namespace {
            left.chunk_z == right.chunk_z;
 }
 
+[[nodiscard]] bool resource_key_less(const ResourceKey& left,
+                                     const ResourceKey& right) noexcept {
+    if (left.type != right.type) return left.type < right.type;
+    if (left.id != right.id) return left.id < right.id;
+    return left.variant < right.variant;
+}
+
+[[nodiscard]] bool resource_matches_ledger_kind(
+    const OfflineNetworkResourceLedger& ledger) noexcept {
+    switch (ledger.kind) {
+        case OfflineNetworkResourceKind::kPower:
+            return ledger.resource.is_power();
+        case OfflineNetworkResourceKind::kItem:
+            return ledger.resource.is_item();
+        case OfflineNetworkResourceKind::kFluid:
+            return ledger.resource.is_fluid();
+    }
+    return false;
+}
+
 [[nodiscard]] bool same_ledger_key(const OfflineNetworkResourceLedger& left,
                                    const OfflineNetworkResourceLedger& right) noexcept {
-    return left.kind == right.kind && left.resource_id == right.resource_id;
+    return left.segment_id == right.segment_id && left.kind == right.kind &&
+           left.resource == right.resource;
 }
 
 [[nodiscard]] bool ledger_less(const OfflineNetworkResourceLedger& left,
                                const OfflineNetworkResourceLedger& right) noexcept {
+    if (left.segment_id != right.segment_id) return left.segment_id < right.segment_id;
     if (left.kind != right.kind) {
         return static_cast<uint8_t>(left.kind) < static_cast<uint8_t>(right.kind);
     }
-    return left.resource_id < right.resource_id;
+    return resource_key_less(left.resource, right.resource);
+}
+
+[[nodiscard]] bool transport_segment_less(const OfflineNetworkTransportSegment& left,
+                                          const OfflineNetworkTransportSegment& right) noexcept {
+    return left.segment_id < right.segment_id;
+}
+
+[[nodiscard]] bool same_transport_segment(const OfflineNetworkTransportSegment& left,
+                                          const OfflineNetworkTransportSegment& right) noexcept {
+    return left.segment_id == right.segment_id;
 }
 
 [[nodiscard]] bool boundary_port_less(const OfflineNetworkBoundaryPort& left,
                                       const OfflineNetworkBoundaryPort& right) noexcept {
+    if (left.segment_id != right.segment_id) return left.segment_id < right.segment_id;
     if (left.node_id != right.node_id) return left.node_id < right.node_id;
     if (chunk_key_less(left.adjacent_chunk, right.adjacent_chunk)) return true;
     if (chunk_key_less(right.adjacent_chunk, left.adjacent_chunk)) return false;
@@ -63,7 +96,7 @@ namespace {
 
 [[nodiscard]] bool same_boundary_port(const OfflineNetworkBoundaryPort& left,
                                       const OfflineNetworkBoundaryPort& right) noexcept {
-    return left.node_id == right.node_id &&
+    return left.segment_id == right.segment_id && left.node_id == right.node_id &&
            same_chunk(left.adjacent_chunk, right.adjacent_chunk) &&
            left.direction == right.direction &&
            left.topology_revision == right.topology_revision;
@@ -153,13 +186,57 @@ struct ConstMachineRecordLocation {
         return invalid_argument("Offline network island machine guids must be unique and non-zero");
     }
 
+    std::sort(snapshot.transport_segments.begin(), snapshot.transport_segments.end(),
+              transport_segment_less);
+    if (std::adjacent_find(snapshot.transport_segments.begin(),
+                           snapshot.transport_segments.end(), same_transport_segment) !=
+        snapshot.transport_segments.end()) {
+        return invalid_argument("Offline network island has duplicate transport segments");
+    }
+    for (OfflineNetworkTransportSegment& segment : snapshot.transport_segments) {
+        if (segment.segment_id == 0 ||
+            static_cast<uint8_t>(segment.kind) >
+                static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
+            segment.capacity < 0 || segment.max_transfer_per_tick < 0 ||
+            segment.machine_guids.empty()) {
+            return invalid_argument("Offline network transport segment is invalid");
+        }
+        std::sort(segment.machine_guids.begin(), segment.machine_guids.end());
+        if (segment.machine_guids.front() == 0 ||
+            std::adjacent_find(segment.machine_guids.begin(),
+                               segment.machine_guids.end()) != segment.machine_guids.end()) {
+            return invalid_argument(
+                "Offline network transport segment machine guids must be unique and non-zero");
+        }
+        for (const uint64_t entity_guid : segment.machine_guids) {
+            if (!std::binary_search(snapshot.machine_guids.begin(),
+                                    snapshot.machine_guids.end(), entity_guid)) {
+                return invalid_argument(
+                    "Offline network transport segment references a non-member machine");
+            }
+        }
+    }
+
+    const auto find_segment = [&snapshot](uint64_t segment_id)
+        -> const OfflineNetworkTransportSegment* {
+        const auto found = std::lower_bound(
+            snapshot.transport_segments.begin(), snapshot.transport_segments.end(), segment_id,
+            [](const OfflineNetworkTransportSegment& segment, uint64_t id) {
+                return segment.segment_id < id;
+            });
+        return found != snapshot.transport_segments.end() && found->segment_id == segment_id
+            ? &*found
+            : nullptr;
+    };
+
     std::sort(snapshot.boundary_ports.begin(), snapshot.boundary_ports.end(), boundary_port_less);
     if (std::adjacent_find(snapshot.boundary_ports.begin(), snapshot.boundary_ports.end(),
                            same_boundary_port) != snapshot.boundary_ports.end()) {
         return invalid_argument("Offline network island has duplicate boundary ports");
     }
     for (const OfflineNetworkBoundaryPort& port : snapshot.boundary_ports) {
-        if (port.node_id == 0 || port.direction >= 6 ||
+        if (port.segment_id == 0 || find_segment(port.segment_id) == nullptr ||
+            port.node_id == 0 || port.direction >= 6 ||
             port.adjacent_chunk.dimension_id != snapshot.dimension_id) {
             return invalid_argument("Offline network island boundary port is invalid");
         }
@@ -171,12 +248,15 @@ struct ConstMachineRecordLocation {
         return invalid_argument("Offline network island has duplicate resource ledgers");
     }
     for (const OfflineNetworkResourceLedger& ledger : snapshot.ledgers) {
-        if (static_cast<uint8_t>(ledger.kind) >
+        const OfflineNetworkTransportSegment* const segment = find_segment(ledger.segment_id);
+        if (ledger.segment_id == 0 || segment == nullptr || ledger.kind != segment->kind ||
+            static_cast<uint8_t>(ledger.kind) >
                 static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
-            ledger.resource_id.empty() || ledger.resource_id.find('\0') != std::string::npos ||
+            !ledger.resource.is_valid() || !resource_matches_ledger_kind(ledger) ||
             ledger.capacity < 0 || ledger.stored_amount < 0 ||
             ledger.max_transfer_per_tick < 0 ||
-            ledger.stored_amount > ledger.capacity) {
+            ledger.stored_amount > ledger.capacity || ledger.capacity != segment->capacity ||
+            ledger.max_transfer_per_tick != segment->max_transfer_per_tick) {
             return invalid_argument("Offline network island resource ledger is invalid");
         }
     }

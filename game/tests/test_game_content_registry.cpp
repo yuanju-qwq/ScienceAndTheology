@@ -12,6 +12,7 @@ namespace {
 
 using snt::game::EventListener;
 using snt::game::GameContentRegistry;
+using snt::game::GameFluidDefinition;
 using snt::game::GameItemDefinition;
 using snt::game::MachineDefinition;
 using snt::game::MachinePlacementDefinition;
@@ -42,6 +43,25 @@ GameItemDefinition make_item(std::string id, int32_t max_stack = 64) {
         .id = std::move(id),
         .title_key = "item.test",
         .max_stack = max_stack,
+    };
+}
+
+GameFluidDefinition make_fluid(std::string id,
+                               bool is_gas = false,
+                               std::string evaporation_target_id = {},
+                               int64_t evaporation_temperature_kelvin = 0,
+                               std::string condensation_target_id = {},
+                               int64_t condensation_temperature_kelvin = 0) {
+    return {
+        .id = std::move(id),
+        .title_key = "fluid.test",
+        .chemical_formula = "?",
+        .default_temperature_kelvin = 300,
+        .is_gas = is_gas,
+        .evaporation_target_id = std::move(evaporation_target_id),
+        .evaporation_temperature_kelvin = evaporation_temperature_kelvin,
+        .condensation_target_id = std::move(condensation_target_id),
+        .condensation_temperature_kelvin = condensation_temperature_kelvin,
     };
 }
 
@@ -163,6 +183,23 @@ TEST(GameContentRegistryTest, ResourceRuntimeKeysAreNormalizedSortedAndContiguou
               std::optional<ResourceKey>{ResourceKey::item("zinc.ingot")});
 }
 
+TEST(GameContentRegistryTest, ResourceRuntimeIndexIncludesFluidKeysWithTheSameSnapshot) {
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_item("bucket")));
+    ASSERT_TRUE(content.register_builtin_fluid(make_fluid("water")));
+
+    const auto item = content.find_resource_runtime_key(ResourceKey::item("bucket"));
+    const auto fluid = content.find_resource_runtime_key(ResourceKey::fluid("water"));
+    ASSERT_TRUE(item);
+    ASSERT_TRUE(fluid);
+    EXPECT_NE(item->type_id, fluid->type_id);
+    EXPECT_EQ(fluid->resource_id, 1u);
+    EXPECT_EQ(content.find_resource_key(*fluid),
+              std::optional<ResourceKey>{ResourceKey::fluid("water")});
+    ASSERT_NE(content.find_fluid("water"), nullptr);
+    EXPECT_EQ(content.fluid_definitions().size(), 1u);
+}
+
 TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousResourceRuntimeSnapshot) {
     GameContentRegistry content;
     ASSERT_TRUE(content.register_script_item(17, make_item("copper_ore")));
@@ -182,4 +219,25 @@ TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousResourceRuntim
     EXPECT_FALSE(after.resolve_runtime(ResourceKey::item("zinc_ore")));
     EXPECT_NE(content.find_item("copper_ore"), nullptr);
     EXPECT_EQ(content.find_item("zinc_ore"), nullptr);
+}
+
+TEST(GameContentRegistryTest, FailedFluidReloadRestoresThePriorResourceSnapshot) {
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_script_fluid(17, make_fluid("water")));
+    const auto before = content.resource_runtime_index();
+    ASSERT_TRUE(before.resolve_runtime(ResourceKey::fluid("water")));
+
+    ASSERT_TRUE(content.begin_reload(17));
+    ASSERT_TRUE(content.register_script_fluid(17, make_fluid("oil")));
+    ASSERT_TRUE(content.register_script_recipe(17, make_recipe("broken", "missing_ore")));
+    EXPECT_FALSE(content.commit_reload(17));
+    ASSERT_TRUE(content.rollback_reload(17));
+
+    const auto after = content.resource_runtime_index();
+    EXPECT_EQ(after.generation(), before.generation());
+    EXPECT_EQ(after.resolve_runtime(ResourceKey::fluid("water")),
+              before.resolve_runtime(ResourceKey::fluid("water")));
+    EXPECT_FALSE(after.resolve_runtime(ResourceKey::fluid("oil")));
+    EXPECT_NE(content.find_fluid("water"), nullptr);
+    EXPECT_EQ(content.find_fluid("oil"), nullptr);
 }

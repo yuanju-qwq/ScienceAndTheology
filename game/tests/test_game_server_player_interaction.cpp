@@ -276,7 +276,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     ASSERT_TRUE((*player_state)->on_peer_authenticated(
         peer, (*player_state)->default_persistent_state()));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "bed", .count = 1}}}));
+        peer, {.additions = {snt::game::GamePlayerItemStack::item("bed", 1)}}));
 
     CheckpointSink checkpoint;
     EventSink events;
@@ -309,7 +309,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
 
     auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_TRUE(inventory->slots[0].item_id.empty());
+    EXPECT_TRUE(inventory->slots[0].is_empty());
 
     const GameBlockInteractionCommand use_bed{
         .action = GameBlockInteractionAction::kUse,
@@ -340,8 +340,8 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     EXPECT_FALSE(*bed_present);
     inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0].item_id, "bed");
-    EXPECT_EQ(inventory->slots[0].count, 1);
+    EXPECT_EQ(inventory->slots[0].resource.key.id, "bed");
+    EXPECT_EQ(inventory->slots[0].resource.amount, 1);
     EXPECT_EQ(checkpoint.marks, 3);
     ASSERT_EQ(events.events.size(), 3u);
     EXPECT_EQ(events.events.front().tick_index, 10u);
@@ -378,9 +378,9 @@ TEST(GameServerPlayerInteractionTest,
         peer, (*player_state)->default_persistent_state()));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
         peer, {.additions = {
-            {.item_id = "wooden_shovel", .count = 1},
-            {.item_id = "seed.wheat", .count = 1},
-            {.item_id = "bone_meal", .count = 3},
+            snt::game::GamePlayerItemStack::item("wooden_shovel", 1),
+            snt::game::GamePlayerItemStack::item("seed.wheat", 1),
+            snt::game::GamePlayerItemStack::item("bone_meal", 3),
         }}));
 
     GameContentRegistry content;
@@ -470,9 +470,9 @@ TEST(GameServerPlayerInteractionTest,
     const auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
     const auto count_item = [&inventory](std::string_view item_id) {
-        int32_t count = 0;
+        int64_t count = 0;
         for (const auto& stack : inventory->slots) {
-            if (stack.item_id == item_id) count += stack.count;
+            if (stack.resource.key.id == item_id) count += stack.resource.amount;
         }
         return count;
     };
@@ -506,7 +506,7 @@ TEST(GameServerPlayerInteractionTest, SchedulesPhysicsOnlyAfterHostTerrainCommit
     ASSERT_TRUE((*player_state)->on_peer_authenticated(
         peer, (*player_state)->default_persistent_state()));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "sand", .count = 1}}}));
+        peer, {.additions = {snt::game::GamePlayerItemStack::item("sand", 1)}}));
 
     GameContentRegistry content;
     MachineInteractionService machine_interactions(content);
@@ -572,7 +572,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     ASSERT_TRUE((*player_state)->on_peer_authenticated(
         peer, (*player_state)->default_persistent_state()));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "bloomery", .count = 1}}}));
+        peer, {.additions = {snt::game::GamePlayerItemStack::item("bloomery", 1)}}));
 
     GameContentRegistry content;
     ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
@@ -619,7 +619,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
 
     const auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_TRUE(inventory->slots[0].item_id.empty());
+    EXPECT_TRUE(inventory->slots[0].is_empty());
     ASSERT_EQ(events.events.size(), 1u);
     EXPECT_EQ(events.events.front().kind, GameServerPlayerInteractionEventKind::kMachinePlaced);
     EXPECT_EQ(events.events.front().machine_id, "bloomery");
@@ -686,10 +686,8 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     const GameAuthenticatedPeer hammer_peer = make_peer(603, "Hammer Player");
     auto hammer_persistent_state = (*player_state)->default_persistent_state();
     hammer_persistent_state.equipment.slots[
-        static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] = {
-        .item_id = "hammer",
-        .count = 1,
-    };
+        static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] =
+        snt::game::GamePlayerItemStack::item("hammer", 1);
     ASSERT_TRUE((*player_state)->on_peer_authenticated(hammer_peer, hammer_persistent_state));
 
     GameContentRegistry content;
@@ -700,7 +698,7 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     auto& runtime = world.add_component<MachineRuntimeComponent>(machine_entity);
     runtime.machine_id = "bloomery";
     runtime.state = MachineRunState::WaitingForActivation;
-    runtime.output_slots = {{.item_id = "iron_bloom", .count = 2}};
+    runtime.output_slots = {snt::game::MachineItemStack::item("iron_bloom", 2)};
     const auto machine_guid = world.guid_of(machine_entity);
 
     auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
@@ -764,8 +762,8 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     EXPECT_TRUE(runtime.output_slots[0].empty());
     auto inventory = (*player_state)->inventory_for_peer(hammer_peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0].item_id, "iron_bloom");
-    EXPECT_EQ(inventory->slots[0].count, 2);
+    EXPECT_EQ(inventory->slots[0].resource.key.id, "iron_bloom");
+    EXPECT_EQ(inventory->slots[0].resource.amount, 2);
 
     const GameBlockInteractionCommand mine_machine{
         .action = GameBlockInteractionAction::kMine,
@@ -798,7 +796,7 @@ TEST(GameServerPlayerInteractionTest,
     ASSERT_TRUE((*player_state)->on_peer_authenticated(
         peer, (*player_state)->default_persistent_state()));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "iron_ore", .count = 6}}}));
+        peer, {.additions = {snt::game::GamePlayerItemStack::item("iron_ore", 6)}}));
 
     GameContentRegistry content;
     ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
@@ -809,7 +807,7 @@ TEST(GameServerPlayerInteractionTest,
     runtime.max_input_slots = 2;
     runtime.max_output_slots = 1;
     runtime.max_stack_size = 5;
-    runtime.input_slots = {{.item_id = "iron_ore", .count = 2}};
+    runtime.input_slots = {snt::game::MachineItemStack::item("iron_ore", 2)};
     const auto machine_guid = world.guid_of(machine_entity);
 
     auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
@@ -876,8 +874,8 @@ TEST(GameServerPlayerInteractionTest,
         .player_slot = 0,
         .machine_input_slot = 0,
         .count = 4,
-        .expected_player_slot = {.item_id = "iron_ore", .count = 6},
-        .expected_machine_input_slot = {.item_id = "iron_ore", .count = 2},
+        .expected_player_slot = snt::game::GamePlayerItemStack::item("iron_ore", 6),
+        .expected_machine_input_slot = snt::game::GamePlayerItemStack::item("iron_ore", 2),
     };
     ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, over_capacity, 51));
     auto rejected_values = (*inventory_source)->collect_values(
@@ -893,10 +891,10 @@ TEST(GameServerPlayerInteractionTest,
     EXPECT_EQ(rejected_capacity.response.kind,
               GameInventoryCommandKind::kMachineInputSlotTransfer);
     EXPECT_EQ(rejected_capacity.response.outcome, GameInventorySlotTransferOutcome::kRejected);
-    EXPECT_EQ(runtime.input_slots[0].count, 2);
+    EXPECT_EQ(runtime.input_slots[0].resource.amount, 2);
     auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 6}));
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 6)));
     (*inventory_source)->on_values_committed(
         peer, snt::game::replication::GameReplicationValueCollectionPhase::kDelta,
         *rejected_values);
@@ -907,9 +905,9 @@ TEST(GameServerPlayerInteractionTest,
     ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, to_machine, 52));
     inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 3}));
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 3)));
     ASSERT_EQ(runtime.input_slots.size(), 1u);
-    EXPECT_EQ(runtime.input_slots[0].count, 5);
+    EXPECT_EQ(runtime.input_slots[0].resource.amount, 5);
 
     auto accepted_values = (*inventory_source)->collect_values(
         peer, {}, budget, context,
@@ -939,15 +937,15 @@ TEST(GameServerPlayerInteractionTest,
         .player_slot = 0,
         .machine_input_slot = 0,
         .count = 2,
-        .expected_player_slot = {.item_id = "iron_ore", .count = 3},
-        .expected_machine_input_slot = {.item_id = "iron_ore", .count = 5},
+        .expected_player_slot = snt::game::GamePlayerItemStack::item("iron_ore", 3),
+        .expected_machine_input_slot = snt::game::GamePlayerItemStack::item("iron_ore", 5),
     };
     ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, to_player, 53));
     inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 5}));
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 5)));
     ASSERT_EQ(runtime.input_slots.size(), 1u);
-    EXPECT_EQ(runtime.input_slots[0].count, 3);
+    EXPECT_EQ(runtime.input_slots[0].resource.amount, 3);
 
     auto returned_values = (*inventory_source)->collect_values(
         peer, {}, budget, context,
@@ -966,8 +964,8 @@ TEST(GameServerPlayerInteractionTest,
     GameMachineInputSlotTransferCommand stale = to_player;
     stale.request_id = 4;
     stale.expected_inventory_revision = accepted.inventory_revision;
-    stale.expected_player_slot = {.item_id = "iron_ore", .count = 5};
-    stale.expected_machine_input_slot = {.item_id = "iron_ore", .count = 3};
+    stale.expected_player_slot = snt::game::GamePlayerItemStack::item("iron_ore", 5);
+    stale.expected_machine_input_slot = snt::game::GamePlayerItemStack::item("iron_ore", 3);
     ASSERT_TRUE((*interactions)->submit_machine_input_slot_transfer(peer, stale, 54));
     auto stale_values = (*inventory_source)->collect_values(
         peer, {}, budget, context,
@@ -984,8 +982,8 @@ TEST(GameServerPlayerInteractionTest,
     EXPECT_EQ(stale_response.response.outcome, GameInventorySlotTransferOutcome::kRejected);
     inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron_ore", 5}));
-    EXPECT_EQ(runtime.input_slots[0].count, 3);
+    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 5)));
+    EXPECT_EQ(runtime.input_slots[0].resource.amount, 3);
     EXPECT_EQ(checkpoint.marks, 2);
     (*player_state)->shutdown();
 }
@@ -1037,7 +1035,7 @@ TEST(GameServerCommandSinkTest, DispatchesMachineInputTransferInTheSharedCommand
             .player_slot = 0,
             .machine_input_slot = 0,
             .count = 1,
-            .expected_player_slot = {.item_id = "iron_ore", .count = 1},
+            .expected_player_slot = snt::game::GamePlayerItemStack::item("iron_ore", 1),
         });
     ASSERT_TRUE(command) << command.error().format();
     ASSERT_TRUE(sink.enqueue_client_command(peer, std::move(*command), context));

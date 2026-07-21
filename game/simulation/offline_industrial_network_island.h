@@ -1,23 +1,27 @@
-// Cable-backed offline power islands.
+// Offline industrial-network islands.
 //
-// The topology provider compresses only complete cable components into a
-// durable island snapshot. The simulator then moves explicitly permitted
-// buffer energy and delegates machine progress to the shared execution core.
+// The provider owns one atomic unload boundary across cable and pipe graphs,
+// then records separate resource segments inside that boundary. The simulator
+// executes explicit power and item transfers before delegating machine work to
+// the shared execution core. Fluid segments deliberately keep their component
+// materialized until a fluid simulator is bound.
 
 #pragma once
 
+#include "game/resources/resource_key.h"
 #include "game/simulation/offline_machine_simulation.h"
-
-#include <string_view>
 
 namespace snt::game {
 
-inline constexpr std::string_view kOfflinePowerLedgerResourceId = "snt.power.buffer";
+[[nodiscard]] inline const ResourceKey& offline_network_power_ledger_key() {
+    static const ResourceKey key = ResourceKey::power("snt.power.buffer");
+    return key;
+}
 
-class OfflinePowerNetworkIslandProvider final : public IOfflineNetworkIslandProvider {
+class OfflineIndustrialNetworkIslandProvider final : public IOfflineNetworkIslandProvider {
 public:
-    OfflinePowerNetworkIslandProvider(GameContentRegistry& content,
-                                      GameChunkSidecarRegistry& sidecars) noexcept;
+    OfflineIndustrialNetworkIslandProvider(GameContentRegistry& content,
+                                           GameChunkSidecarRegistry& sidecars) noexcept;
 
     [[nodiscard]] snt::core::Expected<std::vector<OfflineNetworkIslandSnapshot>>
     build_offline_islands(std::span<const ChunkKey> candidate_chunks,
@@ -28,7 +32,7 @@ private:
     GameChunkSidecarRegistry* sidecars_ = nullptr;
 };
 
-class OfflinePowerNetworkIslandSimulator final : public IOfflineNetworkIslandSimulator {
+class OfflineIndustrialNetworkIslandSimulator final : public IOfflineNetworkIslandSimulator {
 public:
     [[nodiscard]] snt::core::Expected<uint64_t> advance_offline_island(
         OfflineNetworkIslandSnapshot& snapshot,

@@ -18,9 +18,9 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v20 writes player grave stacks as
-    // ResourceStack values so type and stack variant survive persistence.
-    static constexpr uint8_t kCurrentVersion = 20;
+    // Current binary format version. v22 writes full ResourceKey values for
+    // offline network ledgers so type and stack variant survive persistence.
+    static constexpr uint8_t kCurrentVersion = 22;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current

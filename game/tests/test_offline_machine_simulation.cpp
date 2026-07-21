@@ -14,7 +14,7 @@
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/simulation/offline_machine_simulation.h"
 #include "game/simulation/offline_network_island_registry.h"
-#include "game/simulation/offline_power_network_island.h"
+#include "game/simulation/offline_industrial_network_island.h"
 #include "game/world/save/chunk_serializer.h"
 #include "voxel/data/voxel_chunk.h"
 
@@ -40,11 +40,14 @@ using snt::game::OfflineNetworkIslandRegistry;
 using snt::game::OfflineNetworkIslandSnapshot;
 using snt::game::OfflineNetworkResourceKind;
 using snt::game::OfflineNetworkResourceLedger;
-using snt::game::OfflinePowerNetworkIslandProvider;
-using snt::game::OfflinePowerNetworkIslandSimulator;
+using snt::game::OfflineNetworkTransportSegment;
+using snt::game::OfflineIndustrialNetworkIslandProvider;
+using snt::game::OfflineIndustrialNetworkIslandSimulator;
+using snt::game::PipeType;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
+using snt::game::ResourceKey;
 using snt::game::VoltageTier;
 using snt::voxel::ChunkKey;
 
@@ -127,6 +130,42 @@ void register_power_network_content(GameContentRegistry& content,
     ASSERT_TRUE(content.register_builtin_recipe(std::move(recipe)));
 }
 
+void register_item_network_content(GameContentRegistry& content,
+                                   uint32_t max_batch_ticks = 5,
+                                   int32_t max_transfer_per_tick = 2,
+                                   int32_t recipe_duration_ticks = 2) {
+    ASSERT_TRUE(content.register_builtin_item({
+        .id = "offline.item_ore", .title_key = "item.offline.item_ore", .max_stack = 64}));
+    ASSERT_TRUE(content.register_builtin_item({
+        .id = "offline.item_ingot", .title_key = "item.offline.item_ingot", .max_stack = 64}));
+
+    MachineDefinition source;
+    source.id = "offline.item_source";
+    source.display_name = "Offline Item Source";
+    source.tier = 1;
+    source.offline_simulation.mode = MachineOfflineSimulationMode::kNetworkIsland;
+    source.offline_simulation.max_batch_ticks = max_batch_ticks;
+    source.offline_simulation.max_item_export_per_tick = max_transfer_per_tick;
+    ASSERT_TRUE(content.register_builtin_machine(std::move(source)));
+
+    MachineDefinition consumer;
+    consumer.id = "offline.item_consumer";
+    consumer.display_name = "Offline Item Consumer";
+    consumer.tier = 1;
+    consumer.offline_simulation.mode = MachineOfflineSimulationMode::kNetworkIsland;
+    consumer.offline_simulation.max_batch_ticks = max_batch_ticks;
+    consumer.offline_simulation.max_item_import_per_tick = max_transfer_per_tick;
+    ASSERT_TRUE(content.register_builtin_machine(std::move(consumer)));
+
+    RecipeDefinition recipe;
+    recipe.id = "offline.item_consumer.recipe";
+    recipe.machine_id = "offline.item_consumer";
+    recipe.inputs = {RecipeInputDefinition{"offline.item_ore", 1}};
+    recipe.outputs = {RecipeOutputDefinition{"offline.item_ingot", 1}};
+    recipe.duration_ticks = recipe_duration_ticks;
+    ASSERT_TRUE(content.register_builtin_recipe(std::move(recipe)));
+}
+
 void add_power_cable(GameChunkSidecarRegistry& sidecars,
                      const ChunkKey& chunk_key,
                      uint64_t entity_id,
@@ -144,6 +183,28 @@ void add_power_cable(GameChunkSidecarRegistry& sidecars,
         .root_y = root_y,
         .root_z = root_z,
         .type_data_json = std::to_string(static_cast<int>(tier)) + "|" +
+                          std::to_string(static_cast<int>(connection_mask)),
+        .owned_cell_count = 1,
+    });
+}
+
+void add_pipe(GameChunkSidecarRegistry& sidecars,
+              const ChunkKey& chunk_key,
+              uint64_t entity_id,
+              int32_t root_x,
+              int32_t root_y,
+              int32_t root_z,
+              uint8_t connection_mask,
+              PipeType type = PipeType::ITEM) {
+    auto* sidecar = sidecars.get(chunk_key);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->block_entities.push_back({
+        .id = {entity_id},
+        .entity_type = snt::game::BlockEntityType::PIPE,
+        .root_x = root_x,
+        .root_y = root_y,
+        .root_z = root_z,
+        .type_data_json = std::to_string(static_cast<int>(type)) + "|" +
                           std::to_string(static_cast<int>(connection_mask)),
         .owned_cell_count = 1,
     });
@@ -182,6 +243,42 @@ PowerMachinePair create_power_machine_pair(snt::ecs::World& world,
         consumer_runtime.input_slots = {
             MachineItemStack::item("offline.power_ore", input_count)};
     }
+    const auto consumer = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, consumer_chunk, consumer_x, 0, 0, std::move(consumer_runtime));
+    if (!consumer) {
+        ADD_FAILURE() << consumer.error().format();
+        return {};
+    }
+    return {source->entity_guid.value, consumer->entity_guid.value};
+}
+
+struct ItemMachinePair {
+    uint64_t source_guid = 0;
+    uint64_t consumer_guid = 0;
+};
+
+ItemMachinePair create_item_machine_pair(snt::ecs::World& world,
+                                         GameChunkSidecarRegistry& sidecars,
+                                         const ChunkKey& source_chunk,
+                                         int32_t source_x,
+                                         const ChunkKey& consumer_chunk,
+                                         int32_t consumer_x,
+                                         int32_t output_count) {
+    MachineRuntimeComponent source_runtime;
+    source_runtime.machine_id = "offline.item_source";
+    if (output_count > 0) {
+        source_runtime.output_slots = {
+            MachineItemStack::item("offline.item_ore", output_count)};
+    }
+    const auto source = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, source_chunk, source_x, 0, 0, std::move(source_runtime));
+    if (!source) {
+        ADD_FAILURE() << source.error().format();
+        return {};
+    }
+
+    MachineRuntimeComponent consumer_runtime;
+    consumer_runtime.machine_id = "offline.item_consumer";
     const auto consumer = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, consumer_chunk, consumer_x, 0, 0, std::move(consumer_runtime));
     if (!consumer) {
@@ -467,6 +564,712 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineOwnershipMetadata)
     EXPECT_EQ(restored_record.residency, MachineRuntimeResidency::kOfflineStandalone);
     EXPECT_EQ(restored_record.offline_last_simulated_tick, 1234u);
     EXPECT_EQ(restored_record.offline_epoch, 7u);
+}
+
+TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnapshot) {
+    const ChunkKey anchor_chunk{"overworld", -1, 0, 0};
+    const ChunkKey member_chunk{"overworld", 0, 0, 0};
+
+    GameChunk source;
+    source.terrain.resize(1, 1, 1);
+    source.offline_network_islands.push_back({
+        .island_id = 901,
+        .ownership_epoch = 17,
+        .dimension_id = "overworld",
+        .anchor_chunk = anchor_chunk,
+        .member_chunks = {anchor_chunk, member_chunk},
+        .topology_revision = 73,
+        .last_simulated_tick = 12345,
+        .machine_guids = {101, 202},
+        .transport_segments = {
+            {
+                .segment_id = 73,
+                .kind = OfflineNetworkResourceKind::kPower,
+                .machine_guids = {101, 202},
+                .capacity = 64,
+                .max_transfer_per_tick = 8,
+            },
+            {
+                .segment_id = 74,
+                .kind = OfflineNetworkResourceKind::kItem,
+                .machine_guids = {101, 202},
+                .capacity = 32,
+                .max_transfer_per_tick = 3,
+            },
+            {
+                .segment_id = 75,
+                .kind = OfflineNetworkResourceKind::kFluid,
+                .machine_guids = {101, 202},
+                .capacity = 4000,
+                .max_transfer_per_tick = 250,
+            },
+        },
+        .boundary_ports = {{
+            .segment_id = 73,
+            .node_id = 444,
+            .adjacent_chunk = {"overworld", 1, 0, 0},
+            .direction = 1,
+            .topology_revision = 73,
+        }},
+        .ledgers = {
+            {
+                .segment_id = 73,
+                .kind = OfflineNetworkResourceKind::kPower,
+                .resource = ResourceKey::power("snt.power.buffer"),
+                .stored_amount = 19,
+                .capacity = 64,
+                .max_transfer_per_tick = 8,
+            },
+            {
+                .segment_id = 74,
+                .kind = OfflineNetworkResourceKind::kItem,
+                .resource = ResourceKey::item("offline.item.buffer", "grade=refined"),
+                .stored_amount = 7,
+                .capacity = 32,
+                .max_transfer_per_tick = 3,
+            },
+            {
+                .segment_id = 75,
+                .kind = OfflineNetworkResourceKind::kFluid,
+                .resource = ResourceKey::fluid("offline.fluid.buffer", "temperature=320"),
+                .stored_amount = 1200,
+                .capacity = 4000,
+                .max_transfer_per_tick = 250,
+            },
+        },
+    });
+
+    const GameChunkSerializer serializer;
+    const auto payload = serializer.serialize("overworld", source);
+    GameChunk restored;
+    std::string dimension_id;
+    ASSERT_TRUE(serializer.deserialize(payload, dimension_id, restored));
+    ASSERT_EQ(restored.offline_network_islands.size(), 1u);
+    const OfflineNetworkIslandSnapshot& snapshot = restored.offline_network_islands.front();
+    EXPECT_EQ(snapshot.island_id, 901u);
+    EXPECT_EQ(snapshot.ownership_epoch, 17u);
+    EXPECT_EQ(snapshot.dimension_id, "overworld");
+    EXPECT_EQ(snapshot.anchor_chunk.dimension_id, anchor_chunk.dimension_id);
+    EXPECT_EQ(snapshot.anchor_chunk.chunk_x, anchor_chunk.chunk_x);
+    ASSERT_EQ(snapshot.member_chunks.size(), 2u);
+    EXPECT_EQ(snapshot.member_chunks[1].chunk_x, member_chunk.chunk_x);
+    EXPECT_EQ(snapshot.topology_revision, 73u);
+    EXPECT_EQ(snapshot.last_simulated_tick, 12345u);
+    EXPECT_EQ(snapshot.machine_guids, (std::vector<uint64_t>{101, 202}));
+    ASSERT_EQ(snapshot.transport_segments.size(), 3u);
+    EXPECT_EQ(snapshot.transport_segments[0].segment_id, 73u);
+    EXPECT_EQ(snapshot.transport_segments[0].kind, OfflineNetworkResourceKind::kPower);
+    EXPECT_EQ(snapshot.transport_segments[1].segment_id, 74u);
+    EXPECT_EQ(snapshot.transport_segments[1].kind, OfflineNetworkResourceKind::kItem);
+    EXPECT_EQ(snapshot.transport_segments[2].segment_id, 75u);
+    EXPECT_EQ(snapshot.transport_segments[2].max_transfer_per_tick, 250);
+    ASSERT_EQ(snapshot.boundary_ports.size(), 1u);
+    EXPECT_EQ(snapshot.boundary_ports.front().segment_id, 73u);
+    EXPECT_EQ(snapshot.boundary_ports.front().node_id, 444u);
+    EXPECT_EQ(snapshot.boundary_ports.front().adjacent_chunk.chunk_x, 1);
+    EXPECT_EQ(snapshot.boundary_ports.front().direction, 1u);
+    ASSERT_EQ(snapshot.ledgers.size(), 3u);
+    EXPECT_EQ(snapshot.ledgers[0].kind, OfflineNetworkResourceKind::kPower);
+    EXPECT_EQ(snapshot.ledgers[0].stored_amount, 19);
+    EXPECT_EQ(snapshot.ledgers[0].resource, ResourceKey::power("snt.power.buffer"));
+    EXPECT_EQ(snapshot.ledgers[1].kind, OfflineNetworkResourceKind::kItem);
+    EXPECT_EQ(snapshot.ledgers[1].resource,
+              ResourceKey::item("offline.item.buffer", "grade=refined"));
+    EXPECT_EQ(snapshot.ledgers[2].kind, OfflineNetworkResourceKind::kFluid);
+    EXPECT_EQ(snapshot.ledgers[2].resource,
+              ResourceKey::fluid("offline.fluid.buffer", "temperature=320"));
+    EXPECT_EQ(snapshot.ledgers[2].max_transfer_per_tick, 250);
+}
+
+TEST(OfflineMachineSimulationTest, NetworkIslandRegistryClaimsReleasesAndRecoversEpochOwnership) {
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey left_chunk = make_chunk_key(0);
+    const ChunkKey right_chunk = make_chunk_key(1);
+    sidecars.set(left_chunk, {});
+    sidecars.set(right_chunk, {});
+
+    snt::ecs::World world;
+    MachineRuntimeComponent left_runtime;
+    left_runtime.machine_id = "offline.registry_left";
+    const auto left = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, left_chunk, 0, 0, 0, std::move(left_runtime));
+    ASSERT_TRUE(left);
+    MachineRuntimeComponent right_runtime;
+    right_runtime.machine_id = "offline.registry_right";
+    const auto right = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, right_chunk, snt::voxel::VoxelChunk::kChunkSize, 0, 0,
+        std::move(right_runtime));
+    ASSERT_TRUE(right);
+
+    OfflineNetworkIslandSnapshot snapshot{
+        .island_id = 700,
+        .dimension_id = "overworld",
+        .anchor_chunk = left_chunk,
+        .member_chunks = {left_chunk, right_chunk},
+        .topology_revision = 2,
+        .machine_guids = {left->entity_guid.value, right->entity_guid.value},
+        .transport_segments = {{
+            .segment_id = 2,
+            .kind = OfflineNetworkResourceKind::kPower,
+            .machine_guids = {left->entity_guid.value, right->entity_guid.value},
+            .capacity = 42,
+            .max_transfer_per_tick = 3,
+        }},
+        .ledgers = {{
+            .segment_id = 2,
+            .kind = OfflineNetworkResourceKind::kPower,
+            .resource = ResourceKey::power("snt.power.buffer"),
+            .capacity = 42,
+            .max_transfer_per_tick = 3,
+        }},
+    };
+
+    OfflineNetworkIslandRegistry registry(sidecars);
+    ASSERT_TRUE(registry.initialize());
+    const auto claim = registry.claim(std::move(snapshot), 50);
+    ASSERT_TRUE(claim);
+    EXPECT_EQ(claim->ownership_epoch, 1u);
+    const auto* left_sidecar = sidecars.get(left_chunk);
+    const auto* right_sidecar = sidecars.get(right_chunk);
+    ASSERT_NE(left_sidecar, nullptr);
+    ASSERT_NE(right_sidecar, nullptr);
+    ASSERT_EQ(left_sidecar->offline_network_islands.size(), 1u);
+    EXPECT_EQ(left_sidecar->offline_network_islands.front().ownership_epoch,
+              claim->ownership_epoch);
+    ASSERT_EQ(left_sidecar->machine_runtime_records.size(), 1u);
+    ASSERT_EQ(right_sidecar->machine_runtime_records.size(), 1u);
+    EXPECT_EQ(left_sidecar->machine_runtime_records.front().residency,
+              MachineRuntimeResidency::kOfflineNetworkIsland);
+    EXPECT_EQ(right_sidecar->machine_runtime_records.front().offline_island_id,
+              claim->island_id);
+    EXPECT_EQ(right_sidecar->machine_runtime_records.front().offline_epoch,
+              claim->ownership_epoch);
+
+    OfflineNetworkIslandRegistry restarted_registry(sidecars);
+    ASSERT_TRUE(restarted_registry.initialize());
+    ASSERT_EQ(restarted_registry.size(), 1u);
+    const auto release = restarted_registry.prepare_release(
+        claim->island_id, claim->ownership_epoch);
+    ASSERT_TRUE(release);
+    EXPECT_EQ(release->last_simulated_tick, 50u);
+    EXPECT_FALSE(restarted_registry.prepare_release(
+        claim->island_id, claim->ownership_epoch + 1));
+
+    for (const ChunkKey& chunk_key : release->member_chunks) {
+        auto* sidecar = sidecars.get(chunk_key);
+        ASSERT_NE(sidecar, nullptr);
+        for (MachineRuntimePersistenceRecord& record : sidecar->machine_runtime_records) {
+            record.residency = MachineRuntimeResidency::kLoaded;
+            record.offline_island_id = 0;
+            ++record.offline_epoch;
+        }
+    }
+    ASSERT_TRUE(restarted_registry.complete_release(
+        claim->island_id, claim->ownership_epoch));
+    EXPECT_TRUE(left_sidecar->offline_network_islands.empty());
+    EXPECT_EQ(restarted_registry.size(), 0u);
+
+    OfflineNetworkIslandRegistry after_release(sidecars);
+    ASSERT_TRUE(after_release.initialize());
+    EXPECT_EQ(after_release.size(), 0u);
+}
+
+TEST(OfflineMachineSimulationTest, NetworkIslandRegistryRejectsMismatchedRestartOwnership) {
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey chunk_key = make_chunk_key();
+    sidecars.set(chunk_key, {});
+    snt::ecs::World world;
+    MachineRuntimeComponent runtime;
+    runtime.machine_id = "offline.registry_corrupt";
+    const auto machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, chunk_key, 0, 0, 0, std::move(runtime));
+    ASSERT_TRUE(machine);
+
+    OfflineNetworkIslandRegistry registry(sidecars);
+    ASSERT_TRUE(registry.initialize());
+    const auto claim = registry.claim({
+        .island_id = 701,
+        .dimension_id = "overworld",
+        .anchor_chunk = chunk_key,
+        .member_chunks = {chunk_key},
+        .topology_revision = 4,
+        .machine_guids = {machine->entity_guid.value},
+    }, 7);
+    ASSERT_TRUE(claim);
+    auto* sidecar = sidecars.get(chunk_key);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->machine_runtime_records.front().offline_island_id = 702;
+
+    OfflineNetworkIslandRegistry restarted_registry(sidecars);
+    EXPECT_FALSE(restarted_registry.initialize());
+}
+
+TEST(OfflineMachineSimulationTest, PowerTopologyKeepsPartialTicketedComponentMaterialized) {
+    GameContentRegistry content;
+    register_power_network_content(content);
+
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey left_chunk = make_chunk_key(0);
+    const ChunkKey right_chunk = make_chunk_key(1);
+    sidecars.set(left_chunk, {});
+    sidecars.set(right_chunk, {});
+    snt::ecs::World world;
+    const int32_t chunk_size = snt::voxel::VoxelChunk::kChunkSize;
+    const PowerMachinePair machines = create_power_machine_pair(
+        world, sidecars, left_chunk, chunk_size - 1, right_chunk, chunk_size + 1,
+        10, 0, 1);
+    ASSERT_NE(machines.source_guid, 0u);
+    ASSERT_NE(machines.consumer_guid, 0u);
+    add_power_cable(sidecars, right_chunk, 9001, chunk_size, 0, 0,
+                    static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                         snt::game::CONN_NEG_X));
+
+    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+    const std::vector<ChunkKey> left_candidate{left_chunk};
+    const auto partial_topology = provider.build_offline_islands(left_candidate, 100);
+    ASSERT_TRUE(partial_topology);
+    EXPECT_TRUE(partial_topology->empty());
+
+    OfflineIndustrialNetworkIslandSimulator simulator;
+    OfflineMachineSimulationService offline(content, sidecars);
+    offline.set_network_island_provider(&provider);
+    offline.set_network_island_simulator(&simulator);
+    ASSERT_TRUE(offline.initialize(100));
+    const auto partial_transition = offline.dematerialize_chunks(
+        world, left_candidate, 100);
+    ASSERT_TRUE(partial_transition);
+    EXPECT_EQ(partial_transition->network_island_count, 0u);
+    EXPECT_EQ(partial_transition->deferred_network_machine_count, 1u);
+    const auto* left_sidecar = sidecars.get(left_chunk);
+    ASSERT_NE(left_sidecar, nullptr);
+    EXPECT_EQ(left_sidecar->machine_runtime_records.front().residency,
+              MachineRuntimeResidency::kLoaded);
+    EXPECT_TRUE(world.find_entity_by_guid(snt::ecs::EntityGuid{machines.source_guid}) != entt::null);
+
+    const std::vector<ChunkKey> complete_candidates{left_chunk, right_chunk};
+    const auto complete_transition = offline.dematerialize_chunks(
+        world, complete_candidates, 100);
+    ASSERT_TRUE(complete_transition);
+    EXPECT_EQ(complete_transition->network_island_count, 1u);
+    EXPECT_EQ(complete_transition->network_island_machine_count, 2u);
+    EXPECT_EQ(complete_transition->deferred_network_machine_count, 0u);
+    EXPECT_EQ(offline.offline_network_island_count(), 1u);
+    EXPECT_TRUE(world.find_entity_by_guid(snt::ecs::EntityGuid{machines.source_guid}) == entt::null);
+    EXPECT_TRUE(world.find_entity_by_guid(snt::ecs::EntityGuid{machines.consumer_guid}) == entt::null);
+}
+
+TEST(OfflineMachineSimulationTest, PowerIslandTransfersBufferedEnergyAndRestoresMachineProgress) {
+    GameContentRegistry content;
+    register_power_network_content(content);
+
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey chunk_key = make_chunk_key();
+    sidecars.set(chunk_key, {});
+    snt::ecs::World world;
+    const PowerMachinePair machines = create_power_machine_pair(
+        world, sidecars, chunk_key, 0, chunk_key, 2, 10, 0, 2);
+    ASSERT_NE(machines.source_guid, 0u);
+    ASSERT_NE(machines.consumer_guid, 0u);
+    add_power_cable(sidecars, chunk_key, 9002, 1, 0, 0,
+                    static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                         snt::game::CONN_NEG_X));
+
+    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+    OfflineIndustrialNetworkIslandSimulator simulator;
+    OfflineMachineSimulationService offline(content, sidecars);
+    offline.set_network_island_provider(&provider);
+    offline.set_network_island_simulator(&simulator);
+    ASSERT_TRUE(offline.initialize(100));
+    const std::vector<ChunkKey> candidates{chunk_key};
+    const auto transition = offline.dematerialize_chunks(world, candidates, 100);
+    ASSERT_TRUE(transition);
+    EXPECT_EQ(transition->network_island_count, 1u);
+    EXPECT_EQ(transition->network_island_machine_count, 2u);
+    ASSERT_TRUE(offline.tick(105));
+
+    auto* sidecar = sidecars.get(chunk_key);
+    ASSERT_NE(sidecar, nullptr);
+    ASSERT_EQ(sidecar->machine_runtime_records.size(), 2u);
+    const MachineRuntimePersistenceRecord& source = sidecar->machine_runtime_records[0];
+    const MachineRuntimePersistenceRecord& consumer = sidecar->machine_runtime_records[1];
+    EXPECT_EQ(source.stored_energy, 0);
+    EXPECT_EQ(consumer.stored_energy, 6);
+    ASSERT_EQ(consumer.output_slots.size(), 1u);
+    EXPECT_EQ(consumer.output_slots.front().resource.key.id, "offline.power_ingot");
+    EXPECT_EQ(consumer.output_slots.front().resource.amount, 2);
+    ASSERT_EQ(sidecar->offline_network_islands.size(), 1u);
+    const OfflineNetworkIslandSnapshot& snapshot = sidecar->offline_network_islands.front();
+    ASSERT_EQ(snapshot.ledgers.size(), 1u);
+    EXPECT_EQ(snapshot.ledgers.front().kind, OfflineNetworkResourceKind::kPower);
+    EXPECT_EQ(snapshot.ledgers.front().stored_amount, 0);
+    EXPECT_EQ(snapshot.last_simulated_tick, 105u);
+
+    ASSERT_TRUE(offline.materialize_chunk(world, chunk_key, 105));
+    EXPECT_TRUE(sidecar->offline_network_islands.empty());
+    EXPECT_EQ(sidecar->machine_runtime_records[0].residency, MachineRuntimeResidency::kLoaded);
+    EXPECT_EQ(sidecar->machine_runtime_records[1].residency, MachineRuntimeResidency::kLoaded);
+    EXPECT_TRUE(world.find_entity_by_guid(snt::ecs::EntityGuid{machines.source_guid}) != entt::null);
+    EXPECT_TRUE(world.find_entity_by_guid(snt::ecs::EntityGuid{machines.consumer_guid}) != entt::null);
+}
+
+TEST(OfflineMachineSimulationTest, IndustrialTopologySeparatesPowerAndItemSegments) {
+    GameContentRegistry content;
+    register_power_network_content(content);
+    register_item_network_content(content);
+
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey chunk_key = make_chunk_key();
+    sidecars.set(chunk_key, {});
+    snt::ecs::World world;
+
+    MachineRuntimeComponent power_runtime;
+    power_runtime.machine_id = "offline.power_source";
+    const auto power_machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, chunk_key, 0, 0, 0, std::move(power_runtime));
+    ASSERT_TRUE(power_machine);
+    MachineRuntimeComponent bridge_runtime;
+    bridge_runtime.machine_id = "offline.item_source";
+    const auto bridge_machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, chunk_key, 2, 0, 0, std::move(bridge_runtime));
+    ASSERT_TRUE(bridge_machine);
+    MachineRuntimeComponent item_runtime;
+    item_runtime.machine_id = "offline.item_consumer";
+    const auto item_machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, chunk_key, 4, 0, 0, std::move(item_runtime));
+    ASSERT_TRUE(item_machine);
+    add_power_cable(sidecars, chunk_key, 9201, 1, 0, 0,
+                    static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                         snt::game::CONN_NEG_X));
+    add_pipe(sidecars, chunk_key, 9202, 3, 0, 0,
+             static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                  snt::game::CONN_NEG_X));
+
+    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+    const std::vector<ChunkKey> candidates{chunk_key};
+    const auto built = provider.build_offline_islands(candidates, 25);
+    ASSERT_TRUE(built);
+    ASSERT_EQ(built->size(), 1u);
+    const OfflineNetworkIslandSnapshot& snapshot = built->front();
+    EXPECT_EQ(snapshot.machine_guids,
+              (std::vector<uint64_t>{power_machine->entity_guid.value,
+                                     bridge_machine->entity_guid.value,
+                                     item_machine->entity_guid.value}));
+    ASSERT_EQ(snapshot.transport_segments.size(), 2u);
+    const auto power_segment = std::find_if(
+        snapshot.transport_segments.begin(), snapshot.transport_segments.end(),
+        [](const OfflineNetworkTransportSegment& segment) {
+            return segment.kind == OfflineNetworkResourceKind::kPower;
+        });
+    const auto item_segment = std::find_if(
+        snapshot.transport_segments.begin(), snapshot.transport_segments.end(),
+        [](const OfflineNetworkTransportSegment& segment) {
+            return segment.kind == OfflineNetworkResourceKind::kItem;
+        });
+    ASSERT_NE(power_segment, snapshot.transport_segments.end());
+    ASSERT_NE(item_segment, snapshot.transport_segments.end());
+    EXPECT_EQ(power_segment->machine_guids,
+              (std::vector<uint64_t>{power_machine->entity_guid.value,
+                                     bridge_machine->entity_guid.value}));
+    EXPECT_EQ(item_segment->machine_guids,
+              (std::vector<uint64_t>{bridge_machine->entity_guid.value,
+                                     item_machine->entity_guid.value}));
+    EXPECT_EQ(item_segment->capacity, 0);
+    EXPECT_EQ(item_segment->max_transfer_per_tick, 1);
+    ASSERT_EQ(snapshot.ledgers.size(), 1u);
+    EXPECT_EQ(snapshot.ledgers.front().segment_id, power_segment->segment_id);
+}
+
+TEST(OfflineMachineSimulationTest, ItemIslandTransfersOutputsBeforeMachineExecution) {
+    GameContentRegistry content;
+    register_item_network_content(content, 1, 2, 1);
+
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey chunk_key = make_chunk_key();
+    sidecars.set(chunk_key, {});
+    snt::ecs::World world;
+    const ItemMachinePair machines = create_item_machine_pair(
+        world, sidecars, chunk_key, 0, chunk_key, 2, 3);
+    ASSERT_NE(machines.source_guid, 0u);
+    ASSERT_NE(machines.consumer_guid, 0u);
+    add_pipe(sidecars, chunk_key, 9203, 1, 0, 0,
+             static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                  snt::game::CONN_NEG_X));
+
+    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+    OfflineIndustrialNetworkIslandSimulator simulator;
+    OfflineMachineSimulationService offline(content, sidecars);
+    offline.set_network_island_provider(&provider);
+    offline.set_network_island_simulator(&simulator);
+    ASSERT_TRUE(offline.initialize(0));
+    const std::vector<ChunkKey> candidates{chunk_key};
+    ASSERT_TRUE(offline.dematerialize_chunks(world, candidates, 0));
+    ASSERT_TRUE(offline.tick(3));
+
+    const auto* sidecar = sidecars.get(chunk_key);
+    ASSERT_NE(sidecar, nullptr);
+    ASSERT_EQ(sidecar->machine_runtime_records.size(), 2u);
+    const MachineRuntimePersistenceRecord& source = sidecar->machine_runtime_records[0];
+    const MachineRuntimePersistenceRecord& consumer = sidecar->machine_runtime_records[1];
+    EXPECT_TRUE(source.output_slots.empty());
+    EXPECT_TRUE(consumer.input_slots.empty());
+    ASSERT_EQ(consumer.output_slots.size(), 1u);
+    EXPECT_EQ(consumer.output_slots.front().resource.key.id, "offline.item_ingot");
+    EXPECT_EQ(consumer.output_slots.front().resource.amount, 3);
+    ASSERT_EQ(sidecar->offline_network_islands.size(), 1u);
+    const OfflineNetworkIslandSnapshot& snapshot = sidecar->offline_network_islands.front();
+    ASSERT_EQ(snapshot.transport_segments.size(), 1u);
+    EXPECT_EQ(snapshot.transport_segments.front().kind, OfflineNetworkResourceKind::kItem);
+    EXPECT_EQ(snapshot.transport_segments.front().capacity, 0);
+    EXPECT_EQ(snapshot.transport_segments.front().max_transfer_per_tick, 1);
+    EXPECT_TRUE(snapshot.ledgers.empty());
+}
+
+TEST(OfflineMachineSimulationTest, IndustrialTopologyDefersFluidComponentsUntilSimulatorExists) {
+    GameContentRegistry content;
+    register_power_network_content(content);
+
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey chunk_key = make_chunk_key();
+    sidecars.set(chunk_key, {});
+    snt::ecs::World world;
+    MachineRuntimeComponent runtime;
+    runtime.machine_id = "offline.power_source";
+    runtime.energy_capacity = 32;
+    const auto machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, chunk_key, 0, 0, 0, std::move(runtime));
+    ASSERT_TRUE(machine);
+    add_pipe(sidecars, chunk_key, 9204, 1, 0, 0,
+             snt::game::CONN_NEG_X, PipeType::LIQUID);
+
+    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+    const std::vector<ChunkKey> candidates{chunk_key};
+    const auto built = provider.build_offline_islands(candidates, 10);
+    ASSERT_TRUE(built);
+    EXPECT_TRUE(built->empty());
+
+    OfflineIndustrialNetworkIslandSimulator simulator;
+    OfflineMachineSimulationService offline(content, sidecars);
+    offline.set_network_island_provider(&provider);
+    offline.set_network_island_simulator(&simulator);
+    ASSERT_TRUE(offline.initialize(10));
+    const auto transition = offline.dematerialize_chunks(world, candidates, 10);
+    ASSERT_TRUE(transition);
+    EXPECT_EQ(transition->network_island_count, 0u);
+    EXPECT_EQ(transition->deferred_network_machine_count, 1u);
+    const auto* sidecar = sidecars.get(chunk_key);
+    ASSERT_NE(sidecar, nullptr);
+    EXPECT_EQ(sidecar->machine_runtime_records.front().residency,
+              MachineRuntimeResidency::kLoaded);
+    EXPECT_TRUE(world.find_entity_by_guid(machine->entity_guid) != entt::null);
+}
+
+TEST(OfflineMachineSimulationTest, RandomPowerIslandPerTickAndBatchedExecutionAreEquivalent) {
+    uint32_t random_state = 0x8b31f18du;
+    const auto next_random = [&random_state]() {
+        random_state ^= random_state << 13u;
+        random_state ^= random_state >> 17u;
+        random_state ^= random_state << 5u;
+        return random_state;
+    };
+
+    for (size_t case_index = 0; case_index < 24; ++case_index) {
+        SCOPED_TRACE("power case " + std::to_string(case_index));
+        const uint32_t batch_ticks = 2u + next_random() % 6u;
+        const uint32_t total_ticks = 1u + next_random() % 31u;
+        const int32_t transfer_per_tick = 1 + static_cast<int32_t>(next_random() % 5u);
+        const int32_t recipe_duration = 1 + static_cast<int32_t>(next_random() % 4u);
+        const int32_t source_energy = static_cast<int32_t>(next_random() % 33u);
+        const int32_t consumer_energy = static_cast<int32_t>(next_random() % 8u);
+        const int32_t input_count = static_cast<int32_t>(next_random() % 7u);
+
+        GameContentRegistry per_tick_content;
+        register_power_network_content(per_tick_content, 1, transfer_per_tick, recipe_duration);
+        GameChunkSidecarRegistry per_tick_sidecars;
+        const ChunkKey chunk_key = make_chunk_key();
+        per_tick_sidecars.set(chunk_key, {});
+        snt::ecs::World per_tick_world;
+        const PowerMachinePair per_tick_machines = create_power_machine_pair(
+            per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2,
+            source_energy, consumer_energy, input_count);
+        ASSERT_NE(per_tick_machines.source_guid, 0u);
+        ASSERT_NE(per_tick_machines.consumer_guid, 0u);
+        add_power_cable(per_tick_sidecars, chunk_key, 9100 + case_index, 1, 0, 0,
+                        static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                             snt::game::CONN_NEG_X));
+        OfflineIndustrialNetworkIslandProvider per_tick_provider(per_tick_content, per_tick_sidecars);
+        OfflineIndustrialNetworkIslandSimulator per_tick_simulator;
+        OfflineMachineSimulationService per_tick_service(per_tick_content, per_tick_sidecars);
+        per_tick_service.set_network_island_provider(&per_tick_provider);
+        per_tick_service.set_network_island_simulator(&per_tick_simulator);
+        ASSERT_TRUE(per_tick_service.initialize(0));
+        const std::vector<ChunkKey> candidates{chunk_key};
+        ASSERT_TRUE(per_tick_service.dematerialize_chunks(per_tick_world, candidates, 0));
+        for (uint32_t tick = 1; tick <= total_ticks; ++tick) {
+            ASSERT_TRUE(per_tick_service.tick(tick));
+        }
+
+        GameContentRegistry batched_content;
+        register_power_network_content(
+            batched_content, batch_ticks, transfer_per_tick, recipe_duration);
+        GameChunkSidecarRegistry batched_sidecars;
+        batched_sidecars.set(chunk_key, {});
+        snt::ecs::World batched_world;
+        const PowerMachinePair batched_machines = create_power_machine_pair(
+            batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2,
+            source_energy, consumer_energy, input_count);
+        ASSERT_NE(batched_machines.source_guid, 0u);
+        ASSERT_NE(batched_machines.consumer_guid, 0u);
+        add_power_cable(batched_sidecars, chunk_key, 9200 + case_index, 1, 0, 0,
+                        static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                             snt::game::CONN_NEG_X));
+        OfflineIndustrialNetworkIslandProvider batched_provider(batched_content, batched_sidecars);
+        OfflineIndustrialNetworkIslandSimulator batched_simulator;
+        OfflineMachineSimulationService batched_service(batched_content, batched_sidecars);
+        batched_service.set_network_island_provider(&batched_provider);
+        batched_service.set_network_island_simulator(&batched_simulator);
+        ASSERT_TRUE(batched_service.initialize(0));
+        ASSERT_TRUE(batched_service.dematerialize_chunks(batched_world, candidates, 0));
+        for (uint32_t tick = batch_ticks; tick <= total_ticks; tick += batch_ticks) {
+            ASSERT_TRUE(batched_service.tick(tick));
+        }
+        if (total_ticks % batch_ticks != 0) {
+            ASSERT_TRUE(batched_service.flush(total_ticks));
+        }
+
+        const auto* per_tick_sidecar = per_tick_sidecars.get(chunk_key);
+        const auto* batched_sidecar = batched_sidecars.get(chunk_key);
+        ASSERT_NE(per_tick_sidecar, nullptr);
+        ASSERT_NE(batched_sidecar, nullptr);
+        ASSERT_EQ(per_tick_sidecar->machine_runtime_records.size(), 2u);
+        ASSERT_EQ(batched_sidecar->machine_runtime_records.size(), 2u);
+        EXPECT_EQ(normalized_machine_payload(per_tick_sidecar->machine_runtime_records[0]),
+                  normalized_machine_payload(batched_sidecar->machine_runtime_records[0]));
+        EXPECT_EQ(normalized_machine_payload(per_tick_sidecar->machine_runtime_records[1]),
+                  normalized_machine_payload(batched_sidecar->machine_runtime_records[1]));
+        ASSERT_EQ(per_tick_sidecar->offline_network_islands.size(), 1u);
+        ASSERT_EQ(batched_sidecar->offline_network_islands.size(), 1u);
+        const OfflineNetworkIslandSnapshot& per_tick_snapshot =
+            per_tick_sidecar->offline_network_islands.front();
+        const OfflineNetworkIslandSnapshot& batched_snapshot =
+            batched_sidecar->offline_network_islands.front();
+        ASSERT_EQ(per_tick_snapshot.ledgers.size(), 1u);
+        ASSERT_EQ(batched_snapshot.ledgers.size(), 1u);
+        EXPECT_EQ(per_tick_snapshot.last_simulated_tick, total_ticks);
+        EXPECT_EQ(batched_snapshot.last_simulated_tick, total_ticks);
+        EXPECT_EQ(per_tick_snapshot.ledgers.front().kind,
+                  batched_snapshot.ledgers.front().kind);
+        EXPECT_EQ(per_tick_snapshot.ledgers.front().resource,
+                  batched_snapshot.ledgers.front().resource);
+        EXPECT_EQ(per_tick_snapshot.ledgers.front().stored_amount,
+                  batched_snapshot.ledgers.front().stored_amount);
+        EXPECT_EQ(per_tick_snapshot.ledgers.front().capacity,
+                  batched_snapshot.ledgers.front().capacity);
+        EXPECT_EQ(per_tick_snapshot.ledgers.front().max_transfer_per_tick,
+                  batched_snapshot.ledgers.front().max_transfer_per_tick);
+    }
+}
+
+TEST(OfflineMachineSimulationTest, RandomItemIslandPerTickAndBatchedExecutionAreEquivalent) {
+    uint32_t random_state = 0x75f2a9c1u;
+    const auto next_random = [&random_state]() {
+        random_state ^= random_state << 13u;
+        random_state ^= random_state >> 17u;
+        random_state ^= random_state << 5u;
+        return random_state;
+    };
+
+    for (size_t case_index = 0; case_index < 24; ++case_index) {
+        SCOPED_TRACE("item case " + std::to_string(case_index));
+        const uint32_t batch_ticks = 2u + next_random() % 6u;
+        const uint32_t total_ticks = 1u + next_random() % 31u;
+        const int32_t transfer_per_tick = 1 + static_cast<int32_t>(next_random() % 5u);
+        const int32_t recipe_duration = 1 + static_cast<int32_t>(next_random() % 4u);
+        const int32_t output_count = static_cast<int32_t>(next_random() % 12u);
+
+        GameContentRegistry per_tick_content;
+        register_item_network_content(per_tick_content, 1, transfer_per_tick, recipe_duration);
+        GameChunkSidecarRegistry per_tick_sidecars;
+        const ChunkKey chunk_key = make_chunk_key();
+        per_tick_sidecars.set(chunk_key, {});
+        snt::ecs::World per_tick_world;
+        const ItemMachinePair per_tick_machines = create_item_machine_pair(
+            per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2, output_count);
+        ASSERT_NE(per_tick_machines.source_guid, 0u);
+        ASSERT_NE(per_tick_machines.consumer_guid, 0u);
+        add_pipe(per_tick_sidecars, chunk_key, 9300 + case_index, 1, 0, 0,
+                 static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                      snt::game::CONN_NEG_X));
+        OfflineIndustrialNetworkIslandProvider per_tick_provider(
+            per_tick_content, per_tick_sidecars);
+        OfflineIndustrialNetworkIslandSimulator per_tick_simulator;
+        OfflineMachineSimulationService per_tick_service(per_tick_content, per_tick_sidecars);
+        per_tick_service.set_network_island_provider(&per_tick_provider);
+        per_tick_service.set_network_island_simulator(&per_tick_simulator);
+        ASSERT_TRUE(per_tick_service.initialize(0));
+        const std::vector<ChunkKey> candidates{chunk_key};
+        ASSERT_TRUE(per_tick_service.dematerialize_chunks(per_tick_world, candidates, 0));
+        for (uint32_t tick = 1; tick <= total_ticks; ++tick) {
+            ASSERT_TRUE(per_tick_service.tick(tick));
+        }
+
+        GameContentRegistry batched_content;
+        register_item_network_content(
+            batched_content, batch_ticks, transfer_per_tick, recipe_duration);
+        GameChunkSidecarRegistry batched_sidecars;
+        batched_sidecars.set(chunk_key, {});
+        snt::ecs::World batched_world;
+        const ItemMachinePair batched_machines = create_item_machine_pair(
+            batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2, output_count);
+        ASSERT_NE(batched_machines.source_guid, 0u);
+        ASSERT_NE(batched_machines.consumer_guid, 0u);
+        add_pipe(batched_sidecars, chunk_key, 9400 + case_index, 1, 0, 0,
+                 static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                      snt::game::CONN_NEG_X));
+        OfflineIndustrialNetworkIslandProvider batched_provider(batched_content, batched_sidecars);
+        OfflineIndustrialNetworkIslandSimulator batched_simulator;
+        OfflineMachineSimulationService batched_service(batched_content, batched_sidecars);
+        batched_service.set_network_island_provider(&batched_provider);
+        batched_service.set_network_island_simulator(&batched_simulator);
+        ASSERT_TRUE(batched_service.initialize(0));
+        ASSERT_TRUE(batched_service.dematerialize_chunks(batched_world, candidates, 0));
+        for (uint32_t tick = batch_ticks; tick <= total_ticks; tick += batch_ticks) {
+            ASSERT_TRUE(batched_service.tick(tick));
+        }
+        if (total_ticks % batch_ticks != 0) {
+            ASSERT_TRUE(batched_service.flush(total_ticks));
+        }
+
+        const auto* per_tick_sidecar = per_tick_sidecars.get(chunk_key);
+        const auto* batched_sidecar = batched_sidecars.get(chunk_key);
+        ASSERT_NE(per_tick_sidecar, nullptr);
+        ASSERT_NE(batched_sidecar, nullptr);
+        ASSERT_EQ(per_tick_sidecar->machine_runtime_records.size(), 2u);
+        ASSERT_EQ(batched_sidecar->machine_runtime_records.size(), 2u);
+        EXPECT_EQ(normalized_machine_payload(per_tick_sidecar->machine_runtime_records[0]),
+                  normalized_machine_payload(batched_sidecar->machine_runtime_records[0]));
+        EXPECT_EQ(normalized_machine_payload(per_tick_sidecar->machine_runtime_records[1]),
+                  normalized_machine_payload(batched_sidecar->machine_runtime_records[1]));
+        ASSERT_EQ(per_tick_sidecar->offline_network_islands.size(), 1u);
+        ASSERT_EQ(batched_sidecar->offline_network_islands.size(), 1u);
+        const OfflineNetworkIslandSnapshot& per_tick_snapshot =
+            per_tick_sidecar->offline_network_islands.front();
+        const OfflineNetworkIslandSnapshot& batched_snapshot =
+            batched_sidecar->offline_network_islands.front();
+        ASSERT_EQ(per_tick_snapshot.transport_segments.size(), 1u);
+        ASSERT_EQ(batched_snapshot.transport_segments.size(), 1u);
+        EXPECT_EQ(per_tick_snapshot.last_simulated_tick, total_ticks);
+        EXPECT_EQ(batched_snapshot.last_simulated_tick, total_ticks);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().kind,
+                  OfflineNetworkResourceKind::kItem);
+        EXPECT_EQ(batched_snapshot.transport_segments.front().kind,
+                  OfflineNetworkResourceKind::kItem);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().capacity,
+                  batched_snapshot.transport_segments.front().capacity);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().max_transfer_per_tick,
+                  batched_snapshot.transport_segments.front().max_transfer_per_tick);
+        EXPECT_TRUE(per_tick_snapshot.ledgers.empty());
+        EXPECT_TRUE(batched_snapshot.ledgers.empty());
+    }
 }
 
 }  // namespace
