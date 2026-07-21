@@ -179,6 +179,7 @@ add_library(snt_game_simulation STATIC
     simulation/machine_runtime_persistence.cpp
     simulation/offline_machine_simulation.cpp
     simulation/offline_network_island_registry.cpp
+    simulation/offline_power_network_island.cpp
     simulation/region_topology.cpp
     simulation/science_and_theology_simulation_session.cpp
     simulation/season_cycle.cpp

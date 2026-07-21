@@ -7,6 +7,7 @@
 #include "core/log.h"
 #include "ecs/world.h"
 #include "game/client/machine_tick_system.h"
+#include "game/network/game_creature_replication.h"
 #include "game/world/game_chunk.h"
 #include "voxel/data/chunk_registry.h"
 
@@ -146,7 +147,9 @@ GameServerPlayerReplication::create(GameServerPlayerState& player_state, snt::ec
     if (config.horizontal_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
         config.vertical_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
         config.chunk_horizontal_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
-        config.chunk_vertical_aoi_radius_blocks > kMaxAoiRadiusBlocks) {
+        config.chunk_vertical_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
+        config.creature_horizontal_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
+        config.creature_vertical_aoi_radius_blocks > kMaxAoiRadiusBlocks) {
         return invalid_argument("Dedicated server player AOI radius exceeds the configured limit");
     }
     if (config.max_visible_players == 0 ||
@@ -156,6 +159,11 @@ GameServerPlayerReplication::create(GameServerPlayerState& player_state, snt::ec
     if (config.max_visible_chunks == 0 ||
         config.max_visible_chunks > kMaxGameSnapshotChunks) {
         return invalid_argument("Dedicated server player replication visible-chunk limit is invalid");
+    }
+    if (config.max_visible_creature_chunks == 0 ||
+        config.max_visible_creature_chunks > kMaxGameCreaturePresentationStates) {
+        return invalid_argument(
+            "Dedicated server creature replication visible-chunk limit is invalid");
     }
     for (const IGameReplicationValueSource* source : value_sources) {
         if (source == nullptr) {
@@ -233,10 +241,18 @@ snt::core::Expected<GameReplicationInterest> GameServerPlayerReplication::comput
 
     struct ChunkCandidate {
         snt::voxel::ChunkKey key;
+        int64_t horizontal_delta_x = 0;
+        int64_t horizontal_delta_z = 0;
         int64_t horizontal_distance_squared = 0;
         int64_t vertical_distance = 0;
     };
     std::vector<ChunkCandidate> chunk_candidates;
+    const uint32_t maximum_horizontal_radius = std::max(
+        config_.chunk_horizontal_aoi_radius_blocks,
+        config_.creature_horizontal_aoi_radius_blocks);
+    const uint32_t maximum_vertical_radius = std::max(
+        config_.chunk_vertical_aoi_radius_blocks,
+        config_.creature_vertical_aoi_radius_blocks);
     for (const snt::voxel::ChunkKey& key : chunks_->all_chunk_keys()) {
         if (key.dimension_id != observer->position.dimension_id) continue;
         constexpr int64_t kChunkSize = snt::voxel::VoxelChunk::kChunkSize;
@@ -249,13 +265,14 @@ snt::core::Expected<GameReplicationInterest> GameServerPlayerReplication::comput
                                                   minimum_y + kChunkSize - 1);
         const int64_t delta_z = distance_to_range(observer->position.position.z, minimum_z,
                                                   minimum_z + kChunkSize - 1);
-        if (delta_x > config_.chunk_horizontal_aoi_radius_blocks ||
-            delta_z > config_.chunk_horizontal_aoi_radius_blocks ||
-            delta_y > config_.chunk_vertical_aoi_radius_blocks) {
+        if (delta_x > maximum_horizontal_radius || delta_z > maximum_horizontal_radius ||
+            delta_y > maximum_vertical_radius) {
             continue;
         }
         chunk_candidates.push_back({
             .key = key,
+            .horizontal_delta_x = delta_x,
+            .horizontal_delta_z = delta_z,
             .horizontal_distance_squared = delta_x * delta_x + delta_z * delta_z,
             .vertical_distance = delta_y,
         });
@@ -270,11 +287,28 @@ snt::core::Expected<GameReplicationInterest> GameServerPlayerReplication::comput
         }
         return GameChunkKeyLess{}(left.key, right.key);
     });
-    const size_t chunk_count = std::min<size_t>(chunk_candidates.size(), config_.max_visible_chunks);
-    interest.chunks.reserve(chunk_count);
-    for (size_t index = 0; index < chunk_count; ++index) {
-        interest.chunks.push_back(std::move(chunk_candidates[index].key));
-    }
+    const auto append_chunk_interest = [&chunk_candidates](
+                                          uint32_t horizontal_radius,
+                                          uint32_t vertical_radius,
+                                          uint32_t maximum_count,
+                                          std::vector<snt::voxel::ChunkKey>& output) {
+        output.reserve(std::min<size_t>(chunk_candidates.size(), maximum_count));
+        for (const ChunkCandidate& candidate : chunk_candidates) {
+            if (candidate.horizontal_delta_x > horizontal_radius ||
+                candidate.horizontal_delta_z > horizontal_radius ||
+                candidate.vertical_distance > vertical_radius) {
+                continue;
+            }
+            output.push_back(candidate.key);
+            if (output.size() >= maximum_count) break;
+        }
+    };
+    append_chunk_interest(config_.chunk_horizontal_aoi_radius_blocks,
+                          config_.chunk_vertical_aoi_radius_blocks,
+                          config_.max_visible_chunks, interest.chunks);
+    append_chunk_interest(config_.creature_horizontal_aoi_radius_blocks,
+                          config_.creature_vertical_aoi_radius_blocks,
+                          config_.max_visible_creature_chunks, interest.creature_chunks);
 
     for (const snt::voxel::ChunkKey& key : interest.chunks) {
         const GameChunkSidecar* sidecar = sidecars_->get(key);
@@ -1170,7 +1204,7 @@ snt::core::Expected<GameReplicatedPlayerState> GameServerPlayerReplication::make
         .position = snapshot.position,
     };
     for (size_t index = 0; index < state.equipment_item_ids.size(); ++index) {
-        state.equipment_item_ids[index] = snapshot.equipment.slots[index].item_id;
+        state.equipment_item_ids[index] = snapshot.equipment.slots[index].resource.key.id;
     }
     if (auto result = validate_game_replicated_player_state(state); !result) return result.error();
     return state;

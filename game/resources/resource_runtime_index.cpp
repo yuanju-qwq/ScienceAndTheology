@@ -1,12 +1,13 @@
 #include "game/resources/resource_runtime_index.h"
 
 #include "core/error.h"
+#include "core/runtime_key_index.h"
 
-#include <algorithm>
 #include <limits>
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -26,14 +27,12 @@ namespace {
 
 struct ResourceRuntimeIndex::Data {
     struct TypeData {
-        std::string semantic_type;
-        std::unordered_map<std::string, snt::core::RuntimeKeyId> resource_ids;
-        std::vector<std::string> resources_by_id{std::string{}};
-        std::unordered_map<std::string, snt::core::RuntimeKeyId> variant_ids;
-        std::vector<std::string> variants_by_id{std::string{}};
+        snt::core::RuntimeKeyIndex::Snapshot resource_ids;
+        snt::core::RuntimeKeyIndex::Snapshot variant_ids;
     };
 
     std::unordered_map<ResourceKey, RuntimeResourceKey, ResourceKey::Hash> runtime_by_key;
+    snt::core::RuntimeKeyIndex::Snapshot type_ids;
     std::vector<TypeData> types_by_id{TypeData{}};
     uint64_t generation = 0;
 };
@@ -53,15 +52,22 @@ std::optional<ResourceKey> ResourceRuntimeIndex::Snapshot::resolve_semantic(
     if (!data_ || !key.is_valid() || key.type_id >= data_->types_by_id.size()) {
         return std::nullopt;
     }
+    const auto type_name = data_->type_ids.find_key(key.type_id);
+    if (!type_name) return std::nullopt;
     const Data::TypeData& type = data_->types_by_id[key.type_id];
-    if (key.resource_id >= type.resources_by_id.size() ||
-        key.variant_id >= type.variants_by_id.size()) {
-        return std::nullopt;
+    const auto resource_id = type.resource_ids.find_key(key.resource_id);
+    if (!resource_id) return std::nullopt;
+
+    std::string variant;
+    if (key.variant_id != snt::core::kInvalidRuntimeKeyId) {
+        const auto variant_id = type.variant_ids.find_key(key.variant_id);
+        if (!variant_id) return std::nullopt;
+        variant.assign(*variant_id);
     }
     ResourceKey semantic{
-        .type = type.semantic_type,
-        .id = type.resources_by_id[key.resource_id],
-        .variant = type.variants_by_id[key.variant_id],
+        .type = std::string(*type_name),
+        .id = std::string(*resource_id),
+        .variant = std::move(variant),
     };
     // A type-local resource and variant can both exist without their exact
     // combination being registered, so verify the complete identity.
@@ -107,68 +113,66 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
         return invalid_argument("Resource runtime key index contains too many resource types");
     }
 
-    auto candidate = std::make_shared<Data>();
-    candidate->types_by_id.reserve(resource_ids_by_type.size() + 1);
+    std::vector<std::string_view> type_names;
+    type_names.reserve(resource_ids_by_type.size());
     for (const auto& [type_name, resources] : resource_ids_by_type) {
-        if (resources.size() >
-            static_cast<size_t>(std::numeric_limits<snt::core::RuntimeKeyId>::max())) {
-            return invalid_argument("Resource runtime key index contains too many resources");
+        static_cast<void>(resources);
+        type_names.push_back(type_name);
+    }
+
+    snt::core::RuntimeKeyIndex type_index;
+    if (auto result = type_index.rebuild(type_names); !result) return result.error();
+
+    auto candidate = std::make_shared<Data>();
+    candidate->type_ids = type_index.snapshot();
+    candidate->types_by_id.resize(resource_ids_by_type.size() + 1);
+    for (const auto& [type_name, resources] : resource_ids_by_type) {
+        const auto type_id = candidate->type_ids.find_id(type_name);
+        if (!type_id || *type_id > std::numeric_limits<ResourceRuntimeTypeId>::max()) {
+            return invalid_state("Resource runtime key index lost a registered type");
         }
-        const auto type_id = static_cast<ResourceRuntimeTypeId>(
-            candidate->types_by_id.size());
-        static_cast<void>(type_id);
-        Data::TypeData type;
-        type.semantic_type = type_name;
-        type.resources_by_id.reserve(resources.size() + 1);
-        for (const std::string& resource_id : resources) {
-            const auto runtime_id = static_cast<snt::core::RuntimeKeyId>(
-                type.resources_by_id.size());
-            type.resource_ids.emplace(resource_id, runtime_id);
-            type.resources_by_id.push_back(resource_id);
-        }
+        Data::TypeData& type = candidate->types_by_id[*type_id];
+
+        std::vector<std::string_view> resource_names;
+        resource_names.reserve(resources.size());
+        for (const std::string& resource_id : resources) resource_names.push_back(resource_id);
+        snt::core::RuntimeKeyIndex resource_index;
+        if (auto result = resource_index.rebuild(resource_names); !result) return result.error();
+        type.resource_ids = resource_index.snapshot();
 
         const auto variants = variants_by_type.find(type_name);
         if (variants != variants_by_type.end()) {
-            if (variants->second.size() >
-                static_cast<size_t>(std::numeric_limits<snt::core::RuntimeKeyId>::max())) {
-                return invalid_argument("Resource runtime key index contains too many variants");
-            }
-            type.variants_by_id.reserve(variants->second.size() + 1);
-            for (const std::string& variant : variants->second) {
-                const auto runtime_id = static_cast<snt::core::RuntimeKeyId>(
-                    type.variants_by_id.size());
-                type.variant_ids.emplace(variant, runtime_id);
-                type.variants_by_id.push_back(variant);
-            }
+            std::vector<std::string_view> variant_names;
+            variant_names.reserve(variants->second.size());
+            for (const std::string& variant : variants->second) variant_names.push_back(variant);
+            snt::core::RuntimeKeyIndex variant_index;
+            if (auto result = variant_index.rebuild(variant_names); !result) return result.error();
+            type.variant_ids = variant_index.snapshot();
         }
-        candidate->types_by_id.push_back(std::move(type));
     }
 
     candidate->runtime_by_key.reserve(keys.size());
     for (const ResourceKey& key : keys) {
-        const auto type_found = std::find_if(
-            candidate->types_by_id.begin() + 1, candidate->types_by_id.end(),
-            [&key](const Data::TypeData& type) { return type.semantic_type == key.type; });
-        if (type_found == candidate->types_by_id.end()) {
+        const auto type_id = candidate->type_ids.find_id(key.type);
+        if (!type_id || *type_id > std::numeric_limits<ResourceRuntimeTypeId>::max()) {
             return invalid_state("Resource runtime key index lost a registered type");
         }
-        const auto resource_found = type_found->resource_ids.find(key.id);
-        if (resource_found == type_found->resource_ids.end()) {
+        const Data::TypeData& type = candidate->types_by_id[*type_id];
+        const auto resource_id = type.resource_ids.find_id(key.id);
+        if (!resource_id) {
             return invalid_state("Resource runtime key index lost a registered resource");
         }
-        const auto type_id = static_cast<ResourceRuntimeTypeId>(
-            std::distance(candidate->types_by_id.begin(), type_found));
         snt::core::RuntimeKeyId variant_id = snt::core::kInvalidRuntimeKeyId;
         if (!key.variant.empty()) {
-            const auto variant_found = type_found->variant_ids.find(key.variant);
-            if (variant_found == type_found->variant_ids.end()) {
+            const auto found_variant_id = type.variant_ids.find_id(key.variant);
+            if (!found_variant_id) {
                 return invalid_state("Resource runtime key index lost a registered variant");
             }
-            variant_id = variant_found->second;
+            variant_id = *found_variant_id;
         }
         candidate->runtime_by_key.emplace(key, RuntimeResourceKey{
-            .type_id = type_id,
-            .resource_id = resource_found->second,
+            .type_id = static_cast<ResourceRuntimeTypeId>(*type_id),
+            .resource_id = *resource_id,
             .variant_id = variant_id,
         });
     }

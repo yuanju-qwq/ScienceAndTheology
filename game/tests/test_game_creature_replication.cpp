@@ -127,7 +127,7 @@ TEST(GameCreaturePresentationReplicationTest, RemoteWorldReplacesVisibleSetOnDel
     EXPECT_EQ(remote.latest_source_tick(), 9u);
 }
 
-TEST(GameCreaturePresentationReplicationTest, ServerSourceFiltersCompleteSetByObserverChunkAoi) {
+TEST(GameCreaturePresentationReplicationTest, ServerSourceFiltersCompleteSetByCreatureChunkAoi) {
     auto source = GameServerCreaturePresentationReplication::create(
         GameServerCreaturePresentationReplicationConfig{.max_visible_creatures = 2});
     ASSERT_TRUE(source) << source.error().format();
@@ -145,7 +145,7 @@ TEST(GameCreaturePresentationReplicationTest, ServerSourceFiltersCompleteSetByOb
     });
 
     auto values = (*source)->collect_values(
-        {}, {.chunks = {visible.chunk}}, creature_budget(), {.tick_index = 20},
+        {}, {.creature_chunks = {visible.chunk}}, creature_budget(), {.tick_index = 20},
         GameReplicationValueCollectionPhase::kInitialSnapshot);
     ASSERT_TRUE(values) << values.error().format();
     ASSERT_EQ(values->size(), 1u);
@@ -162,13 +162,47 @@ TEST(GameCreaturePresentationReplicationTest, ServerSourceFiltersCompleteSetByOb
         .creature = visible,
     });
     values = (*source)->collect_values(
-        {}, {.chunks = {visible.chunk}}, creature_budget(), {.tick_index = 21},
+        {}, {.creature_chunks = {visible.chunk}}, creature_budget(), {.tick_index = 21},
         GameReplicationValueCollectionPhase::kDelta);
     ASSERT_TRUE(values) << values.error().format();
     decoded = decode_game_creature_presentation_snapshot(values->front().payload);
     ASSERT_TRUE(decoded) << decoded.error().format();
     EXPECT_TRUE(decoded->creatures.empty());
     EXPECT_EQ(decoded->source_tick, 21u);
+}
+
+TEST(GameCreaturePresentationReplicationTest, UsesDedicatedCreatureAoiInsteadOfTerrainAoi) {
+    auto source = GameServerCreaturePresentationReplication::create(
+        GameServerCreaturePresentationReplicationConfig{.max_visible_creatures = 2});
+    ASSERT_TRUE(source) << source.error().format();
+    const GameCreaturePresentationState terrain_near = make_creature(10, 0);
+    GameCreaturePresentationState far_visual = make_creature(20, 2);
+    far_visual.is_interactive = false;
+    (*source)->on_creature_presentation_event({
+        .kind = GameCreaturePresentationEventKind::kSpawned,
+        .source_tick = 15,
+        .creature = terrain_near,
+    });
+    (*source)->on_creature_presentation_event({
+        .kind = GameCreaturePresentationEventKind::kSpawned,
+        .source_tick = 16,
+        .creature = far_visual,
+    });
+
+    auto values = (*source)->collect_values(
+        {}, {
+                .chunks = {terrain_near.chunk},
+                .creature_chunks = {far_visual.chunk},
+            },
+        creature_budget(), {.tick_index = 20},
+        GameReplicationValueCollectionPhase::kInitialSnapshot);
+    ASSERT_TRUE(values) << values.error().format();
+    ASSERT_EQ(values->size(), 1u);
+    auto decoded = decode_game_creature_presentation_snapshot(values->front().payload);
+    ASSERT_TRUE(decoded) << decoded.error().format();
+    ASSERT_EQ(decoded->creatures.size(), 1u);
+    EXPECT_EQ(decoded->creatures.front().entity_id, far_visual.entity_id);
+    EXPECT_FALSE(decoded->creatures.front().is_interactive);
 }
 
 TEST(GameCreatureCommandProtocolTest, RoundTripsMinimalAuthorityInputs) {

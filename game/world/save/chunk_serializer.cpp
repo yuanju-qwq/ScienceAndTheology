@@ -1233,6 +1233,7 @@ void GameChunkSerializer::write_offline_network_island_snapshot(
         write_string(buf, ledger.resource_id);
         write_int64(buf, ledger.stored_amount);
         write_int64(buf, ledger.capacity);
+        write_int64(buf, ledger.max_transfer_per_tick);
     }
 }
 
@@ -1323,7 +1324,9 @@ bool GameChunkSerializer::read_offline_network_island_snapshot(
             ledger.resource_id.find('\0') != std::string::npos ||
             !read_int64(data, offset, ledger.stored_amount) ||
             !read_int64(data, offset, ledger.capacity) ||
+            !read_int64(data, offset, ledger.max_transfer_per_tick) ||
             ledger.stored_amount < 0 || ledger.capacity < 0 ||
+            ledger.max_transfer_per_tick < 0 ||
             ledger.stored_amount > ledger.capacity) {
             return false;
         }

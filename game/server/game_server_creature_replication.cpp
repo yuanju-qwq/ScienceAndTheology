@@ -20,7 +20,7 @@ namespace {
 
 [[nodiscard]] bool chunk_is_interesting(
     const ChunkKey& chunk, const GameReplicationInterest& interest) {
-    return std::any_of(interest.chunks.begin(), interest.chunks.end(),
+    return std::any_of(interest.creature_chunks.begin(), interest.creature_chunks.end(),
                        [&chunk](const snt::voxel::ChunkKey& candidate) {
                            return candidate == chunk;
                        });

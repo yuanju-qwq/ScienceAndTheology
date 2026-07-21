@@ -107,6 +107,11 @@ struct GameServerReplicationConfig {
     uint32_t chunk_horizontal_aoi_radius_blocks = 64;
     uint32_t chunk_vertical_aoi_radius_blocks = 64;
     uint32_t max_visible_chunks = 8;
+    // Matches the ecosystem visual ring by default. This affects only native
+    // creature presentation values and remains independent from terrain AOI.
+    uint32_t creature_horizontal_aoi_radius_blocks = 64;
+    uint32_t creature_vertical_aoi_radius_blocks = 16;
+    uint32_t max_visible_creature_chunks = 256;
     // Bounded native creature presentation values per observer. This applies
     // to far LOD projections and nearby interactive/captive states alike;
     // it does not allocate server AI agents for the far set.

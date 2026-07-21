@@ -1096,7 +1096,7 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     ASSERT_TRUE((*live_player_state)->set_authoritative_position(
         original, {.dimension_id = "overworld", .position = {.x = 23, .y = 71, .z = -6}}));
     ASSERT_TRUE((*live_player_state)->apply_inventory_transaction(
-        original, {.additions = {{.item_id = "iron_ingot", .count = 4}}}));
+        original, {.additions = {snt::game::GamePlayerItemStack::item("iron_ingot", 4)}}));
     ASSERT_TRUE(live_quests.record_progress(
         identity.account_id,
         {.kind = QuestObjectiveKind::kCraftItem, .target_id = "iron_ingot", .amount = 2},
@@ -1134,8 +1134,8 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     auto restored_inventory = (*restarted_player_state)->inventory_for_peer(reconnect);
     ASSERT_TRUE(restored_inventory) << restored_inventory.error().format();
     ASSERT_EQ(restored_inventory->slots.size(), 36u);
-    EXPECT_EQ(restored_inventory->slots[0].item_id, "iron_ingot");
-    EXPECT_EQ(restored_inventory->slots[0].count, 4);
+    EXPECT_EQ(restored_inventory->slots[0].resource.key.id, "iron_ingot");
+    EXPECT_EQ(restored_inventory->slots[0].resource.amount, 4);
     restarted_lifecycle.shutdown();
     (*restarted_player_state)->shutdown();
 

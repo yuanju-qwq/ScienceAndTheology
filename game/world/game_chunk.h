@@ -67,6 +67,11 @@ struct MechanismPlacement {
 // state: they do not include ECS handles, script VM objects, or callbacks.
 struct MachineRuntimeItemStack {
     ResourceStack resource;
+
+    [[nodiscard]] static MachineRuntimeItemStack item(std::string id, int64_t count,
+                                                      std::string variant = {}) {
+        return {.resource = ResourceStack::item(std::move(id), count, std::move(variant))};
+    }
 };
 
 struct MachineRuntimeRecipeSnapshot {
@@ -141,6 +146,9 @@ struct OfflineNetworkResourceLedger {
     std::string resource_id;
     int64_t stored_amount = 0;
     int64_t capacity = 0;
+    // A topology provider derives this from the narrowest durable edge. Zero
+    // means the ledger is storage-only and must not transfer between nodes.
+    int64_t max_transfer_per_tick = 0;
 };
 
 struct OfflineNetworkBoundaryPort {
@@ -232,6 +240,15 @@ struct GamePlayerBedRecord {
 struct GamePlayerGraveItemStack {
     ResourceStack resource;
     std::string instance_data;
+
+    [[nodiscard]] static GamePlayerGraveItemStack item(std::string id, int64_t count,
+                                                        std::string variant = {},
+                                                        std::string instance_data = {}) {
+        return {
+            .resource = ResourceStack::item(std::move(id), count, std::move(variant)),
+            .instance_data = std::move(instance_data),
+        };
+    }
 };
 
 struct GamePlayerGraveRecord {

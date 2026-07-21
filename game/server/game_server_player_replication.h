@@ -45,6 +45,12 @@ struct GameServerPlayerReplicationConfig {
     uint32_t chunk_horizontal_aoi_radius_blocks = 64;
     uint32_t chunk_vertical_aoi_radius_blocks = 64;
     uint32_t max_visible_chunks = 8;
+    // Native creature presentation uses a wider visual AOI than terrain. The
+    // distinct limit bounds only value selection; it does not materialize
+    // terrain, machines, or far-away gameplay agents.
+    uint32_t creature_horizontal_aoi_radius_blocks = 64;
+    uint32_t creature_vertical_aoi_radius_blocks = 16;
+    uint32_t max_visible_creature_chunks = 256;
 };
 
 class GameServerPlayerReplication final : public IGameReplicationInterestProvider,

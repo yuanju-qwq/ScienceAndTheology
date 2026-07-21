@@ -14,6 +14,8 @@
 
 namespace {
 
+using snt::game::GamePlayerItemStack;
+
 snt::game::replication::GameAuthenticatedPeer make_peer(
     snt::network::PeerId peer_id, std::string name) {
     auto identity = snt::game::make_local_name_player_identity(std::move(name));
@@ -121,17 +123,15 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOw
     auto peer = make_peer(104, "Inventory Player");
     auto persistent = (*state)->default_persistent_state();
     persistent.equipment.slots[
-        static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] = {
-        .item_id = "iron_pickaxe",
-        .count = 1,
-    };
+        static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] =
+        GamePlayerItemStack::item("iron_pickaxe", 1);
     ASSERT_TRUE((*state)->on_peer_authenticated(peer, persistent));
 
     ASSERT_TRUE((*state)->apply_inventory_transaction(
         peer,
         {
-            .additions = {{.item_id = "iron", .count = 3},
-                          {.item_id = "coal", .count = 5}},
+            .additions = {GamePlayerItemStack::item("iron", 3),
+                          GamePlayerItemStack::item("coal", 5)},
         }));
     auto initial_inventory = (*state)->inventory_for_peer(peer);
     ASSERT_TRUE(initial_inventory) << initial_inventory.error().format();
@@ -140,8 +140,8 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOw
     const auto rejected = (*state)->apply_inventory_transaction(
         peer,
         {
-            .removals = {{.item_id = "iron", .count = 4}},
-            .additions = {{.item_id = "copper", .count = 1}},
+            .removals = {GamePlayerItemStack::item("iron", 4)},
+            .additions = {GamePlayerItemStack::item("copper", 1)},
         });
     ASSERT_FALSE(rejected);
     auto unchanged_inventory = (*state)->inventory_for_peer(peer);
@@ -151,14 +151,14 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOw
     ASSERT_TRUE((*state)->apply_inventory_transaction(
         peer,
         {
-            .removals = {{.item_id = "iron", .count = 2}},
-            .additions = {{.item_id = "iron", .count = 4}},
+            .removals = {GamePlayerItemStack::item("iron", 2)},
+            .additions = {GamePlayerItemStack::item("iron", 4)},
         }));
     auto updated_inventory = (*state)->inventory_for_peer(peer);
     ASSERT_TRUE(updated_inventory) << updated_inventory.error().format();
     ASSERT_EQ(updated_inventory->slots.size(), 2u);
-    EXPECT_EQ(updated_inventory->slots[0].item_id, "iron");
-    EXPECT_EQ(updated_inventory->slots[0].count, 5);
+    EXPECT_EQ(updated_inventory->slots[0].resource.key.id, "iron");
+    EXPECT_EQ(updated_inventory->slots[0].resource.amount, 5);
 
     auto main_hand_item_id = (*state)->main_hand_item_id_for_peer(peer);
     ASSERT_TRUE(main_hand_item_id) << main_hand_item_id.error().format();
@@ -166,7 +166,7 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOw
 
     (*state)->on_peer_disconnected(peer, "test disconnect");
     const auto offline_mutation = (*state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "copper", .count = 1}}});
+        peer, {.additions = {GamePlayerItemStack::item("copper", 1)}});
     EXPECT_FALSE(offline_mutation);
     (*state)->shutdown();
 }
@@ -188,8 +188,8 @@ TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
     ASSERT_TRUE((*state)->apply_inventory_transaction(
         peer,
         {
-            .additions = {{.item_id = "iron", .count = 3},
-                          {.item_id = "coal", .count = 2}},
+            .additions = {GamePlayerItemStack::item("iron", 3),
+                          GamePlayerItemStack::item("coal", 2)},
         }));
 
     auto inventory = (*state)->inventory_for_peer(peer);
@@ -205,8 +205,8 @@ TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
         }));
     inventory = (*state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{"iron", 2}));
-    EXPECT_EQ(inventory->slots[2], (snt::game::GamePlayerItemStack{"iron", 1}));
+    EXPECT_EQ(inventory->slots[0], GamePlayerItemStack::item("iron", 2));
+    EXPECT_EQ(inventory->slots[2], GamePlayerItemStack::item("iron", 1));
 
     ASSERT_TRUE((*state)->apply_inventory_slot_transfer(
         peer,
@@ -220,7 +220,7 @@ TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
     inventory = (*state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack{}));
-    EXPECT_EQ(inventory->slots[2], (snt::game::GamePlayerItemStack{"iron", 3}));
+    EXPECT_EQ(inventory->slots[2], GamePlayerItemStack::item("iron", 3));
 
     ASSERT_TRUE((*state)->apply_inventory_slot_transfer(
         peer,
@@ -233,8 +233,8 @@ TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
         }));
     inventory = (*state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[1], (snt::game::GamePlayerItemStack{"iron", 3}));
-    EXPECT_EQ(inventory->slots[2], (snt::game::GamePlayerItemStack{"coal", 2}));
+    EXPECT_EQ(inventory->slots[1], GamePlayerItemStack::item("iron", 3));
+    EXPECT_EQ(inventory->slots[2], GamePlayerItemStack::item("coal", 2));
 
     const auto stale = (*state)->can_apply_inventory_slot_transfer(
         peer,
@@ -242,8 +242,8 @@ TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
             .source_slot = 1,
             .target_slot = 2,
             .count = 3,
-            .expected_source = {.item_id = "coal", .count = 2},
-            .expected_target = {.item_id = "iron", .count = 3},
+            .expected_source = GamePlayerItemStack::item("coal", 2),
+            .expected_target = GamePlayerItemStack::item("iron", 3),
         });
     ASSERT_TRUE(stale) << stale.error().format();
     EXPECT_FALSE(*stale);
@@ -254,8 +254,8 @@ TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
             .source_slot = 1,
             .target_slot = 2,
             .count = 3,
-            .expected_source = {.item_id = "coal", .count = 2},
-            .expected_target = {.item_id = "iron", .count = 3},
+            .expected_source = GamePlayerItemStack::item("coal", 2),
+            .expected_target = GamePlayerItemStack::item("iron", 3),
         });
     EXPECT_FALSE(rejected);
     auto unchanged = (*state)->inventory_for_peer(peer);

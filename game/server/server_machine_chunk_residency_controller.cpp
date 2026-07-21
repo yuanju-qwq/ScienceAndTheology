@@ -138,40 +138,47 @@ snt::core::Expected<void> ServerMachineChunkResidencyController::reconcile(
 
     size_t materialized_chunks = 0;
     size_t materialized_machines = 0;
-    size_t dematerialized_chunks = 0;
+    size_t dematerialized_candidate_chunks = 0;
     size_t dematerialized_machines = 0;
     for (const PlannedMachineChunkTransition& transition : transitions) {
-        if (transition.target == MachineChunkResidencyTarget::kMaterialized) {
-            if (auto result = simulation_session_->materialize_chunk_machines(
-                    transition.chunk_key, current_tick);
-                !result) {
-                auto error = result.error();
-                error.with_context(
-                    "ServerMachineChunkResidencyController::reconcile(materialize)");
-                return error;
-            }
-            ++materialized_chunks;
-            materialized_machines += transition.machine_count;
-            continue;
-        }
-
-        if (auto result = simulation_session_->dematerialize_chunk_machines(
+        if (transition.target != MachineChunkResidencyTarget::kMaterialized) continue;
+        if (auto result = simulation_session_->materialize_chunk_machines(
                 transition.chunk_key, current_tick);
             !result) {
+            auto error = result.error();
+            error.with_context(
+                "ServerMachineChunkResidencyController::reconcile(materialize)");
+            return error;
+        }
+        ++materialized_chunks;
+        materialized_machines += transition.machine_count;
+    }
+
+    std::vector<ChunkKey> offline_candidates;
+    for (const PlannedMachineChunkTransition& transition : transitions) {
+        if (transition.target != MachineChunkResidencyTarget::kOffline) continue;
+        offline_candidates.push_back(transition.chunk_key);
+    }
+    if (!offline_candidates.empty()) {
+        auto result = simulation_session_->dematerialize_chunks_machines(
+            offline_candidates, current_tick);
+        if (!result) {
             auto error = result.error();
             error.with_context(
                 "ServerMachineChunkResidencyController::reconcile(dematerialize)");
             return error;
         }
-        ++dematerialized_chunks;
-        dematerialized_machines += transition.machine_count;
+        dematerialized_candidate_chunks = offline_candidates.size();
+        dematerialized_machines = result->standalone_machine_count +
+                                  result->paused_machine_count +
+                                  result->network_island_machine_count;
     }
 
     if (!transitions.empty()) {
         SNT_LOG_INFO(
-            "Reconciled machine ECS residency at tick %llu: materialized=%zu chunk(s)/%zu machine(s), offline=%zu chunk(s)/%zu machine(s), player_tickets=%zu",
+            "Reconciled machine ECS residency at tick %llu: materialized=%zu chunk(s)/%zu machine(s), offline_candidates=%zu chunk(s)/%zu machine(s), player_tickets=%zu",
             static_cast<unsigned long long>(current_tick), materialized_chunks,
-            materialized_machines, dematerialized_chunks, dematerialized_machines,
+            materialized_machines, dematerialized_candidate_chunks, dematerialized_machines,
             active_player_positions.size());
     }
     return {};

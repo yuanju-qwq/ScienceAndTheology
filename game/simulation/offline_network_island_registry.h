@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <vector>
 
 namespace snt::game {
 
@@ -56,6 +57,7 @@ public:
 
     [[nodiscard]] OfflineNetworkIslandSnapshot* find(uint64_t island_id) noexcept;
     [[nodiscard]] const OfflineNetworkIslandSnapshot* find(uint64_t island_id) const noexcept;
+    [[nodiscard]] std::vector<uint64_t> island_ids() const;
     [[nodiscard]] size_t size() const noexcept { return islands_.size(); }
 
 private:

@@ -240,8 +240,8 @@ TEST(GameChunkSerializerTest, RoundTripsPersistentPlayerBedsAndGraves) {
         .root_y = 65,
         .root_z = 8,
         .items = {
-            {.item_id = "iron_ingot", .count = 12},
-            {.item_id = "relic", .count = 1, .instance_data = "unique"},
+            snt::game::GamePlayerGraveItemStack::item("iron_ingot", 12),
+            snt::game::GamePlayerGraveItemStack::item("relic", 1, {}, "unique"),
         },
     });
 

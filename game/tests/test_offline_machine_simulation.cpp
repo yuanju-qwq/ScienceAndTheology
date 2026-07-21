@@ -1,7 +1,9 @@
-// Offline standalone machine simulation tests.
+// Offline machine and network-island simulation tests.
 
+#include <algorithm>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -11,7 +13,10 @@
 #include "game/client/machine_tick_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
 #include "game/simulation/offline_machine_simulation.h"
+#include "game/simulation/offline_network_island_registry.h"
+#include "game/simulation/offline_power_network_island.h"
 #include "game/world/save/chunk_serializer.h"
+#include "voxel/data/voxel_chunk.h"
 
 namespace {
 
@@ -21,6 +26,7 @@ using snt::game::GameChunkSerializer;
 using snt::game::GameContentRegistry;
 using snt::game::IMachineTickEventSink;
 using snt::game::MachineDefinition;
+using snt::game::MachineItemStack;
 using snt::game::MachineOfflineSimulationMode;
 using snt::game::MachineRunState;
 using snt::game::MachineRuntimeComponent;
@@ -29,9 +35,17 @@ using snt::game::MachineRuntimeResidency;
 using snt::game::MachineTickEvent;
 using snt::game::MachineTickEventKind;
 using snt::game::OfflineMachineSimulationService;
+using snt::game::OfflineNetworkBoundaryPort;
+using snt::game::OfflineNetworkIslandRegistry;
+using snt::game::OfflineNetworkIslandSnapshot;
+using snt::game::OfflineNetworkResourceKind;
+using snt::game::OfflineNetworkResourceLedger;
+using snt::game::OfflinePowerNetworkIslandProvider;
+using snt::game::OfflinePowerNetworkIslandSimulator;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
+using snt::game::VoltageTier;
 using snt::voxel::ChunkKey;
 
 class CapturingMachineEvents final : public IMachineTickEventSink {
@@ -70,8 +84,123 @@ void register_furnace_content(GameContentRegistry& content,
     ASSERT_TRUE(content.register_builtin_recipe(std::move(recipe)));
 }
 
-ChunkKey make_chunk_key() {
-    return {"overworld", 0, 0, 0};
+ChunkKey make_chunk_key(int32_t chunk_x = 0) {
+    return {"overworld", chunk_x, 0, 0};
+}
+
+void register_power_network_content(GameContentRegistry& content,
+                                    uint32_t max_batch_ticks = 5,
+                                    int32_t max_transfer_per_tick = 2,
+                                    int32_t recipe_duration_ticks = 2) {
+    ASSERT_TRUE(content.register_builtin_item({
+        .id = "offline.power_ore", .title_key = "item.offline.power_ore", .max_stack = 64}));
+    ASSERT_TRUE(content.register_builtin_item({
+        .id = "offline.power_ingot", .title_key = "item.offline.power_ingot", .max_stack = 64}));
+
+    MachineDefinition source;
+    source.id = "offline.power_source";
+    source.display_name = "Offline Power Source";
+    source.tier = 1;
+    source.power_capacity = 32;
+    source.offline_simulation.mode = MachineOfflineSimulationMode::kNetworkIsland;
+    source.offline_simulation.max_batch_ticks = max_batch_ticks;
+    source.offline_simulation.max_power_export_per_tick = max_transfer_per_tick;
+    ASSERT_TRUE(content.register_builtin_machine(std::move(source)));
+
+    MachineDefinition consumer;
+    consumer.id = "offline.power_consumer";
+    consumer.display_name = "Offline Power Consumer";
+    consumer.tier = 1;
+    consumer.power_capacity = 10;
+    consumer.offline_simulation.mode = MachineOfflineSimulationMode::kNetworkIsland;
+    consumer.offline_simulation.max_batch_ticks = max_batch_ticks;
+    consumer.offline_simulation.max_power_import_per_tick = max_transfer_per_tick;
+    ASSERT_TRUE(content.register_builtin_machine(std::move(consumer)));
+
+    RecipeDefinition recipe;
+    recipe.id = "offline.power_consumer.recipe";
+    recipe.machine_id = "offline.power_consumer";
+    recipe.inputs = {RecipeInputDefinition{"offline.power_ore", 1}};
+    recipe.outputs = {RecipeOutputDefinition{"offline.power_ingot", 1}};
+    recipe.duration_ticks = recipe_duration_ticks;
+    recipe.energy_per_tick = 1;
+    ASSERT_TRUE(content.register_builtin_recipe(std::move(recipe)));
+}
+
+void add_power_cable(GameChunkSidecarRegistry& sidecars,
+                     const ChunkKey& chunk_key,
+                     uint64_t entity_id,
+                     int32_t root_x,
+                     int32_t root_y,
+                     int32_t root_z,
+                     uint8_t connection_mask,
+                     VoltageTier tier = VoltageTier::ULV) {
+    auto* sidecar = sidecars.get(chunk_key);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->block_entities.push_back({
+        .id = {entity_id},
+        .entity_type = snt::game::BlockEntityType::CABLE,
+        .root_x = root_x,
+        .root_y = root_y,
+        .root_z = root_z,
+        .type_data_json = std::to_string(static_cast<int>(tier)) + "|" +
+                          std::to_string(static_cast<int>(connection_mask)),
+        .owned_cell_count = 1,
+    });
+}
+
+struct PowerMachinePair {
+    uint64_t source_guid = 0;
+    uint64_t consumer_guid = 0;
+};
+
+PowerMachinePair create_power_machine_pair(snt::ecs::World& world,
+                                           GameChunkSidecarRegistry& sidecars,
+                                           const ChunkKey& source_chunk,
+                                           int32_t source_x,
+                                           const ChunkKey& consumer_chunk,
+                                           int32_t consumer_x,
+                                           int32_t source_energy,
+                                           int32_t consumer_energy,
+                                           int32_t input_count) {
+    MachineRuntimeComponent source_runtime;
+    source_runtime.machine_id = "offline.power_source";
+    source_runtime.stored_energy = source_energy;
+    source_runtime.energy_capacity = 32;
+    const auto source = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, source_chunk, source_x, 0, 0, std::move(source_runtime));
+    if (!source) {
+        ADD_FAILURE() << source.error().format();
+        return {};
+    }
+
+    MachineRuntimeComponent consumer_runtime;
+    consumer_runtime.machine_id = "offline.power_consumer";
+    consumer_runtime.stored_energy = consumer_energy;
+    consumer_runtime.energy_capacity = 10;
+    if (input_count > 0) {
+        consumer_runtime.input_slots = {
+            MachineItemStack::item("offline.power_ore", input_count)};
+    }
+    const auto consumer = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, consumer_chunk, consumer_x, 0, 0, std::move(consumer_runtime));
+    if (!consumer) {
+        ADD_FAILURE() << consumer.error().format();
+        return {};
+    }
+    return {source->entity_guid.value, consumer->entity_guid.value};
+}
+
+std::vector<uint8_t> normalized_machine_payload(MachineRuntimePersistenceRecord record) {
+    record.anchor_entity_id = {1};
+    record.entity_guid = 1;
+    record.offline_island_id = 1;
+    record.offline_epoch = 1;
+
+    GameChunk chunk;
+    chunk.terrain.resize(1, 1, 1);
+    chunk.machine_runtime_records.push_back(std::move(record));
+    return GameChunkSerializer{}.serialize("overworld", chunk);
 }
 
 TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMachine) {
@@ -85,7 +214,7 @@ TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMa
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {{"offline.ore", 3}};
+    runtime.input_slots = {MachineItemStack::item("offline.ore", 3)};
     const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 0, 0, 0, std::move(runtime));
     ASSERT_TRUE(anchored);
@@ -111,8 +240,8 @@ TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMa
     const MachineRuntimePersistenceRecord& offline_record =
         sidecar->machine_runtime_records.front();
     ASSERT_EQ(offline_record.output_slots.size(), 1u);
-    EXPECT_EQ(offline_record.output_slots.front().item_id, "offline.ingot");
-    EXPECT_EQ(offline_record.output_slots.front().count, 2);
+    EXPECT_EQ(offline_record.output_slots.front().resource.key.id, "offline.ingot");
+    EXPECT_EQ(offline_record.output_slots.front().resource.amount, 2);
     ASSERT_TRUE(offline_record.active_recipe.has_value());
     EXPECT_EQ(offline_record.progress_ticks, 1);
 
@@ -124,7 +253,7 @@ TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMa
     EXPECT_EQ(restored.state, MachineRunState::Idle);
     EXPECT_FALSE(restored.active_recipe.has_value());
     ASSERT_EQ(restored.output_slots.size(), 1u);
-    EXPECT_EQ(restored.output_slots.front().count, 3);
+    EXPECT_EQ(restored.output_slots.front().resource.amount, 3);
     EXPECT_TRUE(restored.input_slots.empty());
     EXPECT_EQ(sidecar->machine_runtime_records.front().residency,
               MachineRuntimeResidency::kLoaded);
@@ -147,7 +276,7 @@ TEST(OfflineMachineSimulationTest, DefersNetworkIslandUntilTopologyProviderExist
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {{"offline.ore", 1}};
+    runtime.input_slots = {MachineItemStack::item("offline.ore", 1)};
     ASSERT_TRUE(snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 0, 0, 0, std::move(runtime)));
 
@@ -170,7 +299,7 @@ TEST(OfflineMachineSimulationTest, ManualMachineFinishesActiveJobButDoesNotStart
 
     MachineRuntimeComponent starting_runtime;
     starting_runtime.machine_id = "offline.furnace";
-    starting_runtime.input_slots = {{"offline.ore", 2}};
+    starting_runtime.input_slots = {MachineItemStack::item("offline.ore", 2)};
     starting_runtime.activation_requested = true;
     starting_runtime.job_owner_account_id = "account:manual-owner";
     auto execution_input = snt::game::make_machine_execution_input(
@@ -181,7 +310,7 @@ TEST(OfflineMachineSimulationTest, ManualMachineFinishesActiveJobButDoesNotStart
     ASSERT_EQ(started.advanced_ticks, 1u);
     ASSERT_TRUE(started.machine.active_recipe.has_value());
     ASSERT_EQ(started.machine.input_slots.size(), 1u);
-    EXPECT_EQ(started.machine.input_slots.front().count, 1);
+    EXPECT_EQ(started.machine.input_slots.front().resource.amount, 1);
 
     GameChunkSidecarRegistry sidecars;
     const ChunkKey chunk_key = make_chunk_key();
@@ -204,11 +333,11 @@ TEST(OfflineMachineSimulationTest, ManualMachineFinishesActiveJobButDoesNotStart
     EXPECT_FALSE(record.active_recipe.has_value());
     EXPECT_EQ(record.run_state, static_cast<uint8_t>(MachineRunState::Idle));
     ASSERT_EQ(record.input_slots.size(), 1u);
-    EXPECT_EQ(record.input_slots.front().item_id, "offline.ore");
-    EXPECT_EQ(record.input_slots.front().count, 1);
+    EXPECT_EQ(record.input_slots.front().resource.key.id, "offline.ore");
+    EXPECT_EQ(record.input_slots.front().resource.amount, 1);
     ASSERT_EQ(record.output_slots.size(), 1u);
-    EXPECT_EQ(record.output_slots.front().item_id, "offline.ingot");
-    EXPECT_EQ(record.output_slots.front().count, 1);
+    EXPECT_EQ(record.output_slots.front().resource.key.id, "offline.ingot");
+    EXPECT_EQ(record.output_slots.front().resource.amount, 1);
 
     size_t completions = 0;
     for (const MachineTickEvent& event : events.events) {
@@ -232,7 +361,7 @@ TEST(OfflineMachineSimulationTest, DelayedSchedulerUsesBoundedOfflineBatches) {
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {{"offline.ore", 2}};
+    runtime.input_slots = {MachineItemStack::item("offline.ore", 2)};
     auto initial_execution = snt::game::make_machine_execution_input(
         content, snt::ecs::EntityGuid{701}, std::move(runtime));
     ASSERT_TRUE(initial_execution);
@@ -253,7 +382,7 @@ TEST(OfflineMachineSimulationTest, DelayedSchedulerUsesBoundedOfflineBatches) {
     const MachineRuntimePersistenceRecord& record = sidecar->machine_runtime_records.front();
     EXPECT_EQ(record.offline_last_simulated_tick, 110u);
     ASSERT_EQ(record.output_slots.size(), 1u);
-    EXPECT_EQ(record.output_slots.front().count, 1);
+    EXPECT_EQ(record.output_slots.front().resource.amount, 1);
     ASSERT_TRUE(record.active_recipe.has_value());
     EXPECT_EQ(record.progress_ticks, 5);
 }
@@ -268,7 +397,7 @@ TEST(OfflineMachineSimulationTest, OfflineRecordSurvivesChunkSaveAndRestartWitho
     snt::ecs::World original_world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {{"offline.ore", 2}};
+    runtime.input_slots = {MachineItemStack::item("offline.ore", 2)};
     const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         original_world, original_sidecars, chunk_key, 0, 0, 0, std::move(runtime));
     ASSERT_TRUE(anchored);
@@ -310,8 +439,8 @@ TEST(OfflineMachineSimulationTest, OfflineRecordSurvivesChunkSaveAndRestartWitho
     const MachineRuntimeComponent& restored_runtime =
         restarted_world.get_component<MachineRuntimeComponent>(restored_entity);
     ASSERT_EQ(restored_runtime.output_slots.size(), 1u);
-    EXPECT_EQ(restored_runtime.output_slots.front().item_id, "offline.ingot");
-    EXPECT_EQ(restored_runtime.output_slots.front().count, 2);
+    EXPECT_EQ(restored_runtime.output_slots.front().resource.key.id, "offline.ingot");
+    EXPECT_EQ(restored_runtime.output_slots.front().resource.amount, 2);
     EXPECT_TRUE(restored_runtime.input_slots.empty());
 }
 

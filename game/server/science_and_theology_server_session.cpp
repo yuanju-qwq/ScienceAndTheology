@@ -285,6 +285,12 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
             .chunk_vertical_aoi_radius_blocks =
                 config_.server_replication.chunk_vertical_aoi_radius_blocks,
             .max_visible_chunks = config_.server_replication.max_visible_chunks,
+            .creature_horizontal_aoi_radius_blocks =
+                config_.server_replication.creature_horizontal_aoi_radius_blocks,
+            .creature_vertical_aoi_radius_blocks =
+                config_.server_replication.creature_vertical_aoi_radius_blocks,
+            .max_visible_creature_chunks =
+                config_.server_replication.max_visible_creature_chunks,
         },
         {quest_book_replication_.get(), inventory_replication_.get(), creature_replication_.get()});
     if (!player_replication) {
@@ -427,7 +433,10 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                  config_.server_replication.max_entity_snapshots_per_tick);
     SNT_LOG_INFO("Task-book value replication enabled (value_budget=%u)",
                  config_.server_replication.max_value_snapshots_per_tick);
-    SNT_LOG_INFO("Native creature AOI replication enabled (max_visible=%u); far visuals remain presentation-only",
+    SNT_LOG_INFO("Native creature AOI replication enabled (horizontal=%u vertical=%u chunks=%u values=%u); far visuals remain presentation-only",
+                 config_.server_replication.creature_horizontal_aoi_radius_blocks,
+                 config_.server_replication.creature_vertical_aoi_radius_blocks,
+                 config_.server_replication.max_visible_creature_chunks,
                  config_.server_replication.max_visible_creatures);
     SNT_LOG_INFO("Player inventory replication uses full initial snapshots and changed-slot deltas");
     SNT_LOG_INFO("Authoritative player movement enabled (walk=%.2f sprint=%.2f input_timeout=%llu ticks)",

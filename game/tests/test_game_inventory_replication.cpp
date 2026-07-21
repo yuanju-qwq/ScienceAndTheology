@@ -71,8 +71,8 @@ GameInventorySnapshot make_inventory_snapshot(std::string account_id, uint64_t r
     inventory.max_slots = 36;
     inventory.max_stack_size = 64;
     inventory.slots.resize(inventory.max_slots);
-    inventory.slots[0] = {.item_id = "iron", .count = 12};
-    inventory.slots[7] = {.item_id = "hammer", .count = 1, .instance_data = "durability=97"};
+    inventory.slots[0] = GamePlayerItemStack::item("iron", 12);
+    inventory.slots[7] = GamePlayerItemStack::item("hammer", 1, {}, "durability=97");
     return {
         .account_id = std::move(account_id),
         .inventory_revision = revision,
@@ -121,8 +121,8 @@ TEST(GameInventoryReplicationCodecTest, SendsOnlyChangedSlotsAfterFullSnapshot) 
             .outcome = GameInventorySlotTransferOutcome::kAccepted,
         },
         .changed_slots = {
-            {.slot_index = 0, .stack = {.item_id = "iron", .count = 8}},
-            {.slot_index = 4, .stack = {.item_id = "iron", .count = 4}},
+            {.slot_index = 0, .stack = GamePlayerItemStack::item("iron", 8)},
+            {.slot_index = 4, .stack = GamePlayerItemStack::item("iron", 4)},
         },
     };
     auto encoded_delta = encode_game_inventory_delta(delta);
@@ -155,8 +155,8 @@ TEST(GameMachineInputSlotTransferProtocolTest, RoundTripsAndRejectsMalformedPayl
         .player_slot = 3,
         .machine_input_slot = 1,
         .count = 2,
-        .expected_player_slot = {.item_id = "iron_ore", .count = 5},
-        .expected_machine_input_slot = {.item_id = "iron_ore", .count = 1},
+        .expected_player_slot = GamePlayerItemStack::item("iron_ore", 5),
+        .expected_machine_input_slot = GamePlayerItemStack::item("iron_ore", 1),
     };
     auto encoded = make_game_machine_input_slot_transfer_command(44, command);
     ASSERT_TRUE(encoded) << encoded.error().format();
@@ -219,8 +219,8 @@ TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
             .outcome = GameInventorySlotTransferOutcome::kAccepted,
         },
         .changed_slots = {
-            {.slot_index = 0, .stack = {.item_id = "iron", .count = 7}},
-            {.slot_index = 1, .stack = {.item_id = "iron", .count = 5}},
+            {.slot_index = 0, .stack = GamePlayerItemStack::item("iron", 7)},
+            {.slot_index = 1, .stack = GamePlayerItemStack::item("iron", 5)},
         },
     };
     auto encoded_changed = encode_game_inventory_delta(changed);
@@ -237,8 +237,8 @@ TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
     ASSERT_TRUE(state.apply(delta));
     ASSERT_NE(state.snapshot(), nullptr);
     EXPECT_EQ(state.snapshot()->inventory_revision, 2u);
-    EXPECT_EQ(state.snapshot()->inventory.slots[0], (GamePlayerItemStack{"iron", 7}));
-    EXPECT_EQ(state.snapshot()->inventory.slots[1], (GamePlayerItemStack{"iron", 5}));
+    EXPECT_EQ(state.snapshot()->inventory.slots[0], GamePlayerItemStack::item("iron", 7));
+    EXPECT_EQ(state.snapshot()->inventory.slots[1], GamePlayerItemStack::item("iron", 5));
     EXPECT_EQ(state.snapshot()->inventory.slots[7], initial.inventory.slots[7]);
     EXPECT_EQ(state.snapshot()->response.request_id, 7u);
 
@@ -261,14 +261,16 @@ TEST(GameClientInventoryStateTest, ReconstructsDeltasAndRejectsWrongAccount) {
     ASSERT_TRUE(state.apply(revision_only_delta));
     ASSERT_NE(state.snapshot(), nullptr);
     EXPECT_EQ(state.snapshot()->inventory_revision, 3u);
-    EXPECT_EQ(state.snapshot()->inventory.slots[0], (GamePlayerItemStack{"iron", 7}));
+    EXPECT_EQ(state.snapshot()->inventory.slots[0], GamePlayerItemStack::item("iron", 7));
 
     GameInventoryDelta wrong_account = changed;
     wrong_account.account_id = "local-name:SomeoneElse";
     wrong_account.inventory_revision = 4;
     wrong_account.response_revision = 1;
     wrong_account.response = {};
-    wrong_account.changed_slots = {{.slot_index = 2, .stack = {.item_id = "coal", .count = 1}}};
+    wrong_account.changed_slots = {
+        {.slot_index = 2, .stack = GamePlayerItemStack::item("coal", 1)},
+    };
     auto encoded_wrong_account = encode_game_inventory_delta(wrong_account);
     ASSERT_TRUE(encoded_wrong_account) << encoded_wrong_account.error().format();
     GameDelta rejected{
@@ -295,7 +297,7 @@ TEST(GameServerInventoryReplicationTest, KeepsPendingDeltaUntilReliableCommit) {
     const GameAuthenticatedPeer peer = make_peer(61, "Inventory Source");
     ASSERT_TRUE((*players)->on_peer_authenticated(peer, (*players)->default_persistent_state()));
     ASSERT_TRUE((*players)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "iron", .count = 6}}}));
+        peer, {.additions = {GamePlayerItemStack::item("iron", 6)}}));
 
     CountingCheckpointSink checkpoint;
     auto source = GameServerInventoryReplication::create(**players, &checkpoint);
@@ -387,7 +389,7 @@ TEST(GameServerCommandSinkTest, RoutesInventoryTransferToAuthoritativeSource) {
     const GameAuthenticatedPeer peer = make_peer(62, "Inventory Route");
     ASSERT_TRUE((*players)->on_peer_authenticated(peer, (*players)->default_persistent_state()));
     ASSERT_TRUE((*players)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "iron", .count = 3}}}));
+        peer, {.additions = {GamePlayerItemStack::item("iron", 3)}}));
     auto source = GameServerInventoryReplication::create(**players);
     ASSERT_TRUE(source) << source.error().format();
     const snt::network::ReplicationTickContext context{.tick_index = 9, .delta_seconds = 0.05f};
@@ -421,8 +423,8 @@ TEST(GameServerCommandSinkTest, RoutesInventoryTransferToAuthoritativeSource) {
 
     auto inventory = (*players)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0], (GamePlayerItemStack{"iron", 2}));
-    EXPECT_EQ(inventory->slots[1], (GamePlayerItemStack{"iron", 1}));
+    EXPECT_EQ(inventory->slots[0], GamePlayerItemStack::item("iron", 2));
+    EXPECT_EQ(inventory->slots[1], GamePlayerItemStack::item("iron", 1));
     (*players)->shutdown();
 }
 

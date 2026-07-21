@@ -71,7 +71,7 @@ TEST(ServerMachineChunkResidencyControllerTest,
 
     snt::game::MachineRuntimeComponent machine;
     machine.machine_id = "furnace";
-    machine.input_slots = {{"iron_ore", 1}};
+    machine.input_slots = {snt::game::MachineItemStack::item("iron_ore", 1)};
     const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         runtime.world_session().world(), session_view->world_sidecars(), machine_chunk_key,
         machine_block_x, 0, 0, std::move(machine));

@@ -32,22 +32,18 @@ snt::game::GamePlayerPersistentState make_player_state() {
     };
     state.inventory = {
         .slots = {
-            {.item_id = "iron_ingot", .count = 12},
-            {.item_id = "steel_pickaxe", .count = 1, .instance_data = "durability=238"},
+            snt::game::GamePlayerItemStack::item("iron_ingot", 12),
+            snt::game::GamePlayerItemStack::item(
+                "steel_pickaxe", 1, {}, "durability=238"),
             {},
         },
         .max_slots = 3,
         .max_stack_size = 64,
     };
-    state.equipment.slots[static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] = {
-        .item_id = "steel_sword",
-        .count = 1,
-        .instance_data = "durability=91",
-    };
-    state.equipment.slots[static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kChest)] = {
-        .item_id = "iron_chestplate",
-        .count = 1,
-    };
+    state.equipment.slots[static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kMainHand)] =
+        snt::game::GamePlayerItemStack::item("steel_sword", 1, {}, "durability=91");
+    state.equipment.slots[static_cast<size_t>(snt::game::GamePlayerEquipmentSlot::kChest)] =
+        snt::game::GamePlayerItemStack::item("iron_chestplate", 1);
     state.organs = {
         .schema_id = "source_law_sublimation",
         .schema_version = 1,

@@ -38,9 +38,17 @@ constexpr float kOcclusionEpsilonBlocks = 1.0e-4f;
     const float distance_squared = offset_x * offset_x + offset_y * offset_y +
         offset_z * offset_z;
     const float discriminant = projection * projection - (distance_squared - radius_squared);
-    if (discriminant < 0.0f) return std::nullopt;
+    if (!std::isfinite(discriminant) || discriminant < 0.0f) return std::nullopt;
 
-    float distance = -projection - std::sqrt(discriminant);
+    const float root = std::sqrt(discriminant);
+    const float near_distance = -projection - root;
+    const float far_distance = -projection + root;
+    if (!std::isfinite(near_distance) || !std::isfinite(far_distance) ||
+        far_distance < 0.0f) {
+        return std::nullopt;
+    }
+
+    float distance = near_distance;
     if (distance < 0.0f) distance = 0.0f;
     if (distance > raycast.max_distance_blocks) return std::nullopt;
     return distance;

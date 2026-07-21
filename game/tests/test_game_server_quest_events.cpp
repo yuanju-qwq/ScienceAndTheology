@@ -16,6 +16,7 @@
 namespace {
 
 using snt::game::GameContentRegistry;
+using snt::game::GamePlayerItemStack;
 using snt::game::GamePlayerInventoryTransaction;
 using snt::game::QuestDefinition;
 using snt::game::QuestObjectiveDefinition;
@@ -56,7 +57,9 @@ int32_t count_item(const snt::game::GamePlayerInventory& inventory,
                    std::string_view item_id) {
     int32_t count = 0;
     for (const snt::game::GamePlayerItemStack& stack : inventory.slots) {
-        if (stack.item_id == item_id) count += stack.count;
+        if (stack.resource.key == snt::game::ResourceKey::item(std::string(item_id))) {
+            count += static_cast<int32_t>(stack.resource.amount);
+        }
     }
     return count;
 }
@@ -123,7 +126,7 @@ TEST(GameServerQuestEventServiceTest,
     events.bind_player_state(*(*player_state), &checkpoint);
 
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, GamePlayerInventoryTransaction{.additions = {{.item_id = "charcoal", .count = 2}}}));
+        peer, GamePlayerInventoryTransaction{.additions = {GamePlayerItemStack::item("charcoal", 2)}}));
     events.on_player_interaction({
         .kind = GameServerPlayerInteractionEventKind::kMachineOutputCollected,
         .account_id = peer.identity.account_id,
@@ -139,7 +142,7 @@ TEST(GameServerQuestEventServiceTest,
         .kind = MachineTickEventKind::RecipeCompleted,
         .tick_index = 4,
         .account_id = peer.identity.account_id,
-        .outputs = {MachineItemStack{.item_id = "iron_ingot", .count = 1}},
+        .outputs = {MachineItemStack::item("iron_ingot", 1)},
     });
 
     const auto* progress = quests.find_progress(peer.identity.account_id, "p7.event_flow");

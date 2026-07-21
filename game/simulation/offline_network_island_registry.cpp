@@ -175,6 +175,7 @@ struct ConstMachineRecordLocation {
                 static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
             ledger.resource_id.empty() || ledger.resource_id.find('\0') != std::string::npos ||
             ledger.capacity < 0 || ledger.stored_amount < 0 ||
+            ledger.max_transfer_per_tick < 0 ||
             ledger.stored_amount > ledger.capacity) {
             return invalid_argument("Offline network island resource ledger is invalid");
         }
@@ -443,6 +444,16 @@ const OfflineNetworkIslandSnapshot* OfflineNetworkIslandRegistry::find(
             return candidate.island_id == island_id;
         });
     return snapshot == sidecar->offline_network_islands.end() ? nullptr : &*snapshot;
+}
+
+std::vector<uint64_t> OfflineNetworkIslandRegistry::island_ids() const {
+    std::vector<uint64_t> result;
+    result.reserve(islands_.size());
+    for (const auto& [island_id, location] : islands_) {
+        static_cast<void>(location);
+        result.push_back(island_id);
+    }
+    return result;
 }
 
 }  // namespace snt::game

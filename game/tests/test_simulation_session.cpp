@@ -319,8 +319,8 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     record.anchor_entity_id = anchor_id;
     record.entity_guid = kMachineGuid;
     record.machine_id = "furnace";
-    record.input_slots = {{"iron_ore", 2}};
-    record.output_slots = {{"slag", 1}};
+    record.input_slots = {snt::game::MachineRuntimeItemStack::item("iron_ore", 2)};
+    record.output_slots = {snt::game::MachineRuntimeItemStack::item("slag", 1)};
     record.stored_energy = 12;
     record.energy_capacity = 100;
     record.max_input_slots = 4;
@@ -329,8 +329,8 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     record.progress_ticks = 2;
     record.active_recipe = snt::game::MachineRuntimeRecipeSnapshot{
         .id = "snt.furnace.iron",
-        .inputs = {{"iron_ore", 1}},
-        .outputs = {{"iron_ingot", 1}},
+        .inputs = {snt::game::MachineRuntimeItemStack::item("iron_ore", 1)},
+        .outputs = {snt::game::MachineRuntimeItemStack::item("iron_ingot", 1)},
         .duration_ticks = 5,
         .energy_per_tick = 3,
     };
@@ -362,7 +362,7 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     ASSERT_TRUE(machine.active_recipe.has_value());
     EXPECT_EQ(machine.active_recipe->id, "snt.furnace.iron");
     machine.stored_energy = 47;
-    machine.output_slots.push_back({"iron_ingot", 1});
+    machine.output_slots.push_back(snt::game::MachineItemStack::item("iron_ingot", 1));
     first_runtime.shutdown();
 
     snt::engine::SimulationRuntime restarted_runtime;
@@ -381,7 +381,7 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
         snt::game::MachineRuntimeComponent>(restored_entity);
     EXPECT_EQ(restored_machine.stored_energy, 47);
     ASSERT_EQ(restored_machine.output_slots.size(), 2u);
-    EXPECT_EQ(restored_machine.output_slots.back().item_id, "iron_ingot");
+    EXPECT_EQ(restored_machine.output_slots.back().resource.key.id, "iron_ingot");
     restarted_runtime.shutdown();
 
     std::error_code error;

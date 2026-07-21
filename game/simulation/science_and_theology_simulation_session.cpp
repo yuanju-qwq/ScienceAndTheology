@@ -11,6 +11,7 @@
 #include "game/simulation/wild_creature_system.h"
 #include "game/simulation/game_fluid_system.h"
 #include "game/simulation/machine_runtime_persistence.h"
+#include "game/simulation/offline_power_network_island.h"
 #include "game/simulation/offline_machine_simulation.h"
 #include "game/simulation/tree_growth_system.h"
 #include "game/simulation/worldgen_script_content.h"
@@ -309,9 +310,16 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         error.with_context("ScienceAndTheologySimulationSession::create_world(restore machines)");
         return error;
     }
+    offline_power_network_provider_ = std::make_unique<OfflinePowerNetworkIslandProvider>(
+        content_registry_, chunk_sidecars_);
+    offline_power_network_simulator_ = std::make_unique<OfflinePowerNetworkIslandSimulator>();
     offline_machine_simulation_ = std::make_unique<OfflineMachineSimulationService>(
         content_registry_, chunk_sidecars_);
     offline_machine_simulation_->set_event_sink(machine_tick_event_sink_);
+    offline_machine_simulation_->set_network_island_provider(
+        offline_power_network_provider_.get());
+    offline_machine_simulation_->set_network_island_simulator(
+        offline_power_network_simulator_.get());
     if (auto result = offline_machine_simulation_->initialize(0); !result) {
         offline_machine_simulation_.reset();
         auto error = result.error();
@@ -426,6 +434,17 @@ ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
     return offline_machine_simulation_->dematerialize_chunk(*world_, chunk_key, current_tick);
 }
 
+snt::core::Expected<OfflineChunkMachineTransition>
+ScienceAndTheologySimulationSession::dematerialize_chunks_machines(
+    std::span<const ChunkKey> chunk_keys,
+    uint64_t current_tick) {
+    if (world_ == nullptr || offline_machine_simulation_ == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Offline machine simulation is unavailable"};
+    }
+    return offline_machine_simulation_->dematerialize_chunks(*world_, chunk_keys, current_tick);
+}
+
 snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk_machines(
     const ChunkKey& chunk_key, uint64_t current_tick) {
     if (world_ == nullptr || offline_machine_simulation_ == nullptr) {
@@ -482,8 +501,12 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
                           result.error().format().c_str());
         }
         offline_machine_simulation_->set_event_sink(nullptr);
+        offline_machine_simulation_->set_network_island_provider(nullptr);
+        offline_machine_simulation_->set_network_island_simulator(nullptr);
         offline_machine_simulation_.reset();
     }
+    offline_power_network_simulator_.reset();
+    offline_power_network_provider_.reset();
     if (world_persistence_ && world_ready_ && world_ != nullptr && chunks_ != nullptr) {
         if (auto result = GameMachineRuntimePersistence::capture(*world_, chunk_sidecars_); !result) {
             SNT_LOG_ERROR("Game machine runtime capture during session shutdown failed: %s",

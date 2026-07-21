@@ -231,6 +231,11 @@ struct MachineOfflineSimulationProfile {
     // Manual machines still require a player command to begin a new job. The
     // flag applies to automatic machines and is reserved for future networks.
     bool can_start_new_jobs = true;
+    // Network-island power transfer is opt-in. These limits move only energy
+    // already stored in a machine buffer; generation remains a separate
+    // content mechanic and cannot be inferred from a cable connection.
+    int32_t max_power_import_per_tick = 0;
+    int32_t max_power_export_per_tick = 0;
 };
 
 struct RecipeDefinition {
@@ -407,6 +412,9 @@ public:
     snt::core::Expected<void> set_script_machine_offline_simulation(
         ScriptId script_id, std::string machine_id,
         MachineOfflineSimulationProfile profile);
+    snt::core::Expected<void> set_script_machine_offline_power_transfer(
+        ScriptId script_id, std::string machine_id,
+        int32_t max_import_per_tick, int32_t max_export_per_tick);
     snt::core::Expected<void> add_script_quest_objective(
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
     snt::core::Expected<void> add_script_quest_reward(

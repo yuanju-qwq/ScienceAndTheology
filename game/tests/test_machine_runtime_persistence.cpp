@@ -35,8 +35,11 @@ snt::game::MachineRuntimePersistenceRecord make_machine_record() {
     record.anchor_entity_id = kMachineAnchor;
     record.entity_guid = kMachineGuid;
     record.machine_id = "furnace";
-    record.input_slots = {{"iron_ore", 3}, {"charcoal", 5}};
-    record.output_slots = {{"slag", 2}};
+    record.input_slots = {
+        MachineRuntimeItemStack::item("iron_ore", 3),
+        MachineRuntimeItemStack::item("charcoal", 5),
+    };
+    record.output_slots = {MachineRuntimeItemStack::item("slag", 2)};
     record.stored_energy = 17;
     record.energy_capacity = 100;
     record.max_input_slots = 4;
@@ -45,8 +48,11 @@ snt::game::MachineRuntimePersistenceRecord make_machine_record() {
     record.progress_ticks = 2;
     record.active_recipe = MachineRuntimeRecipeSnapshot{
         .id = "snt.furnace.iron",
-        .inputs = {{"iron_ore", 1}, {"charcoal", 1}},
-        .outputs = {{"iron_ingot", 1}},
+        .inputs = {
+            MachineRuntimeItemStack::item("iron_ore", 1),
+            MachineRuntimeItemStack::item("charcoal", 1),
+        },
+        .outputs = {MachineRuntimeItemStack::item("iron_ingot", 1)},
         .duration_ticks = 5,
         .energy_per_tick = 3,
     };
@@ -86,16 +92,16 @@ TEST(GameChunkSerializerTest, RoundTripsChunkAnchoredMachineRuntimeRecord) {
     EXPECT_EQ(record.machine_id, "furnace");
     EXPECT_EQ(record.max_input_slots, 4);
     ASSERT_EQ(record.input_slots.size(), 2u);
-    EXPECT_EQ(record.input_slots[0].item_id, "iron_ore");
-    EXPECT_EQ(record.input_slots[0].count, 3);
-    EXPECT_EQ(record.input_slots[1].item_id, "charcoal");
-    EXPECT_EQ(record.input_slots[1].count, 5);
+    EXPECT_EQ(record.input_slots[0].resource.key.id, "iron_ore");
+    EXPECT_EQ(record.input_slots[0].resource.amount, 3);
+    EXPECT_EQ(record.input_slots[1].resource.key.id, "charcoal");
+    EXPECT_EQ(record.input_slots[1].resource.amount, 5);
     ASSERT_TRUE(record.active_recipe.has_value());
     EXPECT_EQ(record.active_recipe->id, "snt.furnace.iron");
     ASSERT_EQ(record.active_recipe->inputs.size(), 2u);
-    EXPECT_EQ(record.active_recipe->inputs[1].item_id, "charcoal");
-    EXPECT_EQ(record.active_recipe->inputs[1].count, 1);
-    EXPECT_EQ(record.active_recipe->outputs.front().item_id, "iron_ingot");
+    EXPECT_EQ(record.active_recipe->inputs[1].resource.key.id, "charcoal");
+    EXPECT_EQ(record.active_recipe->inputs[1].resource.amount, 1);
+    EXPECT_EQ(record.active_recipe->outputs.front().resource.key.id, "iron_ingot");
     EXPECT_FALSE(record.activation_requested);
     EXPECT_EQ(record.job_owner_account_id, "account:machine-owner");
     EXPECT_EQ(record.run_state,
@@ -131,8 +137,8 @@ TEST(GameChunkSerializerTest, RoundTripsPendingManualMachineActivation) {
     EXPECT_EQ(restored_record.run_state,
               static_cast<uint8_t>(snt::game::MachineRunState::WaitingForActivation));
     ASSERT_EQ(restored_record.input_slots.size(), 2u);
-    EXPECT_EQ(restored_record.input_slots[0].item_id, "iron_ore");
-    EXPECT_EQ(restored_record.input_slots[1].item_id, "charcoal");
+    EXPECT_EQ(restored_record.input_slots[0].resource.key.id, "iron_ore");
+    EXPECT_EQ(restored_record.input_slots[1].resource.key.id, "charcoal");
 }
 
 TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMachines) {
@@ -152,13 +158,16 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     EXPECT_EQ(restored.machine_id, "furnace");
     EXPECT_EQ(restored.stored_energy, 17);
     ASSERT_EQ(restored.input_slots.size(), 2u);
-    EXPECT_EQ(restored.input_slots[1].item_id, "charcoal");
+    EXPECT_EQ(restored.input_slots[1].resource.key.id, "charcoal");
     ASSERT_TRUE(restored.active_recipe.has_value());
-    EXPECT_EQ(restored.active_recipe->outputs.front().item_id, "iron_ingot");
+    EXPECT_EQ(restored.active_recipe->outputs.front().resource.key.id, "iron_ingot");
     EXPECT_EQ(restored.job_owner_account_id, "account:machine-owner");
 
     restored.stored_energy = 33;
-    restored.input_slots = {{"iron_ore", 2}, {"charcoal", 4}};
+    restored.input_slots = {
+        MachineItemStack::item("iron_ore", 2),
+        MachineItemStack::item("charcoal", 4),
+    };
     restored.active_recipe.reset();
     restored.progress_ticks = 0;
     restored.activation_requested = true;
@@ -181,7 +190,8 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     ASSERT_NE(captured, nullptr);
     EXPECT_EQ(captured->machine_runtime_records.front().stored_energy, 33);
     ASSERT_EQ(captured->machine_runtime_records.front().input_slots.size(), 2u);
-    EXPECT_EQ(captured->machine_runtime_records.front().input_slots[1].item_id, "charcoal");
+    EXPECT_EQ(captured->machine_runtime_records.front().input_slots[1].resource.key.id,
+              "charcoal");
     EXPECT_TRUE(captured->machine_runtime_records.front().activation_requested);
     EXPECT_EQ(captured->machine_runtime_records.front().job_owner_account_id,
               "account:machine-owner-updated");

@@ -179,7 +179,7 @@ snt::core::Expected<void> GameServerCreatureInteractionService::feed_captive_cre
     }
 
     const GamePlayerInventoryTransaction transaction{
-        .removals = {{.item_id = command.feed_item_id, .count = 1}},
+        .removals = {GamePlayerItemStack::item(command.feed_item_id, 1)},
     };
     auto can_consume = player_state_->can_apply_inventory_transaction(peer, transaction);
     if (!can_consume) return can_consume.error();

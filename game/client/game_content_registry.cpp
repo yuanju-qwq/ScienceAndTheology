@@ -614,6 +614,19 @@ void api_set_machine_offline_simulation(
     }
 }
 
+void api_set_machine_offline_power_transfer(
+    const std::string& machine_id,
+    int max_import_per_tick,
+    int max_export_per_tick) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (auto result = registry->set_script_machine_offline_power_transfer(
+            g_active_script_id, machine_id, max_import_per_tick,
+            max_export_per_tick); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_quest_chapter(const std::string& id,
                                 const std::string& title,
                                 const std::string& description,
@@ -846,6 +859,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             engine,
             "void snt_set_machine_offline_simulation(const string &in, int, int, bool)",
             asFUNCTION(api_set_machine_offline_simulation)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_machine_offline_power_transfer(const string &in, int, int)",
+            asFUNCTION(api_set_machine_offline_power_transfer)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_register_quest_chapter(const string &in, const string &in, const string &in, const string &in, int)",
@@ -1102,6 +1119,17 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
          definition.offline_simulation.max_batch_ticks > 72000)) {
         return invalid_argument(
             "Offline machine simulation batch ticks must be between 1 and 72000");
+    }
+    if (definition.offline_simulation.max_power_import_per_tick < 0 ||
+        definition.offline_simulation.max_power_export_per_tick < 0 ||
+        definition.offline_simulation.max_power_import_per_tick > 1'000'000'000 ||
+        definition.offline_simulation.max_power_export_per_tick > 1'000'000'000) {
+        return invalid_argument("Offline machine power transfer limits are invalid");
+    }
+    if (definition.offline_simulation.mode != MachineOfflineSimulationMode::kNetworkIsland &&
+        (definition.offline_simulation.max_power_import_per_tick != 0 ||
+         definition.offline_simulation.max_power_export_per_tick != 0)) {
+        return invalid_argument("Offline machine power transfer requires network-island mode");
     }
     return {};
 }
@@ -1625,6 +1653,26 @@ snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_simula
     }
     MachineDefinition candidate = found->second.definition;
     candidate.offline_simulation = std::move(profile);
+    if (auto result = validate(candidate); !result) return result.error();
+    found->second.definition.offline_simulation = std::move(candidate.offline_simulation);
+    return {};
+}
+
+snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_power_transfer(
+    ScriptId script_id,
+    std::string machine_id,
+    int32_t max_import_per_tick,
+    int32_t max_export_per_tick) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Machine script mutations require a non-builtin ScriptId");
+    }
+    const auto found = live_machines_.find(machine_id);
+    if (found == live_machines_.end() || found->second.owner != script_id) {
+        return invalid_state("Machine power transfer can only modify a machine owned by the active script");
+    }
+    MachineDefinition candidate = found->second.definition;
+    candidate.offline_simulation.max_power_import_per_tick = max_import_per_tick;
+    candidate.offline_simulation.max_power_export_per_tick = max_export_per_tick;
     if (auto result = validate(candidate); !result) return result.error();
     found->second.definition.offline_simulation = std::move(candidate.offline_simulation);
     return {};

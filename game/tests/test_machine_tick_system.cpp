@@ -97,7 +97,7 @@ TEST(MachineTickSystemTest, ProcessesFurnaceRecipeAndPublishesCompletion) {
     const auto entity = world.create_entity();
     auto& machine = world.add_component<MachineRuntimeComponent>(entity);
     machine.machine_id = "furnace";
-    machine.input_slots = {{"iron_ore", 2}};
+    machine.input_slots = {MachineItemStack::item("iron_ore", 2)};
 
     CapturingMachineEvents events;
     auto system = std::make_shared<MachineTickSystem>(content, &events);
@@ -108,11 +108,11 @@ TEST(MachineTickSystemTest, ProcessesFurnaceRecipeAndPublishesCompletion) {
     EXPECT_EQ(machine.state, MachineRunState::Idle);
     EXPECT_FALSE(machine.active_recipe.has_value());
     ASSERT_EQ(machine.input_slots.size(), 1u);
-    EXPECT_EQ(machine.input_slots.front().item_id, "iron_ore");
-    EXPECT_EQ(machine.input_slots.front().count, 1);
+    EXPECT_EQ(machine.input_slots.front().resource.key.id, "iron_ore");
+    EXPECT_EQ(machine.input_slots.front().resource.amount, 1);
     ASSERT_EQ(machine.output_slots.size(), 1U);
-    EXPECT_EQ(machine.output_slots[0].item_id, "iron_ingot");
-    EXPECT_EQ(machine.output_slots[0].count, 1);
+    EXPECT_EQ(machine.output_slots[0].resource.key.id, "iron_ingot");
+    EXPECT_EQ(machine.output_slots[0].resource.amount, 1);
 
     ASSERT_GE(events.events.size(), 2U);
     EXPECT_EQ(events.events[events.events.size() - 2].kind,
@@ -130,7 +130,7 @@ TEST(MachineTickSystemTest, WorkerPoolAppliesMachineCommandAtBarrier) {
     const auto entity = world.create_entity();
     auto& machine = world.add_component<MachineRuntimeComponent>(entity);
     machine.machine_id = "furnace";
-    machine.input_slots = {{"tin_ore", 1}};
+    machine.input_slots = {MachineItemStack::item("tin_ore", 1)};
 
     snt::core::JobSystemP2 jobs;
     jobs.init(2);
@@ -165,7 +165,7 @@ TEST(MachineTickSystemTest, WorkerPoolShardsMachinesAndPublishesGuidOrder) {
         const entt::entity entity = world.create_entity();
         auto& machine = world.add_component<MachineRuntimeComponent>(entity);
         machine.machine_id = "furnace";
-        machine.input_slots = {{"lead_ore", 1}};
+        machine.input_slots = {MachineItemStack::item("lead_ore", 1)};
         entities.push_back(entity);
         expected_guids.push_back(world.guid_of(entity));
     }
@@ -213,8 +213,8 @@ TEST(MachineTickSystemTest, WorkerPoolShardsMachinesAndPublishesGuidOrder) {
         EXPECT_FALSE(machine.active_recipe.has_value());
         EXPECT_TRUE(machine.input_slots.empty());
         ASSERT_EQ(machine.output_slots.size(), 1u);
-        EXPECT_EQ(machine.output_slots[0].item_id, "lead_ingot");
-        EXPECT_EQ(machine.output_slots[0].count, 1);
+        EXPECT_EQ(machine.output_slots[0].resource.key.id, "lead_ingot");
+        EXPECT_EQ(machine.output_slots[0].resource.amount, 1);
     }
 }
 
@@ -228,12 +228,12 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
     const auto entity = world.create_entity();
     auto& machine = world.add_component<MachineRuntimeComponent>(entity);
     machine.machine_id = "furnace";
-    machine.input_slots = {{"copper_ore", 2}};
+    machine.input_slots = {MachineItemStack::item("copper_ore", 2)};
 
     auto system = std::make_shared<MachineTickSystem>(content);
     ASSERT_TRUE(tick_machine(world, system));  // Starts the copied copper_ingot snapshot.
     ASSERT_TRUE(machine.active_recipe.has_value());
-    EXPECT_EQ(machine.active_recipe->outputs[0].item_id, "copper_ingot");
+    EXPECT_EQ(machine.active_recipe->outputs[0].resource.key.id, "copper_ingot");
     EXPECT_TRUE(machine.active_recipe->outputs[0].runtime_key.is_valid());
     EXPECT_EQ(machine.active_recipe->resource_runtime_index.resolve_runtime(
                   ResourceKey::item("copper_ingot")),
@@ -252,12 +252,12 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
 
     ASSERT_TRUE(tick_machine(world, system));
     ASSERT_EQ(machine.output_slots.size(), 1U);
-    EXPECT_EQ(machine.output_slots[0].item_id, "copper_ingot");
+    EXPECT_EQ(machine.output_slots[0].resource.key.id, "copper_ingot");
 
     ASSERT_TRUE(tick_machine(world, system));
     ASSERT_TRUE(tick_machine(world, system));
     ASSERT_EQ(machine.output_slots.size(), 2U);
-    EXPECT_EQ(machine.output_slots[1].item_id, "bronze_ingot");
+    EXPECT_EQ(machine.output_slots[1].resource.key.id, "bronze_ingot");
 }
 
 TEST(MachineTickSystemTest, ReservesInputAndWaitsForEnergyWithoutProgressing) {
@@ -270,7 +270,7 @@ TEST(MachineTickSystemTest, ReservesInputAndWaitsForEnergyWithoutProgressing) {
     const auto entity = world.create_entity();
     auto& machine = world.add_component<MachineRuntimeComponent>(entity);
     machine.machine_id = "furnace";
-    machine.input_slots = {{"gold_ore", 1}};
+    machine.input_slots = {MachineItemStack::item("gold_ore", 1)};
     machine.stored_energy = 5;
 
     auto system = std::make_shared<MachineTickSystem>(content);
@@ -288,7 +288,7 @@ TEST(MachineTickSystemTest, ReservesInputAndWaitsForEnergyWithoutProgressing) {
     ASSERT_TRUE(tick_machine(world, system));
     EXPECT_EQ(machine.state, MachineRunState::Idle);
     ASSERT_EQ(machine.output_slots.size(), 1U);
-    EXPECT_EQ(machine.output_slots[0].item_id, "gold_ingot");
+    EXPECT_EQ(machine.output_slots[0].resource.key.id, "gold_ingot");
 }
 
 TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) {
@@ -314,7 +314,7 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
     const auto entity = world.create_entity();
     auto& machine = world.add_component<MachineRuntimeComponent>(entity);
     machine.machine_id = "bloomery";
-    machine.input_slots = {{"iron_crushed", 5}};
+    machine.input_slots = {MachineItemStack::item("iron_crushed", 5)};
 
     CapturingMachineEvents events;
     auto system = std::make_shared<MachineTickSystem>(content, &events);
@@ -323,11 +323,11 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
     ASSERT_TRUE(tick_machine(world, system));
     EXPECT_EQ(machine.state, MachineRunState::NoMatchingRecipe);
     ASSERT_EQ(machine.input_slots.size(), 1u);
-    EXPECT_EQ(machine.input_slots.front().count, 5);
+    EXPECT_EQ(machine.input_slots.front().resource.amount, 5);
     EXPECT_FALSE(interactions.request_manual_activation(
         world, world.guid_of(entity), {.target_is_reachable = true}));
 
-    machine.input_slots.push_back({"charcoal", 5});
+    machine.input_slots.push_back(MachineItemStack::item("charcoal", 5));
     ASSERT_TRUE(tick_machine(world, system));
     EXPECT_EQ(machine.state, MachineRunState::WaitingForActivation);
     EXPECT_FALSE(machine.active_recipe.has_value());
@@ -349,8 +349,8 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
     EXPECT_EQ(machine.state, MachineRunState::Idle);
     EXPECT_FALSE(machine.active_recipe.has_value());
     ASSERT_EQ(machine.output_slots.size(), 1u);
-    EXPECT_EQ(machine.output_slots.front().item_id, "iron_bloom");
-    EXPECT_EQ(machine.output_slots.front().count, 1);
+    EXPECT_EQ(machine.output_slots.front().resource.key.id, "iron_bloom");
+    EXPECT_EQ(machine.output_slots.front().resource.amount, 1);
     EXPECT_TRUE(machine.job_owner_account_id.empty());
 
     const auto completion = std::find_if(
@@ -361,8 +361,8 @@ TEST(MachineTickSystemTest, RequiresAllInputsAndManualActivationBeforeStarting) 
     EXPECT_EQ(completion->tick_index, 73u);
     EXPECT_EQ(completion->account_id, "account:machine-owner");
     ASSERT_EQ(completion->outputs.size(), 1u);
-    EXPECT_EQ(completion->outputs.front().item_id, "iron_bloom");
-    EXPECT_EQ(completion->outputs.front().count, 1);
+    EXPECT_EQ(completion->outputs.front().resource.key.id, "iron_bloom");
+    EXPECT_EQ(completion->outputs.front().resource.amount, 1);
 }
 
 TEST(MachineTickSystemTest, ChoosesFirstMatchingRecipeInStableIdOrder) {
@@ -377,7 +377,7 @@ TEST(MachineTickSystemTest, ChoosesFirstMatchingRecipeInStableIdOrder) {
     const auto entity = world.create_entity();
     auto& machine = world.add_component<MachineRuntimeComponent>(entity);
     machine.machine_id = "furnace";
-    machine.input_slots = {{"mixed_ore", 1}};
+    machine.input_slots = {MachineItemStack::item("mixed_ore", 1)};
 
     auto system = std::make_shared<MachineTickSystem>(content);
     ASSERT_TRUE(tick_machine(world, system));

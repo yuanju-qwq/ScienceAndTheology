@@ -28,6 +28,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 
 namespace snt::engine {
 class SimulationServices;
@@ -60,6 +61,8 @@ class IFluidComputeBackend;
 class IMachineTickEventSink;
 class MachineTickSystem;
 class OfflineMachineSimulationService;
+class OfflinePowerNetworkIslandProvider;
+class OfflinePowerNetworkIslandSimulator;
 struct WorldGenConfigSnapshot;
 
 class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession,
@@ -191,6 +194,9 @@ public:
     // They transfer machine ownership before terrain is removed or restored.
     [[nodiscard]] snt::core::Expected<OfflineChunkMachineTransition>
     dematerialize_chunk_machines(const ChunkKey& chunk_key, uint64_t current_tick);
+    [[nodiscard]] snt::core::Expected<OfflineChunkMachineTransition>
+    dematerialize_chunks_machines(std::span<const ChunkKey> chunk_keys,
+                                  uint64_t current_tick);
     [[nodiscard]] snt::core::Expected<void>
     materialize_chunk_machines(const ChunkKey& chunk_key, uint64_t current_tick);
 
@@ -232,6 +238,8 @@ private:
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
     std::shared_ptr<MachineTickSystem> machine_tick_system_;
+    std::unique_ptr<OfflinePowerNetworkIslandProvider> offline_power_network_provider_;
+    std::unique_ptr<OfflinePowerNetworkIslandSimulator> offline_power_network_simulator_;
     std::unique_ptr<OfflineMachineSimulationService> offline_machine_simulation_;
     IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;

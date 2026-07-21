@@ -97,7 +97,12 @@ public:
 // When the planned Sector coordinate model replaces ChunkKey, this latest-only
 // interface changes with it instead of carrying a legacy conversion layer.
 struct GameReplicationInterest {
+    // Terrain and machine replication use this bounded terrain AOI.
     std::vector<snt::voxel::ChunkKey> chunks;
+    // Creature presentation has an independent visual AOI. It can cover
+    // render-only far representatives without increasing terrain snapshot
+    // bandwidth or making those representatives authoritative actors.
+    std::vector<snt::voxel::ChunkKey> creature_chunks;
     std::vector<snt::ecs::EntityGuid> entities;
     std::vector<snt::ecs::EntityGuid> detailed_machine_entities;
 };

@@ -218,10 +218,8 @@ TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToR
         bob, {.dimension_id = "overworld", .position = {.x = 9, .y = 64, .z = 1}}));
     const entt::entity bob_actor = world.find_entity_by_guid(bob_snapshot->entity_guid);
     ASSERT_TRUE(bob_actor != entt::null);
-    world.get_component<snt::game::GamePlayerEquipment>(bob_actor).slots[0] = {
-        .item_id = "iron_pickaxe",
-        .count = 1,
-    };
+    world.get_component<snt::game::GamePlayerEquipment>(bob_actor).slots[0] =
+        snt::game::GamePlayerItemStack::item("iron_pickaxe", 1);
 
     auto changed_interest = (*replication)->compute_interest(alice, context);
     ASSERT_TRUE(changed_interest) << changed_interest.error().format();

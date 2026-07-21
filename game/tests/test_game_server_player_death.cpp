@@ -18,6 +18,7 @@ namespace {
 
 using snt::game::GameChunkSidecarRegistry;
 using snt::game::GamePlayerEquipmentSlot;
+using snt::game::GamePlayerItemStack;
 using snt::game::GamePlayerWorldPosition;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameServerPlayerBedService;
@@ -101,11 +102,8 @@ TEST(GameServerPlayerDeathTest, CreatesPersistentGraveKeepsEquipmentAndRespawnsA
     ASSERT_TRUE(player_state) << player_state.error().format();
     const auto peer = make_peer(401, "Death Player");
     auto persistent = (*player_state)->default_persistent_state();
-    persistent.equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)] = {
-        .item_id = "steel_sword",
-        .count = 1,
-        .instance_data = "durability=91",
-    };
+    persistent.equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)] =
+        GamePlayerItemStack::item("steel_sword", 1, {}, "durability=91");
     persistent.organs = {
         .schema_id = "source_law",
         .schema_version = 1,
@@ -114,8 +112,8 @@ TEST(GameServerPlayerDeathTest, CreatesPersistentGraveKeepsEquipmentAndRespawnsA
     ASSERT_TRUE((*player_state)->on_peer_authenticated(peer, persistent));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
         peer,
-        {.additions = {{.item_id = "iron_ingot", .count = 3},
-                       {.item_id = "relic", .count = 1, .instance_data = "unique"}}}));
+        {.additions = {GamePlayerItemStack::item("iron_ingot", 3),
+                       GamePlayerItemStack::item("relic", 1, {}, "unique")}}));
 
     CheckpointSink checkpoint;
     MotionReset motion_reset;
@@ -141,8 +139,8 @@ TEST(GameServerPlayerDeathTest, CreatesPersistentGraveKeepsEquipmentAndRespawnsA
 
     auto after_death = (*player_state)->capture_persistent_state(peer);
     ASSERT_TRUE(after_death) << after_death.error().format();
-    EXPECT_TRUE(after_death->inventory.slots[0].item_id.empty());
-    EXPECT_TRUE(after_death->inventory.slots[1].item_id.empty());
+    EXPECT_TRUE(after_death->inventory.slots[0].is_empty());
+    EXPECT_TRUE(after_death->inventory.slots[1].is_empty());
     EXPECT_EQ(after_death->equipment, persistent.equipment);
     EXPECT_EQ(after_death->organs, persistent.organs);
     ASSERT_TRUE(after_death->respawn_point.has_value());
@@ -165,9 +163,9 @@ TEST(GameServerPlayerDeathTest, CreatesPersistentGraveKeepsEquipmentAndRespawnsA
     EXPECT_EQ((*graves)->active_grave_count(), 0u);
     auto after_claim = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(after_claim) << after_claim.error().format();
-    EXPECT_EQ(after_claim->slots[0].item_id, "iron_ingot");
-    EXPECT_EQ(after_claim->slots[0].count, 3);
-    EXPECT_EQ(after_claim->slots[1].item_id, "relic");
+    EXPECT_EQ(after_claim->slots[0].resource.key.id, "iron_ingot");
+    EXPECT_EQ(after_claim->slots[0].resource.amount, 3);
+    EXPECT_EQ(after_claim->slots[1].resource.key.id, "relic");
     EXPECT_FALSE(terrain->terrain.cell_at(2, 1, 2).is_indestructible());
 
     ASSERT_TRUE((*beds)->on_bed_removed(position(6, 1, 6)));
@@ -196,7 +194,7 @@ TEST(GameServerPlayerDeathTest, LeavesGraveForInventoryUiWhenDirectClaimCannotFi
     ASSERT_TRUE((*player_state)->on_peer_authenticated(
         peer, (*player_state)->default_persistent_state()));
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "iron_ingot", .count = 1}}}));
+        peer, {.additions = {GamePlayerItemStack::item("iron_ingot", 1)}}));
 
     auto graves = GameServerPlayerGraveStore::create(chunks, sidecars);
     ASSERT_TRUE(graves) << graves.error().format();
@@ -213,7 +211,7 @@ TEST(GameServerPlayerDeathTest, LeavesGraveForInventoryUiWhenDirectClaimCannotFi
     ASSERT_TRUE(killed) << killed.error().format();
     ASSERT_TRUE(killed->grave_id.has_value());
     ASSERT_TRUE((*player_state)->apply_inventory_transaction(
-        peer, {.additions = {{.item_id = "cobblestone", .count = 5}}}));
+        peer, {.additions = {GamePlayerItemStack::item("cobblestone", 5)}}));
 
     auto claim = (*death)->reclaim_grave(peer, *killed->grave_id);
     ASSERT_TRUE(claim) << claim.error().format();
@@ -222,7 +220,7 @@ TEST(GameServerPlayerDeathTest, LeavesGraveForInventoryUiWhenDirectClaimCannotFi
     EXPECT_EQ((*graves)->active_grave_count(), 1u);
     auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
-    EXPECT_EQ(inventory->slots[0].item_id, "cobblestone");
-    EXPECT_EQ(inventory->slots[0].count, 5);
+    EXPECT_EQ(inventory->slots[0].resource.key.id, "cobblestone");
+    EXPECT_EQ(inventory->slots[0].resource.amount, 5);
     (*player_state)->shutdown();
 }

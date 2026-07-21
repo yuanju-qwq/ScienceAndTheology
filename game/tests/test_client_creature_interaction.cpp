@@ -106,6 +106,14 @@ TEST(GameClientCreatureInteractionTest, RejectsCreatureBehindTerrainOrOutsideDim
         std::vector<GameCreaturePresentationState>{wild}, "overworld", raycast));
 }
 
+TEST(GameClientCreatureInteractionTest, RejectsInteractiveCreatureBehindTheCameraRay) {
+    GameCreaturePresentationState wild = make_creature(20, -3.5f);
+    wild.is_interactive = true;
+
+    EXPECT_FALSE(snt::game::pick_game_client_creature_interaction_target(
+        std::vector<GameCreaturePresentationState>{wild}, "overworld", forward_raycast()));
+}
+
 TEST(GameClientCreatureInteractionTest, MapsWildAndCaptiveInputToAuthorityCommands) {
     GameClientCreatureInteractionController controller;
     RecordingCreatureCommandSink sink;
