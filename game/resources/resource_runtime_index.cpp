@@ -31,7 +31,8 @@ struct ResourceRuntimeIndex::Data {
         snt::core::RuntimeKeyIndex::Snapshot variant_ids;
     };
 
-    std::unordered_map<ResourceKey, RuntimeResourceKey, ResourceKey::Hash> runtime_by_key;
+    std::unordered_map<ResourceContentKey, ResourceKey, ResourceContentKey::Hash>
+        runtime_by_key;
     snt::core::RuntimeKeyIndex::Snapshot type_ids;
     std::vector<TypeData> types_by_id{TypeData{}};
     uint64_t generation = 0;
@@ -39,40 +40,44 @@ struct ResourceRuntimeIndex::Data {
 
 ResourceRuntimeIndex::ResourceRuntimeIndex() : data_(std::make_shared<Data>()) {}
 
-std::optional<RuntimeResourceKey> ResourceRuntimeIndex::Snapshot::resolve_runtime(
-    const ResourceKey& key) const {
+ResourceKeyContext ResourceRuntimeIndex::Snapshot::key_context() const noexcept {
+    return ResourceRuntimeIndex::make_key_context(data_);
+}
+
+std::optional<ResourceKey> ResourceRuntimeIndex::Snapshot::resolve_runtime(
+    const ResourceContentKey& key) const {
     if (!data_) return std::nullopt;
     const auto found = data_->runtime_by_key.find(key);
     if (found == data_->runtime_by_key.end()) return std::nullopt;
     return found->second;
 }
 
-std::optional<ResourceKey> ResourceRuntimeIndex::Snapshot::resolve_semantic(
-    const RuntimeResourceKey& key) const {
-    if (!data_ || !key.is_valid() || key.type_id >= data_->types_by_id.size()) {
+std::optional<ResourceContentKey> ResourceRuntimeIndex::Snapshot::resolve_content(
+    const ResourceKey& key) const {
+    if (!data_ || !key.is_valid() || key.kind >= data_->types_by_id.size()) {
         return std::nullopt;
     }
-    const auto type_name = data_->type_ids.find_key(key.type_id);
+    const auto type_name = data_->type_ids.find_key(key.kind);
     if (!type_name) return std::nullopt;
-    const Data::TypeData& type = data_->types_by_id[key.type_id];
-    const auto resource_id = type.resource_ids.find_key(key.resource_id);
+    const Data::TypeData& type = data_->types_by_id[key.kind];
+    const auto resource_id = type.resource_ids.find_key(key.runtime_id);
     if (!resource_id) return std::nullopt;
 
     std::string variant;
-    if (key.variant_id != snt::core::kInvalidRuntimeKeyId) {
-        const auto variant_id = type.variant_ids.find_key(key.variant_id);
+    if (key.variant != snt::core::kInvalidRuntimeKeyId) {
+        const auto variant_id = type.variant_ids.find_key(key.variant);
         if (!variant_id) return std::nullopt;
         variant.assign(*variant_id);
     }
-    ResourceKey semantic{
+    ResourceContentKey content{
         .type = std::string(*type_name),
         .id = std::string(*resource_id),
         .variant = std::move(variant),
     };
     // A type-local resource and variant can both exist without their exact
     // combination being registered, so verify the complete identity.
-    if (!data_->runtime_by_key.contains(semantic)) return std::nullopt;
-    return semantic;
+    if (!data_->runtime_by_key.contains(content)) return std::nullopt;
+    return content;
 }
 
 uint64_t ResourceRuntimeIndex::Snapshot::generation() const noexcept {
@@ -84,21 +89,22 @@ size_t ResourceRuntimeIndex::Snapshot::size() const noexcept {
 }
 
 snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
-    std::span<const ResourceKey> keys) {
+    std::span<const ResourceContentKey> keys) {
     if (data_ && data_->generation == std::numeric_limits<uint64_t>::max()) {
         return invalid_state("Resource runtime key index generation is exhausted");
     }
 
     std::map<std::string, std::set<std::string>, std::less<>> resource_ids_by_type;
     std::map<std::string, std::set<std::string>, std::less<>> variants_by_type;
-    std::set<ResourceKey, bool (*)(const ResourceKey&, const ResourceKey&)> unique_keys(
-        [](const ResourceKey& left, const ResourceKey& right) {
+    std::set<ResourceContentKey,
+             bool (*)(const ResourceContentKey&, const ResourceContentKey&)> unique_keys(
+        [](const ResourceContentKey& left, const ResourceContentKey& right) {
             if (left.type != right.type) return left.type < right.type;
             if (left.id != right.id) return left.id < right.id;
             return left.variant < right.variant;
         });
 
-    for (const ResourceKey& key : keys) {
+    for (const ResourceContentKey& key : keys) {
         if (!key.is_valid()) {
             return invalid_argument("Resource runtime key index received an invalid key");
         }
@@ -109,7 +115,7 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
         if (!key.variant.empty()) variants_by_type[key.type].insert(key.variant);
     }
     if (resource_ids_by_type.size() >
-        static_cast<size_t>(std::numeric_limits<ResourceRuntimeTypeId>::max())) {
+        static_cast<size_t>(std::numeric_limits<ResourceKind>::max())) {
         return invalid_argument("Resource runtime key index contains too many resource types");
     }
 
@@ -128,7 +134,7 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
     candidate->types_by_id.resize(resource_ids_by_type.size() + 1);
     for (const auto& [type_name, resources] : resource_ids_by_type) {
         const auto type_id = candidate->type_ids.find_id(type_name);
-        if (!type_id || *type_id > std::numeric_limits<ResourceRuntimeTypeId>::max()) {
+        if (!type_id || *type_id > std::numeric_limits<ResourceKind>::max()) {
             return invalid_state("Resource runtime key index lost a registered type");
         }
         Data::TypeData& type = candidate->types_by_id[*type_id];
@@ -152,9 +158,9 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
     }
 
     candidate->runtime_by_key.reserve(keys.size());
-    for (const ResourceKey& key : keys) {
+    for (const ResourceContentKey& key : keys) {
         const auto type_id = candidate->type_ids.find_id(key.type);
-        if (!type_id || *type_id > std::numeric_limits<ResourceRuntimeTypeId>::max()) {
+        if (!type_id || *type_id > std::numeric_limits<ResourceKind>::max()) {
             return invalid_state("Resource runtime key index lost a registered type");
         }
         const Data::TypeData& type = candidate->types_by_id[*type_id];
@@ -170,10 +176,10 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
             }
             variant_id = *found_variant_id;
         }
-        candidate->runtime_by_key.emplace(key, RuntimeResourceKey{
-            .type_id = static_cast<ResourceRuntimeTypeId>(*type_id),
-            .resource_id = *resource_id,
-            .variant_id = variant_id,
+        candidate->runtime_by_key.emplace(key, ResourceKey{
+            .kind = static_cast<ResourceKind>(*type_id),
+            .runtime_id = *resource_id,
+            .variant = variant_id,
         });
     }
     candidate->generation = data_ ? data_->generation + 1 : 1;
@@ -183,6 +189,13 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
 
 void ResourceRuntimeIndex::restore(Snapshot snapshot) noexcept {
     if (snapshot.data_) data_ = std::move(snapshot.data_);
+}
+
+ResourceKeyContext ResourceRuntimeIndex::make_key_context(
+    std::shared_ptr<const Data> data) noexcept {
+    if (!data) return {};
+    const uint64_t generation = data->generation;
+    return ResourceKeyContext{std::move(data), generation};
 }
 
 }  // namespace snt::game

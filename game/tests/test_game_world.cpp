@@ -372,6 +372,63 @@ TEST(GameSaveManagerTest, PersistsVoxelChunkAndGameplaySidecarSeparately) {
     std::filesystem::remove_all(save_dir);
 }
 
+TEST(GameSaveManagerTest, BulkSavePreservesTerrainForStreamedOutRegionEntries) {
+    const auto save_dir = std::filesystem::temp_directory_path() /
+        "snt_game_streamed_region_preservation_test";
+    std::filesystem::remove_all(save_dir);
+
+    snt::game::ChunkRegistry initial_voxels;
+    snt::game::GameChunkSidecarRegistry initial_sidecars;
+    for (int chunk_x = 0; chunk_x < 2; ++chunk_x) {
+        snt::voxel::VoxelChunk voxel;
+        voxel.terrain.resize(1, 1, 1);
+        voxel.terrain.set_cell(0, 0, 0, static_cast<snt::voxel::TerrainMaterial>(10 + chunk_x),
+                               snt::voxel::TF_SOLID);
+        initial_voxels.set_chunk("overworld", chunk_x, 0, 0, std::move(voxel));
+        snt::game::GameChunkSidecar sidecar;
+        sidecar.entities.push_back({static_cast<uint64_t>(100 + chunk_x)});
+        initial_sidecars.set({"overworld", chunk_x, 0, 0}, std::move(sidecar));
+    }
+    ASSERT_EQ(snt::game::GameSaveManager::save_dimension(
+                  save_dir.string(), 12345, "overworld", initial_voxels, initial_sidecars),
+              2);
+
+    snt::game::ChunkRegistry streamed_voxels;
+    snt::game::GameChunkSidecarRegistry streamed_sidecars;
+    snt::voxel::VoxelChunk resident_chunk;
+    resident_chunk.terrain.resize(1, 1, 1);
+    resident_chunk.terrain.set_cell(0, 0, 0, 77, snt::voxel::TF_SOLID);
+    streamed_voxels.set_chunk("overworld", 0, 0, 0, std::move(resident_chunk));
+    snt::game::GameChunkSidecar resident_sidecar;
+    resident_sidecar.entities.push_back({700});
+    streamed_sidecars.set({"overworld", 0, 0, 0}, std::move(resident_sidecar));
+    snt::game::GameChunkSidecar unloaded_sidecar;
+    unloaded_sidecar.entities.push_back({701});
+    streamed_sidecars.set({"overworld", 1, 0, 0}, std::move(unloaded_sidecar));
+
+    ASSERT_EQ(snt::game::GameSaveManager::save_dimension(
+                  save_dir.string(), 12345, "overworld", streamed_voxels, streamed_sidecars),
+              2);
+
+    snt::game::ChunkRegistry reloaded_voxels;
+    snt::game::GameChunkSidecarRegistry reloaded_sidecars;
+    ASSERT_EQ(snt::game::GameSaveManager::load_dimension(
+                  save_dir.string(), "overworld", reloaded_voxels, reloaded_sidecars),
+              2);
+    const auto* restored_resident = reloaded_voxels.get_chunk("overworld", 0, 0, 0);
+    const auto* restored_unloaded = reloaded_voxels.get_chunk("overworld", 1, 0, 0);
+    ASSERT_NE(restored_resident, nullptr);
+    ASSERT_NE(restored_unloaded, nullptr);
+    EXPECT_EQ(restored_resident->terrain.cell_at(0, 0, 0).material, 77u);
+    EXPECT_EQ(restored_unloaded->terrain.cell_at(0, 0, 0).material, 11u);
+    const auto* restored_unloaded_sidecar = reloaded_sidecars.get({"overworld", 1, 0, 0});
+    ASSERT_NE(restored_unloaded_sidecar, nullptr);
+    ASSERT_EQ(restored_unloaded_sidecar->entities.size(), 1u);
+    EXPECT_EQ(restored_unloaded_sidecar->entities.front().id, 701u);
+
+    std::filesystem::remove_all(save_dir);
+}
+
 TEST(GameSaveManagerTest, RejectsDimensionWhenAnyChunkPayloadIsInvalid) {
     const auto save_dir = std::filesystem::temp_directory_path() /
         "snt_game_reject_partial_dimension_test";
@@ -425,7 +482,7 @@ TEST(GameWorldPersistenceLifecycleTest, SavesLoadsAndRejectsMismatchedUniverse) 
 
     snt::voxel::ChunkRegistry source_voxels;
     snt::game::GameChunkSidecarRegistry source_sidecars;
-    const auto missing = lifecycle.load_existing(source_voxels, source_sidecars);
+    const auto missing = lifecycle.load_existing(source_sidecars);
     ASSERT_TRUE(missing) << missing.error().format();
     EXPECT_FALSE(*missing);
 
@@ -442,9 +499,14 @@ TEST(GameWorldPersistenceLifecycleTest, SavesLoadsAndRejectsMismatchedUniverse) 
     snt::voxel::ChunkRegistry loaded_voxels;
     snt::game::GameChunkSidecarRegistry loaded_sidecars;
     snt::game::GameWorldPersistenceLifecycle reloaded_lifecycle(descriptor);
-    const auto loaded = reloaded_lifecycle.load_existing(loaded_voxels, loaded_sidecars);
+    const auto loaded = reloaded_lifecycle.load_existing(loaded_sidecars);
     ASSERT_TRUE(loaded) << loaded.error().format();
     EXPECT_TRUE(*loaded);
+    EXPECT_EQ(loaded_voxels.chunk_count(), 0u);
+    const auto loaded_terrain = reloaded_lifecycle.load_chunk_terrain(
+        loaded_voxels, {"overworld", 0, 0, 0});
+    ASSERT_TRUE(loaded_terrain) << loaded_terrain.error().format();
+    EXPECT_TRUE(*loaded_terrain);
     const auto* restored_chunk = loaded_voxels.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(restored_chunk, nullptr);
     EXPECT_EQ(restored_chunk->terrain.cell_at(0, 0, 0).material, 17u);
@@ -455,12 +517,10 @@ TEST(GameWorldPersistenceLifecycleTest, SavesLoadsAndRejectsMismatchedUniverse) 
 
     auto incompatible_descriptor = descriptor;
     incompatible_descriptor.seed = 4243;
-    snt::voxel::ChunkRegistry incompatible_voxels;
     snt::game::GameChunkSidecarRegistry incompatible_sidecars;
     snt::game::GameWorldPersistenceLifecycle incompatible_lifecycle(
         std::move(incompatible_descriptor));
-    const auto incompatible = incompatible_lifecycle.load_existing(
-        incompatible_voxels, incompatible_sidecars);
+    const auto incompatible = incompatible_lifecycle.load_existing(incompatible_sidecars);
     ASSERT_FALSE(incompatible);
     EXPECT_EQ(incompatible.error().code(), snt::core::ErrorCode::kInvalidState);
 

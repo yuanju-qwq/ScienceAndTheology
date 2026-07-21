@@ -174,10 +174,10 @@ struct GameToolDefinition {
     float attack_damage = 1.0f;
 };
 
-// Game item definitions own stable semantic keys, presentation metadata, and
+// Game item definitions own stable content keys, presentation metadata, and
 // optional material/tool behavior. Durable game state refers to `id`; worker
 // systems capture the immutable ResourceRuntimeIndex snapshot and use
-// RuntimeResourceKey for their hot paths.
+// compact ResourceKey values for their hot paths.
 struct GameItemDefinition {
     std::string id;
     std::string title_key;
@@ -188,8 +188,8 @@ struct GameItemDefinition {
     std::optional<GameMaterialFormReference> material_form;
 };
 
-// Fluids are game content with the same durable semantic-key policy as
-// items. Their compact RuntimeResourceKey is published with the item keys;
+// Fluids are game content with the same durable content-key policy as
+// items. Their compact ResourceKey is published with the item keys;
 // temperature and phase metadata remain content-facing data rather than part
 // of a generic storage identity.
 struct GameFluidDefinition {
@@ -257,6 +257,11 @@ struct MachineOfflineSimulationProfile {
     // chunk is simulated as an offline network island.
     int32_t max_item_import_per_tick = 0;
     int32_t max_item_export_per_tick = 0;
+    // Fluid throughput is measured in mB per tick. Liquids and gases share
+    // the content policy; their actual pipe limits and tank transport class
+    // remain topology/runtime data.
+    int32_t max_fluid_import_per_tick = 0;
+    int32_t max_fluid_export_per_tick = 0;
 };
 
 struct RecipeDefinition {
@@ -442,6 +447,9 @@ public:
     snt::core::Expected<void> set_script_machine_offline_item_transfer(
         ScriptId script_id, std::string machine_id,
         int32_t max_import_per_tick, int32_t max_export_per_tick);
+    snt::core::Expected<void> set_script_machine_offline_fluid_transfer(
+        ScriptId script_id, std::string machine_id,
+        int32_t max_import_per_tick, int32_t max_export_per_tick);
     snt::core::Expected<void> add_script_quest_objective(
         ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective);
     snt::core::Expected<void> add_script_quest_reward(
@@ -450,10 +458,10 @@ public:
     const GameItemDefinition* find_item(std::string_view id) const;
     const GameFluidDefinition* find_fluid(std::string_view id) const;
     const GameMaterialDefinition* find_material(std::string_view id) const;
-    [[nodiscard]] std::optional<RuntimeResourceKey> find_resource_runtime_key(
+    [[nodiscard]] std::optional<ResourceKey> find_resource_runtime_key(
+        const ResourceContentKey& key) const;
+    [[nodiscard]] std::optional<ResourceContentKey> find_resource_content_key(
         const ResourceKey& key) const;
-    [[nodiscard]] std::optional<ResourceKey> find_resource_key(
-        const RuntimeResourceKey& key) const;
     [[nodiscard]] ResourceRuntimeIndex::Snapshot resource_runtime_index() const noexcept;
     [[nodiscard]] uint64_t resource_runtime_generation() const noexcept;
     [[nodiscard]] std::vector<GameItemDefinition> item_definitions() const;

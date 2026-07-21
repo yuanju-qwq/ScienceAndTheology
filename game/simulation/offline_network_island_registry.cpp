@@ -39,8 +39,8 @@ namespace {
            left.chunk_z == right.chunk_z;
 }
 
-[[nodiscard]] bool resource_key_less(const ResourceKey& left,
-                                     const ResourceKey& right) noexcept {
+[[nodiscard]] bool resource_key_less(const ResourceContentKey& left,
+                                     const ResourceContentKey& right) noexcept {
     if (left.type != right.type) return left.type < right.type;
     if (left.id != right.id) return left.id < right.id;
     return left.variant < right.variant;
@@ -197,9 +197,17 @@ struct ConstMachineRecordLocation {
         if (segment.segment_id == 0 ||
             static_cast<uint8_t>(segment.kind) >
                 static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
+            static_cast<uint8_t>(segment.fluid_transport) >
+                static_cast<uint8_t>(OfflineNetworkFluidTransport::kGas) ||
             segment.capacity < 0 || segment.max_transfer_per_tick < 0 ||
             segment.machine_guids.empty()) {
             return invalid_argument("Offline network transport segment is invalid");
+        }
+        if ((segment.kind == OfflineNetworkResourceKind::kFluid &&
+             segment.fluid_transport == OfflineNetworkFluidTransport::kNone) ||
+            (segment.kind != OfflineNetworkResourceKind::kFluid &&
+             segment.fluid_transport != OfflineNetworkFluidTransport::kNone)) {
+            return invalid_argument("Offline network fluid transport class is invalid");
         }
         std::sort(segment.machine_guids.begin(), segment.machine_guids.end());
         if (segment.machine_guids.front() == 0 ||

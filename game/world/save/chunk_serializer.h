@@ -18,9 +18,10 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v22 writes full ResourceKey values for
-    // offline network ledgers so type and stack variant survive persistence.
-    static constexpr uint8_t kCurrentVersion = 22;
+    // Current binary format version. v23 adds durable machine fluid tanks and
+    // fluid-segment transport class; compact ResourceKey IDs never cross the
+    // persistence boundary.
+    static constexpr uint8_t kCurrentVersion = 23;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current
@@ -184,6 +185,13 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         MachineRuntimeItemStack& stack);
+    static void write_machine_fluid_tank(
+        std::vector<uint8_t>& buf,
+        const MachineFluidTank& tank);
+    static bool read_machine_fluid_tank(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        MachineFluidTank& tank);
     static void write_machine_runtime_recipe_snapshot(
         std::vector<uint8_t>& buf,
         const MachineRuntimeRecipeSnapshot& recipe);

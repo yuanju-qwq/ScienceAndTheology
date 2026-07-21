@@ -7,6 +7,7 @@
 # domain; legacy src/Godot resource APIs are migration references only.
 add_library(snt_game_resources STATIC
     resources/resource_key.cpp
+    resources/resource_ledger_storage.cpp
     resources/resource_runtime_index.cpp
 )
 target_include_directories(snt_game_resources PUBLIC
@@ -258,7 +259,7 @@ add_executable(snt_game_server
     server/game_server_player_movement.cpp
     server/game_server_player_replication.cpp
     server/game_server_player_state.cpp
-    server/server_machine_chunk_residency_controller.cpp
+    server/server_chunk_ticket_controller.cpp
     server/science_and_theology_server_session.cpp
     runtime/runtime_package.cpp
 )
@@ -388,7 +389,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_player_movement.cpp
         server/game_server_player_replication.cpp
         server/game_server_player_state.cpp
-        server/server_machine_chunk_residency_controller.cpp
+        server/server_chunk_ticket_controller.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
         tests/test_block_physics_system.cpp
@@ -427,7 +428,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
-        tests/test_server_machine_chunk_residency_controller.cpp
+        tests/test_server_chunk_ticket_controller.cpp
         tests/test_server_session.cpp
     )
     target_include_directories(snt_game_tests PRIVATE

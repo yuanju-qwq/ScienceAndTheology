@@ -111,6 +111,153 @@ snt::core::Expected<void> OfflineMachineSimulationService::initialize(uint64_t c
 }
 
 snt::core::Expected<OfflineChunkMachineTransition>
+OfflineMachineSimulationService::adopt_persisted_loaded_records(uint64_t current_tick) {
+    if (content_ == nullptr || sidecars_ == nullptr) {
+        return invalid_state("Offline machine simulation service is unavailable");
+    }
+    if (current_tick < last_tick_) {
+        return invalid_argument("Persisted machine adoption received a stale tick");
+    }
+
+    std::vector<ChunkKey> all_chunks;
+    std::set<uint64_t> network_candidate_guids;
+    std::vector<std::pair<ChunkKey, size_t>> direct_records;
+    sidecars_->for_each([&](const ChunkKey& chunk_key, GameChunkSidecar& sidecar) {
+        all_chunks.push_back(chunk_key);
+        for (size_t index = 0; index < sidecar.machine_runtime_records.size(); ++index) {
+            const MachineRuntimePersistenceRecord& record = sidecar.machine_runtime_records[index];
+            if (record.residency != MachineRuntimeResidency::kLoaded) continue;
+            if (record.offline_epoch == std::numeric_limits<uint64_t>::max()) {
+                continue;
+            }
+            const MachineDefinition* definition = content_->find_machine(record.machine_id);
+            if (definition != nullptr &&
+                definition->offline_simulation.mode == MachineOfflineSimulationMode::kNetworkIsland) {
+                network_candidate_guids.insert(record.entity_guid);
+                continue;
+            }
+            direct_records.emplace_back(chunk_key, index);
+        }
+    });
+    std::sort(all_chunks.begin(), all_chunks.end(), chunk_key_less);
+    std::sort(direct_records.begin(), direct_records.end(),
+              [](const auto& left, const auto& right) {
+                  if (chunk_key_less(left.first, right.first)) return true;
+                  if (chunk_key_less(right.first, left.first)) return false;
+                  return left.second < right.second;
+              });
+
+    std::optional<snt::core::Error> exhausted_epoch_error;
+    sidecars_->for_each([&](const ChunkKey&, const GameChunkSidecar& sidecar) {
+        if (exhausted_epoch_error.has_value()) return;
+        for (const MachineRuntimePersistenceRecord& record : sidecar.machine_runtime_records) {
+            if (record.residency == MachineRuntimeResidency::kLoaded &&
+                record.offline_epoch == std::numeric_limits<uint64_t>::max()) {
+                exhausted_epoch_error = invalid_state(
+                    "Persisted machine adoption found an exhausted record epoch");
+                return;
+            }
+        }
+    });
+    if (exhausted_epoch_error.has_value()) return *exhausted_epoch_error;
+
+    for (const auto& [chunk_key, record_index] : direct_records) {
+        GameChunkSidecar* sidecar = sidecars_->get(chunk_key);
+        if (sidecar == nullptr || record_index >= sidecar->machine_runtime_records.size() ||
+            sidecar->machine_runtime_records[record_index].offline_epoch ==
+                std::numeric_limits<uint64_t>::max()) {
+            return invalid_state("Persisted machine adoption found an exhausted or missing record epoch");
+        }
+    }
+
+    std::vector<OfflineNetworkIslandClaim> claims;
+    std::set<uint64_t> claimed_network_guids;
+    OfflineChunkMachineTransition transition;
+    if (!network_candidate_guids.empty() && network_island_provider_ != nullptr) {
+        auto snapshots = network_island_provider_->build_offline_islands(all_chunks, current_tick);
+        if (!snapshots) return snapshots.error();
+        for (OfflineNetworkIslandSnapshot& snapshot : *snapshots) {
+            for (const uint64_t entity_guid : snapshot.machine_guids) {
+                if (!network_candidate_guids.contains(entity_guid) ||
+                    !claimed_network_guids.insert(entity_guid).second) {
+                    for (auto it = claims.rbegin(); it != claims.rend(); ++it) {
+                        static_cast<void>(network_islands_.rollback_claim(*it));
+                    }
+                    return invalid_state("Persisted machine adoption has invalid network-island membership");
+                }
+            }
+            auto claim = network_islands_.claim(std::move(snapshot), current_tick);
+            if (!claim) {
+                for (auto it = claims.rbegin(); it != claims.rend(); ++it) {
+                    static_cast<void>(network_islands_.rollback_claim(*it));
+                }
+                return claim.error();
+            }
+            const OfflineNetworkIslandSnapshot* claimed = network_islands_.find(claim->island_id);
+            if (claimed == nullptr) {
+                static_cast<void>(network_islands_.rollback_claim(*claim));
+                for (auto it = claims.rbegin(); it != claims.rend(); ++it) {
+                    static_cast<void>(network_islands_.rollback_claim(*it));
+                }
+                return invalid_state("Persisted machine adoption lost a claimed network island");
+            }
+            transition.network_island_machine_count += claimed->machine_guids.size();
+            ++transition.network_island_count;
+            schedule_network_island(*claimed);
+            claims.push_back(std::move(*claim));
+        }
+    }
+
+    for (const auto& [chunk_key, record_index] : direct_records) {
+        GameChunkSidecar* sidecar = sidecars_->get(chunk_key);
+        MachineRuntimePersistenceRecord& record = sidecar->machine_runtime_records[record_index];
+        const MachineDefinition* definition = content_->find_machine(record.machine_id);
+        record.offline_last_simulated_tick = current_tick;
+        record.offline_island_id = 0;
+        ++record.offline_epoch;
+        if (definition != nullptr &&
+            definition->offline_simulation.mode == MachineOfflineSimulationMode::kStandalone) {
+            record.residency = MachineRuntimeResidency::kOfflineStandalone;
+            index_offline_record(chunk_key, record);
+            ++transition.standalone_machine_count;
+        } else {
+            record.residency = MachineRuntimeResidency::kPaused;
+            ++transition.paused_machine_count;
+        }
+    }
+
+    size_t deferred_network = 0;
+    sidecars_->for_each([&](const ChunkKey&, GameChunkSidecar& sidecar) {
+        for (MachineRuntimePersistenceRecord& record : sidecar.machine_runtime_records) {
+            if (record.residency != MachineRuntimeResidency::kLoaded ||
+                !network_candidate_guids.contains(record.entity_guid)) {
+                continue;
+            }
+            if (claimed_network_guids.contains(record.entity_guid)) continue;
+            if (record.offline_epoch == std::numeric_limits<uint64_t>::max()) continue;
+            record.residency = MachineRuntimeResidency::kPaused;
+            record.offline_last_simulated_tick = current_tick;
+            record.offline_island_id = 0;
+            ++record.offline_epoch;
+            ++deferred_network;
+            ++transition.paused_machine_count;
+        }
+    });
+    transition.deferred_network_machine_count = deferred_network;
+    last_tick_ = current_tick;
+    if (transition.standalone_machine_count != 0 || transition.paused_machine_count != 0 ||
+        transition.network_island_machine_count != 0) {
+        SNT_LOG_INFO(
+            "Adopted persisted loaded machines at tick %llu: standalone=%zu paused=%zu network=%zu island(s)/%zu machine(s), deferred=%zu",
+            static_cast<unsigned long long>(current_tick), transition.standalone_machine_count,
+            transition.paused_machine_count, transition.network_island_count,
+            transition.network_island_machine_count,
+            transition.deferred_network_machine_count);
+    }
+    return transition;
+}
+
+snt::core::Expected<OfflineChunkMachineTransition>
 OfflineMachineSimulationService::dematerialize_chunk(
     snt::ecs::World& world,
     const ChunkKey& chunk_key,
@@ -456,6 +603,45 @@ snt::core::Expected<void> OfflineMachineSimulationService::materialize_chunk(
     SNT_LOG_INFO("Materialized %zu machine runtime(s) across %zu chunk(s) for ticket %s",
                  previous.size(), materialized_chunks.size(), describe_chunk(chunk_key).c_str());
     return {};
+}
+
+snt::core::Expected<std::vector<ChunkKey>>
+OfflineMachineSimulationService::expand_materialization_chunks(
+    std::span<const ChunkKey> chunk_keys) const {
+    if (sidecars_ == nullptr) {
+        return invalid_state("Offline machine simulation service is unavailable");
+    }
+    std::vector<ChunkKey> expanded(chunk_keys.begin(), chunk_keys.end());
+    std::sort(expanded.begin(), expanded.end(), chunk_key_less);
+    expanded.erase(std::unique(expanded.begin(), expanded.end(), same_chunk), expanded.end());
+
+    for (size_t index = 0; index < expanded.size(); ++index) {
+        const GameChunkSidecar* sidecar = sidecars_->get(expanded[index]);
+        // A brand-new terrain ticket has no durable machine data yet. It does
+        // not need an island expansion and will receive an empty sidecar when
+        // terrain generation completes.
+        if (sidecar == nullptr) continue;
+        for (const MachineRuntimePersistenceRecord& record : sidecar->machine_runtime_records) {
+            if (record.residency != MachineRuntimeResidency::kOfflineNetworkIsland) continue;
+            const OfflineNetworkIslandSnapshot* snapshot = network_islands_.find(
+                record.offline_island_id);
+            if (snapshot == nullptr || snapshot->ownership_epoch != record.offline_epoch) {
+                return invalid_state("Offline network island ownership is unavailable for ticket expansion");
+            }
+            for (const ChunkKey& member_chunk : snapshot->member_chunks) {
+                if (sidecars_->get(member_chunk) == nullptr) {
+                    return invalid_state("Offline network island member sidecar is unavailable");
+                }
+                const bool already_expanded = std::any_of(
+                    expanded.begin(), expanded.end(), [&member_chunk](const ChunkKey& candidate) {
+                        return same_chunk(candidate, member_chunk);
+                    });
+                if (!already_expanded) expanded.push_back(member_chunk);
+            }
+        }
+    }
+    std::sort(expanded.begin(), expanded.end(), chunk_key_less);
+    return expanded;
 }
 
 snt::core::Expected<void> OfflineMachineSimulationService::tick(uint64_t current_tick) {

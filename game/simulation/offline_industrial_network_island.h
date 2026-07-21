@@ -13,8 +13,9 @@
 
 namespace snt::game {
 
-[[nodiscard]] inline const ResourceKey& offline_network_power_ledger_key() {
-    static const ResourceKey key = ResourceKey::power("snt.power.buffer");
+[[nodiscard]] inline const ResourceContentKey& offline_network_power_ledger_key() {
+    static const ResourceContentKey key =
+        ResourceContentKey::power("snt.power.buffer");
     return key;
 }
 

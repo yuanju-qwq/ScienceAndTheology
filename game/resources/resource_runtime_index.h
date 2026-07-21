@@ -1,7 +1,7 @@
-// Immutable semantic-resource to runtime-resource index.
+// Immutable content-resource to compact-resource index.
 //
-// ResourceKey remains the durable/content-facing identity. This module turns
-// a frozen set of those keys into fixed-width RuntimeResourceKey values for
+// ResourceContentKey remains the durable/content-facing identity. This module
+// turns a frozen set of those keys into fixed-width ResourceKey values for
 // worker and storage hot paths. Rebuilds publish an entirely new snapshot so
 // already captured work retains coherent numeric IDs through a content reload.
 
@@ -28,10 +28,11 @@ public:
     public:
         Snapshot() = default;
 
-        [[nodiscard]] std::optional<RuntimeResourceKey> resolve_runtime(
+        [[nodiscard]] ResourceKeyContext key_context() const noexcept override;
+        [[nodiscard]] std::optional<ResourceKey> resolve_runtime(
+            const ResourceContentKey& key) const override;
+        [[nodiscard]] std::optional<ResourceContentKey> resolve_content(
             const ResourceKey& key) const override;
-        [[nodiscard]] std::optional<ResourceKey> resolve_semantic(
-            const RuntimeResourceKey& key) const override;
         [[nodiscard]] uint64_t generation() const noexcept;
         [[nodiscard]] size_t size() const noexcept;
         [[nodiscard]] bool empty() const noexcept { return size() == 0; }
@@ -50,15 +51,19 @@ public:
     ResourceRuntimeIndex(const ResourceRuntimeIndex&) = delete;
     ResourceRuntimeIndex& operator=(const ResourceRuntimeIndex&) = delete;
 
-    // Keys must be complete and canonical for the content snapshot being
+    // Content keys must be complete and canonical for the snapshot being
     // published. IDs are assigned in lexical order and are valid only inside
     // the resulting immutable snapshot.
-    [[nodiscard]] snt::core::Expected<void> rebuild(std::span<const ResourceKey> keys);
+    [[nodiscard]] snt::core::Expected<void> rebuild(
+        std::span<const ResourceContentKey> keys);
 
     [[nodiscard]] Snapshot snapshot() const noexcept { return Snapshot(data_); }
     void restore(Snapshot snapshot) noexcept;
 
 private:
+    [[nodiscard]] static ResourceKeyContext make_key_context(
+        std::shared_ptr<const Data> data) noexcept;
+
     std::shared_ptr<const Data> data_;
 };
 

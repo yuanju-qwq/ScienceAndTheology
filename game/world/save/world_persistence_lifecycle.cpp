@@ -9,11 +9,13 @@
 #include "game/world/save/save_manager.h"
 #include "voxel/data/chunk_registry.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <system_error>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace snt::game {
 namespace {
@@ -48,6 +50,20 @@ namespace fs = std::filesystem;
     return exists;
 }
 
+[[nodiscard]] bool chunk_key_less(const snt::voxel::ChunkKey& left,
+                                  const snt::voxel::ChunkKey& right) noexcept {
+    if (left.dimension_id != right.dimension_id) return left.dimension_id < right.dimension_id;
+    if (left.chunk_x != right.chunk_x) return left.chunk_x < right.chunk_x;
+    if (left.chunk_y != right.chunk_y) return left.chunk_y < right.chunk_y;
+    return left.chunk_z < right.chunk_z;
+}
+
+[[nodiscard]] bool same_chunk(const snt::voxel::ChunkKey& left,
+                              const snt::voxel::ChunkKey& right) noexcept {
+    return left.dimension_id == right.dimension_id && left.chunk_x == right.chunk_x &&
+           left.chunk_y == right.chunk_y && left.chunk_z == right.chunk_z;
+}
+
 }  // namespace
 
 GameWorldPersistenceLifecycle::GameWorldPersistenceLifecycle(
@@ -55,10 +71,10 @@ GameWorldPersistenceLifecycle::GameWorldPersistenceLifecycle(
     : descriptor_(std::move(descriptor)) {}
 
 snt::core::Expected<bool> GameWorldPersistenceLifecycle::load_existing(
-    snt::voxel::ChunkRegistry& chunks, GameChunkSidecarRegistry& sidecars) const {
+    GameChunkSidecarRegistry& sidecars) const {
     if (auto result = validate_descriptor(); !result) return result.error();
-    if (chunks.chunk_count() != 0 || sidecars.size() != 0) {
-        return invalid_state("Game world persistence load requires empty chunk and sidecar registries");
+    if (sidecars.size() != 0) {
+        return invalid_state("Game world persistence load requires an empty sidecar registry");
     }
 
     const fs::path universe_root(descriptor_.universe_save_dir);
@@ -112,20 +128,78 @@ snt::core::Expected<bool> GameWorldPersistenceLifecycle::load_existing(
             return invalid_state(
                 "Game world dimension header does not match the configured current universe");
         }
-        const int loaded = GameSaveManager::load_dimension(
-            planet_root.string(), descriptor_.dimension_id, chunks, sidecars);
-        if (loaded < 0) {
-            return invalid_state(
-                "Game world dimension is corrupt or not the current format; refusing to bootstrap over it");
-        }
-        SNT_LOG_INFO("Loaded game world dimension '%s' from '%s' (%d chunk(s))",
-                     descriptor_.dimension_id.c_str(), planet_root.string().c_str(), loaded);
+        auto indexed = GameSaveManager::load_dimension_sidecar_index(
+            planet_root.string(), descriptor_.dimension_id, sidecars);
+        if (!indexed) return indexed.error();
+        SNT_LOG_INFO("Indexed game world dimension '%s' from '%s' (%zu sidecar(s), terrain deferred)",
+                     descriptor_.dimension_id.c_str(), planet_root.string().c_str(), *indexed);
     } catch (const std::exception& error) {
         return file_error("Game world dimension load failed: " + std::string(error.what()));
     } catch (...) {
         return file_error("Game world dimension load raised an unknown error");
     }
     return true;
+}
+
+snt::core::Expected<bool> GameWorldPersistenceLifecycle::load_chunk_terrain(
+    snt::voxel::ChunkRegistry& chunks,
+    const snt::voxel::ChunkKey& chunk_key) const {
+    if (auto result = validate_descriptor(); !result) return result.error();
+    if (chunk_key.dimension_id != descriptor_.dimension_id) {
+        return invalid_argument("Chunk terrain load dimension does not match this persistence lifecycle");
+    }
+    const std::string planet_root = GameSaveManager::planet_dir(
+        descriptor_.universe_save_dir, descriptor_.dimension_id);
+    auto loaded = GameSaveManager::load_chunk_terrain(
+        planet_root, descriptor_.dimension_id, chunks,
+        chunk_key.chunk_x, chunk_key.chunk_y, chunk_key.chunk_z);
+    if (!loaded) {
+        auto error = loaded.error();
+        error.with_context("GameWorldPersistenceLifecycle::load_chunk_terrain");
+        return error;
+    }
+    return *loaded;
+}
+
+snt::core::Expected<void> GameWorldPersistenceLifecycle::save_loaded_chunk(
+    const snt::voxel::ChunkRegistry& chunks,
+    const GameChunkSidecarRegistry& sidecars,
+    const snt::voxel::ChunkKey& chunk_key) const {
+    if (auto result = validate_descriptor(); !result) return result.error();
+    if (chunk_key.dimension_id != descriptor_.dimension_id) {
+        return invalid_argument("Loaded-chunk save dimension does not match this persistence lifecycle");
+    }
+    const std::string planet_root = GameSaveManager::planet_dir(
+        descriptor_.universe_save_dir, descriptor_.dimension_id);
+    auto saved = GameSaveManager::save_loaded_chunk(
+        planet_root, descriptor_.seed, descriptor_.dimension_id, chunks, sidecars,
+        chunk_key.chunk_x, chunk_key.chunk_y, chunk_key.chunk_z);
+    if (!saved) {
+        auto error = saved.error();
+        error.with_context("GameWorldPersistenceLifecycle::save_loaded_chunk");
+        return error;
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameWorldPersistenceLifecycle::save_chunk_sidecar(
+    const snt::voxel::ChunkKey& chunk_key,
+    const GameChunkSidecar& sidecar) const {
+    if (auto result = validate_descriptor(); !result) return result.error();
+    if (chunk_key.dimension_id != descriptor_.dimension_id) {
+        return invalid_argument("Sidecar save dimension does not match this persistence lifecycle");
+    }
+    const std::string planet_root = GameSaveManager::planet_dir(
+        descriptor_.universe_save_dir, descriptor_.dimension_id);
+    auto saved = GameSaveManager::save_chunk_sidecar(
+        planet_root, descriptor_.seed, descriptor_.dimension_id,
+        chunk_key.chunk_x, chunk_key.chunk_y, chunk_key.chunk_z, sidecar);
+    if (!saved) {
+        auto error = saved.error();
+        error.with_context("GameWorldPersistenceLifecycle::save_chunk_sidecar");
+        return error;
+    }
+    return {};
 }
 
 snt::core::Expected<void> GameWorldPersistenceLifecycle::save(
@@ -135,14 +209,43 @@ snt::core::Expected<void> GameWorldPersistenceLifecycle::save(
     const std::string planet_root = GameSaveManager::planet_dir(
         descriptor_.universe_save_dir, descriptor_.dimension_id);
     try {
-        const int saved = GameSaveManager::save_dimension(
-            planet_root, descriptor_.seed, descriptor_.dimension_id, chunks, sidecars);
-        if (saved < 0) return file_error("Game world dimension save failed");
+        if (!GameSaveManager::write_planet_data(
+                planet_root, descriptor_.seed, descriptor_.dimension_id, nullptr)) {
+            return file_error("Game world dimension header write failed");
+        }
+
+        std::vector<snt::voxel::ChunkKey> keys;
+        for (const snt::voxel::ChunkKey& key : chunks.all_chunk_keys()) {
+            if (key.dimension_id == descriptor_.dimension_id) keys.push_back(key);
+        }
+        sidecars.for_each([&](const snt::voxel::ChunkKey& key, const GameChunkSidecar&) {
+            if (key.dimension_id == descriptor_.dimension_id) keys.push_back(key);
+        });
+        std::sort(keys.begin(), keys.end(), chunk_key_less);
+        keys.erase(std::unique(keys.begin(), keys.end(), same_chunk), keys.end());
+
+        size_t saved = 0;
+        for (const snt::voxel::ChunkKey& key : keys) {
+            if (chunks.has_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z)) {
+                if (auto result = save_loaded_chunk(chunks, sidecars, key); !result) {
+                    return result.error();
+                }
+            } else {
+                const GameChunkSidecar* sidecar = sidecars.get(key);
+                if (sidecar == nullptr) {
+                    return invalid_state("Chunk persistence key has neither terrain nor sidecar state");
+                }
+                if (auto result = save_chunk_sidecar(key, *sidecar); !result) {
+                    return result.error();
+                }
+            }
+            ++saved;
+        }
         if (!GameSaveManager::write_universe_header(
                 descriptor_.universe_save_dir, descriptor_.seed, descriptor_.universe_mode)) {
             return file_error("Game world universe header write failed after dimension save");
         }
-        SNT_LOG_INFO("Saved game world dimension '%s' to '%s' (%d chunk(s))",
+        SNT_LOG_INFO("Saved game world dimension '%s' to '%s' (%zu chunk(s), terrain streamed)",
                      descriptor_.dimension_id.c_str(), planet_root.c_str(), saved);
     } catch (const std::exception& error) {
         return file_error("Game world dimension save failed: " + std::string(error.what()));

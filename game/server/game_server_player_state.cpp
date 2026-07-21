@@ -39,7 +39,8 @@ constexpr size_t kMaxInventoryTransactionEntries = 128;
     return stack.is_empty();
 }
 
-[[nodiscard]] bool has_valid_nonempty_stack_shape(const GamePlayerItemStack& stack) noexcept {
+[[nodiscard]] bool has_valid_nonempty_content_stack_shape(
+    const GamePlayerItemStack& stack) noexcept {
     if (!stack.is_valid_item() ||
         stack.resource.key.type.size() > kMaxResourceTypeBytes ||
         stack.resource.key.id.size() > kMaxResourceIdBytes ||
@@ -51,10 +52,66 @@ constexpr size_t kMaxInventoryTransactionEntries = 128;
     return stack.instance_data.empty() || stack.resource.amount == 1;
 }
 
+[[nodiscard]] bool has_valid_nonempty_runtime_stack_shape(
+    const GamePlayerRuntimeItemStack& stack) noexcept {
+    return stack.is_valid_item() &&
+           stack.instance_data.size() <= kMaxItemInstanceDataBytes &&
+           stack.instance_data.find('\0') == std::string::npos;
+}
+
+[[nodiscard]] std::optional<GamePlayerRuntimeItemStack> resolve_runtime_stack(
+    const GamePlayerItemStack& stack,
+    const IResourceKeyResolver& resolver) {
+    if (stack.is_empty()) return GamePlayerRuntimeItemStack{};
+    if (!stack.is_valid_item()) return std::nullopt;
+    const auto resource = resolve_resource_stack(stack.resource, resolver);
+    if (!resource) return std::nullopt;
+    return GamePlayerRuntimeItemStack{
+        .resource = *resource,
+        .instance_data = stack.instance_data,
+    };
+}
+
+[[nodiscard]] std::optional<GamePlayerItemStack> resolve_content_player_stack(
+    const GamePlayerRuntimeItemStack& stack,
+    const IResourceKeyResolver& resolver) {
+    if (stack.is_empty()) return GamePlayerItemStack{};
+    if (!stack.is_valid_item()) return std::nullopt;
+    const auto resource = resolve_content_stack(stack.resource, resolver);
+    if (!resource || !resource->is_item()) return std::nullopt;
+    return GamePlayerItemStack{
+        .resource = *resource,
+        .instance_data = stack.instance_data,
+    };
+}
+
 }  // namespace
+
+struct GameServerPlayerState::RuntimeInventoryTransaction {
+    std::vector<GamePlayerRuntimeItemStack> removals;
+    std::vector<GamePlayerRuntimeItemStack> additions;
+};
+
+struct GameServerPlayerState::RuntimeInventorySlotTransfer {
+    uint32_t source_slot = 0;
+    uint32_t target_slot = 0;
+    int32_t count = 0;
+    GamePlayerRuntimeItemStack expected_source;
+    GamePlayerRuntimeItemStack expected_target;
+};
+
+struct GameServerPlayerState::RuntimeInventorySlotMutation {
+    uint32_t slot = 0;
+    GamePlayerRuntimeItemStack expected;
+    GamePlayerRuntimeItemStack replacement;
+};
 
 snt::core::Expected<std::unique_ptr<GameServerPlayerState>> GameServerPlayerState::create(
     snt::ecs::World& world, GameServerPlayerStateConfig config) {
+    if (!config.resource_runtime_index.key_context().is_valid()) {
+        return invalid_argument(
+            "Dedicated server player state requires a valid resource runtime snapshot");
+    }
     if (config.spawn.dimension_id.empty() ||
         config.spawn.dimension_id.size() > kMaxDimensionIdBytes) {
         return invalid_argument("Dedicated server player spawn dimension id is invalid");
@@ -75,7 +132,8 @@ snt::core::Expected<std::unique_ptr<GameServerPlayerState>> GameServerPlayerStat
 
 GameServerPlayerState::GameServerPlayerState(snt::ecs::World& world,
                                              GameServerPlayerStateConfig config)
-    : world_(&world), config_(std::move(config)) {}
+    : world_(&world), config_(std::move(config)),
+      resource_runtime_index_(config_.resource_runtime_index) {}
 
 GamePlayerPersistentState GameServerPlayerState::default_persistent_state() const {
     return {
@@ -202,7 +260,8 @@ snt::core::Expected<GamePlayerInventory> GameServerPlayerState::inventory_for_pe
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
-    return world_->get_component<GamePlayerInventory>(*entity);
+    return resolve_content_inventory(
+        world_->get_component<GamePlayerRuntimeInventory>(*entity));
 }
 
 snt::core::Expected<GamePlayerEquipment> GameServerPlayerState::equipment_for_peer(
@@ -211,7 +270,10 @@ snt::core::Expected<GamePlayerEquipment> GameServerPlayerState::equipment_for_pe
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
-    return world_->get_component<GamePlayerEquipment>(*entity);
+    const auto& inventory = world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    return resolve_content_equipment(
+        world_->get_component<GamePlayerRuntimeEquipment>(*entity),
+        inventory.resource_runtime_index);
 }
 
 snt::core::Expected<std::string> GameServerPlayerState::main_hand_item_id_for_peer(
@@ -220,9 +282,15 @@ snt::core::Expected<std::string> GameServerPlayerState::main_hand_item_id_for_pe
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
-    const auto& equipment = world_->get_component<GamePlayerEquipment>(*entity);
-    return equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)]
-        .resource.key.id;
+    const auto& inventory = world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    const auto& equipment = world_->get_component<GamePlayerRuntimeEquipment>(*entity);
+    const auto stack = resolve_content_player_stack(
+        equipment.slots[static_cast<size_t>(GamePlayerEquipmentSlot::kMainHand)],
+        inventory.resource_runtime_index);
+    if (!stack) {
+        return invalid_state("Authoritative player main-hand stack cannot resolve its content key");
+    }
+    return stack->resource.key.id;
 }
 
 snt::core::Expected<GameAuthenticatedPeer> GameServerPlayerState::active_peer_for_account(
@@ -260,14 +328,21 @@ snt::core::Expected<GamePlayerPersistentState> GameServerPlayerState::capture_pe
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
     const auto& dimension = world_->get_component<GamePlayerDimensionComponent>(*entity);
+    const auto& inventory = world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    const auto& equipment = world_->get_component<GamePlayerRuntimeEquipment>(*entity);
+    auto content_inventory = resolve_content_inventory(inventory);
+    if (!content_inventory) return content_inventory.error();
+    auto content_equipment = resolve_content_equipment(
+        equipment, inventory.resource_runtime_index);
+    if (!content_equipment) return content_equipment.error();
     return GamePlayerPersistentState{
         .position = {
             .dimension_id = dimension.dimension_id,
             .position = world_->get_component<snt::ecs::Position>(*entity),
         },
         .respawn_point = world_->get_component<GamePlayerRespawnPointComponent>(*entity).position,
-        .inventory = world_->get_component<GamePlayerInventory>(*entity),
-        .equipment = world_->get_component<GamePlayerEquipment>(*entity),
+        .inventory = std::move(*content_inventory),
+        .equipment = std::move(*content_equipment),
         .organs = world_->get_component<GamePlayerOrganState>(*entity),
     };
 }
@@ -350,50 +425,51 @@ snt::core::Expected<bool> GameServerPlayerState::is_point_reachable(
 
 snt::core::Expected<void> GameServerPlayerState::apply_inventory_transaction(
     const GameAuthenticatedPeer& peer, const GamePlayerInventoryTransaction& transaction) {
-    auto applicable = can_apply_inventory_transaction(peer, transaction);
-    if (!applicable) return applicable.error();
-    if (!*applicable) {
-        return invalid_state("Authoritative player inventory cannot apply the requested transaction");
-    }
+    auto runtime_transaction = resolve_runtime_inventory_transaction(transaction);
+    if (!runtime_transaction) return runtime_transaction.error();
 
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
 
-    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
-    for (const GamePlayerItemStack& removal : transaction.removals) {
+    GamePlayerRuntimeInventory candidate =
+        world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    for (const GamePlayerRuntimeItemStack& removal : runtime_transaction->removals) {
         const bool removed = remove_items(candidate, removal);
         if (!removed) {
             return invalid_state("Authoritative player inventory changed during transaction apply");
         }
     }
-    for (const GamePlayerItemStack& addition : transaction.additions) {
+    for (const GamePlayerRuntimeItemStack& addition : runtime_transaction->additions) {
         const bool added = add_items(candidate, addition);
         if (!added) {
             return invalid_state("Authoritative player inventory changed during transaction apply");
         }
     }
-    world_->get_component<GamePlayerInventory>(*entity) = std::move(candidate);
+    world_->get_component<GamePlayerRuntimeInventory>(*entity) = std::move(candidate);
     return {};
 }
 
 snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_transaction(
     const GameAuthenticatedPeer& peer, const GamePlayerInventoryTransaction& transaction) const {
-    if (auto result = validate_inventory_transaction(transaction); !result) return result.error();
+    auto runtime_transaction = resolve_runtime_inventory_transaction(transaction);
+    if (!runtime_transaction) return runtime_transaction.error();
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
 
-    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
-    if (auto result = validate_inventory(candidate); !result) return result.error();
-    for (const GamePlayerItemStack& removal : transaction.removals) {
+    GamePlayerRuntimeInventory candidate =
+        world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    for (const GamePlayerRuntimeItemStack& removal : runtime_transaction->removals) {
         if (!remove_items(candidate, removal)) {
             return false;
         }
     }
-    for (const GamePlayerItemStack& addition : transaction.additions) {
+    for (const GamePlayerRuntimeItemStack& addition : runtime_transaction->additions) {
         if (!add_items(candidate, addition)) {
             return false;
         }
@@ -404,55 +480,57 @@ snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_transaction
 snt::core::Expected<GamePlayerInventory> GameServerPlayerState::apply_inventory_slot_transfer(
     const GameAuthenticatedPeer& peer,
     const GamePlayerInventorySlotTransfer& transfer) {
-    auto applicable = can_apply_inventory_slot_transfer(peer, transfer);
-    if (!applicable) return applicable.error();
-    if (!*applicable) {
-        return invalid_state("Authoritative player inventory rejected the requested slot transfer");
-    }
+    auto runtime_transfer = resolve_runtime_inventory_slot_transfer(transfer);
+    if (!runtime_transfer) return runtime_transfer.error();
 
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
 
-    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
-    if (!apply_slot_transfer(candidate, transfer)) {
-        return invalid_state("Authoritative player inventory changed during slot transfer apply");
+    GamePlayerRuntimeInventory candidate =
+        world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    if (!apply_slot_transfer(candidate, *runtime_transfer)) {
+        return invalid_state("Authoritative player inventory rejected the requested slot transfer");
     }
-    world_->get_component<GamePlayerInventory>(*entity) = candidate;
-    return candidate;
+    auto content = resolve_content_inventory(candidate);
+    if (!content) return content.error();
+    world_->get_component<GamePlayerRuntimeInventory>(*entity) = std::move(candidate);
+    return content;
 }
 
 snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_transfer(
     const GameAuthenticatedPeer& peer,
     const GamePlayerInventorySlotTransfer& transfer) const {
-    if (auto result = validate_inventory_slot_transfer(transfer); !result) return result.error();
+    auto runtime_transfer = resolve_runtime_inventory_slot_transfer(transfer);
+    if (!runtime_transfer) return runtime_transfer.error();
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
 
-    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
-    if (auto result = validate_inventory(candidate); !result) return result.error();
-    return apply_slot_transfer(candidate, transfer);
+    GamePlayerRuntimeInventory candidate =
+        world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    return apply_slot_transfer(candidate, *runtime_transfer);
 }
 
 snt::core::Expected<void> GameServerPlayerState::apply_inventory_slot_mutations(
     const GameAuthenticatedPeer& peer,
     std::span<const GamePlayerInventorySlotMutation> mutations) {
-    auto applicable = can_apply_inventory_slot_mutations(peer, mutations);
-    if (!applicable) return applicable.error();
-    if (!*applicable) {
-        return invalid_state("Authoritative player inventory rejected conditional slot mutations");
-    }
+    auto runtime_mutations = resolve_runtime_inventory_slot_mutations(mutations);
+    if (!runtime_mutations) return runtime_mutations.error();
 
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
 
-    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
-    for (const GamePlayerInventorySlotMutation& mutation : mutations) {
+    GamePlayerRuntimeInventory candidate =
+        world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    for (const RuntimeInventorySlotMutation& mutation : *runtime_mutations) {
         if (mutation.slot >= candidate.slots.size() ||
             candidate.slots[mutation.slot] != mutation.expected) {
             return invalid_state(
@@ -460,30 +538,32 @@ snt::core::Expected<void> GameServerPlayerState::apply_inventory_slot_mutations(
         }
         candidate.slots[mutation.slot] = mutation.replacement;
     }
-    if (auto result = validate_inventory(candidate); !result) return result.error();
-    world_->get_component<GamePlayerInventory>(*entity) = std::move(candidate);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    world_->get_component<GamePlayerRuntimeInventory>(*entity) = std::move(candidate);
     return {};
 }
 
 snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_mutations(
     const GameAuthenticatedPeer& peer,
     std::span<const GamePlayerInventorySlotMutation> mutations) const {
-    if (auto result = validate_inventory_slot_mutations(mutations); !result) return result.error();
+    auto runtime_mutations = resolve_runtime_inventory_slot_mutations(mutations);
+    if (!runtime_mutations) return runtime_mutations.error();
     auto record = find_active_record(peer);
     if (!record) return record.error();
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
 
-    GamePlayerInventory candidate = world_->get_component<GamePlayerInventory>(*entity);
-    if (auto result = validate_inventory(candidate); !result) return result.error();
-    for (const GamePlayerInventorySlotMutation& mutation : mutations) {
+    GamePlayerRuntimeInventory candidate =
+        world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
+    for (const RuntimeInventorySlotMutation& mutation : *runtime_mutations) {
         if (mutation.slot >= candidate.slots.size() ||
             candidate.slots[mutation.slot] != mutation.expected) {
             return false;
         }
         candidate.slots[mutation.slot] = mutation.replacement;
     }
-    if (auto result = validate_inventory(candidate); !result) return result.error();
+    if (auto result = validate_runtime_inventory(candidate); !result) return result.error();
     return true;
 }
 
@@ -528,7 +608,7 @@ snt::core::Expected<void> GameServerPlayerState::validate_position(
     return {};
 }
 
-snt::core::Expected<void> GameServerPlayerState::validate_inventory(
+snt::core::Expected<void> GameServerPlayerState::validate_content_inventory(
     const GamePlayerInventory& inventory) const {
     if (inventory.max_slots != config_.inventory_slots ||
         inventory.max_stack_size != config_.inventory_max_stack_size) {
@@ -538,8 +618,8 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory(
         return invalid_state("Authoritative player inventory does not have fixed slot storage");
     }
     for (const GamePlayerItemStack& stack : inventory.slots) {
-        if (is_empty_stack(stack)) continue;
-        if (!has_valid_nonempty_stack_shape(stack) ||
+        if (stack.is_empty()) continue;
+        if (!has_valid_nonempty_content_stack_shape(stack) ||
             stack.resource.amount > inventory.max_stack_size) {
             return invalid_state("Authoritative player inventory contains an invalid item stack");
         }
@@ -547,12 +627,48 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory(
     return {};
 }
 
-snt::core::Expected<void> GameServerPlayerState::validate_equipment(
+snt::core::Expected<void> GameServerPlayerState::validate_content_equipment(
     const GamePlayerEquipment& equipment) const {
     for (const GamePlayerItemStack& stack : equipment.slots) {
-        if (is_empty_stack(stack)) continue;
-        if (!has_valid_nonempty_stack_shape(stack) || stack.resource.amount != 1) {
+        if (stack.is_empty()) continue;
+        if (!has_valid_nonempty_content_stack_shape(stack) || stack.resource.amount != 1) {
             return invalid_state("Authoritative player equipment contains an invalid item stack");
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::validate_runtime_inventory(
+    const GamePlayerRuntimeInventory& inventory) const {
+    if (!inventory.resource_runtime_index.key_context().is_valid() ||
+        !inventory.resource_runtime_index.key_context().matches(
+            resource_runtime_index_.key_context())) {
+        return invalid_state(
+            "Authoritative player inventory is bound to a stale resource runtime snapshot");
+    }
+    if (inventory.max_slots != config_.inventory_slots ||
+        inventory.max_stack_size != config_.inventory_max_stack_size) {
+        return invalid_state("Authoritative player inventory has incompatible capacity settings");
+    }
+    if (inventory.slots.size() != inventory.max_slots) {
+        return invalid_state("Authoritative player inventory does not have fixed slot storage");
+    }
+    for (const GamePlayerRuntimeItemStack& stack : inventory.slots) {
+        if (is_empty_stack(stack)) continue;
+        if (!has_valid_nonempty_runtime_stack_shape(stack) ||
+            stack.resource.amount > inventory.max_stack_size) {
+            return invalid_state("Authoritative player inventory contains an invalid runtime stack");
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::validate_runtime_equipment(
+    const GamePlayerRuntimeEquipment& equipment) const {
+    for (const GamePlayerRuntimeItemStack& stack : equipment.slots) {
+        if (is_empty_stack(stack)) continue;
+        if (!has_valid_nonempty_runtime_stack_shape(stack) || stack.resource.amount != 1) {
+            return invalid_state("Authoritative player equipment contains an invalid runtime stack");
         }
     }
     return {};
@@ -579,8 +695,8 @@ snt::core::Expected<void> GameServerPlayerState::validate_persistent_state(
     if (state.respawn_point.has_value()) {
         if (auto result = validate_position(*state.respawn_point); !result) return result.error();
     }
-    if (auto result = validate_inventory(state.inventory); !result) return result.error();
-    if (auto result = validate_equipment(state.equipment); !result) return result.error();
+    if (auto result = validate_content_inventory(state.inventory); !result) return result.error();
+    if (auto result = validate_content_equipment(state.equipment); !result) return result.error();
     return validate_organ_state(state.organs);
 }
 
@@ -591,7 +707,7 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_transaction(
         return invalid_argument("Authoritative player inventory transaction has an invalid operation count");
     }
     const auto validate_stack = [](const GamePlayerItemStack& stack) {
-        return has_valid_nonempty_stack_shape(stack);
+        return has_valid_nonempty_content_stack_shape(stack);
     };
     for (const GamePlayerItemStack& stack : transaction.removals) {
         if (!validate_stack(stack)) {
@@ -611,11 +727,11 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_transfe
     if (transfer.source_slot == transfer.target_slot || transfer.count <= 0) {
         return invalid_argument("Authoritative player slot transfer has an invalid source, target, or count");
     }
-    if (!has_valid_nonempty_stack_shape(transfer.expected_source)) {
+    if (!has_valid_nonempty_content_stack_shape(transfer.expected_source)) {
         return invalid_argument("Authoritative player slot transfer has an invalid expected source");
     }
     if (!is_empty_stack_value(transfer.expected_target) &&
-        !has_valid_nonempty_stack_shape(transfer.expected_target)) {
+        !has_valid_nonempty_content_stack_shape(transfer.expected_target)) {
         return invalid_argument("Authoritative player slot transfer has an invalid expected target");
     }
     return {};
@@ -634,7 +750,7 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_mutatio
         }
         seen[mutation.slot] = true;
         const auto valid_stack = [](const GamePlayerItemStack& stack) {
-            return is_empty_stack_value(stack) || has_valid_nonempty_stack_shape(stack);
+            return is_empty_stack_value(stack) || has_valid_nonempty_content_stack_shape(stack);
         };
         if (!valid_stack(mutation.expected) || !valid_stack(mutation.replacement)) {
             return invalid_argument(
@@ -642,6 +758,160 @@ snt::core::Expected<void> GameServerPlayerState::validate_inventory_slot_mutatio
         }
     }
     return {};
+}
+
+snt::core::Expected<GamePlayerRuntimeInventory>
+GameServerPlayerState::resolve_runtime_inventory(
+    const GamePlayerInventory& inventory,
+    const ResourceRuntimeIndex::Snapshot& resource_index) const {
+    if (auto result = validate_content_inventory(inventory); !result) return result.error();
+    if (!resource_index.key_context().is_valid()) {
+        return invalid_state("Player inventory cannot resolve through an invalid resource snapshot");
+    }
+
+    GamePlayerRuntimeInventory runtime{
+        .resource_runtime_index = resource_index,
+        .slots = std::vector<GamePlayerRuntimeItemStack>(inventory.slots.size()),
+        .max_slots = inventory.max_slots,
+        .max_stack_size = inventory.max_stack_size,
+    };
+    for (size_t index = 0; index < inventory.slots.size(); ++index) {
+        const auto stack = resolve_runtime_stack(inventory.slots[index], resource_index);
+        if (!stack) {
+            return invalid_state("Player inventory contains an unresolved content resource key");
+        }
+        runtime.slots[index] = *stack;
+    }
+    return runtime;
+}
+
+snt::core::Expected<GamePlayerRuntimeEquipment>
+GameServerPlayerState::resolve_runtime_equipment(
+    const GamePlayerEquipment& equipment,
+    const ResourceRuntimeIndex::Snapshot& resource_index) const {
+    if (auto result = validate_content_equipment(equipment); !result) return result.error();
+    if (!resource_index.key_context().is_valid()) {
+        return invalid_state("Player equipment cannot resolve through an invalid resource snapshot");
+    }
+
+    GamePlayerRuntimeEquipment runtime;
+    for (size_t index = 0; index < equipment.slots.size(); ++index) {
+        const auto stack = resolve_runtime_stack(equipment.slots[index], resource_index);
+        if (!stack) {
+            return invalid_state("Player equipment contains an unresolved content resource key");
+        }
+        runtime.slots[index] = *stack;
+    }
+    return runtime;
+}
+
+snt::core::Expected<GamePlayerInventory> GameServerPlayerState::resolve_content_inventory(
+    const GamePlayerRuntimeInventory& inventory) const {
+    if (!inventory.resource_runtime_index.key_context().is_valid()) {
+        return invalid_state("Player runtime inventory has no resource snapshot");
+    }
+
+    GamePlayerInventory content{
+        .slots = std::vector<GamePlayerItemStack>(inventory.slots.size()),
+        .max_slots = inventory.max_slots,
+        .max_stack_size = inventory.max_stack_size,
+    };
+    for (size_t index = 0; index < inventory.slots.size(); ++index) {
+        const auto stack = resolve_content_player_stack(
+            inventory.slots[index], inventory.resource_runtime_index);
+        if (!stack) {
+            return invalid_state("Player runtime inventory contains an unresolved compact key");
+        }
+        content.slots[index] = *stack;
+    }
+    return content;
+}
+
+snt::core::Expected<GamePlayerEquipment> GameServerPlayerState::resolve_content_equipment(
+    const GamePlayerRuntimeEquipment& equipment,
+    const ResourceRuntimeIndex::Snapshot& resource_index) const {
+    if (!resource_index.key_context().is_valid()) {
+        return invalid_state("Player runtime equipment has no resource snapshot");
+    }
+
+    GamePlayerEquipment content;
+    for (size_t index = 0; index < equipment.slots.size(); ++index) {
+        const auto stack = resolve_content_player_stack(equipment.slots[index], resource_index);
+        if (!stack) {
+            return invalid_state("Player runtime equipment contains an unresolved compact key");
+        }
+        content.slots[index] = *stack;
+    }
+    return content;
+}
+
+snt::core::Expected<GameServerPlayerState::RuntimeInventoryTransaction>
+GameServerPlayerState::resolve_runtime_inventory_transaction(
+    const GamePlayerInventoryTransaction& transaction) const {
+    if (auto result = validate_inventory_transaction(transaction); !result) return result.error();
+
+    RuntimeInventoryTransaction runtime;
+    runtime.removals.reserve(transaction.removals.size());
+    runtime.additions.reserve(transaction.additions.size());
+    const auto resolve = [this](const GamePlayerItemStack& stack)
+        -> snt::core::Expected<GamePlayerRuntimeItemStack> {
+        const auto resolved = resolve_runtime_stack(stack, resource_runtime_index_);
+        if (!resolved) {
+            return invalid_state("Player inventory transaction contains an unresolved content key");
+        }
+        return *resolved;
+    };
+    for (const GamePlayerItemStack& stack : transaction.removals) {
+        auto resolved = resolve(stack);
+        if (!resolved) return resolved.error();
+        runtime.removals.push_back(std::move(*resolved));
+    }
+    for (const GamePlayerItemStack& stack : transaction.additions) {
+        auto resolved = resolve(stack);
+        if (!resolved) return resolved.error();
+        runtime.additions.push_back(std::move(*resolved));
+    }
+    return runtime;
+}
+
+snt::core::Expected<GameServerPlayerState::RuntimeInventorySlotTransfer>
+GameServerPlayerState::resolve_runtime_inventory_slot_transfer(
+    const GamePlayerInventorySlotTransfer& transfer) const {
+    if (auto result = validate_inventory_slot_transfer(transfer); !result) return result.error();
+    const auto source = resolve_runtime_stack(transfer.expected_source, resource_runtime_index_);
+    const auto target = resolve_runtime_stack(transfer.expected_target, resource_runtime_index_);
+    if (!source || !target) {
+        return invalid_state("Player inventory slot transfer contains an unresolved content key");
+    }
+    return RuntimeInventorySlotTransfer{
+        .source_slot = transfer.source_slot,
+        .target_slot = transfer.target_slot,
+        .count = transfer.count,
+        .expected_source = *source,
+        .expected_target = *target,
+    };
+}
+
+snt::core::Expected<std::vector<GameServerPlayerState::RuntimeInventorySlotMutation>>
+GameServerPlayerState::resolve_runtime_inventory_slot_mutations(
+    std::span<const GamePlayerInventorySlotMutation> mutations) const {
+    if (auto result = validate_inventory_slot_mutations(mutations); !result) return result.error();
+    std::vector<RuntimeInventorySlotMutation> runtime;
+    runtime.reserve(mutations.size());
+    for (const GamePlayerInventorySlotMutation& mutation : mutations) {
+        const auto expected = resolve_runtime_stack(mutation.expected, resource_runtime_index_);
+        const auto replacement = resolve_runtime_stack(
+            mutation.replacement, resource_runtime_index_);
+        if (!expected || !replacement) {
+            return invalid_state("Player inventory slot mutation contains an unresolved content key");
+        }
+        runtime.push_back({
+            .slot = mutation.slot,
+            .expected = *expected,
+            .replacement = *replacement,
+        });
+    }
+    return runtime;
 }
 
 snt::core::Expected<GameServerPlayerState::PlayerRecord*>

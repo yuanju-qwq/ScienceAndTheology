@@ -73,6 +73,12 @@ public:
     // are scheduled without requiring a legacy world-wide tick registration.
     void initialize_loaded_chunks();
 
+    // Chunk streamers notify terrain residency changes at a fixed-tick
+    // barrier. Loading wakes persisted fluid cells; unloading drops only
+    // transient sparse/dense/LBM state because terrain remains durable.
+    void on_chunk_loaded(const snt::voxel::ChunkKey& key);
+    void on_chunk_unloaded(const snt::voxel::ChunkKey& key);
+
     void schedule_after_terrain_mutation(std::string_view dimension_id,
                                          int32_t block_x,
                                          int32_t block_y,
@@ -210,6 +216,7 @@ private:
     void update_equilibrium_candidates();
     void flush_presentation_updates(uint64_t tick_index);
     void emit_low_frequency_telemetry(uint64_t tick_index);
+    void initialize_chunk(const snt::voxel::ChunkKey& key);
 
     snt::voxel::ChunkRegistry* chunks_ = nullptr;
     const WorldGenConfigSnapshot* worldgen_config_ = nullptr;

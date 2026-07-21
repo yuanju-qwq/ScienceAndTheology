@@ -48,7 +48,7 @@ class GameServerPlayerState;
 namespace snt::game {
 
 class ServerEcosystemInterestProvider;
-class ServerMachineChunkResidencyController;
+class ServerChunkTicketController;
 
 // Server-only startup inputs. The password is deliberately outside
 // GameSessionConfig because the latter is loaded from a package also shipped
@@ -76,8 +76,7 @@ private:
     ScienceAndTheologySimulationSession simulation_session_;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<ServerEcosystemInterestProvider> ecosystem_interest_provider_;
-    std::unique_ptr<ServerMachineChunkResidencyController>
-        machine_chunk_residency_controller_;
+    std::unique_ptr<ServerChunkTicketController> chunk_ticket_controller_;
     std::unique_ptr<replication::GameServerCommandSink> command_sink_;
     std::unique_ptr<replication::GameServerPlayerState> player_state_;
     std::unique_ptr<replication::GameServerPlayerMovement> player_movement_;

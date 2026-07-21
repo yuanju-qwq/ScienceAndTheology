@@ -11,6 +11,7 @@ namespace {
 constexpr uint32_t kMaxMachineRuntimeRecords = 4096;
 constexpr uint32_t kMaxMachineInputSlots = 64;
 constexpr uint32_t kMaxMachineOutputSlots = 64;
+constexpr uint32_t kMaxMachineFluidTanks = 16;
 constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
@@ -1012,6 +1013,44 @@ bool GameChunkSerializer::read_machine_runtime_item_stack(
            read_int64(data, offset, stack.resource.amount);
 }
 
+void GameChunkSerializer::write_machine_fluid_tank(
+    std::vector<uint8_t>& buf,
+    const MachineFluidTank& tank) {
+    write_string(buf, tank.fluid.key.type);
+    write_string(buf, tank.fluid.key.id);
+    write_string(buf, tank.fluid.key.variant);
+    write_int64(buf, tank.fluid.amount);
+    write_int64(buf, tank.capacity_millibuckets);
+    write_int16(buf, tank.temperature_kelvin);
+    write_int32(buf, tank.pressure_pascal);
+    write_uint8(buf, static_cast<uint8_t>(tank.transport));
+    write_uint8(buf, static_cast<uint8_t>(tank.access));
+}
+
+bool GameChunkSerializer::read_machine_fluid_tank(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    MachineFluidTank& tank) {
+    uint8_t transport = 0;
+    uint8_t access = 0;
+    if (!read_string(data, offset, tank.fluid.key.type) ||
+        !read_string(data, offset, tank.fluid.key.id) ||
+        !read_string(data, offset, tank.fluid.key.variant) ||
+        !read_int64(data, offset, tank.fluid.amount) ||
+        !read_int64(data, offset, tank.capacity_millibuckets) ||
+        !read_int16(data, offset, tank.temperature_kelvin) ||
+        !read_int32(data, offset, tank.pressure_pascal) ||
+        !read_uint8(data, offset, transport) ||
+        transport > static_cast<uint8_t>(MachineFluidTransport::kGas) ||
+        !read_uint8(data, offset, access) ||
+        access > static_cast<uint8_t>(MachineFluidTankAccess::kBuffer)) {
+        return false;
+    }
+    tank.transport = static_cast<MachineFluidTransport>(transport);
+    tank.access = static_cast<MachineFluidTankAccess>(access);
+    return tank.is_valid();
+}
+
 void GameChunkSerializer::write_machine_runtime_recipe_snapshot(
     std::vector<uint8_t>& buf,
     const MachineRuntimeRecipeSnapshot& recipe) {
@@ -1080,6 +1119,10 @@ void GameChunkSerializer::write_machine_runtime_record(
     for (const MachineRuntimeItemStack& output : record.output_slots) {
         write_machine_runtime_item_stack(buf, output);
     }
+    write_uint32(buf, static_cast<uint32_t>(record.fluid_tanks.size()));
+    for (const MachineFluidTank& tank : record.fluid_tanks) {
+        write_machine_fluid_tank(buf, tank);
+    }
     write_int32(buf, record.stored_energy);
     write_int32(buf, record.energy_capacity);
     write_int32(buf, record.max_input_slots);
@@ -1135,6 +1178,19 @@ bool GameChunkSerializer::read_machine_runtime_record(
         MachineRuntimeItemStack output;
         if (!read_machine_runtime_item_stack(data, offset, output)) return false;
         record.output_slots.push_back(std::move(output));
+    }
+
+    uint32_t fluid_tank_count;
+    if (!read_uint32(data, offset, fluid_tank_count) ||
+        fluid_tank_count > kMaxMachineFluidTanks) {
+        return false;
+    }
+    record.fluid_tanks.clear();
+    record.fluid_tanks.reserve(fluid_tank_count);
+    for (uint32_t index = 0; index < fluid_tank_count; ++index) {
+        MachineFluidTank tank;
+        if (!read_machine_fluid_tank(data, offset, tank)) return false;
+        record.fluid_tanks.push_back(std::move(tank));
     }
 
     if (!read_int32(data, offset, record.stored_energy) ||
@@ -1228,6 +1284,7 @@ void GameChunkSerializer::write_offline_network_island_snapshot(
     for (const OfflineNetworkTransportSegment& segment : snapshot.transport_segments) {
         write_uint64(buf, segment.segment_id);
         write_uint8(buf, static_cast<uint8_t>(segment.kind));
+        write_uint8(buf, static_cast<uint8_t>(segment.fluid_transport));
         write_int64(buf, segment.capacity);
         write_int64(buf, segment.max_transfer_per_tick);
         write_uint32(buf, static_cast<uint32_t>(segment.machine_guids.size()));
@@ -1315,11 +1372,14 @@ bool GameChunkSerializer::read_offline_network_island_snapshot(
     snapshot.transport_segments.reserve(transport_segment_count);
     for (uint32_t index = 0; index < transport_segment_count; ++index) {
         uint8_t raw_kind = 0;
+        uint8_t raw_fluid_transport = 0;
         OfflineNetworkTransportSegment segment;
         uint32_t segment_machine_count = 0;
         if (!read_uint64(data, offset, segment.segment_id) || segment.segment_id == 0 ||
             !read_uint8(data, offset, raw_kind) ||
             raw_kind > static_cast<uint8_t>(OfflineNetworkResourceKind::kFluid) ||
+            !read_uint8(data, offset, raw_fluid_transport) ||
+            raw_fluid_transport > static_cast<uint8_t>(OfflineNetworkFluidTransport::kGas) ||
             !read_int64(data, offset, segment.capacity) ||
             !read_int64(data, offset, segment.max_transfer_per_tick) ||
             segment.capacity < 0 || segment.max_transfer_per_tick < 0 ||
@@ -1329,6 +1389,14 @@ bool GameChunkSerializer::read_offline_network_island_snapshot(
             return false;
         }
         segment.kind = static_cast<OfflineNetworkResourceKind>(raw_kind);
+        segment.fluid_transport =
+            static_cast<OfflineNetworkFluidTransport>(raw_fluid_transport);
+        if ((segment.kind == OfflineNetworkResourceKind::kFluid &&
+             segment.fluid_transport == OfflineNetworkFluidTransport::kNone) ||
+            (segment.kind != OfflineNetworkResourceKind::kFluid &&
+             segment.fluid_transport != OfflineNetworkFluidTransport::kNone)) {
+            return false;
+        }
         segment.machine_guids.clear();
         segment.machine_guids.reserve(segment_machine_count);
         for (uint32_t machine_index = 0; machine_index < segment_machine_count;

@@ -65,6 +65,17 @@ class OfflineIndustrialNetworkIslandProvider;
 class OfflineIndustrialNetworkIslandSimulator;
 struct WorldGenConfigSnapshot;
 
+// Result of one authoritative terrain-ticket reconciliation. The session owns
+// terrain, sidecar persistence, and machine ownership; hosts own only the
+// policy that produces requested ChunkKey values.
+struct GameChunkTicketReconciliation {
+    size_t requested_chunk_count = 0;
+    size_t expanded_ticket_chunk_count = 0;
+    size_t terrain_materialized_count = 0;
+    size_t terrain_dematerialized_count = 0;
+    OfflineChunkMachineTransition machine_transition;
+};
+
 class ScienceAndTheologySimulationSession final : public snt::engine::ISimulationSession,
                                                   public IBlockPhysicsTrigger,
                                                   public IFluidTrigger {
@@ -199,6 +210,14 @@ public:
                                   uint64_t current_tick);
     [[nodiscard]] snt::core::Expected<void>
     materialize_chunk_machines(const ChunkKey& chunk_key, uint64_t current_tick);
+
+    // Reconciles terrain and machine ownership at a fixed-tick barrier. The
+    // supplied tickets are expanded to complete offline industrial islands
+    // before terrain loading or ECS restoration. Terrain unloads first save
+    // the chunk, then retain its semantic sidecar for offline simulation.
+    [[nodiscard]] snt::core::Expected<GameChunkTicketReconciliation>
+    reconcile_chunk_tickets(uint64_t current_tick,
+                            std::span<const ChunkKey> requested_chunk_keys);
 
 private:
     class SessionEcosystemEnvironmentProvider;

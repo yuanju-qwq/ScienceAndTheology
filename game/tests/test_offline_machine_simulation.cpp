@@ -47,7 +47,7 @@ using snt::game::PipeType;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
-using snt::game::ResourceKey;
+using snt::game::ResourceContentKey;
 using snt::game::VoltageTier;
 using snt::voxel::ChunkKey;
 
@@ -615,7 +615,7 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnaps
             {
                 .segment_id = 73,
                 .kind = OfflineNetworkResourceKind::kPower,
-                .resource = ResourceKey::power("snt.power.buffer"),
+                .resource = ResourceContentKey::power("snt.power.buffer"),
                 .stored_amount = 19,
                 .capacity = 64,
                 .max_transfer_per_tick = 8,
@@ -623,7 +623,7 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnaps
             {
                 .segment_id = 74,
                 .kind = OfflineNetworkResourceKind::kItem,
-                .resource = ResourceKey::item("offline.item.buffer", "grade=refined"),
+                .resource = ResourceContentKey::item("offline.item.buffer", "grade=refined"),
                 .stored_amount = 7,
                 .capacity = 32,
                 .max_transfer_per_tick = 3,
@@ -631,7 +631,7 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnaps
             {
                 .segment_id = 75,
                 .kind = OfflineNetworkResourceKind::kFluid,
-                .resource = ResourceKey::fluid("offline.fluid.buffer", "temperature=320"),
+                .resource = ResourceContentKey::fluid("offline.fluid.buffer"),
                 .stored_amount = 1200,
                 .capacity = 4000,
                 .max_transfer_per_tick = 250,
@@ -671,13 +671,14 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnaps
     ASSERT_EQ(snapshot.ledgers.size(), 3u);
     EXPECT_EQ(snapshot.ledgers[0].kind, OfflineNetworkResourceKind::kPower);
     EXPECT_EQ(snapshot.ledgers[0].stored_amount, 19);
-    EXPECT_EQ(snapshot.ledgers[0].resource, ResourceKey::power("snt.power.buffer"));
+    EXPECT_EQ(snapshot.ledgers[0].resource,
+              ResourceContentKey::power("snt.power.buffer"));
     EXPECT_EQ(snapshot.ledgers[1].kind, OfflineNetworkResourceKind::kItem);
     EXPECT_EQ(snapshot.ledgers[1].resource,
-              ResourceKey::item("offline.item.buffer", "grade=refined"));
+              ResourceContentKey::item("offline.item.buffer", "grade=refined"));
     EXPECT_EQ(snapshot.ledgers[2].kind, OfflineNetworkResourceKind::kFluid);
     EXPECT_EQ(snapshot.ledgers[2].resource,
-              ResourceKey::fluid("offline.fluid.buffer", "temperature=320"));
+              ResourceContentKey::fluid("offline.fluid.buffer"));
     EXPECT_EQ(snapshot.ledgers[2].max_transfer_per_tick, 250);
 }
 
@@ -718,7 +719,7 @@ TEST(OfflineMachineSimulationTest, NetworkIslandRegistryClaimsReleasesAndRecover
         .ledgers = {{
             .segment_id = 2,
             .kind = OfflineNetworkResourceKind::kPower,
-            .resource = ResourceKey::power("snt.power.buffer"),
+            .resource = ResourceContentKey::power("snt.power.buffer"),
             .capacity = 42,
             .max_transfer_per_tick = 3,
         }},

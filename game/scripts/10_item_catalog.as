@@ -401,7 +401,8 @@ void snt_register() {
     register_catalog_item("meat.cooked.blaze_beast", "item.meat.cooked.blaze_beast", 64, kFood,
                           "food/meat_cooked_blaze_beast_icon_32.png");
 
-    // Fluid identity is a ResourceKey::fluid semantic id. There are no
+    // Fluid identity is a stable content id resolved to a ResourceKey at the
+    // runtime snapshot boundary. There are no
     // authored numeric IDs: the immutable runtime snapshot assigns compact
     // IDs after this complete item-and-fluid catalog commits.
     snt_register_fluid("water", "fluid.water", "H2O", 300, false,

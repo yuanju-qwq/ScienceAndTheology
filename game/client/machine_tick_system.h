@@ -30,6 +30,7 @@
 #include "ecs/entity_guid.h"
 #include "ecs/system.h"
 #include "game/resources/resource_runtime_index.h"
+#include "game/simulation/machine_fluid_tank.h"
 
 namespace snt::ecs {
 class World;
@@ -40,18 +41,19 @@ namespace snt::game {
 class GameContentRegistry;
 
 struct MachineItemStack {
-    // Machine slots persist semantic resource identity and quantity. The
+    // Machine slots persist content resource identity and quantity. The
     // worker receives runtime_key from an immutable content snapshot and
     // never compares the strings inside resource.key.
-    ResourceStack resource;
+    ResourceContentStack resource;
     // Filled only on the main-thread capture boundary. Persistent storage,
-    // command payloads, and events retain ResourceStack; worker calculations use
+    // command payloads, and events retain ResourceContentStack; worker calculations use
     // runtime_key from one immutable ResourceRuntimeIndex snapshot.
-    RuntimeResourceKey runtime_key;
+    ResourceKey runtime_key;
 
     [[nodiscard]] static MachineItemStack item(std::string id, int64_t count,
                                                std::string variant = {}) {
-        return {.resource = ResourceStack::item(std::move(id), count, std::move(variant))};
+        return {.resource = ResourceContentStack::item(
+            std::move(id), count, std::move(variant))};
     }
 
     [[nodiscard]] bool empty() const noexcept { return resource.is_empty(); }
@@ -93,6 +95,9 @@ struct MachineRuntimeComponent {
     std::string machine_id;
     std::vector<MachineItemStack> input_slots;
     std::vector<MachineItemStack> output_slots;
+    // Fluid tanks are durable value storage. The generic execution core does
+    // not consume them yet; offline industrial transport owns their movement.
+    std::vector<MachineFluidTank> fluid_tanks;
 
     int32_t stored_energy = 0;
     int32_t energy_capacity = 0;

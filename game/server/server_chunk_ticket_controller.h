@@ -1,9 +1,9 @@
-// Dedicated-server machine ECS residency policy.
+// Dedicated-server terrain ticket policy.
 //
-// This controller keeps machine runtimes materialized only for chunks covered
-// by a permanent spawn ticket or authoritative player tickets. Chunks remain
-// terrain-resident in this phase; only machine ECS ownership transfers to the
-// offline sidecar simulation.
+// This module converts the permanent spawn and authoritative player positions
+// into bounded chunk tickets. The shared simulation session owns terrain I/O,
+// offline-machine ownership, and persistence; this server layer deliberately
+// has no direct ChunkRegistry or sidecar mutation access.
 
 #pragma once
 
@@ -17,28 +17,29 @@ namespace snt::game {
 
 class ScienceAndTheologySimulationSession;
 
-struct ServerMachineChunkResidencyConfig {
+struct ServerChunkTicketConfig {
     GamePlayerWorldPosition permanent_spawn;
     uint32_t horizontal_aoi_radius_blocks = 64;
     uint32_t vertical_aoi_radius_blocks = 64;
+    uint32_t max_ticketed_chunks = 4096;
 };
 
-class ServerMachineChunkResidencyController final {
+class ServerChunkTicketController final {
 public:
-    ServerMachineChunkResidencyController(
+    ServerChunkTicketController(
         ScienceAndTheologySimulationSession& simulation_session,
-        ServerMachineChunkResidencyConfig config) noexcept;
+        ServerChunkTicketConfig config) noexcept;
 
     // Reconciles only at a server fixed-tick barrier. Callers supply copied
-    // authoritative player positions so this module has no peer or ECS-player
-    // ownership and remains straightforward to test without a transport.
+    // authoritative player positions so ticket policy remains independent of
+    // peer ownership, ECS-player state, and transport implementation.
     [[nodiscard]] snt::core::Expected<void> reconcile(
         uint64_t current_tick,
         std::span<const GamePlayerWorldPosition> active_player_positions);
 
 private:
     ScienceAndTheologySimulationSession* simulation_session_ = nullptr;
-    ServerMachineChunkResidencyConfig config_;
+    ServerChunkTicketConfig config_;
 };
 
 }  // namespace snt::game

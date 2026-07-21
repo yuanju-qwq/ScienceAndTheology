@@ -16,16 +16,48 @@
 #include "game/simulation/tree_growth_system.h"
 #include "game/simulation/worldgen_script_content.h"
 #include "game/world/save/world_persistence_lifecycle.h"
+#include "game/worldgen/terrain_generator.h"
+#include "game/worldgen/world_seed.h"
 
+#include "core/error.h"
 #include "core/log.h"
 #include "engine/simulation_services.h"
 #include "script/script_manager.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace snt::game {
+namespace {
+
+[[nodiscard]] snt::core::Error invalid_state(std::string message) {
+    return {snt::core::ErrorCode::kInvalidState, std::move(message)};
+}
+
+[[nodiscard]] bool chunk_key_less(const ChunkKey& left, const ChunkKey& right) noexcept {
+    if (left.dimension_id != right.dimension_id) return left.dimension_id < right.dimension_id;
+    if (left.chunk_x != right.chunk_x) return left.chunk_x < right.chunk_x;
+    if (left.chunk_y != right.chunk_y) return left.chunk_y < right.chunk_y;
+    return left.chunk_z < right.chunk_z;
+}
+
+[[nodiscard]] bool same_chunk(const ChunkKey& left, const ChunkKey& right) noexcept {
+    return left.dimension_id == right.dimension_id && left.chunk_x == right.chunk_x &&
+           left.chunk_y == right.chunk_y && left.chunk_z == right.chunk_z;
+}
+
+[[nodiscard]] int32_t chunk_coordinate_for_block(int32_t block_coordinate) noexcept {
+    constexpr int64_t kChunkSize = snt::voxel::VoxelChunk::kChunkSize;
+    const int64_t value = block_coordinate;
+    return static_cast<int32_t>(value >= 0
+        ? value / kChunkSize
+        : -(((-value) + kChunkSize - 1) / kChunkSize));
+}
+
+}  // namespace
 
 class ScienceAndTheologySimulationSession::SessionEcosystemEnvironmentProvider final
     : public IGameEcosystemEnvironmentProvider {
@@ -285,7 +317,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     world_ready_ = false;
     bool loaded_existing_world = false;
     if (world_persistence_) {
-        auto loaded = world_persistence_->load_existing(*chunks_, chunk_sidecars_);
+        auto loaded = world_persistence_->load_existing(chunk_sidecars_);
         if (!loaded) {
             auto error = loaded.error();
             error.with_context("ScienceAndTheologySimulationSession::create_world(load world)");
@@ -303,12 +335,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
             return error;
         }
     } else {
-        SNT_LOG_INFO("Game world loaded from current-format persistence; demo bootstrap skipped");
-    }
-    if (auto result = GameMachineRuntimePersistence::restore(*world_, chunk_sidecars_); !result) {
-        auto error = result.error();
-        error.with_context("ScienceAndTheologySimulationSession::create_world(restore machines)");
-        return error;
+        SNT_LOG_INFO("Game world sidecars indexed from current-format persistence; terrain is ticketed");
     }
     offline_industrial_network_provider_ =
         std::make_unique<OfflineIndustrialNetworkIslandProvider>(
@@ -326,6 +353,13 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         offline_machine_simulation_.reset();
         auto error = result.error();
         error.with_context("ScienceAndTheologySimulationSession::create_world(offline machines)");
+        return error;
+    }
+    if (auto result = offline_machine_simulation_->adopt_persisted_loaded_records(0); !result) {
+        offline_machine_simulation_.reset();
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(adopt persisted machines)");
         return error;
     }
     block_physics_system_ = std::make_unique<GameBlockPhysicsSystem>(
@@ -357,6 +391,21 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     ecosystem_system_->set_far_visual_sink(wild_creature_system_.get());
     ecosystem_system_->set_captive_lifecycle_sink(wild_creature_system_.get());
     world_ready_ = true;
+
+    const ChunkKey spawn_chunk{
+        config_.persistence.world_dimension_id,
+        chunk_coordinate_for_block(config_.server_player.spawn_block_x),
+        chunk_coordinate_for_block(config_.server_player.spawn_block_y),
+        chunk_coordinate_for_block(config_.server_player.spawn_block_z),
+    };
+    if (auto result = reconcile_chunk_tickets(
+            0, std::span<const ChunkKey>{&spawn_chunk, 1});
+        !result) {
+        world_ready_ = false;
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::create_world(spawn ticket)");
+        return error;
+    }
 
     SNT_LOG_INFO("Game block physics initialized with the current world-generation snapshot");
     SNT_LOG_INFO("Game hybrid fluid simulation initialized with sparse, dense, and equilibrium layers");
@@ -454,6 +503,168 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
                                 "Offline machine simulation is unavailable"};
     }
     return offline_machine_simulation_->materialize_chunk(*world_, chunk_key, current_tick);
+}
+
+snt::core::Expected<GameChunkTicketReconciliation>
+ScienceAndTheologySimulationSession::reconcile_chunk_tickets(
+    uint64_t current_tick,
+    std::span<const ChunkKey> requested_chunk_keys) {
+    if (!world_ready_ || world_ == nullptr || chunks_ == nullptr ||
+        offline_machine_simulation_ == nullptr || !worldgen_config_) {
+        return invalid_state("Chunk ticket reconciliation requires a ready simulation world");
+    }
+
+    GameChunkTicketReconciliation reconciliation;
+    std::vector<ChunkKey> requested(requested_chunk_keys.begin(), requested_chunk_keys.end());
+    for (const ChunkKey& chunk_key : requested) {
+        if (chunk_key.dimension_id.empty()) {
+            return invalid_state("Chunk ticket reconciliation received an empty dimension id");
+        }
+    }
+    std::sort(requested.begin(), requested.end(), chunk_key_less);
+    requested.erase(std::unique(requested.begin(), requested.end(), same_chunk), requested.end());
+    reconciliation.requested_chunk_count = requested.size();
+
+    auto expanded = offline_machine_simulation_->expand_materialization_chunks(requested);
+    if (!expanded) {
+        auto error = expanded.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::reconcile_chunk_tickets(expand islands)");
+        return error;
+    }
+    std::vector<ChunkKey> ticketed = std::move(*expanded);
+    reconciliation.expanded_ticket_chunk_count = ticketed.size();
+
+    TerrainGenerator terrain_generator(
+        WorldSeed(config_.demo.seed), worldgen_config_);
+    for (const ChunkKey& chunk_key : ticketed) {
+        const bool terrain_was_resident = chunks_->has_chunk(
+            chunk_key.dimension_id, chunk_key.chunk_x, chunk_key.chunk_y, chunk_key.chunk_z);
+        if (!terrain_was_resident) {
+            const bool had_sidecar = chunk_sidecars_.get(chunk_key) != nullptr;
+            bool loaded_persisted_terrain = false;
+            if (world_persistence_ != nullptr &&
+                chunk_key.dimension_id == config_.persistence.world_dimension_id) {
+                auto loaded = world_persistence_->load_chunk_terrain(*chunks_, chunk_key);
+                if (!loaded) {
+                    auto error = loaded.error();
+                    error.with_context(
+                        "ScienceAndTheologySimulationSession::reconcile_chunk_tickets(load terrain)");
+                    return error;
+                }
+                loaded_persisted_terrain = *loaded;
+                if (loaded_persisted_terrain && !had_sidecar) {
+                    return invalid_state(
+                        "Persisted terrain was found without its startup sidecar index entry");
+                }
+            }
+            if (!loaded_persisted_terrain) {
+                if (had_sidecar) {
+                    return invalid_state(
+                        "Chunk has durable sidecar state but no persisted terrain payload");
+                }
+                GameChunk generated = terrain_generator.generate_chunk(
+                    chunk_key.dimension_id, chunk_key.chunk_x,
+                    chunk_key.chunk_y, chunk_key.chunk_z);
+                snt::voxel::VoxelChunk voxel_chunk = std::move(generated.voxel_chunk());
+                GameChunkSidecar sidecar = std::move(generated.sidecar());
+                chunk_sidecars_.set(chunk_key, std::move(sidecar));
+                chunks_->set_chunk(chunk_key.dimension_id, chunk_key.chunk_x,
+                                   chunk_key.chunk_y, chunk_key.chunk_z,
+                                   std::move(voxel_chunk));
+            }
+            if (fluid_system_) fluid_system_->on_chunk_loaded(chunk_key);
+            ++reconciliation.terrain_materialized_count;
+        }
+        if (chunk_sidecars_.get(chunk_key) == nullptr) {
+            chunk_sidecars_.set(chunk_key, {});
+        }
+    }
+
+    // Terrain for every member is resident before one member can release an
+    // atomic offline island back to ECS ownership.
+    for (const ChunkKey& chunk_key : ticketed) {
+        if (auto result = materialize_chunk_machines(chunk_key, current_tick); !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::reconcile_chunk_tickets(materialize machines)");
+            return error;
+        }
+    }
+
+    std::vector<ChunkKey> offline_candidates;
+    for (const ChunkKey& chunk_key : chunks_->all_chunk_keys()) {
+        const bool ticketed_chunk = std::binary_search(
+            ticketed.begin(), ticketed.end(), chunk_key, chunk_key_less);
+        if (!ticketed_chunk) offline_candidates.push_back(chunk_key);
+    }
+    std::sort(offline_candidates.begin(), offline_candidates.end(), chunk_key_less);
+    if (!offline_candidates.empty()) {
+        auto transition = dematerialize_chunks_machines(offline_candidates, current_tick);
+        if (!transition) {
+            auto error = transition.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::reconcile_chunk_tickets(dematerialize machines)");
+            return error;
+        }
+        reconciliation.machine_transition = std::move(*transition);
+    }
+
+    // A development session with persistence disabled retains terrain, while
+    // still exercising the same machine ownership transition as production.
+    if (world_persistence_ != nullptr) {
+        std::vector<ChunkKey> terrain_unloads;
+        for (const ChunkKey& chunk_key : offline_candidates) {
+            const GameChunkSidecar* sidecar = chunk_sidecars_.get(chunk_key);
+            if (sidecar == nullptr) {
+                return invalid_state("Terrain unload candidate has no chunk sidecar");
+            }
+            const bool has_loaded_machine = std::any_of(
+                sidecar->machine_runtime_records.begin(), sidecar->machine_runtime_records.end(),
+                [](const MachineRuntimePersistenceRecord& record) {
+                    return record.residency == MachineRuntimeResidency::kLoaded;
+                });
+            if (!has_loaded_machine) terrain_unloads.push_back(chunk_key);
+        }
+
+        // Persist every candidate before removing any resident terrain. A
+        // failed write therefore leaves the current tick's terrain available
+        // for retry rather than discarding unsaved world state.
+        for (const ChunkKey& chunk_key : terrain_unloads) {
+            if (auto result = world_persistence_->save_loaded_chunk(
+                    *chunks_, chunk_sidecars_, chunk_key);
+                !result) {
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::reconcile_chunk_tickets(save before unload)");
+                return error;
+            }
+        }
+        for (const ChunkKey& chunk_key : terrain_unloads) {
+            if (fluid_system_) fluid_system_->on_chunk_unloaded(chunk_key);
+            chunks_->remove_chunk(chunk_key.dimension_id, chunk_key.chunk_x,
+                                  chunk_key.chunk_y, chunk_key.chunk_z);
+        }
+        reconciliation.terrain_dematerialized_count = terrain_unloads.size();
+    }
+
+    if (reconciliation.terrain_materialized_count != 0 ||
+        reconciliation.terrain_dematerialized_count != 0 ||
+        reconciliation.machine_transition.standalone_machine_count != 0 ||
+        reconciliation.machine_transition.paused_machine_count != 0 ||
+        reconciliation.machine_transition.network_island_machine_count != 0) {
+        SNT_LOG_INFO(
+            "Reconciled chunk tickets at tick %llu: requested=%zu expanded=%zu terrain_in=%zu terrain_out=%zu standalone=%zu paused=%zu network=%zu island(s)/%zu machine(s)",
+            static_cast<unsigned long long>(current_tick), reconciliation.requested_chunk_count,
+            reconciliation.expanded_ticket_chunk_count,
+            reconciliation.terrain_materialized_count,
+            reconciliation.terrain_dematerialized_count,
+            reconciliation.machine_transition.standalone_machine_count,
+            reconciliation.machine_transition.paused_machine_count,
+            reconciliation.machine_transition.network_island_count,
+            reconciliation.machine_transition.network_island_machine_count);
+    }
+    return reconciliation;
 }
 
 void ScienceAndTheologySimulationSession::shutdown() noexcept {

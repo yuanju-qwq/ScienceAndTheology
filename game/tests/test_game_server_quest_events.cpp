@@ -57,7 +57,8 @@ int32_t count_item(const snt::game::GamePlayerInventory& inventory,
                    std::string_view item_id) {
     int32_t count = 0;
     for (const snt::game::GamePlayerItemStack& stack : inventory.slots) {
-        if (stack.resource.key == snt::game::ResourceKey::item(std::string(item_id))) {
+        if (stack.resource.key ==
+            snt::game::ResourceContentKey::item(std::string(item_id))) {
             count += static_cast<int32_t>(stack.resource.amount);
         }
     }

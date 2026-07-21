@@ -292,7 +292,7 @@ void hash_u64(uint64_t& value, uint64_t input) noexcept {
         const int32_t count = drop.min_count + static_cast<int32_t>(amount_roll % range);
         auto existing = std::find_if(additions.begin(), additions.end(),
             [&drop](const GamePlayerItemStack& stack) {
-                return stack.resource.key == ResourceKey::item(drop.item_key);
+                return stack.resource.key == ResourceContentKey::item(drop.item_key);
             });
         if (existing == additions.end()) {
             additions.push_back(GamePlayerItemStack::item(drop.item_key, count));

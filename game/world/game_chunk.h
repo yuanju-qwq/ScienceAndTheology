@@ -13,6 +13,7 @@
 #include "game/world/defs/entity_data.h"
 #include "game/world/defs/population_cell.h"
 #include "game/resources/resource_key.h"
+#include "game/simulation/machine_fluid_tank.h"
 #include "game/world/voxel_primitives.h"
 
 #include <cstdint>
@@ -66,11 +67,12 @@ struct MechanismPlacement {
 // same chunk sidecar. These values deliberately mirror only durable machine
 // state: they do not include ECS handles, script VM objects, or callbacks.
 struct MachineRuntimeItemStack {
-    ResourceStack resource;
+    ResourceContentStack resource;
 
     [[nodiscard]] static MachineRuntimeItemStack item(std::string id, int64_t count,
                                                       std::string variant = {}) {
-        return {.resource = ResourceStack::item(std::move(id), count, std::move(variant))};
+        return {.resource = ResourceContentStack::item(
+            std::move(id), count, std::move(variant))};
     }
 };
 
@@ -105,6 +107,7 @@ struct MachineRuntimePersistenceRecord {
     std::string machine_id;
     std::vector<MachineRuntimeItemStack> input_slots;
     std::vector<MachineRuntimeItemStack> output_slots;
+    std::vector<MachineFluidTank> fluid_tanks;
 
     int32_t stored_energy = 0;
     int32_t energy_capacity = 0;
@@ -141,6 +144,14 @@ enum class OfflineNetworkResourceKind : uint8_t {
     kFluid = 2,
 };
 
+// kNone is required for non-fluid segments. It keeps liquid and gas graphs
+// distinct even though both transport the durable `fluid` resource kind.
+enum class OfflineNetworkFluidTransport : uint8_t {
+    kNone = 0,
+    kLiquid = 1,
+    kGas = 2,
+};
+
 // A resource segment is a connected subgraph within one atomic offline
 // island. A machine may bridge power, item, and fluid networks, but only the
 // machines listed here may exchange the segment's resource. This prevents a
@@ -148,6 +159,7 @@ enum class OfflineNetworkResourceKind : uint8_t {
 struct OfflineNetworkTransportSegment {
     uint64_t segment_id = 0;
     OfflineNetworkResourceKind kind = OfflineNetworkResourceKind::kPower;
+    OfflineNetworkFluidTransport fluid_transport = OfflineNetworkFluidTransport::kNone;
     std::vector<uint64_t> machine_guids;
     int64_t capacity = 0;
     int64_t max_transfer_per_tick = 0;
@@ -155,13 +167,13 @@ struct OfflineNetworkTransportSegment {
 
 struct OfflineNetworkResourceLedger {
     // A ledger belongs to exactly one transport segment. `resource` is a
-    // durable AEKey identity, while segment_id preserves the topology
+    // durable content-resource identity, while segment_id preserves the topology
     // boundary when several same-kind subnetworks are joined only by a
-    // machine bridge. RuntimeResourceKey is intentionally never persisted
+    // machine bridge. ResourceKey is intentionally never persisted
     // here because its numeric IDs are scoped to one content snapshot.
     uint64_t segment_id = 0;
     OfflineNetworkResourceKind kind = OfflineNetworkResourceKind::kPower;
-    ResourceKey resource;
+    ResourceContentKey resource;
     int64_t stored_amount = 0;
     int64_t capacity = 0;
     // A topology provider derives this from the narrowest durable edge. Zero
@@ -258,14 +270,15 @@ struct GamePlayerBedRecord {
 };
 
 struct GamePlayerGraveItemStack {
-    ResourceStack resource;
+    ResourceContentStack resource;
     std::string instance_data;
 
     [[nodiscard]] static GamePlayerGraveItemStack item(std::string id, int64_t count,
                                                         std::string variant = {},
                                                         std::string instance_data = {}) {
         return {
-            .resource = ResourceStack::item(std::move(id), count, std::move(variant)),
+            .resource = ResourceContentStack::item(
+                std::move(id), count, std::move(variant)),
             .instance_data = std::move(instance_data),
         };
     }

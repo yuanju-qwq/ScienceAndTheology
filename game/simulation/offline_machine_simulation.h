@@ -92,6 +92,14 @@ public:
     // no wall-clock catch-up: persisted work resumes from this server tick.
     [[nodiscard]] snt::core::Expected<void> initialize(uint64_t current_tick);
 
+    // Takes ownership of persisted records that were saved as kLoaded at the
+    // previous controlled shutdown, before any ticket has recreated their ECS
+    // runtime. Complete network islands are claimed atomically; standalone
+    // machines enter the same scheduler as normal unloads, while unsupported
+    // or incomplete graphs are explicitly paused.
+    [[nodiscard]] snt::core::Expected<OfflineChunkMachineTransition>
+    adopt_persisted_loaded_records(uint64_t current_tick);
+
     // Captures and destroys all materialized machine runtimes in one chunk.
     // Content policy selects standalone coarse simulation or a deterministic
     // paused record. Callers may remove terrain only after this succeeds.
@@ -115,6 +123,13 @@ public:
     materialize_chunk(snt::ecs::World& world,
                       const ChunkKey& chunk_key,
                       uint64_t current_tick);
+
+    // Expands a terrain ticket set to complete offline-network-island
+    // membership without transferring ownership. Streamers use this before
+    // restoring any ECS runtime, so island release never observes missing
+    // terrain for one of its member chunks.
+    [[nodiscard]] snt::core::Expected<std::vector<ChunkKey>>
+    expand_materialization_chunks(std::span<const ChunkKey> chunk_keys) const;
 
     // Runs only due batches, never one task per offline machine per fixed tick.
     [[nodiscard]] snt::core::Expected<void> tick(uint64_t current_tick);

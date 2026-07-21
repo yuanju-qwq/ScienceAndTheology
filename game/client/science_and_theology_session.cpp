@@ -365,7 +365,7 @@ private:
 [[nodiscard]] GamePlayerItemStack to_replication_inventory_stack(
     const ItemStackState& stack) {
     return {
-        .resource = ResourceStack::item(stack.item_key, stack.count),
+        .resource = ResourceContentStack::item(stack.item_key, stack.count),
         .instance_data = stack.instance_data,
     };
 }

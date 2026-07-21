@@ -19,7 +19,7 @@ using snt::game::MachinePlacementDefinition;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
-using snt::game::ResourceKey;
+using snt::game::ResourceContentKey;
 
 RecipeDefinition make_recipe(std::string id, std::string input) {
     RecipeDefinition recipe;
@@ -164,23 +164,23 @@ TEST(GameContentRegistryTest, ResourceRuntimeKeysAreNormalizedSortedAndContiguou
 
     ASSERT_NE(content.find_item("zinc.ingot"), nullptr);
     EXPECT_EQ(content.find_item("zinc.ingot")->max_stack, 64);
-    const auto anvil = content.find_resource_runtime_key(ResourceKey::item("anvil"));
-    const auto charcoal = content.find_resource_runtime_key(ResourceKey::item("charcoal"));
-    const auto zinc = content.find_resource_runtime_key(ResourceKey::item("zinc.ingot"));
+    const auto anvil = content.find_resource_runtime_key(ResourceContentKey::item("anvil"));
+    const auto charcoal = content.find_resource_runtime_key(ResourceContentKey::item("charcoal"));
+    const auto zinc = content.find_resource_runtime_key(ResourceContentKey::item("zinc.ingot"));
     ASSERT_TRUE(anvil);
     ASSERT_TRUE(charcoal);
     ASSERT_TRUE(zinc);
-    EXPECT_EQ(anvil->type_id, charcoal->type_id);
-    EXPECT_EQ(charcoal->type_id, zinc->type_id);
-    EXPECT_EQ(anvil->resource_id, 1u);
-    EXPECT_EQ(charcoal->resource_id, 2u);
-    EXPECT_EQ(zinc->resource_id, 3u);
-    EXPECT_EQ(content.find_resource_key(*anvil),
-              std::optional<ResourceKey>{ResourceKey::item("anvil")});
-    EXPECT_EQ(content.find_resource_key(*charcoal),
-              std::optional<ResourceKey>{ResourceKey::item("charcoal")});
-    EXPECT_EQ(content.find_resource_key(*zinc),
-              std::optional<ResourceKey>{ResourceKey::item("zinc.ingot")});
+    EXPECT_EQ(anvil->kind, charcoal->kind);
+    EXPECT_EQ(charcoal->kind, zinc->kind);
+    EXPECT_EQ(anvil->runtime_id, 1u);
+    EXPECT_EQ(charcoal->runtime_id, 2u);
+    EXPECT_EQ(zinc->runtime_id, 3u);
+    EXPECT_EQ(content.find_resource_content_key(*anvil),
+              std::optional<ResourceContentKey>{ResourceContentKey::item("anvil")});
+    EXPECT_EQ(content.find_resource_content_key(*charcoal),
+              std::optional<ResourceContentKey>{ResourceContentKey::item("charcoal")});
+    EXPECT_EQ(content.find_resource_content_key(*zinc),
+              std::optional<ResourceContentKey>{ResourceContentKey::item("zinc.ingot")});
 }
 
 TEST(GameContentRegistryTest, ResourceRuntimeIndexIncludesFluidKeysWithTheSameSnapshot) {
@@ -188,14 +188,14 @@ TEST(GameContentRegistryTest, ResourceRuntimeIndexIncludesFluidKeysWithTheSameSn
     ASSERT_TRUE(content.register_builtin_item(make_item("bucket")));
     ASSERT_TRUE(content.register_builtin_fluid(make_fluid("water")));
 
-    const auto item = content.find_resource_runtime_key(ResourceKey::item("bucket"));
-    const auto fluid = content.find_resource_runtime_key(ResourceKey::fluid("water"));
+    const auto item = content.find_resource_runtime_key(ResourceContentKey::item("bucket"));
+    const auto fluid = content.find_resource_runtime_key(ResourceContentKey::fluid("water"));
     ASSERT_TRUE(item);
     ASSERT_TRUE(fluid);
-    EXPECT_NE(item->type_id, fluid->type_id);
-    EXPECT_EQ(fluid->resource_id, 1u);
-    EXPECT_EQ(content.find_resource_key(*fluid),
-              std::optional<ResourceKey>{ResourceKey::fluid("water")});
+    EXPECT_NE(item->kind, fluid->kind);
+    EXPECT_EQ(fluid->runtime_id, 1u);
+    EXPECT_EQ(content.find_resource_content_key(*fluid),
+              std::optional<ResourceContentKey>{ResourceContentKey::fluid("water")});
     ASSERT_NE(content.find_fluid("water"), nullptr);
     EXPECT_EQ(content.fluid_definitions().size(), 1u);
 }
@@ -204,7 +204,7 @@ TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousResourceRuntim
     GameContentRegistry content;
     ASSERT_TRUE(content.register_script_item(17, make_item("copper_ore")));
     const auto before = content.resource_runtime_index();
-    ASSERT_TRUE(before.resolve_runtime(ResourceKey::item("copper_ore")));
+    ASSERT_TRUE(before.resolve_runtime(ResourceContentKey::item("copper_ore")));
 
     ASSERT_TRUE(content.begin_reload(17));
     ASSERT_TRUE(content.register_script_item(17, make_item("zinc_ore")));
@@ -214,9 +214,9 @@ TEST(GameContentRegistryTest, FailedItemReloadPreservesThePreviousResourceRuntim
 
     const auto after = content.resource_runtime_index();
     EXPECT_EQ(after.generation(), before.generation());
-    EXPECT_EQ(after.resolve_runtime(ResourceKey::item("copper_ore")),
-              before.resolve_runtime(ResourceKey::item("copper_ore")));
-    EXPECT_FALSE(after.resolve_runtime(ResourceKey::item("zinc_ore")));
+    EXPECT_EQ(after.resolve_runtime(ResourceContentKey::item("copper_ore")),
+              before.resolve_runtime(ResourceContentKey::item("copper_ore")));
+    EXPECT_FALSE(after.resolve_runtime(ResourceContentKey::item("zinc_ore")));
     EXPECT_NE(content.find_item("copper_ore"), nullptr);
     EXPECT_EQ(content.find_item("zinc_ore"), nullptr);
 }
@@ -225,7 +225,7 @@ TEST(GameContentRegistryTest, FailedFluidReloadRestoresThePriorResourceSnapshot)
     GameContentRegistry content;
     ASSERT_TRUE(content.register_script_fluid(17, make_fluid("water")));
     const auto before = content.resource_runtime_index();
-    ASSERT_TRUE(before.resolve_runtime(ResourceKey::fluid("water")));
+    ASSERT_TRUE(before.resolve_runtime(ResourceContentKey::fluid("water")));
 
     ASSERT_TRUE(content.begin_reload(17));
     ASSERT_TRUE(content.register_script_fluid(17, make_fluid("oil")));
@@ -235,9 +235,9 @@ TEST(GameContentRegistryTest, FailedFluidReloadRestoresThePriorResourceSnapshot)
 
     const auto after = content.resource_runtime_index();
     EXPECT_EQ(after.generation(), before.generation());
-    EXPECT_EQ(after.resolve_runtime(ResourceKey::fluid("water")),
-              before.resolve_runtime(ResourceKey::fluid("water")));
-    EXPECT_FALSE(after.resolve_runtime(ResourceKey::fluid("oil")));
+    EXPECT_EQ(after.resolve_runtime(ResourceContentKey::fluid("water")),
+              before.resolve_runtime(ResourceContentKey::fluid("water")));
+    EXPECT_FALSE(after.resolve_runtime(ResourceContentKey::fluid("oil")));
     EXPECT_NE(content.find_fluid("water"), nullptr);
     EXPECT_EQ(content.find_fluid("oil"), nullptr);
 }

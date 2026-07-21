@@ -410,7 +410,7 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
 
 [[nodiscard]] snt::core::Expected<int64_t> insert_item_into_inputs(
     MachineRuntimePersistenceRecord& target,
-    const ResourceStack& source,
+    const ResourceContentStack& source,
     int64_t requested_amount) {
     if (requested_amount <= 0) return int64_t{0};
     if (!source.is_valid() || !source.is_item() || target.max_input_slots <= 0 ||

@@ -146,6 +146,15 @@ public:
                               ChunkRegistry& voxel_chunks,
                               GameChunkSidecarRegistry& sidecars);
 
+    // Reads the durable sidecar for every persisted chunk without retaining
+    // terrain in ChunkRegistry. The implementation validates each complete
+    // current-format chunk payload before discarding its terrain portion, so
+    // offline systems can safely own far-away machines and network islands.
+    [[nodiscard]] static snt::core::Expected<size_t> load_dimension_sidecar_index(
+        const std::string& planet_dir,
+        const std::string& dimension_id,
+        GameChunkSidecarRegistry& sidecars);
+
     // --- Per-player quest progress ---
 
     // Reads/writes one strict current-format quest file below a caller-owned
@@ -170,23 +179,35 @@ public:
 
     // --- Per-chunk save / load ---
 
-    // Saves one loaded chunk by reading its region file, replacing/adding that
-    // entry, and rewriting the compacted region. Does not rewrite planet summary
-    // unless planet_data.bin is missing.
-    static bool save_chunk(const std::string& planet_dir,
-                           int64_t seed,
-                           const std::string& dimension_id,
-                           const ChunkRegistry& voxel_chunks,
-                           const GameChunkSidecarRegistry& sidecars,
-                           int chunk_x, int chunk_y, int chunk_z);
+    // Saves terrain plus the current sidecar for one terrain-resident chunk.
+    // Region entries outside this chunk remain untouched.
+    [[nodiscard]] static snt::core::Expected<void> save_loaded_chunk(
+        const std::string& planet_dir,
+        int64_t seed,
+        const std::string& dimension_id,
+        const ChunkRegistry& voxel_chunks,
+        const GameChunkSidecarRegistry& sidecars,
+        int chunk_x, int chunk_y, int chunk_z);
 
-    // Loads one chunk from its region file into ChunkRegistry. Returns false if the
-    // region or chunk entry does not exist.
-    static bool load_chunk(const std::string& planet_dir,
-                           const std::string& dimension_id,
-                           ChunkRegistry& voxel_chunks,
-                           GameChunkSidecarRegistry& sidecars,
-                           int chunk_x, int chunk_y, int chunk_z);
+    // Restores only terrain for one persisted chunk. It deliberately preserves
+    // the caller's sidecar registry, whose values may have advanced through
+    // offline simulation after the initial sidecar-index load. `false` means
+    // the region or chunk entry is absent; malformed persisted data is an error.
+    [[nodiscard]] static snt::core::Expected<bool> load_chunk_terrain(
+        const std::string& planet_dir,
+        const std::string& dimension_id,
+        ChunkRegistry& voxel_chunks,
+        int chunk_x, int chunk_y, int chunk_z);
+
+    // Rewrites only one persisted chunk's semantic sidecar while preserving
+    // its terrain payload. This is used for offline machine/island state after
+    // the terrain itself has been dematerialized.
+    [[nodiscard]] static snt::core::Expected<void> save_chunk_sidecar(
+        const std::string& planet_dir,
+        int64_t seed,
+        const std::string& dimension_id,
+        int chunk_x, int chunk_y, int chunk_z,
+        const GameChunkSidecar& sidecar);
 
     // Removes one chunk entry from a region file. If the region becomes empty,
     // deletes the region file. This is the first safe region-level GC primitive.

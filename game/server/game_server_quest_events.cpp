@@ -28,7 +28,7 @@ constexpr uint64_t kErrorLogIntervalTicks = 20;
                                            std::string_view item_id) noexcept {
     int64_t count = 0;
     for (const GamePlayerItemStack& stack : inventory.slots) {
-        if (stack.resource.key != ResourceKey::item(std::string(item_id)) ||
+        if (stack.resource.key != ResourceContentKey::item(std::string(item_id)) ||
             stack.resource.amount <= 0) {
             continue;
         }

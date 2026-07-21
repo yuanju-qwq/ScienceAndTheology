@@ -326,33 +326,64 @@ void GameFluidSystem::emit_terrain_change(
 void GameFluidSystem::initialize_loaded_chunks() {
     if (chunks_ == nullptr) return;
     for (const snt::voxel::ChunkKey& key : chunks_->all_chunk_keys()) {
-        snt::voxel::VoxelChunk* chunk = chunks_->get_chunk(
-            key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
-        if (chunk == nullptr) continue;
-        for (int32_t local_y = 0; local_y < chunk->terrain.size_y; ++local_y) {
-            for (int32_t local_z = 0; local_z < chunk->terrain.size_z; ++local_z) {
-                for (int32_t local_x = 0; local_x < chunk->terrain.size_x; ++local_x) {
-                    const snt::voxel::TerrainCell& cell = chunk->terrain.cell_at(
-                        local_x, local_y, local_z);
-                    if (!is_valid_fluid_state(cell)) continue;
-                    const int64_t world_x = static_cast<int64_t>(key.chunk_x) *
-                                                snt::voxel::VoxelChunk::kChunkSize + local_x;
-                    const int64_t world_y = static_cast<int64_t>(key.chunk_y) *
-                                                snt::voxel::VoxelChunk::kChunkSize + local_y;
-                    const int64_t world_z = static_cast<int64_t>(key.chunk_z) *
-                                                snt::voxel::VoxelChunk::kChunkSize + local_z;
-                    if (world_x < std::numeric_limits<int32_t>::min() ||
-                        world_x > std::numeric_limits<int32_t>::max() ||
-                        world_y < std::numeric_limits<int32_t>::min() ||
-                        world_y > std::numeric_limits<int32_t>::max() ||
-                        world_z < std::numeric_limits<int32_t>::min() ||
-                        world_z > std::numeric_limits<int32_t>::max()) {
-                        continue;
-                    }
-                    wake_cell(key.dimension_id, static_cast<int32_t>(world_x),
-                              static_cast<int32_t>(world_y),
-                              static_cast<int32_t>(world_z));
+        initialize_chunk(key);
+    }
+}
+
+void GameFluidSystem::on_chunk_loaded(const snt::voxel::ChunkKey& key) {
+    initialize_chunk(key);
+}
+
+void GameFluidSystem::on_chunk_unloaded(const snt::voxel::ChunkKey& key) {
+    for (auto active = active_cells_.begin(); active != active_cells_.end();) {
+        if (chunk_key_for(active->dimension_id, active->block_x, active->block_y,
+                          active->block_z) == key) {
+            active = active_cells_.erase(active);
+        } else {
+            ++active;
+        }
+    }
+    dense_chunks_.erase(key);
+    dense_chunk_layers_.erase(key);
+    dense_queue_.erase(
+        std::remove_if(dense_queue_.begin(), dense_queue_.end(),
+                       [&key](const snt::voxel::ChunkKey& candidate) {
+                           return candidate == key;
+                       }),
+        dense_queue_.end());
+    lattice_boltzmann_states_.erase(key);
+    equilibrium_chunks_.erase(key);
+    equilibrium_candidates_.erase(key);
+    presentation_dirty_chunks_.erase(key);
+}
+
+void GameFluidSystem::initialize_chunk(const snt::voxel::ChunkKey& key) {
+    if (chunks_ == nullptr) return;
+    snt::voxel::VoxelChunk* chunk = chunks_->get_chunk(
+        key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
+    if (chunk == nullptr) return;
+    for (int32_t local_y = 0; local_y < chunk->terrain.size_y; ++local_y) {
+        for (int32_t local_z = 0; local_z < chunk->terrain.size_z; ++local_z) {
+            for (int32_t local_x = 0; local_x < chunk->terrain.size_x; ++local_x) {
+                const snt::voxel::TerrainCell& cell = chunk->terrain.cell_at(
+                    local_x, local_y, local_z);
+                if (!is_valid_fluid_state(cell)) continue;
+                const int64_t world_x = static_cast<int64_t>(key.chunk_x) *
+                                            snt::voxel::VoxelChunk::kChunkSize + local_x;
+                const int64_t world_y = static_cast<int64_t>(key.chunk_y) *
+                                            snt::voxel::VoxelChunk::kChunkSize + local_y;
+                const int64_t world_z = static_cast<int64_t>(key.chunk_z) *
+                                            snt::voxel::VoxelChunk::kChunkSize + local_z;
+                if (world_x < std::numeric_limits<int32_t>::min() ||
+                    world_x > std::numeric_limits<int32_t>::max() ||
+                    world_y < std::numeric_limits<int32_t>::min() ||
+                    world_y > std::numeric_limits<int32_t>::max() ||
+                    world_z < std::numeric_limits<int32_t>::min() ||
+                    world_z > std::numeric_limits<int32_t>::max()) {
+                    continue;
                 }
+                wake_cell(key.dimension_id, static_cast<int32_t>(world_x),
+                          static_cast<int32_t>(world_y), static_cast<int32_t>(world_z));
             }
         }
     }

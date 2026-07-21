@@ -16,7 +16,7 @@
 #include "game/server/game_server_quest_events.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
-#include "game/server/server_machine_chunk_residency_controller.h"
+#include "game/server/server_chunk_ticket_controller.h"
 #include "game/simulation/ecosystem_system.h"
 #include "game/worldgen/world_gen_config.h"
 #include "network/lan_discovery.h"
@@ -144,10 +144,10 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Dedicated server simulation did not publish a worldgen snapshot"};
     }
-    machine_chunk_residency_controller_ =
-        std::make_unique<ServerMachineChunkResidencyController>(
+    chunk_ticket_controller_ =
+        std::make_unique<ServerChunkTicketController>(
             simulation_session_,
-            ServerMachineChunkResidencyConfig{
+            ServerChunkTicketConfig{
                 .permanent_spawn = {
                     .dimension_id = config_.persistence.world_dimension_id,
                     .position = {
@@ -161,7 +161,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                 .vertical_aoi_radius_blocks =
                     config_.server_replication.chunk_vertical_aoi_radius_blocks,
             });
-    SNT_LOG_INFO("Machine ECS residency enabled around spawn and player chunk AOIs (horizontal=%u vertical=%u)",
+    SNT_LOG_INFO("Chunk ticket streaming enabled around spawn and player AOIs (horizontal=%u vertical=%u)",
                  config_.server_replication.chunk_horizontal_aoi_radius_blocks,
                  config_.server_replication.chunk_vertical_aoi_radius_blocks);
     if (!config_.server_network.enabled) return {};
@@ -470,14 +470,14 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::fixed_tick(
     // Input commands must observe materialized runtimes for the players'
     // current authoritative positions. Movement happens later in this tick,
     // so an AOI boundary crossed by movement takes effect on the next tick.
-    if (machine_chunk_residency_controller_) {
+    if (chunk_ticket_controller_) {
         std::vector<GamePlayerWorldPosition> player_positions;
         if (player_state_) {
             auto snapshots = player_state_->active_player_snapshots();
             if (!snapshots) {
                 auto error = snapshots.error();
                 error.with_context(
-                    "ScienceAndTheologyServerSession::fixed_tick(machine residency players)");
+                    "ScienceAndTheologyServerSession::fixed_tick(chunk ticket players)");
                 return error;
             }
             player_positions.reserve(snapshots->size());
@@ -485,11 +485,11 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::fixed_tick(
                 player_positions.push_back(snapshot.position);
             }
         }
-        if (auto result = machine_chunk_residency_controller_->reconcile(
+        if (auto result = chunk_ticket_controller_->reconcile(
                 context.tick_index(), player_positions);
             !result) {
             auto error = result.error();
-            error.with_context("ScienceAndTheologyServerSession::fixed_tick(machine residency)");
+            error.with_context("ScienceAndTheologyServerSession::fixed_tick(chunk tickets)");
             return error;
         }
     }
@@ -557,7 +557,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::after_fixed_tick(
 
 void ScienceAndTheologyServerSession::shutdown() noexcept {
     lan_discovery_responder_.reset();
-    machine_chunk_residency_controller_.reset();
+    chunk_ticket_controller_.reset();
     if (player_lifecycle_) player_lifecycle_->shutdown();
     if (replication_service_) replication_service_->shutdown();
     replication_service_.reset();

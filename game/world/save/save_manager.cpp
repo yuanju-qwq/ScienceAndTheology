@@ -604,103 +604,52 @@ int GameSaveManager::save_dimension(const std::string& planet_dir,
                                     const std::string& dimension_id,
                                     const ChunkRegistry& voxel_chunks,
                                     const GameChunkSidecarRegistry& sidecars) {
-    if (!ensure_directory(planet_dir)) {
+    if (planet_dir.empty() || dimension_id.empty() ||
+        !write_planet_data(planet_dir, seed, dimension_id, nullptr)) {
         return -1;
     }
 
-    std::string regions_dir = planet_dir + "/regions";
-    if (!ensure_directory(regions_dir)) {
-        return -1;
+    std::vector<ChunkKey> loaded_keys;
+    for (const ChunkKey& key : voxel_chunks.all_chunk_keys()) {
+        if (key.dimension_id == dimension_id) loaded_keys.push_back(key);
     }
+    const auto chunk_key_less = [](const ChunkKey& left, const ChunkKey& right) {
+        if (left.dimension_id != right.dimension_id) return left.dimension_id < right.dimension_id;
+        if (left.chunk_x != right.chunk_x) return left.chunk_x < right.chunk_x;
+        if (left.chunk_y != right.chunk_y) return left.chunk_y < right.chunk_y;
+        return left.chunk_z < right.chunk_z;
+    };
+    std::sort(loaded_keys.begin(), loaded_keys.end(), chunk_key_less);
 
-    // Write planet_data.bin header (no summary during save_dimension).
-    try {
-        if (!write_planet_data(planet_dir, seed, dimension_id, nullptr)) {
+    int saved_count = 0;
+    for (const ChunkKey& key : loaded_keys) {
+        if (auto saved = save_loaded_chunk(
+                planet_dir, seed, dimension_id, voxel_chunks, sidecars,
+                key.chunk_x, key.chunk_y, key.chunk_z);
+            !saved) {
             return -1;
         }
-    } catch (...) {
-        throw std::runtime_error(
-            "unknown exception while writing planet_data.bin");
+        ++saved_count;
     }
 
-    // Group chunks for this dimension by region.
-    std::map<std::string, std::vector<VoxelRegionEntry>> region_chunks;
-    std::map<std::string, std::tuple<int, int, int, std::string>> region_meta;
-
-    try {
-        const GameChunkSerializer serializer;
-        for (const auto& key : voxel_chunks.all_chunk_keys()) {
-            if (key.dimension_id != dimension_id) {
-                continue;
-            }
-
-            const VoxelChunk* chunk = voxel_chunks.get_chunk(
-                key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z);
-            if (chunk == nullptr) {
-                continue;
-            }
-
-            int rx = VoxelRegionFile::to_region(key.chunk_x);
-            int ry = VoxelRegionFile::to_region(key.chunk_y);
-            int rz = VoxelRegionFile::to_region(key.chunk_z);
-
-            std::string file_name = VoxelRegionFile::region_file_name(
-                key.dimension_id, rx, ry, rz);
-
-            std::vector<uint8_t> data;
-            try {
-                const GameChunk game_chunk = assemble_game_chunk(*chunk, sidecars.get(key));
-                data = serializer.serialize(key.dimension_id, game_chunk);
-            } catch (const std::exception& error) {
-                std::ostringstream message;
-                message << "chunk serialization failed at " << key.dimension_id
-                        << " (" << key.chunk_x << "," << key.chunk_y << ","
-                        << key.chunk_z << "): " << error.what();
-                throw std::runtime_error(message.str());
-            } catch (...) {
-                std::ostringstream message;
-                message << "chunk serialization raised an unknown exception at "
-                        << key.dimension_id << " (" << key.chunk_x << ","
-                        << key.chunk_y << "," << key.chunk_z << ")";
-                throw std::runtime_error(message.str());
-            }
-
-            VoxelRegionEntry entry;
-            entry.local_x = static_cast<uint8_t>(VoxelRegionFile::to_local(key.chunk_x));
-            entry.local_y = static_cast<uint8_t>(VoxelRegionFile::to_local(key.chunk_y));
-            entry.local_z = static_cast<uint8_t>(VoxelRegionFile::to_local(key.chunk_z));
-            entry.payload = std::move(data);
-
-            region_chunks[file_name].push_back(std::move(entry));
-            region_meta[file_name] = std::make_tuple(rx, ry, rz, key.dimension_id);
+    std::vector<ChunkKey> sidecar_only_keys;
+    sidecars.for_each([&](const ChunkKey& key, const GameChunkSidecar&) {
+        if (key.dimension_id != dimension_id ||
+            voxel_chunks.has_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z)) {
+            return;
         }
-    } catch (const std::exception&) {
-        throw;
-    } catch (...) {
-        throw std::runtime_error(
-            "unknown exception while grouping chunks into regions");
-    }
-
-    // Write each region file.
-    int saved_count = 0;
-    try {
-        for (auto& [file_name, chunks] : region_chunks) {
-            auto& [rx, ry, rz, dim] = region_meta[file_name];
-            std::string file_path = regions_dir + "/" + file_name;
-
-            if (!VoxelRegionFile::write(file_path, rx, ry, rz, dim, chunks)) {
-                return -1;
-            }
-
-            saved_count += static_cast<int>(chunks.size());
+        sidecar_only_keys.push_back(key);
+    });
+    std::sort(sidecar_only_keys.begin(), sidecar_only_keys.end(), chunk_key_less);
+    for (const ChunkKey& key : sidecar_only_keys) {
+        const GameChunkSidecar* sidecar = sidecars.get(key);
+        if (sidecar == nullptr ||
+            !save_chunk_sidecar(planet_dir, seed, dimension_id,
+                                key.chunk_x, key.chunk_y, key.chunk_z, *sidecar)) {
+            return -1;
         }
-    } catch (const std::exception&) {
-        throw;
-    } catch (...) {
-        throw std::runtime_error(
-            "unknown exception while writing region files");
+        ++saved_count;
     }
-
     return saved_count;
 }
 
@@ -783,6 +732,107 @@ int GameSaveManager::load_dimension(const std::string& planet_dir,
     }
 
     return loaded_count;
+}
+
+snt::core::Expected<size_t> GameSaveManager::load_dimension_sidecar_index(
+    const std::string& planet_dir,
+    const std::string& dimension_id,
+    GameChunkSidecarRegistry& sidecars) {
+    if (planet_dir.empty() || dimension_id.empty()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Sidecar-index load requires a planet directory and dimension id");
+    }
+    if (sidecars.size() != 0) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Sidecar-index load requires an empty sidecar registry");
+    }
+
+    int64_t stored_seed = 0;
+    std::string stored_dimension_id;
+    GamePlanetSummaryData ignored_summary;
+    bool ignored_has_summary = false;
+    if (!read_planet_data(planet_dir, stored_seed, stored_dimension_id,
+                          ignored_summary, ignored_has_summary) ||
+        stored_dimension_id != dimension_id) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Sidecar-index load found an invalid or mismatched dimension header");
+    }
+
+    const fs::path regions_path = utf8_path(planet_dir + "/regions");
+    std::error_code exists_error;
+    const bool regions_exist = fs::exists(regions_path, exists_error);
+    if (exists_error) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect sidecar-index region directory: " +
+                                     exists_error.message());
+    }
+    if (!regions_exist) return size_t{0};
+    std::error_code directory_error;
+    if (!fs::is_directory(regions_path, directory_error) || directory_error) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Sidecar-index region path is not a readable directory");
+    }
+
+    std::vector<std::pair<ChunkKey, GameChunkSidecar>> staged_sidecars;
+    std::set<std::tuple<int, int, int>> seen_chunk_coordinates;
+    const GameChunkSerializer serializer;
+    try {
+        for (const fs::directory_entry& entry : fs::directory_iterator(regions_path)) {
+            if (!entry.is_regular_file()) continue;
+
+            std::string file_dimension_id;
+            int region_x = 0;
+            int region_y = 0;
+            int region_z = 0;
+            std::vector<VoxelRegionEntry> entries;
+            if (!VoxelRegionFile::read(path_to_utf8(entry.path()), file_dimension_id,
+                                       region_x, region_y, region_z, entries)) {
+                return persistence_error(
+                    snt::core::ErrorCode::kInvalidState,
+                    "Sidecar-index load rejected a corrupt or non-current region file");
+            }
+            if (file_dimension_id != dimension_id) continue;
+
+            for (const VoxelRegionEntry& chunk_entry : entries) {
+                const int chunk_x = region_x * VoxelRegionFile::kRegionSize +
+                                    static_cast<int>(chunk_entry.local_x);
+                const int chunk_y = region_y * VoxelRegionFile::kRegionSize +
+                                    static_cast<int>(chunk_entry.local_y);
+                const int chunk_z = region_z * VoxelRegionFile::kRegionSize +
+                                    static_cast<int>(chunk_entry.local_z);
+                if (!seen_chunk_coordinates.emplace(chunk_x, chunk_y, chunk_z).second) {
+                    return persistence_error(
+                        snt::core::ErrorCode::kInvalidState,
+                        "Sidecar-index load found a duplicate persisted chunk coordinate");
+                }
+
+                std::string payload_dimension_id;
+                GameChunk chunk;
+                if (!serializer.deserialize(chunk_entry.payload, payload_dimension_id, chunk) ||
+                    payload_dimension_id != dimension_id ||
+                    chunk.chunk_x != chunk_x || chunk.chunk_y != chunk_y ||
+                    chunk.chunk_z != chunk_z) {
+                    return persistence_error(
+                        snt::core::ErrorCode::kInvalidState,
+                        "Sidecar-index load rejected a mismatched or corrupt chunk payload");
+                }
+                staged_sidecars.emplace_back(
+                    ChunkKey{dimension_id, chunk_x, chunk_y, chunk_z},
+                    std::move(chunk.sidecar()));
+            }
+        }
+    } catch (const std::exception& error) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Sidecar-index load failed: " + std::string(error.what()));
+    } catch (...) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Sidecar-index load raised an unknown exception");
+    }
+
+    for (auto& [key, sidecar] : staged_sidecars) {
+        sidecars.set(std::move(key), std::move(sidecar));
+    }
+    return staged_sidecars.size();
 }
 
 snt::core::Expected<std::vector<QuestProgressRecord>>
@@ -1046,29 +1096,30 @@ snt::core::Expected<void> GameSaveManager::save_player_state(
     return {};
 }
 
-// --- Per-chunk save / load ---
+// --- Per-chunk streaming persistence ---
 
-bool GameSaveManager::save_chunk(const std::string& planet_dir,
-                                 int64_t seed,
-                                 const std::string& dimension_id,
-                                 const ChunkRegistry& voxel_chunks,
-                                 const GameChunkSidecarRegistry& sidecars,
-                                 int chunk_x, int chunk_y, int chunk_z) {
-    if (!ensure_directory(planet_dir)) {
-        return false;
+snt::core::Expected<void> GameSaveManager::save_loaded_chunk(
+    const std::string& planet_dir,
+    int64_t seed,
+    const std::string& dimension_id,
+    const ChunkRegistry& voxel_chunks,
+    const GameChunkSidecarRegistry& sidecars,
+    int chunk_x, int chunk_y, int chunk_z) {
+    if (planet_dir.empty() || dimension_id.empty()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Loaded-chunk save requires a planet directory and dimension id");
     }
-    const std::string regions_dir = planet_dir + "/regions";
-    if (!ensure_directory(regions_dir)) {
-        return false;
-    }
-    if (!ensure_planet_header_if_missing(planet_dir, seed, dimension_id)) {
-        return false;
+    if (!ensure_directory(planet_dir) || !ensure_directory(planet_dir + "/regions") ||
+        !ensure_planet_header_if_missing(planet_dir, seed, dimension_id)) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to prepare the loaded-chunk save directory");
     }
 
     const VoxelChunk* chunk = voxel_chunks.get_chunk(
         dimension_id, chunk_x, chunk_y, chunk_z);
     if (chunk == nullptr) {
-        return false;
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Cannot save terrain for a non-resident chunk");
     }
 
     const int rx = VoxelRegionFile::to_region(chunk_x);
@@ -1081,38 +1132,54 @@ bool GameSaveManager::save_chunk(const std::string& planet_dir,
 
     std::vector<VoxelRegionEntry> entries;
     if (!read_existing_region(file_path, dimension_id, rx, ry, rz, entries)) {
-        return false;
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Loaded-chunk save rejected an existing corrupt region file");
     }
 
-    VoxelRegionEntry replacement;
-    replacement.local_x = lx;
-    replacement.local_y = ly;
-    replacement.local_z = lz;
-    const GameChunkSerializer serializer;
-    const GameChunk game_chunk = assemble_game_chunk(
-        *chunk, sidecars.get(ChunkKey{dimension_id, chunk_x, chunk_y, chunk_z}));
-    replacement.payload = serializer.serialize(dimension_id, game_chunk);
+    try {
+        VoxelRegionEntry replacement;
+        replacement.local_x = lx;
+        replacement.local_y = ly;
+        replacement.local_z = lz;
+        const GameChunkSerializer serializer;
+        const GameChunk game_chunk = assemble_game_chunk(
+            *chunk, sidecars.get(ChunkKey{dimension_id, chunk_x, chunk_y, chunk_z}));
+        replacement.payload = serializer.serialize(dimension_id, game_chunk);
 
-    bool replaced = false;
-    for (auto& entry : entries) {
-        if (entry.local_x == lx && entry.local_y == ly && entry.local_z == lz) {
+        bool replaced = false;
+        for (VoxelRegionEntry& entry : entries) {
+            if (entry.local_x != lx || entry.local_y != ly || entry.local_z != lz) continue;
             entry = std::move(replacement);
             replaced = true;
             break;
         }
-    }
-    if (!replaced) {
-        entries.push_back(std::move(replacement));
+        if (!replaced) entries.push_back(std::move(replacement));
+    } catch (const std::exception& error) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Loaded-chunk serialization failed: " + std::string(error.what()));
+    } catch (...) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Loaded-chunk serialization raised an unknown exception");
     }
 
-    return VoxelRegionFile::write(file_path, rx, ry, rz, dimension_id, entries);
+    if (!VoxelRegionFile::write(file_path, rx, ry, rz, dimension_id, entries)) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to write the loaded-chunk region entry");
+    }
+    return {};
 }
 
-bool GameSaveManager::load_chunk(const std::string& planet_dir,
-                                 const std::string& dimension_id,
-                                 ChunkRegistry& voxel_chunks,
-                                 GameChunkSidecarRegistry& sidecars,
-                                 int chunk_x, int chunk_y, int chunk_z) {
+snt::core::Expected<bool> GameSaveManager::load_chunk_terrain(
+    const std::string& planet_dir,
+    const std::string& dimension_id,
+    ChunkRegistry& voxel_chunks,
+    int chunk_x, int chunk_y, int chunk_z) {
+    if (planet_dir.empty() || dimension_id.empty()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Terrain load requires a planet directory and dimension id");
+    }
+    if (voxel_chunks.has_chunk(dimension_id, chunk_x, chunk_y, chunk_z)) return true;
+
     const int rx = VoxelRegionFile::to_region(chunk_x);
     const int ry = VoxelRegionFile::to_region(chunk_y);
     const int rz = VoxelRegionFile::to_region(chunk_z);
@@ -1120,29 +1187,126 @@ bool GameSaveManager::load_chunk(const std::string& planet_dir,
     const uint8_t ly = static_cast<uint8_t>(VoxelRegionFile::to_local(chunk_y));
     const uint8_t lz = static_cast<uint8_t>(VoxelRegionFile::to_local(chunk_z));
     const std::string file_path = region_file_path(planet_dir, dimension_id, rx, ry, rz);
+    const fs::path region_path = utf8_path(file_path);
+
+    std::error_code exists_error;
+    const bool region_exists = fs::exists(region_path, exists_error);
+    if (exists_error) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect terrain region file: " + exists_error.message());
+    }
+    if (!region_exists) return false;
 
     std::vector<VoxelRegionEntry> entries;
-    if (!read_existing_region(file_path, dimension_id, rx, ry, rz, entries)) {
-        return false;
+    std::string file_dimension_id;
+    int file_rx = 0;
+    int file_ry = 0;
+    int file_rz = 0;
+    if (!VoxelRegionFile::read(file_path, file_dimension_id, file_rx, file_ry, file_rz, entries) ||
+        file_dimension_id != dimension_id || file_rx != rx || file_ry != ry || file_rz != rz) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Terrain load rejected a corrupt or mismatched region file");
     }
 
-    for (const auto& entry : entries) {
-        if (entry.local_x != lx || entry.local_y != ly || entry.local_z != lz) {
-            continue;
-        }
-        std::string unused_dimension_id;
+    for (const VoxelRegionEntry& entry : entries) {
+        if (entry.local_x != lx || entry.local_y != ly || entry.local_z != lz) continue;
+        std::string payload_dimension_id;
         GameChunk chunk;
         const GameChunkSerializer serializer;
-        if (!serializer.deserialize(entry.payload, unused_dimension_id, chunk)) {
-            return false;
+        if (!serializer.deserialize(entry.payload, payload_dimension_id, chunk) ||
+            payload_dimension_id != dimension_id ||
+            chunk.chunk_x != chunk_x || chunk.chunk_y != chunk_y || chunk.chunk_z != chunk_z) {
+            return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                     "Terrain load rejected a corrupt or mismatched chunk payload");
         }
-        publish_game_chunk(voxel_chunks, sidecars,
-                           ChunkKey{dimension_id, chunk_x, chunk_y, chunk_z},
-                           std::move(chunk));
+        voxel_chunks.set_chunk(dimension_id, chunk_x, chunk_y, chunk_z,
+                               std::move(chunk.voxel_chunk()));
         return true;
     }
-
     return false;
+}
+
+snt::core::Expected<void> GameSaveManager::save_chunk_sidecar(
+    const std::string& planet_dir,
+    int64_t seed,
+    const std::string& dimension_id,
+    int chunk_x, int chunk_y, int chunk_z,
+    const GameChunkSidecar& sidecar) {
+    if (planet_dir.empty() || dimension_id.empty()) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Sidecar save requires a planet directory and dimension id");
+    }
+    if (!ensure_directory(planet_dir) || !ensure_directory(planet_dir + "/regions") ||
+        !ensure_planet_header_if_missing(planet_dir, seed, dimension_id)) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to prepare the sidecar save directory");
+    }
+
+    const int rx = VoxelRegionFile::to_region(chunk_x);
+    const int ry = VoxelRegionFile::to_region(chunk_y);
+    const int rz = VoxelRegionFile::to_region(chunk_z);
+    const uint8_t lx = static_cast<uint8_t>(VoxelRegionFile::to_local(chunk_x));
+    const uint8_t ly = static_cast<uint8_t>(VoxelRegionFile::to_local(chunk_y));
+    const uint8_t lz = static_cast<uint8_t>(VoxelRegionFile::to_local(chunk_z));
+    const std::string file_path = region_file_path(planet_dir, dimension_id, rx, ry, rz);
+    const fs::path region_path = utf8_path(file_path);
+
+    std::error_code exists_error;
+    const bool region_exists = fs::exists(region_path, exists_error);
+    if (exists_error) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to inspect sidecar region file: " + exists_error.message());
+    }
+    if (!region_exists) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Cannot update a sidecar without its persisted terrain chunk");
+    }
+
+    std::vector<VoxelRegionEntry> entries;
+    std::string file_dimension_id;
+    int file_rx = 0;
+    int file_ry = 0;
+    int file_rz = 0;
+    if (!VoxelRegionFile::read(file_path, file_dimension_id, file_rx, file_ry, file_rz, entries) ||
+        file_dimension_id != dimension_id || file_rx != rx || file_ry != ry || file_rz != rz) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Sidecar save rejected a corrupt or mismatched region file");
+    }
+
+    bool replaced = false;
+    const GameChunkSerializer serializer;
+    for (VoxelRegionEntry& entry : entries) {
+        if (entry.local_x != lx || entry.local_y != ly || entry.local_z != lz) continue;
+        std::string payload_dimension_id;
+        GameChunk chunk;
+        if (!serializer.deserialize(entry.payload, payload_dimension_id, chunk) ||
+            payload_dimension_id != dimension_id ||
+            chunk.chunk_x != chunk_x || chunk.chunk_y != chunk_y || chunk.chunk_z != chunk_z) {
+            return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                     "Sidecar save rejected a corrupt or mismatched chunk payload");
+        }
+        try {
+            chunk.sidecar() = sidecar;
+            entry.payload = serializer.serialize(dimension_id, chunk);
+        } catch (const std::exception& error) {
+            return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                     "Sidecar serialization failed: " + std::string(error.what()));
+        } catch (...) {
+            return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                     "Sidecar serialization raised an unknown exception");
+        }
+        replaced = true;
+        break;
+    }
+    if (!replaced) {
+        return persistence_error(snt::core::ErrorCode::kInvalidState,
+                                 "Cannot update a sidecar for a missing persisted chunk");
+    }
+    if (!VoxelRegionFile::write(file_path, rx, ry, rz, dimension_id, entries)) {
+        return persistence_error(snt::core::ErrorCode::kFileOpenFailed,
+                                 "Unable to write the sidecar region entry");
+    }
+    return {};
 }
 
 bool GameSaveManager::delete_chunk(const std::string& planet_dir,

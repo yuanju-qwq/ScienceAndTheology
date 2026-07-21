@@ -24,10 +24,12 @@ namespace {
 
 constexpr size_t kMaxMachineInputSlots = 64;
 constexpr size_t kMaxMachineOutputSlots = 64;
+constexpr size_t kMaxMachineFluidTanks = 16;
 constexpr size_t kMaxMachineRecipeInputs = 64;
 constexpr size_t kMaxMachineRecipeOutputs = 64;
 constexpr size_t kMaxMachineJobOwnerAccountBytes = 256;
 constexpr int32_t kMaxMachineStackSize = 1'000'000;
+constexpr int64_t kMaxMachineFluidTankCapacity = 1'000'000'000'000LL;
 constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
 constexpr uint64_t kMachineAnchorIdFlag = uint64_t{1} << 62u;
 constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
@@ -137,7 +139,7 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         recipe.outputs.size() > kMaxMachineRecipeOutputs) {
         return invalid_argument("Machine persistence recipe snapshot is invalid");
     }
-    std::unordered_set<ResourceKey, ResourceKey::Hash> input_keys;
+    std::unordered_set<ResourceContentKey, ResourceContentKey::Hash> input_keys;
     for (const MachineRuntimeItemStack& input : recipe.inputs) {
         if (!is_valid_stack(input, false) ||
             !input_keys.insert(input.resource.key).second) {
@@ -162,6 +164,7 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     if (record.entity_guid == 0 || record.machine_id.empty() ||
         record.input_slots.size() > kMaxMachineInputSlots ||
         record.output_slots.size() > kMaxMachineOutputSlots ||
+        record.fluid_tanks.size() > kMaxMachineFluidTanks ||
         record.stored_energy < 0 || record.energy_capacity < 0 ||
         record.max_input_slots <= 0 ||
         record.max_input_slots > static_cast<int32_t>(kMaxMachineInputSlots) ||
@@ -202,6 +205,11 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         if (!is_valid_stack(output, false) ||
             output.resource.amount > record.max_stack_size) {
             return invalid_argument("Machine persistence output slot is invalid");
+        }
+    }
+    for (const MachineFluidTank& tank : record.fluid_tanks) {
+        if (!tank.is_valid() || tank.capacity_millibuckets > kMaxMachineFluidTankCapacity) {
+            return invalid_argument("Machine persistence fluid tank is invalid");
         }
     }
     if (record.activation_requested &&
@@ -278,6 +286,7 @@ void copy_runtime_fields(MachineRuntimePersistenceRecord& record,
     for (const MachineItemStack& output : runtime.output_slots) {
         record.output_slots.push_back(to_persisted_stack(output));
     }
+    record.fluid_tanks = runtime.fluid_tanks;
     record.stored_energy = runtime.stored_energy;
     record.energy_capacity = runtime.energy_capacity;
     record.max_input_slots = runtime.max_input_slots;
@@ -316,6 +325,7 @@ void copy_runtime_fields(MachineRuntimePersistenceRecord& record,
     for (const MachineRuntimeItemStack& output : record.output_slots) {
         result.output_slots.push_back(to_runtime_stack(output));
     }
+    result.fluid_tanks = record.fluid_tanks;
     result.stored_energy = record.stored_energy;
     result.energy_capacity = record.energy_capacity;
     result.max_input_slots = record.max_input_slots;

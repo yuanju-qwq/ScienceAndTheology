@@ -10,7 +10,7 @@
 #include "core/expected.h"
 #include "ecs/core_components.h"
 #include "game/player/player_identity.h"
-#include "game/resources/resource_key.h"
+#include "game/resources/resource_runtime_index.h"
 
 #include <array>
 #include <cstddef>
@@ -30,10 +30,10 @@ struct GamePlayerWorldPosition {
 };
 
 struct GamePlayerItemStack {
-    // Player inventory is item-only today, but its identity and amount use
-    // the generic resource contract. Containers that later accept fluids use
-    // the same ResourceStack value without inheriting player instance rules.
-    ResourceStack resource;
+    // Serializable/content-facing player stack. This type is limited to
+    // persistence, replication, UI, and command boundaries; authoritative
+    // ECS inventory storage uses GamePlayerRuntimeItemStack below.
+    ResourceContentStack resource;
     // Empty means a normal content-defined stack. Non-empty instance data is
     // item-owned and makes the stack singular, covering durability and future
     // custom item state without carrying the legacy secondary-id API forward.
@@ -43,7 +43,8 @@ struct GamePlayerItemStack {
                                                   std::string variant = {},
                                                   std::string instance_data = {}) {
         return {
-            .resource = ResourceStack::item(std::move(id), count, std::move(variant)),
+            .resource = ResourceContentStack::item(
+                std::move(id), count, std::move(variant)),
             .instance_data = std::move(instance_data),
         };
     }
@@ -69,6 +70,8 @@ struct GamePlayerItemStack {
 // Minecraft-style fixed inventory slots. Empty slots remain in the vector so
 // hotbar selection and item placement have stable indices outside the UI.
 struct GamePlayerInventory {
+    // Serializable/content-facing fixed inventory. It deliberately never
+    // carries ResourceKey numeric IDs or a runtime snapshot.
     std::vector<GamePlayerItemStack> slots;
     uint32_t max_slots = 36;
     int32_t max_stack_size = 64;
@@ -97,6 +100,50 @@ struct GamePlayerEquipment {
 
     friend bool operator==(const GamePlayerEquipment&,
                            const GamePlayerEquipment&) = default;
+};
+
+// Authoritative hot-path player inventory values. A live server component
+// owns only these compact keys and keeps the immutable snapshot that issued
+// them. No content strings enter stack comparisons, merges, removals, or
+// slot-transfer commits; conversion happens at the server boundary.
+struct GamePlayerRuntimeItemStack {
+    ResourceStack resource;
+    // Mutable per-item data remains outside ResourceKey. The current player
+    // persistence codec owns this opaque representation until the dedicated
+    // ItemInstance codec replaces it.
+    std::string instance_data;
+
+    [[nodiscard]] bool is_empty() const noexcept {
+        return resource.is_absent() && instance_data.empty();
+    }
+    [[nodiscard]] bool is_valid_item() const noexcept {
+        return resource.is_valid() &&
+               (instance_data.empty() || resource.amount == 1);
+    }
+    void clear() noexcept {
+        resource = {};
+        instance_data.clear();
+    }
+
+    friend bool operator==(const GamePlayerRuntimeItemStack&,
+                           const GamePlayerRuntimeItemStack&) = default;
+};
+
+// Minecraft-style fixed inventory slots bound to one immutable resource
+// snapshot. The snapshot keeps all ResourceKey numeric IDs stable for the
+// entire active interval between content reloads.
+struct GamePlayerRuntimeInventory {
+    ResourceRuntimeIndex::Snapshot resource_runtime_index;
+    std::vector<GamePlayerRuntimeItemStack> slots;
+    uint32_t max_slots = 36;
+    int32_t max_stack_size = 64;
+};
+
+// Equipment uses the same runtime snapshot as its owning player inventory.
+// It is intentionally a separate component so player appearance and combat
+// can retain their fixed six-slot layout without a special key representation.
+struct GamePlayerRuntimeEquipment {
+    std::array<GamePlayerRuntimeItemStack, kGamePlayerEquipmentSlotCount> slots;
 };
 
 // The source-law subsystem owns interpretation of this payload. Keeping a

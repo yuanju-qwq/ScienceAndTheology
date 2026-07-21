@@ -310,7 +310,7 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs)
         ASSERT_NE(item, nullptr);
         EXPECT_EQ(item->max_stack, max_stack);
         ASSERT_TRUE(content.find_resource_runtime_key(
-            snt::game::ResourceKey::item(std::string(id))));
+            snt::game::ResourceContentKey::item(std::string(id))));
     };
     assert_item("furnace", 1);
     assert_item("pit_kiln", 1);
@@ -351,7 +351,7 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs)
     EXPECT_EQ(steam->condensation_target_id, "water");
     EXPECT_EQ(steam->condensation_temperature_kelvin, 373);
     EXPECT_TRUE(content.find_resource_runtime_key(
-        snt::game::ResourceKey::fluid("water")).has_value());
+        snt::game::ResourceContentKey::fluid("water")).has_value());
 
     const auto* iron_pickaxe = content.find_item("iron_pickaxe");
     ASSERT_NE(iron_pickaxe, nullptr);
@@ -730,7 +730,7 @@ TEST(P7PackagedContentTest, RegistersMigratedMaterialPhysicsAndGeneratedForms) {
     EXPECT_EQ(wood_log->presentation.icon_path, "materials/wood_log_icon_32.png");
     EXPECT_FALSE(wood_log->presentation.uses_tint);
     EXPECT_TRUE(content.find_resource_runtime_key(
-        snt::game::ResourceKey::item("dust.wood")).has_value());
+        snt::game::ResourceContentKey::item("dust.wood")).has_value());
 
     size_t compound_count = 0;
     for (const auto& item : content.item_definitions()) {

@@ -36,7 +36,7 @@ using snt::game::MachineTickSystem;
 using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
-using snt::game::ResourceKey;
+using snt::game::ResourceContentKey;
 
 RecipeDefinition make_recipe(std::string id,
                              std::string input,
@@ -236,8 +236,8 @@ TEST(MachineTickSystemTest, ActiveRecipeSnapshotSurvivesScriptReload) {
     EXPECT_EQ(machine.active_recipe->outputs[0].resource.key.id, "copper_ingot");
     EXPECT_TRUE(machine.active_recipe->outputs[0].runtime_key.is_valid());
     EXPECT_EQ(machine.active_recipe->resource_runtime_index.resolve_runtime(
-                  ResourceKey::item("copper_ingot")),
-              std::optional<snt::game::RuntimeResourceKey>{
+                  ResourceContentKey::item("copper_ingot")),
+              std::optional<snt::game::ResourceKey>{
                   machine.active_recipe->outputs[0].runtime_key});
     const uint64_t active_resource_generation =
         machine.active_recipe->resource_runtime_generation;

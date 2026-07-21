@@ -15,10 +15,12 @@
 
 namespace snt::voxel {
 class ChunkRegistry;
+struct ChunkKey;
 }
 
 namespace snt::game {
 
+struct GameChunkSidecar;
 class GameChunkSidecarRegistry;
 
 struct GameWorldPersistenceDescriptor {
@@ -38,8 +40,29 @@ public:
     // Returns false only when no universe exists yet. A recognized universe
     // with zero region chunks still returns true so the caller never silently
     // overwrites an intentionally empty current-format world with demo data.
+    // This restores a semantic sidecar index, not terrain; ticket streaming
+    // materializes terrain through load_chunk_terrain() on demand.
     [[nodiscard]] snt::core::Expected<bool> load_existing(
-        snt::voxel::ChunkRegistry& chunks, GameChunkSidecarRegistry& sidecars) const;
+        GameChunkSidecarRegistry& sidecars) const;
+
+    // Loads one persisted terrain payload without replacing the live sidecar
+    // state. `false` indicates that this coordinate has not been persisted.
+    [[nodiscard]] snt::core::Expected<bool> load_chunk_terrain(
+        snt::voxel::ChunkRegistry& chunks,
+        const snt::voxel::ChunkKey& chunk_key) const;
+
+    // Persists a terrain-resident chunk while retaining every other entry in
+    // its region file. Ticket streamers call this before terrain removal.
+    [[nodiscard]] snt::core::Expected<void> save_loaded_chunk(
+        const snt::voxel::ChunkRegistry& chunks,
+        const GameChunkSidecarRegistry& sidecars,
+        const snt::voxel::ChunkKey& chunk_key) const;
+
+    // Persists semantic state for a terrain-dematerialized chunk. This is the
+    // durable path for offline machines and network-island snapshots.
+    [[nodiscard]] snt::core::Expected<void> save_chunk_sidecar(
+        const snt::voxel::ChunkKey& chunk_key,
+        const GameChunkSidecar& sidecar) const;
 
     // Writes the current dimension first, then commits the universe header.
     // Callers keep this out of fixed ticks and surface any returned error at a

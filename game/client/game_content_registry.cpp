@@ -668,6 +668,19 @@ void api_set_machine_offline_item_transfer(
     }
 }
 
+void api_set_machine_offline_fluid_transfer(
+    const std::string& machine_id,
+    int max_import_per_tick,
+    int max_export_per_tick) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (auto result = registry->set_script_machine_offline_fluid_transfer(
+            g_active_script_id, machine_id, max_import_per_tick,
+            max_export_per_tick); !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_register_quest_chapter(const std::string& id,
                                 const std::string& title,
                                 const std::string& description,
@@ -912,6 +925,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             engine,
             "void snt_set_machine_offline_item_transfer(const string &in, int, int)",
             asFUNCTION(api_set_machine_offline_item_transfer)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_set_machine_offline_fluid_transfer(const string &in, int, int)",
+            asFUNCTION(api_set_machine_offline_fluid_transfer)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_register_quest_chapter(const string &in, const string &in, const string &in, const string &in, int)",
@@ -1224,11 +1241,19 @@ snt::core::Expected<void> GameContentRegistry::validate(const MachineDefinition&
         definition.offline_simulation.max_item_export_per_tick > 1'000'000'000) {
         return invalid_argument("Offline machine item transfer limits are invalid");
     }
+    if (definition.offline_simulation.max_fluid_import_per_tick < 0 ||
+        definition.offline_simulation.max_fluid_export_per_tick < 0 ||
+        definition.offline_simulation.max_fluid_import_per_tick > 1'000'000'000 ||
+        definition.offline_simulation.max_fluid_export_per_tick > 1'000'000'000) {
+        return invalid_argument("Offline machine fluid transfer limits are invalid");
+    }
     if (definition.offline_simulation.mode != MachineOfflineSimulationMode::kNetworkIsland &&
         (definition.offline_simulation.max_power_import_per_tick != 0 ||
          definition.offline_simulation.max_power_export_per_tick != 0 ||
          definition.offline_simulation.max_item_import_per_tick != 0 ||
-         definition.offline_simulation.max_item_export_per_tick != 0)) {
+         definition.offline_simulation.max_item_export_per_tick != 0 ||
+         definition.offline_simulation.max_fluid_import_per_tick != 0 ||
+         definition.offline_simulation.max_fluid_export_per_tick != 0)) {
         return invalid_argument("Offline machine network transfer requires network-island mode");
     }
     return {};
@@ -1846,6 +1871,26 @@ snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_item_t
     return {};
 }
 
+snt::core::Expected<void> GameContentRegistry::set_script_machine_offline_fluid_transfer(
+    ScriptId script_id,
+    std::string machine_id,
+    int32_t max_import_per_tick,
+    int32_t max_export_per_tick) {
+    if (script_id == kBuiltinScriptId) {
+        return invalid_argument("Machine script mutations require a non-builtin ScriptId");
+    }
+    const auto found = live_machines_.find(machine_id);
+    if (found == live_machines_.end() || found->second.owner != script_id) {
+        return invalid_state("Machine fluid transfer can only modify a machine owned by the active script");
+    }
+    MachineDefinition candidate = found->second.definition;
+    candidate.offline_simulation.max_fluid_import_per_tick = max_import_per_tick;
+    candidate.offline_simulation.max_fluid_export_per_tick = max_export_per_tick;
+    if (auto result = validate(candidate); !result) return result.error();
+    found->second.definition.offline_simulation = std::move(candidate.offline_simulation);
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::add_script_quest_objective(
     ScriptId script_id, std::string quest_id, QuestObjectiveDefinition objective) {
     if (script_id == kBuiltinScriptId) {
@@ -2160,14 +2205,14 @@ const GameMaterialDefinition* GameContentRegistry::find_material(std::string_vie
     return it == live_materials_.end() ? nullptr : &it->second.definition;
 }
 
-std::optional<RuntimeResourceKey> GameContentRegistry::find_resource_runtime_key(
-    const ResourceKey& key) const {
+std::optional<ResourceKey> GameContentRegistry::find_resource_runtime_key(
+    const ResourceContentKey& key) const {
     return resource_runtime_index_.snapshot().resolve_runtime(key);
 }
 
-std::optional<ResourceKey> GameContentRegistry::find_resource_key(
-    const RuntimeResourceKey& key) const {
-    return resource_runtime_index_.snapshot().resolve_semantic(key);
+std::optional<ResourceContentKey> GameContentRegistry::find_resource_content_key(
+    const ResourceKey& key) const {
+    return resource_runtime_index_.snapshot().resolve_content(key);
 }
 
 ResourceRuntimeIndex::Snapshot GameContentRegistry::resource_runtime_index() const noexcept {
@@ -2246,20 +2291,20 @@ bool GameContentRegistry::item_matches_tool_requirement(
 }
 
 snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() {
-    std::vector<ResourceKey> keys;
+    std::vector<ResourceContentKey> keys;
     keys.reserve(live_items_.size() + live_generated_material_items_.size() +
                  live_fluids_.size());
     for (const auto& [id, entry] : live_items_) {
         (void)entry;
-        keys.push_back(ResourceKey::item(id));
+        keys.push_back(ResourceContentKey::item(id));
     }
     for (const auto& [id, entry] : live_generated_material_items_) {
         (void)entry;
-        keys.push_back(ResourceKey::item(id));
+        keys.push_back(ResourceContentKey::item(id));
     }
     for (const auto& [id, entry] : live_fluids_) {
         (void)entry;
-        keys.push_back(ResourceKey::fluid(id));
+        keys.push_back(ResourceContentKey::fluid(id));
     }
     if (auto result = resource_runtime_index_.rebuild(keys); !result) return result.error();
     ++item_content_revision_;
@@ -2751,7 +2796,7 @@ void GameContentRegistry::reset() {
     state_store_.clear();
     reloads_.clear();
     reload_batch_.reset();
-    const std::vector<ResourceKey> no_resource_keys;
+    const std::vector<ResourceContentKey> no_resource_keys;
     if (auto result = resource_runtime_index_.rebuild(no_resource_keys); !result) {
         SNT_LOG_ERROR("Failed to publish an empty game resource runtime index during reset: %s",
                       result.error().format().c_str());

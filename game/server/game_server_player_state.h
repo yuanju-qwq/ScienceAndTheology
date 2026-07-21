@@ -32,6 +32,10 @@ class World;
 namespace snt::game::replication {
 
 struct GameServerPlayerStateConfig {
+    // Required immutable mapping for every live inventory/equipment stack.
+    // Content reloads use rebind_resource_snapshot() rather than allowing
+    // numeric ResourceKey values from two generations to coexist.
+    ResourceRuntimeIndex::Snapshot resource_runtime_index;
     GamePlayerWorldPosition spawn{
         .dimension_id = "overworld",
         .position = {.x = 4, .y = 6, .z = 8},
@@ -78,6 +82,12 @@ public:
         const GameAuthenticatedPeer& peer) const;
     [[nodiscard]] snt::core::Expected<GamePlayerEquipment> equipment_for_peer(
         const GameAuthenticatedPeer& peer) const;
+    // Rebinds every active player's compact inventory/equipment keys through
+    // the stable content-key boundary. The operation is all-or-nothing: an
+    // unresolved content definition leaves every active component and the
+    // currently published player snapshot unchanged.
+    [[nodiscard]] snt::core::Expected<void> rebind_resource_snapshot(
+        ResourceRuntimeIndex::Snapshot next_snapshot);
     // Gameplay action services derive behavior from this server-owned main
     // hand value through the content catalog; clients never provide a tool
     // identity as an authority input.
@@ -152,6 +162,9 @@ private:
         snt::ecs::EntityGuid entity_guid;
         snt::network::PeerId peer = snt::network::kInvalidPeerId;
     };
+    struct RuntimeInventoryTransaction;
+    struct RuntimeInventorySlotTransfer;
+    struct RuntimeInventorySlotMutation;
 
     GameServerPlayerState(snt::ecs::World& world, GameServerPlayerStateConfig config);
 
@@ -159,10 +172,14 @@ private:
         const GameAuthenticatedPeer& peer) const;
     [[nodiscard]] snt::core::Expected<void> validate_position(
         const GamePlayerWorldPosition& position) const;
-    [[nodiscard]] snt::core::Expected<void> validate_inventory(
+    [[nodiscard]] snt::core::Expected<void> validate_content_inventory(
         const GamePlayerInventory& inventory) const;
-    [[nodiscard]] snt::core::Expected<void> validate_equipment(
+    [[nodiscard]] snt::core::Expected<void> validate_content_equipment(
         const GamePlayerEquipment& equipment) const;
+    [[nodiscard]] snt::core::Expected<void> validate_runtime_inventory(
+        const GamePlayerRuntimeInventory& inventory) const;
+    [[nodiscard]] snt::core::Expected<void> validate_runtime_equipment(
+        const GamePlayerRuntimeEquipment& equipment) const;
     [[nodiscard]] snt::core::Expected<void> validate_organ_state(
         const GamePlayerOrganState& organs) const;
     [[nodiscard]] snt::core::Expected<void> validate_persistent_state(
@@ -172,6 +189,26 @@ private:
     [[nodiscard]] snt::core::Expected<void> validate_inventory_slot_transfer(
         const GamePlayerInventorySlotTransfer& transfer) const;
     [[nodiscard]] snt::core::Expected<void> validate_inventory_slot_mutations(
+        std::span<const GamePlayerInventorySlotMutation> mutations) const;
+    [[nodiscard]] snt::core::Expected<GamePlayerRuntimeInventory> resolve_runtime_inventory(
+        const GamePlayerInventory& inventory,
+        const ResourceRuntimeIndex::Snapshot& resource_index) const;
+    [[nodiscard]] snt::core::Expected<GamePlayerRuntimeEquipment> resolve_runtime_equipment(
+        const GamePlayerEquipment& equipment,
+        const ResourceRuntimeIndex::Snapshot& resource_index) const;
+    [[nodiscard]] snt::core::Expected<GamePlayerInventory> resolve_content_inventory(
+        const GamePlayerRuntimeInventory& inventory) const;
+    [[nodiscard]] snt::core::Expected<GamePlayerEquipment> resolve_content_equipment(
+        const GamePlayerRuntimeEquipment& equipment,
+        const ResourceRuntimeIndex::Snapshot& resource_index) const;
+    [[nodiscard]] snt::core::Expected<RuntimeInventoryTransaction>
+    resolve_runtime_inventory_transaction(
+        const GamePlayerInventoryTransaction& transaction) const;
+    [[nodiscard]] snt::core::Expected<RuntimeInventorySlotTransfer>
+    resolve_runtime_inventory_slot_transfer(
+        const GamePlayerInventorySlotTransfer& transfer) const;
+    [[nodiscard]] snt::core::Expected<std::vector<RuntimeInventorySlotMutation>>
+    resolve_runtime_inventory_slot_mutations(
         std::span<const GamePlayerInventorySlotMutation> mutations) const;
     [[nodiscard]] snt::core::Expected<PlayerRecord*> find_active_record(
         const GameAuthenticatedPeer& peer);
@@ -184,19 +221,20 @@ private:
     [[nodiscard]] snt::core::Expected<snt::ecs::EntityGuid> create_player_entity(
         const GameAuthenticatedPeer& peer, const GamePlayerPersistentState& state);
 
-    static bool is_empty_stack(const GamePlayerItemStack& stack) noexcept;
-    static void clear_stack(GamePlayerItemStack& stack) noexcept;
-    static bool stacks_can_merge(const GamePlayerItemStack& left,
-                                 const GamePlayerItemStack& right) noexcept;
-    static bool remove_items(GamePlayerInventory& inventory,
-                             const GamePlayerItemStack& stack) noexcept;
-    static bool add_items(GamePlayerInventory& inventory,
-                          const GamePlayerItemStack& stack) noexcept;
-    static bool apply_slot_transfer(GamePlayerInventory& inventory,
-                                    const GamePlayerInventorySlotTransfer& transfer) noexcept;
+    static bool is_empty_stack(const GamePlayerRuntimeItemStack& stack) noexcept;
+    static void clear_stack(GamePlayerRuntimeItemStack& stack) noexcept;
+    static bool stacks_can_merge(const GamePlayerRuntimeItemStack& left,
+                                 const GamePlayerRuntimeItemStack& right) noexcept;
+    static bool remove_items(GamePlayerRuntimeInventory& inventory,
+                             const GamePlayerRuntimeItemStack& stack) noexcept;
+    static bool add_items(GamePlayerRuntimeInventory& inventory,
+                          const GamePlayerRuntimeItemStack& stack) noexcept;
+    static bool apply_slot_transfer(GamePlayerRuntimeInventory& inventory,
+                                    const RuntimeInventorySlotTransfer& transfer) noexcept;
 
     snt::ecs::World* world_ = nullptr;
     GameServerPlayerStateConfig config_;
+    ResourceRuntimeIndex::Snapshot resource_runtime_index_;
     std::map<std::string, PlayerRecord, std::less<>> players_;
     std::map<snt::network::PeerId, std::string> active_peers_;
     bool stopped_ = false;
