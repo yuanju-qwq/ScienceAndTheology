@@ -29,6 +29,8 @@ class TcpUdpReplicationTransport;
 
 namespace snt::game::replication {
 class GameServerCommandSink;
+class GameServerCreatureInteractionService;
+class GameServerCreaturePresentationReplication;
 class GameServerPlayerBedService;
 class GameServerPlayerDeathService;
 class GameServerPlayerGraveStore;
@@ -46,6 +48,7 @@ class GameServerPlayerState;
 namespace snt::game {
 
 class ServerEcosystemInterestProvider;
+class ServerMachineChunkResidencyController;
 
 // Server-only startup inputs. The password is deliberately outside
 // GameSessionConfig because the latter is loaded from a package also shipped
@@ -73,6 +76,8 @@ private:
     ScienceAndTheologySimulationSession simulation_session_;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<ServerEcosystemInterestProvider> ecosystem_interest_provider_;
+    std::unique_ptr<ServerMachineChunkResidencyController>
+        machine_chunk_residency_controller_;
     std::unique_ptr<replication::GameServerCommandSink> command_sink_;
     std::unique_ptr<replication::GameServerPlayerState> player_state_;
     std::unique_ptr<replication::GameServerPlayerMovement> player_movement_;
@@ -81,9 +86,13 @@ private:
     std::unique_ptr<replication::GameServerPlayerRespawnResolver> player_respawn_;
     std::unique_ptr<replication::GameServerPlayerDeathService> player_death_;
     std::unique_ptr<replication::GameServerPlayerInteractionService> player_interactions_;
+    std::unique_ptr<replication::GameServerCreatureInteractionService>
+        creature_interactions_;
     std::unique_ptr<replication::GameServerQuestEventService> quest_events_;
     std::unique_ptr<replication::GameServerQuestBookReplication> quest_book_replication_;
     std::unique_ptr<replication::GameServerInventoryReplication> inventory_replication_;
+    std::unique_ptr<replication::GameServerCreaturePresentationReplication>
+        creature_replication_;
     std::unique_ptr<replication::GameServerPlayerReplication> player_replication_;
     std::unique_ptr<replication::GameServerPlayerLifecycle> player_lifecycle_;
     std::unique_ptr<replication::IGamePeerAuthenticator> peer_authenticator_;

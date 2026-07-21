@@ -26,6 +26,7 @@
 namespace snt::game::replication {
 class GameClientInventoryState;
 class GameClientQuestBookState;
+class GameRemoteCreatureWorld;
 class GameRemotePlayerWorld;
 }
 
@@ -115,6 +116,7 @@ private:
     std::unique_ptr<LanServerBrowserModel> lan_server_browser_;
     std::unique_ptr<replication::GameClientRemoteChunkWorld> remote_chunk_world_;
     std::unique_ptr<replication::GameRemoteMachineWorld> remote_machine_world_;
+    std::unique_ptr<replication::GameRemoteCreatureWorld> remote_creature_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;

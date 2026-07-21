@@ -119,6 +119,7 @@ add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
     network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
+    network/game_creature_replication.cpp
     network/game_inventory_replication.cpp
     network/game_lan_discovery.cpp
     network/game_quest_book_replication.cpp
@@ -136,6 +137,7 @@ target_link_libraries(snt_game_network PUBLIC
     snt_network
     snt_ecs
     snt_voxel_data
+    snt_game_world_data
 )
 
 # Shared deterministic gameplay closure. Both the graphical client and the
@@ -225,6 +227,8 @@ set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theolog
 add_executable(snt_game_server
     server/main.cpp
     server/game_server_command_sink.cpp
+    server/game_server_creature_interaction.cpp
+    server/game_server_creature_replication.cpp
     server/game_server_inventory_replication.cpp
     server/game_server_player_death.cpp
     server/game_server_player_interaction.cpp
@@ -234,6 +238,7 @@ add_executable(snt_game_server
     server/game_server_player_movement.cpp
     server/game_server_player_replication.cpp
     server/game_server_player_state.cpp
+    server/server_machine_chunk_residency_controller.cpp
     server/science_and_theology_server_session.cpp
     runtime/runtime_package.cpp
 )
@@ -328,6 +333,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         client/lan_server_browser.cpp
         client/quest_book_ui.cpp
         server/game_server_command_sink.cpp
+        server/game_server_creature_interaction.cpp
+        server/game_server_creature_replication.cpp
         server/game_server_inventory_replication.cpp
         server/game_server_player_death.cpp
         server/game_server_player_interaction.cpp
@@ -337,6 +344,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_player_movement.cpp
         server/game_server_player_replication.cpp
         server/game_server_player_state.cpp
+        server/server_machine_chunk_residency_controller.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
         tests/test_block_physics_system.cpp
@@ -373,6 +381,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
+        tests/test_server_machine_chunk_residency_controller.cpp
         tests/test_server_session.cpp
     )
     target_include_directories(snt_game_tests PRIVATE

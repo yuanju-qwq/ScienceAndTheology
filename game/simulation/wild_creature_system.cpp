@@ -189,14 +189,30 @@ void GameWildCreatureSystem::tick_captive_creatures(
     GameChunkSidecar* const sidecar = sidecars_->get(request.chunk);
     if (sidecar == nullptr || !sidecar->has_captive_creatures) return;
 
+    std::set<uint64_t> current_ids;
     for (size_t slot = 0; slot < sidecar->captive_creatures.size(); ++slot) {
         CaptiveCreature& captive = sidecar->captive_creatures[slot];
         if (captive.runtime_id == 0) {
             captive.runtime_id = stable_captive_runtime_id(request.chunk, captive.species_id, slot);
         }
-        if (!known_captive_runtime_ids_.insert(captive.runtime_id).second) continue;
-        emit(GameCreaturePresentationEventKind::kSpawned, request.source_tick,
-             make_captive_state(request.chunk, captive));
+        const GameCreaturePresentationState state = make_captive_state(request.chunk, captive);
+        current_ids.insert(captive.runtime_id);
+        const auto [known, inserted] = known_captive_creatures_.insert_or_assign(
+            captive.runtime_id, state);
+        static_cast<void>(known);
+        if (inserted) {
+            emit(GameCreaturePresentationEventKind::kSpawned, request.source_tick, state);
+        }
+    }
+    for (auto known = known_captive_creatures_.begin();
+         known != known_captive_creatures_.end();) {
+        if (known->second.chunk == request.chunk && !current_ids.contains(known->first)) {
+            emit(GameCreaturePresentationEventKind::kDespawned, request.source_tick,
+                 known->second);
+            known = known_captive_creatures_.erase(known);
+        } else {
+            ++known;
+        }
     }
 }
 
@@ -205,6 +221,27 @@ std::optional<GameCreaturePresentationState> GameWildCreatureSystem::find_wild_c
     const auto found = wild_creatures_.find(wild_entity_id);
     if (found == wild_creatures_.end()) return std::nullopt;
     return found->second.state;
+}
+
+std::optional<GameCreaturePresentationState> GameWildCreatureSystem::find_captive_creature(
+    uint64_t captive_entity_id) const {
+    if (captive_entity_id == 0 || sidecars_ == nullptr) return std::nullopt;
+    const auto known = known_captive_creatures_.find(captive_entity_id);
+    if (known != known_captive_creatures_.end()) return known->second;
+
+    std::optional<GameCreaturePresentationState> result;
+    sidecars_->for_each([&](const ChunkKey& chunk, const GameChunkSidecar& sidecar) {
+        if (result.has_value() || !sidecar.has_captive_creatures) return;
+        const auto found = std::find_if(
+            sidecar.captive_creatures.begin(), sidecar.captive_creatures.end(),
+            [captive_entity_id](const CaptiveCreature& creature) {
+                return creature.runtime_id == captive_entity_id;
+            });
+        if (found != sidecar.captive_creatures.end()) {
+            result = make_captive_state(chunk, *found);
+        }
+    });
+    return result;
 }
 
 GameWildCreatureAttackResult GameWildCreatureSystem::apply_damage(
@@ -311,13 +348,12 @@ GameWildCreatureSystem::capture_wild_creature(
     };
     sidecar->has_captive_creatures = true;
     sidecar->captive_creatures.push_back(captive);
-    known_captive_runtime_ids_.insert(captive.runtime_id);
-
     suppressed_proxy_until_tick_[wild.entity_id] = saturation_add(
         source_tick, config_.captured_proxy_suppression_ticks);
     wild_creatures_.erase(found);
     const GameCreaturePresentationState captive_state = make_captive_state(
         request.captive_chunk, captive);
+    known_captive_creatures_.insert_or_assign(captive.runtime_id, captive_state);
     emit(GameCreaturePresentationEventKind::kCaptured, source_tick, captive_state);
     if (captive.is_tamed) {
         emit(GameCreaturePresentationEventKind::kTamed, source_tick, captive_state);
@@ -366,6 +402,7 @@ GameWildCreatureSystem::feed_captive_creature(
     }
     result.tame_progress = found->tame_progress;
     const GameCreaturePresentationState state = make_captive_state(owner_chunk, *found);
+    known_captive_creatures_.insert_or_assign(captive_entity_id, state);
     emit(GameCreaturePresentationEventKind::kTamingProgressed, source_tick, state);
     if (result.became_tamed) emit(GameCreaturePresentationEventKind::kTamed, source_tick, state);
     return result;

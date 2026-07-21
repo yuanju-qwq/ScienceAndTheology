@@ -4,6 +4,7 @@
 #include "game/server/game_server_command_sink.h"
 
 #include "game/server/game_server_inventory_replication.h"
+#include "game/server/game_server_creature_interaction.h"
 #include "game/server/game_server_player_movement.h"
 #include "game/server/game_server_player_interaction.h"
 
@@ -33,9 +34,11 @@ constexpr uint64_t kRejectionLogIntervalTicks = 20;
 GameServerCommandSink::GameServerCommandSink(
     QuestRegistry& quests, IGameServerPlayerMovementInputSink* player_movement,
     IGameServerPlayerInteractionService* player_interactions,
-    GameServerInventoryReplication* inventory_replication)
+    GameServerInventoryReplication* inventory_replication,
+    IGameServerCreatureInteractionService* creature_interactions)
     : quests_(&quests), player_movement_(player_movement),
-      player_interactions_(player_interactions), inventory_replication_(inventory_replication) {}
+      player_interactions_(player_interactions), inventory_replication_(inventory_replication),
+      creature_interactions_(creature_interactions) {}
 
 snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
     const GameAuthenticatedPeer& peer, GameClientCommand command,
@@ -118,6 +121,55 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
             }
             pending.type = GameClientCommandType::kMachineInputSlotTransfer;
             pending.machine_input_slot_transfer = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kCreatureAttack: {
+            if (creature_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no authoritative creature interaction service"};
+            }
+            auto parsed = parse_game_creature_attack_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context("GameServerCommandSink::enqueue_client_command(CreatureAttack)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kCreatureAttack;
+            pending.creature_attack = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kCreatureCapture: {
+            if (creature_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no authoritative creature interaction service"};
+            }
+            auto parsed = parse_game_creature_capture_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context("GameServerCommandSink::enqueue_client_command(CreatureCapture)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kCreatureCapture;
+            pending.creature_capture = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kCaptiveCreatureFeed: {
+            if (creature_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no authoritative creature interaction service"};
+            }
+            auto parsed = parse_game_captive_creature_feed_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(CaptiveCreatureFeed)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kCaptiveCreatureFeed;
+            pending.captive_creature_feed = std::move(*parsed);
             break;
         }
         default:
@@ -237,6 +289,45 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
                     record_gameplay_rejection(tick_index, command, result.error());
                 }
                 break;
+            case GameClientCommandType::kCreatureAttack:
+                if (creature_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its creature interaction service"));
+                    break;
+                }
+                if (auto result = creature_interactions_->attack_creature(
+                        command.peer, command.creature_attack, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
+            case GameClientCommandType::kCreatureCapture:
+                if (creature_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its creature interaction service"));
+                    break;
+                }
+                if (auto result = creature_interactions_->capture_creature(
+                        command.peer, command.creature_capture, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
+            case GameClientCommandType::kCaptiveCreatureFeed:
+                if (creature_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its creature interaction service"));
+                    break;
+                }
+                if (auto result = creature_interactions_->feed_captive_creature(
+                        command.peer, command.captive_creature_feed, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
         }
     }
     pending_.clear();
@@ -307,6 +398,15 @@ void GameServerCommandSink::record_gameplay_rejection(
             break;
         case GameClientCommandType::kMachineInputSlotTransfer:
             command_name = "machine_input_slot_transfer";
+            break;
+        case GameClientCommandType::kCreatureAttack:
+            command_name = "creature_attack";
+            break;
+        case GameClientCommandType::kCreatureCapture:
+            command_name = "creature_capture";
+            break;
+        case GameClientCommandType::kCaptiveCreatureFeed:
+            command_name = "captive_creature_feed";
             break;
     }
     SNT_LOG_WARN("Rejected %u host game command(s); latest peer=%llu player='%s' command=%s: %s",

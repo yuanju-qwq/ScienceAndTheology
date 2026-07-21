@@ -53,9 +53,9 @@ TEST(GameCreaturePresentationWorldTest, UpsertsAndDespawnsOnlyOwnedEcsEntities) 
     ASSERT_EQ(presentation.creature_count(), 1u);
     const auto entity = presentation.entity_for(41);
     ASSERT_TRUE(entity.has_value());
-    ASSERT_TRUE(world.registry().all_of<snt::render::Transform, snt::render::MeshRef,
-                                       snt::render::MeshLod,
-                                       snt::game::GameCreaturePresentationComponent>(*entity));
+    ASSERT_TRUE((world.registry().all_of<snt::render::Transform, snt::render::MeshRef,
+                                        snt::render::MeshLod,
+                                        snt::game::GameCreaturePresentationComponent>(*entity)));
     const auto& transform = world.registry().get<snt::render::Transform>(*entity);
     EXPECT_FLOAT_EQ(transform.position[0], 3.0f);
     EXPECT_FLOAT_EQ(transform.scale[0], 1.25f);

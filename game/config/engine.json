@@ -104,6 +104,7 @@
     "chunk_horizontal_aoi_radius_blocks": 64,
     "chunk_vertical_aoi_radius_blocks": 64,
     "max_visible_chunks": 8,
+    "max_visible_creatures": 1024,
     "max_reliable_bytes_per_tick": 262144,
     "max_chunk_snapshots_per_tick": 2,
     "max_entity_snapshots_per_tick": 128,

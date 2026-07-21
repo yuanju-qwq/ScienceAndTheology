@@ -107,6 +107,10 @@ struct GameServerReplicationConfig {
     uint32_t chunk_horizontal_aoi_radius_blocks = 64;
     uint32_t chunk_vertical_aoi_radius_blocks = 64;
     uint32_t max_visible_chunks = 8;
+    // Bounded native creature presentation values per observer. This applies
+    // to far LOD projections and nearby interactive/captive states alike;
+    // it does not allocate server AI agents for the far set.
+    uint32_t max_visible_creatures = 1024;
     uint32_t max_reliable_bytes_per_tick = 256u * 1024u;
     uint32_t max_chunk_snapshots_per_tick = 2;
     uint32_t max_entity_snapshots_per_tick = 128;

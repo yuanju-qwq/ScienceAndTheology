@@ -9,6 +9,7 @@
 
 #include "core/expected.h"
 #include "game/simulation/ecosystem_system.h"
+#include "game/world/defs/creature_presentation.h"
 
 #include <array>
 #include <cstdint>
@@ -18,46 +19,6 @@
 #include <vector>
 
 namespace snt::game {
-
-struct GameCreaturePresentationState {
-    uint64_t entity_id = 0;
-    ChunkKey chunk;
-    uint16_t species_id = 0;
-    CreatureRole role = CreatureRole::HERBIVORE;
-    float position_x = 0.0f;
-    float position_y = 0.0f;
-    float position_z = 0.0f;
-    float health = 1.0f;
-    // A far visual representative is presentation-only. Only an
-    // interactive representative can be passed to the authority operations
-    // below, even though both use the same stable population proxy id.
-    bool is_interactive = false;
-    bool is_captive = false;
-    bool is_tamed = false;
-};
-
-enum class GameCreaturePresentationEventKind : uint8_t {
-    kSpawned,
-    kDespawned,
-    kDamaged,
-    kKilled,
-    kCaptured,
-    kTamingProgressed,
-    kTamed,
-};
-
-struct GameCreaturePresentationEvent {
-    GameCreaturePresentationEventKind kind = GameCreaturePresentationEventKind::kSpawned;
-    uint64_t source_tick = 0;
-    GameCreaturePresentationState creature;
-};
-
-class IGameCreaturePresentationSink {
-public:
-    virtual ~IGameCreaturePresentationSink() = default;
-    virtual void on_creature_presentation_event(
-        const GameCreaturePresentationEvent& event) = 0;
-};
 
 // Value supplied only after an authoritative interaction service has checked
 // enclosure geometry and player reach. The wildlife system revalidates bounds
@@ -139,6 +100,8 @@ public:
 
     [[nodiscard]] std::optional<GameCreaturePresentationState> find_wild_creature(
         uint64_t wild_entity_id) const;
+    [[nodiscard]] std::optional<GameCreaturePresentationState> find_captive_creature(
+        uint64_t captive_entity_id) const;
     [[nodiscard]] size_t wild_creature_count() const noexcept { return wild_creatures_.size(); }
     [[nodiscard]] size_t far_visual_creature_count() const noexcept {
         return far_visual_creatures_.size();
@@ -182,7 +145,7 @@ private:
     std::map<uint64_t, WildCreature> wild_creatures_;
     std::map<uint64_t, WildCreature> far_visual_creatures_;
     std::map<uint64_t, uint64_t> suppressed_proxy_until_tick_;
-    std::set<uint64_t> known_captive_runtime_ids_;
+    std::map<uint64_t, GameCreaturePresentationState> known_captive_creatures_;
 };
 
 }  // namespace snt::game

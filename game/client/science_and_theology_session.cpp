@@ -15,6 +15,7 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
+#include "game/network/game_creature_replication.h"
 #include "game/network/game_inventory_replication.h"
 #include "game/network/game_quest_book_replication.h"
 #include "game/player/player_replication.h"
@@ -590,7 +591,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::connect_tcp_udp(
     ensure_remote_replication_state();
     SNT_LOG_INFO("Client replication connection requested (host=%s tcp=%u udp=%u)",
                  host.c_str(), tcp_port, udp_port);
-    SNT_LOG_INFO("Client is awaiting authoritative player, inventory, and task-book snapshots");
+    SNT_LOG_INFO("Client is awaiting authoritative player, creature, inventory, and task-book snapshots");
     return {};
 }
 
@@ -601,6 +602,9 @@ void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
     }
     if (!remote_inventory_state_) {
         remote_inventory_state_ = std::make_unique<replication::GameClientInventoryState>(account_id);
+    }
+    if (!remote_creature_world_) {
+        remote_creature_world_ = std::make_unique<replication::GameRemoteCreatureWorld>();
     }
     if (!quest_book_state_) {
         quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(account_id);
@@ -617,6 +621,8 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
         }
     }
     if (remote_machine_world_) remote_machine_world_->clear();
+    if (remote_creature_world_) remote_creature_world_->clear();
+    if (creature_presentation_world_) creature_presentation_world_->clear();
     if (gameplay_ui_) gameplay_ui_->clear_machine_authority();
     if (remote_player_world_) remote_player_world_->clear();
     if (remote_inventory_state_) {
@@ -1024,6 +1030,18 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                     remote_chunk_world_ && remote_chunk_world_->active_snapshot_id() == 0;
                 const bool first_machine_snapshot =
                     remote_machine_world_ && remote_machine_world_->active_snapshot_id() == 0;
+                const bool first_creature_snapshot =
+                    remote_creature_world_ && remote_creature_world_->active_snapshot_id() == 0;
+                const bool creature_value_changed = std::visit(
+                    [](const auto& value) {
+                        return std::any_of(
+                            value.values.begin(), value.values.end(),
+                            [](const replication::GameReplicationValue& record) {
+                                return record.kind ==
+                                    replication::GameReplicationValueKind::kCreaturePresentation;
+                            });
+                    },
+                    update);
                 const replication::GameInventorySnapshot* const prior_inventory =
                     remote_inventory_state_ ? remote_inventory_state_->snapshot() : nullptr;
                 const uint64_t prior_inventory_revision =
@@ -1054,6 +1072,25 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                         error.with_context(
                             "ScienceAndTheologyClientSession::fixed_tick(remote machine replication)");
                         return error;
+                    }
+                }
+                if (remote_creature_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_creature_world_->apply(value); },
+                        update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(remote creature replication)");
+                        return error;
+                    }
+                    if ((creature_value_changed ||
+                         std::holds_alternative<replication::GameSnapshot>(update)) &&
+                        creature_presentation_world_) {
+                        const std::vector<GameCreaturePresentationState> creatures =
+                            remote_creature_world_->creatures();
+                        creature_presentation_world_->reconcile(
+                            creatures, remote_creature_world_->latest_source_tick());
                     }
                 }
                 if (quest_book_state_) {
@@ -1131,6 +1168,13 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                                  static_cast<unsigned long long>(
                                      remote_machine_world_->active_snapshot_id()),
                                  remote_machine_world_->machine_count());
+                }
+                if (first_creature_snapshot && remote_creature_world_ &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative creature snapshot %llu with %zu visible creature value(s)",
+                                 static_cast<unsigned long long>(
+                                     remote_creature_world_->active_snapshot_id()),
+                                 remote_creature_world_->creature_count());
                 }
             }
             refresh_open_machine_panel();
@@ -1239,6 +1283,7 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     clear_remote_replication_state();
     remote_chunk_world_.reset();
     remote_machine_world_.reset();
+    remote_creature_world_.reset();
     chunk_render_system_ = nullptr;
     remote_player_world_.reset();
     remote_inventory_state_.reset();

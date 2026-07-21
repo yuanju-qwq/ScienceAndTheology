@@ -8,6 +8,7 @@
 #include "ecs/world.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -312,6 +313,32 @@ snt::core::Expected<bool> GameServerPlayerState::is_target_reachable(
         return false;
     }
     return dx * dx + dy * dy + dz * dz <= reach * reach;
+}
+
+snt::core::Expected<bool> GameServerPlayerState::is_point_reachable(
+    const GameAuthenticatedPeer& peer, std::string_view dimension_id,
+    float position_x, float position_y, float position_z) const {
+    if (dimension_id.empty() || dimension_id.size() > kMaxDimensionIdBytes ||
+        dimension_id.find('\0') != std::string_view::npos || !std::isfinite(position_x) ||
+        !std::isfinite(position_y) || !std::isfinite(position_z)) {
+        return invalid_argument("Authoritative dynamic target position is invalid");
+    }
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+
+    const auto& dimension = world_->get_component<GamePlayerDimensionComponent>(*entity);
+    if (dimension.dimension_id != dimension_id) return false;
+    const auto& position = world_->get_component<snt::ecs::Position>(*entity);
+    const double reach = static_cast<double>(config_.interaction_reach_blocks);
+    const double delta_x = static_cast<double>(position_x) - static_cast<double>(position.x);
+    const double delta_y = static_cast<double>(position_y) - static_cast<double>(position.y);
+    const double delta_z = static_cast<double>(position_z) - static_cast<double>(position.z);
+    if (std::abs(delta_x) > reach || std::abs(delta_y) > reach || std::abs(delta_z) > reach) {
+        return false;
+    }
+    return delta_x * delta_x + delta_y * delta_y + delta_z * delta_z <= reach * reach;
 }
 
 snt::core::Expected<void> GameServerPlayerState::apply_inventory_transaction(

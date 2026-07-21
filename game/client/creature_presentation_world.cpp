@@ -188,13 +188,15 @@ void GameCreaturePresentationWorld::upsert(
     world_->registry().emplace_or_replace<snt::render::Transform>(entity, transform);
     world_->registry().emplace_or_replace<snt::render::MeshRef>(entity, visual->mesh);
     world_->registry().emplace_or_replace<snt::render::MeshLod>(entity, visual->lod);
-    world_->registry().emplace_or_replace<GameCreaturePresentationComponent>(entity, {
+    GameCreaturePresentationComponent metadata{
         .creature_id = creature.entity_id,
         .species_id = creature.species_id,
         .is_interactive = creature.is_interactive,
         .is_captive = creature.is_captive,
         .is_tamed = creature.is_tamed,
-    });
+    };
+    world_->registry().emplace_or_replace<GameCreaturePresentationComponent>(
+        entity, metadata);
     if (!world_->registry().all_of<CreatureMarker>(entity)) {
         world_->registry().emplace<CreatureMarker>(entity);
     }

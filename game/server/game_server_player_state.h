@@ -101,6 +101,12 @@ public:
     [[nodiscard]] snt::core::Expected<bool> is_target_reachable(
         const GameAuthenticatedPeer& peer,
         const GamePlayerWorldPosition& target) const;
+    // Dynamic targets such as native creatures are not block-aligned. Keep
+    // their reach check inside player authority so gameplay services never
+    // duplicate the configured range or accept a client-derived position.
+    [[nodiscard]] snt::core::Expected<bool> is_point_reachable(
+        const GameAuthenticatedPeer& peer, std::string_view dimension_id,
+        float position_x, float position_y, float position_z) const;
     [[nodiscard]] snt::core::Expected<void> apply_inventory_transaction(
         const GameAuthenticatedPeer& peer,
         const GamePlayerInventoryTransaction& transaction);

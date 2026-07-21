@@ -448,6 +448,27 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_machine_input_sl
     return enqueue_command(std::move(*encoded));
 }
 
+snt::core::Expected<void> GameClientReplicationSession::enqueue_creature_attack(
+    uint64_t client_sequence, GameCreatureAttackCommand command) {
+    auto encoded = make_game_creature_attack_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
+snt::core::Expected<void> GameClientReplicationSession::enqueue_creature_capture(
+    uint64_t client_sequence, GameCreatureCaptureCommand command) {
+    auto encoded = make_game_creature_capture_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
+snt::core::Expected<void> GameClientReplicationSession::enqueue_captive_creature_feed(
+    uint64_t client_sequence, GameCaptiveCreatureFeedCommand command) {
+    auto encoded = make_game_captive_creature_feed_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
 snt::core::Expected<void> GameClientReplicationSession::enqueue_player_movement_input(
     GamePlayerMovementInput input) {
     if (!impl_ || !impl_->handler) {

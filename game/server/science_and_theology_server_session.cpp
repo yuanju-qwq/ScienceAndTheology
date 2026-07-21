@@ -5,6 +5,8 @@
 
 #include "game/network/game_account_peer_authenticator.h"
 #include "game/server/game_server_command_sink.h"
+#include "game/server/game_server_creature_interaction.h"
+#include "game/server/game_server_creature_replication.h"
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_interaction.h"
@@ -14,6 +16,7 @@
 #include "game/server/game_server_quest_events.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
+#include "game/server/server_machine_chunk_residency_controller.h"
 #include "game/simulation/ecosystem_system.h"
 #include "game/worldgen/world_gen_config.h"
 #include "network/lan_discovery.h"
@@ -141,6 +144,26 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Dedicated server simulation did not publish a worldgen snapshot"};
     }
+    machine_chunk_residency_controller_ =
+        std::make_unique<ServerMachineChunkResidencyController>(
+            simulation_session_,
+            ServerMachineChunkResidencyConfig{
+                .permanent_spawn = {
+                    .dimension_id = config_.persistence.world_dimension_id,
+                    .position = {
+                        .x = config_.server_player.spawn_block_x,
+                        .y = config_.server_player.spawn_block_y,
+                        .z = config_.server_player.spawn_block_z,
+                    },
+                },
+                .horizontal_aoi_radius_blocks =
+                    config_.server_replication.chunk_horizontal_aoi_radius_blocks,
+                .vertical_aoi_radius_blocks =
+                    config_.server_replication.chunk_vertical_aoi_radius_blocks,
+            });
+    SNT_LOG_INFO("Machine ECS residency enabled around spawn and player chunk AOIs (horizontal=%u vertical=%u)",
+                 config_.server_replication.chunk_horizontal_aoi_radius_blocks,
+                 config_.server_replication.chunk_vertical_aoi_radius_blocks);
     if (!config_.server_network.enabled) return {};
     if (services_ == nullptr) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
@@ -238,6 +261,17 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     quest_book_replication_ = std::move(*quest_book_replication);
+    auto creature_replication = replication::GameServerCreaturePresentationReplication::create(
+        {
+            .max_visible_creatures = config_.server_replication.max_visible_creatures,
+        });
+    if (!creature_replication) {
+        auto error = creature_replication.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(creature replication)");
+        return error;
+    }
+    creature_replication_ = std::move(*creature_replication);
+    simulation_session_.set_creature_presentation_sink(creature_replication_.get());
     auto player_replication = replication::GameServerPlayerReplication::create(
         *player_state_, world.world(), world.chunks(), simulation_session_.world_sidecars(),
         {
@@ -252,7 +286,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                 config_.server_replication.chunk_vertical_aoi_radius_blocks,
             .max_visible_chunks = config_.server_replication.max_visible_chunks,
         },
-        {quest_book_replication_.get(), inventory_replication_.get()});
+        {quest_book_replication_.get(), inventory_replication_.get(), creature_replication_.get()});
     if (!player_replication) {
         auto error = player_replication.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(player AOI)");
@@ -334,9 +368,22 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_interactions_ = std::move(*player_interactions);
+    GameWildCreatureSystem* const wildlife = simulation_session_.wild_creature_system();
+    if (wildlife == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Dedicated server simulation has no wildlife interaction system"};
+    }
+    auto creature_interactions = replication::GameServerCreatureInteractionService::create(
+        *player_state_, world.chunks(), simulation_session_.content(), *wildlife);
+    if (!creature_interactions) {
+        auto error = creature_interactions.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(creature interactions)");
+        return error;
+    }
+    creature_interactions_ = std::move(*creature_interactions);
     command_sink_ = std::make_unique<replication::GameServerCommandSink>(
         simulation_session_.quests(), player_movement_.get(), player_interactions_.get(),
-        inventory_replication_.get());
+        inventory_replication_.get(), creature_interactions_.get());
     const replication::GameReplicationBudget replication_budget{
         .max_reliable_bytes_per_tick = config_.server_replication.max_reliable_bytes_per_tick,
         .max_chunk_snapshots_per_tick = config_.server_replication.max_chunk_snapshots_per_tick,
@@ -380,6 +427,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                  config_.server_replication.max_entity_snapshots_per_tick);
     SNT_LOG_INFO("Task-book value replication enabled (value_budget=%u)",
                  config_.server_replication.max_value_snapshots_per_tick);
+    SNT_LOG_INFO("Native creature AOI replication enabled (max_visible=%u); far visuals remain presentation-only",
+                 config_.server_replication.max_visible_creatures);
     SNT_LOG_INFO("Player inventory replication uses full initial snapshots and changed-slot deltas");
     SNT_LOG_INFO("Authoritative player movement enabled (walk=%.2f sprint=%.2f input_timeout=%llu ticks)",
                  config_.server_player.movement_walk_speed_blocks_per_second,
@@ -406,6 +455,32 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::fixed_tick(
         if (auto result = replication_service_->poll_inbound(replication_context); !result) {
             auto error = result.error();
             error.with_context("ScienceAndTheologyServerSession::fixed_tick(replication inbound)");
+            return error;
+        }
+    }
+    // Input commands must observe materialized runtimes for the players'
+    // current authoritative positions. Movement happens later in this tick,
+    // so an AOI boundary crossed by movement takes effect on the next tick.
+    if (machine_chunk_residency_controller_) {
+        std::vector<GamePlayerWorldPosition> player_positions;
+        if (player_state_) {
+            auto snapshots = player_state_->active_player_snapshots();
+            if (!snapshots) {
+                auto error = snapshots.error();
+                error.with_context(
+                    "ScienceAndTheologyServerSession::fixed_tick(machine residency players)");
+                return error;
+            }
+            player_positions.reserve(snapshots->size());
+            for (const replication::GameServerPlayerSnapshot& snapshot : *snapshots) {
+                player_positions.push_back(snapshot.position);
+            }
+        }
+        if (auto result = machine_chunk_residency_controller_->reconcile(
+                context.tick_index(), player_positions);
+            !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologyServerSession::fixed_tick(machine residency)");
             return error;
         }
     }
@@ -473,18 +548,22 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::after_fixed_tick(
 
 void ScienceAndTheologyServerSession::shutdown() noexcept {
     lan_discovery_responder_.reset();
+    machine_chunk_residency_controller_.reset();
     if (player_lifecycle_) player_lifecycle_->shutdown();
     if (replication_service_) replication_service_->shutdown();
     replication_service_.reset();
     transport_.reset();
     replication_handler_.reset();
     command_sink_.reset();
+    creature_interactions_.reset();
     simulation_session_.set_ecosystem_interest_provider(nullptr);
     ecosystem_interest_provider_.reset();
     simulation_session_.set_tree_growth_mutation_sink(nullptr);
     simulation_session_.set_crop_growth_mutation_sink(nullptr);
     simulation_session_.set_block_physics_mutation_sink(nullptr);
     player_replication_.reset();
+    simulation_session_.set_creature_presentation_sink(nullptr);
+    creature_replication_.reset();
     inventory_replication_.reset();
     quest_book_replication_.reset();
     player_interactions_.reset();

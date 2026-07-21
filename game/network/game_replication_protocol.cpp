@@ -498,6 +498,7 @@ bool is_known_game_replication_value_kind(GameReplicationValueKind kind) noexcep
     switch (kind) {
         case GameReplicationValueKind::kQuestBook:
         case GameReplicationValueKind::kPlayerInventory:
+        case GameReplicationValueKind::kCreaturePresentation:
             return true;
     }
     return false;
@@ -1212,6 +1213,143 @@ parse_game_machine_input_slot_transfer_command(const GameClientCommand& command)
     decoded.expected_player_slot = std::move(*expected_player);
     decoded.expected_machine_input_slot = std::move(*expected_machine);
     if (auto result = validate_game_machine_input_slot_transfer_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
+}
+
+snt::core::Expected<void> validate_game_creature_attack_command(
+    const GameCreatureAttackCommand& command) {
+    if (command.creature_entity_id == 0) {
+        return protocol_error("Game creature attack target is invalid");
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_creature_attack_command(
+    uint64_t client_sequence, const GameCreatureAttackCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game creature attack command sequence must be non-zero");
+    }
+    if (auto result = validate_game_creature_attack_command(command); !result) {
+        return result.error();
+    }
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kCreatureAttack);
+    append_u64(encoded.payload, command.creature_entity_id);
+    return encoded;
+}
+
+snt::core::Expected<GameCreatureAttackCommand>
+parse_game_creature_attack_command(const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kCreatureAttack)) {
+        return protocol_error("Game client command type is not CreatureAttack");
+    }
+    if (command.payload.size() != sizeof(uint64_t)) {
+        return protocol_error("Game creature attack command payload is invalid");
+    }
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    GameCreatureAttackCommand decoded{.creature_entity_id = read_u64(bytes, 0)};
+    if (auto result = validate_game_creature_attack_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
+}
+
+snt::core::Expected<void> validate_game_creature_capture_command(
+    const GameCreatureCaptureCommand& command) {
+    if (command.creature_entity_id == 0) {
+        return protocol_error("Game creature capture target is invalid");
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_creature_capture_command(
+    uint64_t client_sequence, const GameCreatureCaptureCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game creature capture command sequence must be non-zero");
+    }
+    if (auto result = validate_game_creature_capture_command(command); !result) {
+        return result.error();
+    }
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kCreatureCapture);
+    append_u64(encoded.payload, command.creature_entity_id);
+    return encoded;
+}
+
+snt::core::Expected<GameCreatureCaptureCommand>
+parse_game_creature_capture_command(const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kCreatureCapture)) {
+        return protocol_error("Game client command type is not CreatureCapture");
+    }
+    if (command.payload.size() != sizeof(uint64_t)) {
+        return protocol_error("Game creature capture command payload is invalid");
+    }
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    GameCreatureCaptureCommand decoded{.creature_entity_id = read_u64(bytes, 0)};
+    if (auto result = validate_game_creature_capture_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
+}
+
+snt::core::Expected<void> validate_game_captive_creature_feed_command(
+    const GameCaptiveCreatureFeedCommand& command) {
+    if (command.creature_entity_id == 0 || command.feed_item_id.empty() ||
+        command.feed_item_id.size() > kMaxGameItemIdBytes ||
+        has_embedded_nul(command.feed_item_id)) {
+        return protocol_error("Game captive creature feed command is invalid");
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_captive_creature_feed_command(
+    uint64_t client_sequence, const GameCaptiveCreatureFeedCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game captive creature feed command sequence must be non-zero");
+    }
+    if (auto result = validate_game_captive_creature_feed_command(command); !result) {
+        return result.error();
+    }
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kCaptiveCreatureFeed);
+    encoded.payload.reserve(sizeof(uint64_t) + sizeof(uint16_t) + command.feed_item_id.size());
+    append_u64(encoded.payload, command.creature_entity_id);
+    if (auto result = append_short_string(encoded.payload, command.feed_item_id,
+                                          kMaxGameItemIdBytes,
+                                          "captive creature feed item id", true);
+        !result) {
+        return result.error();
+    }
+    return encoded;
+}
+
+snt::core::Expected<GameCaptiveCreatureFeedCommand>
+parse_game_captive_creature_feed_command(const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(
+            GameClientCommandType::kCaptiveCreatureFeed)) {
+        return protocol_error("Game client command type is not CaptiveCreatureFeed");
+    }
+    if (command.payload.size() < sizeof(uint64_t) + sizeof(uint16_t)) {
+        return protocol_error("Game captive creature feed command is truncated");
+    }
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    size_t offset = 0;
+    GameCaptiveCreatureFeedCommand decoded;
+    decoded.creature_entity_id = read_u64(bytes, offset);
+    offset += sizeof(uint64_t);
+    auto feed_item_id = read_short_string(bytes, offset, kMaxGameItemIdBytes,
+                                          "captive creature feed item id", true);
+    if (!feed_item_id) return feed_item_id.error();
+    if (offset != bytes.size()) {
+        return protocol_error("Game captive creature feed command has trailing bytes");
+    }
+    decoded.feed_item_id = std::move(*feed_item_id);
+    if (auto result = validate_game_captive_creature_feed_command(decoded); !result) {
         return result.error();
     }
     return decoded;

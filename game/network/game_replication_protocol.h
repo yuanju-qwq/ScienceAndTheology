@@ -23,7 +23,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 14;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 16;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -127,6 +127,9 @@ enum class GameClientCommandType : uint16_t {
     kQuestClaimReward = 2,
     kInventorySlotTransfer = 3,
     kMachineInputSlotTransfer = 4,
+    kCreatureAttack = 5,
+    kCreatureCapture = 6,
+    kCaptiveCreatureFeed = 7,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -246,6 +249,22 @@ struct GameMachineInputSlotTransferCommand {
     GamePlayerItemStack expected_machine_input_slot;
 };
 
+// Creature commands never carry client-computed damage, coordinates, pen
+// bounds, or inventory mutations. The server resolves all of those from the
+// authenticated player, current wildlife state, world terrain, and content.
+struct GameCreatureAttackCommand {
+    uint64_t creature_entity_id = 0;
+};
+
+struct GameCreatureCaptureCommand {
+    uint64_t creature_entity_id = 0;
+};
+
+struct GameCaptiveCreatureFeedCommand {
+    uint64_t creature_entity_id = 0;
+    std::string feed_item_id;
+};
+
 // Snapshot and delta payloads deliberately keep world/actor semantics opaque.
 // Snapshot is snapshot_id plus chunk/entity blob lists; Delta is a snapshot
 // base id, monotonic sequence, block changes, and entity blobs. The game
@@ -269,6 +288,11 @@ struct GameEntitySnapshot {
 enum class GameReplicationValueKind : uint8_t {
     kQuestBook = 1,
     kPlayerInventory = 2,
+    // A complete observer-visible set of native creature presentation
+    // values. It intentionally remains separate from persistent ECS actors:
+    // far representatives are render-only, while nearby wild and captive
+    // creatures expose the same stable ids for authoritative commands.
+    kCreaturePresentation = 3,
 };
 
 enum class GameReplicationValueOperation : uint8_t {
@@ -369,6 +393,27 @@ make_game_machine_input_slot_transfer_command(
     uint64_t client_sequence, const GameMachineInputSlotTransferCommand& command);
 [[nodiscard]] snt::core::Expected<GameMachineInputSlotTransferCommand>
 parse_game_machine_input_slot_transfer_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_creature_attack_command(
+    const GameCreatureAttackCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_creature_attack_command(
+    uint64_t client_sequence, const GameCreatureAttackCommand& command);
+[[nodiscard]] snt::core::Expected<GameCreatureAttackCommand>
+parse_game_creature_attack_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_creature_capture_command(
+    const GameCreatureCaptureCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_creature_capture_command(
+    uint64_t client_sequence, const GameCreatureCaptureCommand& command);
+[[nodiscard]] snt::core::Expected<GameCreatureCaptureCommand>
+parse_game_creature_capture_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_captive_creature_feed_command(
+    const GameCaptiveCreatureFeedCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_captive_creature_feed_command(
+    uint64_t client_sequence, const GameCaptiveCreatureFeedCommand& command);
+[[nodiscard]] snt::core::Expected<GameCaptiveCreatureFeedCommand>
+parse_game_captive_creature_feed_command(const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_snapshot(
     const GameSnapshot& snapshot);
