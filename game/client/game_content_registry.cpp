@@ -620,6 +620,59 @@ void api_register_automation_controller_placement(
     }
 }
 
+void api_register_ae_network_node_placement(
+    const std::string& item_id,
+    const std::string& node_key,
+    int type,
+    const std::string& material_key,
+    bool enabled,
+    int provided_channels,
+    int connection_mask,
+    int drive_byte_capacity,
+    int drive_max_distinct_resources,
+    int drive_bytes_per_distinct_resource,
+    int drive_units_per_byte) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (type < static_cast<int>(AeNetworkNodeType::kController) ||
+        type > static_cast<int>(AeNetworkNodeType::kCable) || connection_mask < 0 ||
+        connection_mask > static_cast<int>(CONN_ALL)) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "AE node placement script registration contains an out-of-range enum or connection mask"});
+        return;
+    }
+
+    AeNetworkNodePlacementDefinition definition{
+        .item_id = item_id,
+        .node_key = node_key,
+        .type = static_cast<AeNetworkNodeType>(type),
+        .material_key = material_key,
+        .enabled = enabled,
+        .provided_channels = provided_channels,
+        .connection_mask = static_cast<uint8_t>(connection_mask),
+    };
+    if (definition.type == AeNetworkNodeType::kDrive) {
+        definition.drive_storage_cell = AeDriveStorageCellDefinition{
+            .byte_capacity = drive_byte_capacity,
+            .max_distinct_resources = static_cast<uint32_t>(drive_max_distinct_resources),
+            .bytes_per_distinct_resource = drive_bytes_per_distinct_resource,
+            .units_per_byte = drive_units_per_byte,
+        };
+    } else if (drive_byte_capacity != 0 || drive_max_distinct_resources != 0 ||
+               drive_bytes_per_distinct_resource != 0 || drive_units_per_byte != 0) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "Only AE drive placements may declare local storage capacity"});
+        return;
+    }
+    if (auto result = registry->register_script_ae_network_node_placement(
+            g_active_script_id, std::move(definition));
+        !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_set_machine_activation_requirements(
     const std::string& machine_id,
     bool requires_cover,
@@ -931,6 +984,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             engine,
             "void snt_register_automation_controller_placement(const string &in, const string &in, int, const string &in)",
             asFUNCTION(api_register_automation_controller_placement)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_register_ae_network_node_placement(const string &in, const string &in, int, const string &in, bool, int, int, int, int, int, int)",
+            asFUNCTION(api_register_ae_network_node_placement)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_set_machine_activation_requirements(const string &in, bool, bool, bool, const string &in)",
@@ -1479,6 +1536,11 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_automation_contr
     return automation_controller_placements_.register_builtin(std::move(definition));
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_ae_network_node_placement(
+    AeNetworkNodePlacementDefinition definition) {
+    return ae_network_node_placements_.register_builtin(std::move(definition));
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_quest_chapter(
     QuestBookChapterDefinition definition) {
     return register_quest_chapter(kBuiltinScriptId, std::move(definition), true);
@@ -1765,6 +1827,12 @@ GameContentRegistry::register_script_automation_controller_placement(
     ScriptId script_id,
     AutomationControllerPlacementDefinition definition) {
     return automation_controller_placements_.register_script(script_id, std::move(definition));
+}
+
+snt::core::Expected<void> GameContentRegistry::register_script_ae_network_node_placement(
+    ScriptId script_id,
+    AeNetworkNodePlacementDefinition definition) {
+    return ae_network_node_placements_.register_script(script_id, std::move(definition));
 }
 
 snt::core::Expected<void> GameContentRegistry::register_script_quest_chapter(
@@ -2535,9 +2603,49 @@ GameContentRegistry::validate_automation_controller_placement_references() const
             return invalid_state("Automation controller placement item '" + placement.item_id +
                                  "' has no registered game item definition");
         }
-        if (placement.kind != AutomationControllerKind::kSfmManager) {
+        if (placement.kind != AutomationControllerKind::kSfmManager &&
+            placement.kind != AutomationControllerKind::kAeController) {
             return invalid_state("Automation controller placement item '" + placement.item_id +
                                  "' has an unsupported controller kind");
+        }
+    }
+    return {};
+}
+
+const AeNetworkNodePlacementDefinition*
+GameContentRegistry::find_ae_network_node_placement_by_item(std::string_view item_id) const noexcept {
+    return ae_network_node_placements_.find_by_item(item_id);
+}
+
+const AeNetworkNodePlacementDefinition*
+GameContentRegistry::find_ae_network_node_placement_by_node_key(
+    std::string_view node_key) const noexcept {
+    return ae_network_node_placements_.find_by_node_key(node_key);
+}
+
+const AeNetworkNodePlacementDefinition*
+GameContentRegistry::find_ae_network_node_placement_by_material_key(
+    std::string_view material_key) const noexcept {
+    return ae_network_node_placements_.find_by_material_key(material_key);
+}
+
+std::vector<AeNetworkNodePlacementDefinition>
+GameContentRegistry::ae_network_node_placement_definitions() const {
+    return ae_network_node_placements_.definitions();
+}
+
+snt::core::Expected<void>
+GameContentRegistry::validate_ae_network_node_placement_references() const {
+    for (const AeNetworkNodePlacementDefinition& placement :
+         ae_network_node_placements_.definitions()) {
+        if (find_item(placement.item_id) == nullptr) {
+            return invalid_state("AE node placement item '" + placement.item_id +
+                                 "' has no registered game item definition");
+        }
+        if (placement.type == AeNetworkNodeType::kController ||
+            !is_known_ae_network_node_type(placement.type)) {
+            return invalid_state("AE node placement item '" + placement.item_id +
+                                 "' has an unsupported physical node type");
         }
     }
     return {};
@@ -2563,6 +2671,9 @@ snt::core::Expected<void> GameContentRegistry::validate_machine_item_references(
                              "' has no registered game item definition");
     }
     if (auto result = validate_automation_controller_placement_references(); !result) {
+        return result.error();
+    }
+    if (auto result = validate_ae_network_node_placement_references(); !result) {
         return result.error();
     }
     return {};
@@ -2720,6 +2831,11 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
         static_cast<void>(machine_placements_.rollback_reload(script_id));
         return result.error();
     }
+    if (auto result = ae_network_node_placements_.begin_reload(script_id); !result) {
+        static_cast<void>(automation_controller_placements_.rollback_reload(script_id));
+        static_cast<void>(machine_placements_.rollback_reload(script_id));
+        return result.error();
+    }
 
     auto [reload, inserted] = reloads_.emplace(script_id, snapshot_script_content(script_id));
     (void)inserted;
@@ -2727,6 +2843,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
         auto error = result.error();
         static_cast<void>(restore_script_content(reload->second));
         reloads_.erase(reload);
+        static_cast<void>(ae_network_node_placements_.rollback_reload(script_id));
         static_cast<void>(automation_controller_placements_.rollback_reload(script_id));
         static_cast<void>(machine_placements_.rollback_reload(script_id));
         error.with_context("Game content reload could not remove prior script content");
@@ -2750,6 +2867,9 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
     if (auto result = validate_automation_controller_placement_references(); !result) {
         return result.error();
     }
+    if (auto result = validate_ae_network_node_placement_references(); !result) {
+        return result.error();
+    }
     if (auto result = validate_machine_item_references(); !result) return result.error();
     auto next_snapshot = build_resource_runtime_snapshot();
     if (!next_snapshot) return next_snapshot.error();
@@ -2761,6 +2881,10 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
         return result.error();
     }
     if (auto result = automation_controller_placements_.commit_reload(script_id); !result) {
+        cancel_resource_runtime_snapshot();
+        return result.error();
+    }
+    if (auto result = ae_network_node_placements_.commit_reload(script_id); !result) {
         cancel_resource_runtime_snapshot();
         return result.error();
     }
@@ -2777,6 +2901,9 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
 
+    if (auto result = ae_network_node_placements_.rollback_reload(script_id); !result) {
+        return result.error();
+    }
     if (auto result = automation_controller_placements_.rollback_reload(script_id); !result) {
         return result.error();
     }
@@ -2816,6 +2943,11 @@ snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
         static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
         return result.error();
     }
+    if (auto result = ae_network_node_placements_.begin_reload_batch(script_ids); !result) {
+        static_cast<void>(automation_controller_placements_.rollback_reload_batch(script_ids));
+        static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
+        return result.error();
+    }
 
     std::vector<ScriptId> started;
     started.reserve(script_ids.size());
@@ -2823,6 +2955,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
         auto [reload, inserted] = reloads_.emplace(script_id, snapshot_script_content(script_id));
         (void)reload;
         if (!inserted) {
+            static_cast<void>(ae_network_node_placements_.rollback_reload_batch(script_ids));
             static_cast<void>(automation_controller_placements_.rollback_reload_batch(script_ids));
             static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
             for (auto it = started.rbegin(); it != started.rend(); ++it) {
@@ -2835,6 +2968,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
         }
         if (auto result = erase_script_content(script_id); !result) {
             auto error = result.error();
+            static_cast<void>(ae_network_node_placements_.rollback_reload_batch(script_ids));
             static_cast<void>(automation_controller_placements_.rollback_reload_batch(script_ids));
             static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
             for (auto it = started.rbegin(); it != started.rend(); ++it) {
@@ -2874,6 +3008,9 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
     if (auto result = validate_automation_controller_placement_references(); !result) {
         return result.error();
     }
+    if (auto result = validate_ae_network_node_placement_references(); !result) {
+        return result.error();
+    }
     if (auto result = validate_machine_item_references(); !result) return result.error();
     auto next_snapshot = build_resource_runtime_snapshot();
     if (!next_snapshot) return next_snapshot.error();
@@ -2885,6 +3022,10 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
         return result.error();
     }
     if (auto result = automation_controller_placements_.commit_reload_batch(script_ids); !result) {
+        cancel_resource_runtime_snapshot();
+        return result.error();
+    }
+    if (auto result = ae_network_node_placements_.commit_reload_batch(script_ids); !result) {
         cancel_resource_runtime_snapshot();
         return result.error();
     }
@@ -2910,6 +3051,9 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload_batch(
     const uint64_t item_content_revision = first_snapshot->second.item_content_revision;
     const uint64_t quest_content_revision = reload_batch_->quest_content_revision;
 
+    if (auto result = ae_network_node_placements_.rollback_reload_batch(script_ids); !result) {
+        return result.error();
+    }
     if (auto result = automation_controller_placements_.rollback_reload_batch(script_ids); !result) {
         return result.error();
     }
@@ -2958,6 +3102,14 @@ snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id)
         }
         return error;
     }
+    if (auto result = validate_ae_network_node_placement_references(); !result) {
+        auto error = result.error();
+        if (auto rollback = rollback_reload(script_id); !rollback) {
+            error.with_context("Game content unload rollback failed: " +
+                               rollback.error().format());
+        }
+        return error;
+    }
     if (auto result = commit_reload(script_id); !result) {
         auto error = result.error();
         if (auto rollback = rollback_reload(script_id); !rollback) {
@@ -2991,6 +3143,7 @@ void GameContentRegistry::reset() {
     live_quests_.clear();
     machine_placements_.reset();
     automation_controller_placements_.reset();
+    ae_network_node_placements_.reset();
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();

@@ -172,6 +172,7 @@ target_link_libraries(snt_game_source_law PUBLIC
 # versions, authenticated command admission, and AOI/snapshot value contracts.
 add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
+    network/game_ae_network_replication.cpp
     network/game_automation_controller_replication.cpp
     network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
@@ -210,6 +211,10 @@ add_library(snt_game_simulation STATIC
     simulation/day_night_cycle.cpp
     simulation/block_physics_system.cpp
     simulation/crop_growth_system.cpp
+    simulation/ae_network_persistence.cpp
+    simulation/ae_network_runtime.cpp
+    simulation/ae_drive_storage_runtime.cpp
+    simulation/ae_network_node_placement_registry.cpp
     simulation/automation_controller_placement_registry.cpp
     simulation/ecosystem_system.cpp
     simulation/wild_creature_system.cpp
@@ -292,6 +297,7 @@ set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theolog
 # intentionally excludes client presentation modules and transport choices.
 add_executable(snt_game_server
     server/main.cpp
+    server/game_server_ae_network_replication.cpp
     server/game_server_automation_controller_replication.cpp
     server/game_server_command_sink.cpp
     server/game_server_creature_interaction.cpp
@@ -305,6 +311,7 @@ add_executable(snt_game_server
     server/game_server_player_movement.cpp
     server/game_server_player_replication.cpp
     server/game_server_player_state.cpp
+    server/game_server_source_law_service.cpp
     server/server_chunk_ticket_controller.cpp
     server/science_and_theology_server_session.cpp
     runtime/runtime_package.cpp
@@ -414,6 +421,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # from the large client/UI integration-test executable.
     add_executable(snt_game_source_law_server_tests
         server/game_server_player_state.cpp
+        server/game_server_source_law_service.cpp
         tests/test_source_law_server_persistence.cpp
     )
     target_include_directories(snt_game_source_law_server_tests PRIVATE
@@ -455,6 +463,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # executable so protocol/cache coverage remains available while gameplay
     # systems evolve.
     add_executable(snt_game_automation_replication_tests
+        tests/test_game_ae_network_replication.cpp
         tests/test_game_automation_controller_replication.cpp
     )
     target_include_directories(snt_game_automation_replication_tests PRIVATE
@@ -469,6 +478,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # Keep controller execution coverage independent from the full simulation
     # host. The same runtime source is linked into snt_game_simulation.
     add_executable(snt_game_automation_runtime_tests
+        server/game_server_automation_controller_replication.cpp
         simulation/automation_controller_runtime.cpp
         tests/test_automation_controller_runtime.cpp
     )
@@ -477,8 +487,29 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     )
     target_link_libraries(snt_game_automation_runtime_tests PRIVATE
         snt_game_automation
+        snt_game_network
         snt_game_resources
         snt_game_world_data
+        snt_engine_settings
+        GTest::gtest_main
+    )
+
+    # The physical AE owner is intentionally tested without the full
+    # simulation executable: topology and sidecar persistence must remain
+    # independently verifiable during unrelated gameplay changes.
+    add_executable(snt_game_ae_runtime_tests
+        simulation/ae_network_persistence.cpp
+        simulation/ae_network_runtime.cpp
+        simulation/automation_controller_persistence.cpp
+        tests/test_ae_network_runtime.cpp
+    )
+    target_include_directories(snt_game_ae_runtime_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(snt_game_ae_runtime_tests PRIVATE
+        snt_game_automation
+        snt_game_world_save
+        snt_game_resources
         snt_engine_settings
         GTest::gtest_main
     )
@@ -505,6 +536,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_player_movement.cpp
         server/game_server_player_replication.cpp
         server/game_server_player_state.cpp
+        server/game_server_source_law_service.cpp
         server/server_chunk_ticket_controller.cpp
         server/science_and_theology_server_session.cpp
         tests/test_game_world.cpp
@@ -586,6 +618,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     gtest_discover_tests(snt_game_creature_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_automation_replication_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_automation_runtime_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(snt_game_ae_runtime_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_tests DISCOVERY_MODE PRE_TEST)
 
     add_custom_command(TARGET snt_game_tests POST_BUILD

@@ -1,6 +1,5 @@
 #include "material_item.hpp"
 
-#include "ae2/ae2_pattern_cache.hpp"
 #include "common/string_pool.hpp"
 
 #include <cassert>
@@ -170,10 +169,6 @@ const char* ItemRegistry::get_item_title_key(ItemId item_id) {
     const MaterialItem* item = get_item(item_id);
     if (item != nullptr) return item->title_key;
 
-    // Check encoded patterns.
-    const char* pattern_key = PatternDataCache::get_pattern_title_key(item_id);
-    if (pattern_key != nullptr) return pattern_key;
-
     // Check dynamic items.
     auto it = g_dynamic_id_to_index.find(item_id);
     if (it != g_dynamic_id_to_index.end()) {
@@ -189,10 +184,6 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
     if (item_id >= kMaterialItemBase && item_id < kMaterialItemMax) {
         const MaterialItem* item = get_item(item_id);
         return item != nullptr;
-    }
-    // Encoded patterns.
-    if (PatternDataCache::is_encoded_pattern(item_id)) {
-        return true;
     }
     // Dynamic items.
     if (is_dynamic_item(item_id)) {

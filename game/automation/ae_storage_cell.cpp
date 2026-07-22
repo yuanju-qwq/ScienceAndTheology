@@ -262,18 +262,22 @@ std::vector<ResourceStack> AeStorageCell::capture_runtime_contents(
     return contents;
 }
 
-bool AeStorageCell::set_network_storage_observer(
-    AeNetworkStorageHandle handle,
-    IAeNetworkStorageMutationObserver& observer) noexcept {
+bool AeStorageCell::set_resource_aggregate_observer(
+    ResourceAggregateStorageHandle handle,
+    IResourceAggregateMutationObserver& observer) noexcept {
     if (!handle.is_valid() || !context_.is_valid()) return false;
-    network_storage_handle_ = handle;
-    network_storage_observer_ = &observer;
+    if (resource_aggregate_observer_ != nullptr) {
+        SNT_LOG_ERROR("AE storage cell rejected a second aggregate observer without an explicit detach");
+        return false;
+    }
+    resource_aggregate_handle_ = handle;
+    resource_aggregate_observer_ = &observer;
     return true;
 }
 
-void AeStorageCell::clear_network_storage_observer() noexcept {
-    network_storage_observer_ = nullptr;
-    network_storage_handle_ = {};
+void AeStorageCell::clear_resource_aggregate_observer() noexcept {
+    resource_aggregate_observer_ = nullptr;
+    resource_aggregate_handle_ = {};
 }
 
 snt::core::Expected<void> AeStorageCell::rebind(
@@ -282,7 +286,7 @@ snt::core::Expected<void> AeStorageCell::rebind(
     if (pending_resource_runtime_snapshot_) {
         return invalid_state("AE storage cell cannot rebind while a snapshot is pending");
     }
-    if (has_network_storage_observer()) {
+    if (has_resource_aggregate_observer()) {
         return invalid_state("AE storage cell must detach from its network aggregate before rebind");
     }
     auto rebound = build_rebound_snapshot(
@@ -297,7 +301,7 @@ snt::core::Expected<void> AeStorageCell::prepare_resource_runtime_snapshot(
     if (pending_resource_runtime_snapshot_) {
         return invalid_state("AE storage cell already has a pending resource snapshot");
     }
-    if (has_network_storage_observer()) {
+    if (has_resource_aggregate_observer()) {
         return invalid_state("AE storage cell must detach from its network aggregate before reload");
     }
     auto rebound = build_rebound_snapshot(resource_runtime_index_, next_snapshot);
@@ -429,16 +433,16 @@ bool AeStorageCell::accepts_key(
 
 bool AeStorageCell::can_apply_network_delta(
     const ResourceStack& changed, int64_t delta) const noexcept {
-    return network_storage_observer_ == nullptr ||
-        network_storage_observer_->can_apply_ae_storage_delta(
-            network_storage_handle_, context_, changed, delta);
+    return resource_aggregate_observer_ == nullptr ||
+        resource_aggregate_observer_->can_apply_resource_aggregate_delta(
+            resource_aggregate_handle_, context_, changed, delta);
 }
 
 void AeStorageCell::apply_network_delta(
     const ResourceStack& changed, int64_t delta) noexcept {
-    if (network_storage_observer_ == nullptr) return;
-    network_storage_observer_->apply_ae_storage_delta(
-        network_storage_handle_, context_, changed, delta);
+    if (resource_aggregate_observer_ == nullptr) return;
+    resource_aggregate_observer_->apply_resource_aggregate_delta(
+        resource_aggregate_handle_, context_, changed, delta);
 }
 
 }  // namespace snt::game

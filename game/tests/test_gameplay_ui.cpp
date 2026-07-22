@@ -63,6 +63,16 @@ snt::core::Expected<std::shared_ptr<LocalizationService>> make_test_localization
                     {"ui.automation.empty", "No flow nodes"},
                     {"ui.automation.interval", "#{id} Every {ticks} ticks"},
                     {"ui.automation.transfer", "#{id} {source} -> {destination} {resource} x{amount}"},
+                    {"ui.ae_network.title", "AE Network Controller"},
+                    {"ui.ae_network.online", "Online {nodes} {controllers} {channels}"},
+                    {"ui.ae_network.offline", "Offline {nodes} {controllers} {channels}"},
+                    {"ui.ae_network.component", "Component {id} {provided} {power}"},
+                    {"ui.ae_network.devices", "Devices {online} {offline}"},
+                    {"ui.ae_network.topology", "Topology {revision} {enabled}"},
+                    {"ui.ae_network.powered", "Powered"},
+                    {"ui.ae_network.unpowered", "Unpowered"},
+                    {"ui.ae_network.enabled", "Enabled"},
+                    {"ui.ae_network.disabled", "Disabled"},
                     {"ui.performance.title", "Performance"},
                     {"ui.performance.fps", "FPS  {fps}   Frame {frame_ms} ms"},
                     {"ui.performance.tps", "TPS  {tps}   MSPT {mspt}"},
@@ -84,6 +94,16 @@ snt::core::Expected<std::shared_ptr<LocalizationService>> make_test_localization
                     {"ui.automation.empty", "没有流图节点"},
                     {"ui.automation.interval", "#{id} 每 {ticks} tick"},
                     {"ui.automation.transfer", "#{id} {source} -> {destination} {resource} x{amount}"},
+                    {"ui.ae_network.title", "AE 网络控制器"},
+                    {"ui.ae_network.online", "在线 {nodes} {controllers} {channels}"},
+                    {"ui.ae_network.offline", "离线 {nodes} {controllers} {channels}"},
+                    {"ui.ae_network.component", "组件 {id} {provided} {power}"},
+                    {"ui.ae_network.devices", "设备 {online} {offline}"},
+                    {"ui.ae_network.topology", "拓扑 {revision} {enabled}"},
+                    {"ui.ae_network.powered", "已供能"},
+                    {"ui.ae_network.unpowered", "未供能"},
+                    {"ui.ae_network.enabled", "已启用"},
+                    {"ui.ae_network.disabled", "已禁用"},
                     {"ui.performance.title", "性能"},
                     {"ui.performance.fps", "FPS  {fps}   帧时间 {frame_ms} ms"},
                     {"ui.performance.tps", "TPS  {tps}   每刻耗时 {mspt}"},
@@ -905,4 +925,55 @@ TEST(GameplayUi, AutomationControllerPanelUsesOnlyStablePresentationValues) {
 
     controller.clear_automation_controller_authority();
     EXPECT_FALSE(controller.automation_controller_open());
+}
+
+TEST(GameplayUi, AeNetworkPanelUsesOnlyReplicatedTopologyValues) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+
+    AeNetworkPanelState state{
+        .dimension_id = "overworld",
+        .root_x = 3,
+        .root_y = 7,
+        .root_z = -2,
+        .anchor_entity_id = 52,
+        .node_revision = 8,
+        .topology_revision = 13,
+        .enabled = true,
+        .online = true,
+        .component_powered = true,
+        .component_id = 4,
+        .component_node_count = 3,
+        .component_controller_count = 1,
+        .provided_channels = 32,
+        .component_total_channels = 32,
+        .component_online_devices = 1,
+        .component_offline_devices = 1,
+    };
+    AeNetworkPanelViewModel model;
+    ASSERT_TRUE(model.apply_authoritative_state(state));
+    AeNetworkPanelState stale = state;
+    stale.topology_revision = 12;
+    EXPECT_FALSE(model.apply_authoritative_state(std::move(stale)));
+
+    GameplayUiController controller{
+        InventoryViewModel{make_starting_inventory()},
+        make_starting_crafting_recipes(),
+    };
+    controller.open_ae_network(std::move(state));
+    EXPECT_TRUE(controller.ae_network_open());
+    auto root = build_gameplay_ui_root(controller, {1280.0f, 720.0f}, **localization);
+    ASSERT_NE(root->find("ae_network_panel"), nullptr);
+    ASSERT_NE(root->find("ae_network_component"), nullptr);
+    ASSERT_NE(root->find("ae_network_devices"), nullptr);
+
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    UiRuntime runtime(*paths);
+    const UiFrameResult frame = layout_and_paint(runtime, *root, {1280.0f, 720.0f});
+    EXPECT_TRUE(has_text_command(frame.commands, "AE 网络控制器"));
+    EXPECT_TRUE(has_text_command(frame.commands, "32"));
+
+    controller.clear_ae_network_authority();
+    EXPECT_FALSE(controller.ae_network_open());
 }

@@ -5,6 +5,8 @@
 
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
+#include "game/simulation/ae_network_persistence.h"
+#include "game/simulation/ae_network_runtime.h"
 #include "game/simulation/automation_controller_persistence.h"
 #include "game/simulation/automation_controller_runtime.h"
 #include "game/simulation/block_physics_system.h"
@@ -375,6 +377,12 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
             "ScienceAndTheologySimulationSession::create_world(automation controller sidecars)");
         return error;
     }
+    if (auto result = GameAeNetworkPersistence::validate_all(chunk_sidecars_); !result) {
+        auto error = result.error();
+        error.with_context("ScienceAndTheologySimulationSession::create_world(AE node sidecars)");
+        return error;
+    }
+    ae_network_runtime_ = std::make_unique<AeNetworkRuntimeService>();
     automation_controller_runtime_ = std::make_unique<AutomationControllerRuntimeService>(
         content_registry_.resource_runtime_index());
     if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
@@ -546,6 +554,15 @@ ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
     if (automation_controller_runtime_) {
         automation_controller_runtime_->dematerialize_chunk(chunk_key);
     }
+    if (ae_network_runtime_) {
+        auto result = ae_network_runtime_->dematerialize_chunk(chunk_key);
+        if (!result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::dematerialize_chunk_machines(AE)");
+            return error;
+        }
+    }
     return *transition;
 }
 
@@ -563,6 +580,17 @@ ScienceAndTheologySimulationSession::dematerialize_chunks_machines(
     if (automation_controller_runtime_) {
         for (const ChunkKey& chunk_key : chunk_keys) {
             automation_controller_runtime_->dematerialize_chunk(chunk_key);
+        }
+    }
+    if (ae_network_runtime_) {
+        for (const ChunkKey& chunk_key : chunk_keys) {
+            auto result = ae_network_runtime_->dematerialize_chunk(chunk_key);
+            if (!result) {
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::dematerialize_chunks_machines(AE)");
+                return error;
+            }
         }
     }
     return *transition;
@@ -589,6 +617,24 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
             auto error = result.error();
             error.with_context(
                 "ScienceAndTheologySimulationSession::materialize_chunk_machines(automation)");
+            return error;
+        }
+    }
+    if (ae_network_runtime_) {
+        const GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
+        if (sidecar == nullptr) {
+            auto result = ae_network_runtime_->dematerialize_chunk(chunk_key);
+            if (!result) {
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE remove)");
+                return error;
+            }
+        } else if (auto result = ae_network_runtime_->materialize_chunk(chunk_key, *sidecar);
+                   !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE)");
             return error;
         }
     }
@@ -805,6 +851,7 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
             *automation_controller_runtime_);
         automation_controller_runtime_.reset();
     }
+    ae_network_runtime_.reset();
     if (offline_machine_simulation_) {
         if (auto result = offline_machine_simulation_->flush(
                 offline_machine_simulation_->last_tick()); !result) {

@@ -299,6 +299,10 @@ enum class GameReplicationValueKind : uint8_t {
     // AOI-filtered graph/controller presentation. It is a sidecar-owned
     // block-owner projection, never an ECS machine entity or editor command.
     kAutomationControllers = 4,
+    // AOI-filtered physical AE topology. It is a separate value stream from
+    // SFM flow programs so its compact node/component state can evolve without
+    // carrying graph editor data or resource-storage implementation details.
+    kAeNetworkNodes = 5,
 };
 
 enum class GameReplicationValueOperation : uint8_t {

@@ -15,6 +15,7 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
+#include "game/network/game_ae_network_replication.h"
 #include "game/network/game_automation_controller_replication.h"
 #include "game/network/game_creature_replication.h"
 #include "game/network/game_inventory_replication.h"
@@ -218,6 +219,29 @@ struct LocalTerrainCell {
         });
     }
     return state;
+}
+
+[[nodiscard]] AeNetworkPanelState make_ae_network_panel_state(
+    const replication::GameAeNetworkReplicationState& node) {
+    return {
+        .dimension_id = node.anchor_chunk.dimension_id,
+        .root_x = node.root_x,
+        .root_y = node.root_y,
+        .root_z = node.root_z,
+        .anchor_entity_id = node.anchor_entity_id,
+        .node_revision = node.authoritative_revision,
+        .topology_revision = node.topology_revision,
+        .enabled = node.enabled,
+        .online = node.online,
+        .component_powered = node.component_powered,
+        .component_id = node.component_id,
+        .component_node_count = node.component_node_count,
+        .component_controller_count = node.component_controller_count,
+        .provided_channels = node.provided_channels,
+        .component_total_channels = node.component_total_channels,
+        .component_online_devices = node.component_online_devices,
+        .component_offline_devices = node.component_offline_devices,
+    };
 }
 
 [[nodiscard]] uint8_t make_machine_activation_hints(
@@ -714,6 +738,9 @@ void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
         remote_automation_controller_world_ =
             std::make_unique<replication::GameRemoteAutomationControllerWorld>();
     }
+    if (!remote_ae_network_world_) {
+        remote_ae_network_world_ = std::make_unique<replication::GameRemoteAeNetworkWorld>();
+    }
     if (!quest_book_state_) {
         quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(account_id);
     }
@@ -730,11 +757,13 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
     }
     if (remote_machine_world_) remote_machine_world_->clear();
     if (remote_automation_controller_world_) remote_automation_controller_world_->clear();
+    if (remote_ae_network_world_) remote_ae_network_world_->clear();
     if (remote_creature_world_) remote_creature_world_->clear();
     if (creature_presentation_world_) creature_presentation_world_->clear();
     if (gameplay_ui_) {
         gameplay_ui_->clear_machine_authority();
         gameplay_ui_->clear_automation_controller_authority();
+        gameplay_ui_->clear_ae_network_authority();
     }
     if (remote_player_world_) remote_player_world_->clear();
     if (remote_inventory_state_) {
@@ -1145,6 +1174,9 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                 const bool first_automation_controller_snapshot =
                     remote_automation_controller_world_ &&
                     remote_automation_controller_world_->active_snapshot_id() == 0;
+                const bool first_ae_network_snapshot =
+                    remote_ae_network_world_ &&
+                    remote_ae_network_world_->active_snapshot_id() == 0;
                 const bool first_creature_snapshot =
                     remote_creature_world_ && remote_creature_world_->active_snapshot_id() == 0;
                 const bool creature_value_changed = std::visit(
@@ -1199,6 +1231,17 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                         auto error = applied.error();
                         error.with_context(
                             "ScienceAndTheologyClientSession::fixed_tick(automation controller replication)");
+                        return error;
+                    }
+                }
+                if (remote_ae_network_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_ae_network_world_->apply(value); },
+                        update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(AE network replication)");
                         return error;
                     }
                 }
@@ -1306,6 +1349,13 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                             remote_automation_controller_world_->active_snapshot_id()),
                         remote_automation_controller_world_->controller_count());
                 }
+                if (first_ae_network_snapshot && remote_ae_network_world_ &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative AE network snapshot %llu with %zu node value(s)",
+                                 static_cast<unsigned long long>(
+                                     remote_ae_network_world_->active_snapshot_id()),
+                                 remote_ae_network_world_->node_count());
+                }
                 if (first_creature_snapshot && remote_creature_world_ &&
                     std::holds_alternative<replication::GameSnapshot>(update)) {
                     SNT_LOG_INFO("Applied authoritative creature snapshot %llu with %zu visible creature value(s)",
@@ -1316,6 +1366,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
             }
             refresh_open_machine_panel();
             refresh_open_automation_controller_panel();
+            refresh_open_ae_network_panel();
             if (remote_player_world_) apply_authoritative_local_player();
         }
         if (replication_session_->status().state ==
@@ -1625,6 +1676,25 @@ bool ScienceAndTheologyClientSession::try_open_network_automation_controller_pan
     return true;
 }
 
+bool ScienceAndTheologyClientSession::try_open_network_ae_network_panel() {
+    if (!gameplay_ui_ || !remote_ae_network_world_ || !replication_session_ ||
+        replication_session_->status().state !=
+            replication::GameClientConnectionState::kAuthenticated) {
+        return false;
+    }
+    const auto target = current_network_interaction_target();
+    if (!target) return false;
+    const auto node = remote_ae_network_world_->find_node_at(
+        target->dimension_id, target->hit_x, target->hit_y, target->hit_z);
+    if (!node || node->type != AeNetworkNodeType::kController) return false;
+    gameplay_ui_->open_ae_network(make_ae_network_panel_state(*node));
+    if (!gameplay_ui_->ae_network_open()) return false;
+    SNT_LOG_INFO("AE network UI opened at %s (%d, %d, %d) component=%u",
+                 target->dimension_id.c_str(), target->hit_x, target->hit_y, target->hit_z,
+                 static_cast<unsigned int>(node->component_id));
+    return true;
+}
+
 void ScienceAndTheologyClientSession::refresh_open_automation_controller_panel() {
     if (!gameplay_ui_ || !gameplay_ui_->automation_controller_open()) return;
     const AutomationControllerPanelState* const opened =
@@ -1642,6 +1712,24 @@ void ScienceAndTheologyClientSession::refresh_open_automation_controller_panel()
     if (!gameplay_ui_->automation_controller_panel().apply_authoritative_state(
             make_automation_controller_panel_state(*controller))) {
         gameplay_ui_->clear_automation_controller_authority();
+    }
+}
+
+void ScienceAndTheologyClientSession::refresh_open_ae_network_panel() {
+    if (!gameplay_ui_ || !gameplay_ui_->ae_network_open()) return;
+    const AeNetworkPanelState* const opened = gameplay_ui_->ae_network_panel().state();
+    if (opened == nullptr || !remote_ae_network_world_) {
+        gameplay_ui_->clear_ae_network_authority();
+        return;
+    }
+    const auto node = remote_ae_network_world_->find_node(opened->anchor_entity_id);
+    if (!node || node->type != AeNetworkNodeType::kController) {
+        gameplay_ui_->clear_ae_network_authority();
+        return;
+    }
+    if (!gameplay_ui_->ae_network_panel().apply_authoritative_state(
+            make_ae_network_panel_state(*node))) {
+        gameplay_ui_->clear_ae_network_authority();
     }
 }
 
@@ -1840,14 +1928,18 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         quest_book_open = !quest_book_open;
     }
     if (!lan_browser_open && !quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_E]) {
-        if (gameplay_ui_->automation_controller_open()) {
+        if (gameplay_ui_->ae_network_open()) {
+            gameplay_ui_->close();
+            SNT_LOG_INFO("AE network UI closed");
+        } else if (gameplay_ui_->automation_controller_open()) {
             gameplay_ui_->close();
             SNT_LOG_INFO("Automation controller UI closed");
         } else if (gameplay_ui_->machine_open()) {
             gameplay_ui_->close();
             SNT_LOG_INFO("Machine UI closed");
         } else if (!uses_network_presentation() ||
-                   (!try_open_network_automation_controller_panel() &&
+                   (!try_open_network_ae_network_panel() &&
+                    !try_open_network_automation_controller_panel() &&
                     !try_open_network_machine_panel())) {
             gameplay_ui_->toggle_inventory();
             SNT_LOG_INFO("Inventory UI %s", gameplay_ui_->inventory_open() ? "opened" : "closed");
@@ -1879,7 +1971,8 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
 
     bool gameplay_ui_open = gameplay_ui_ &&
         (gameplay_ui_->inventory_open() || gameplay_ui_->crafting_open() ||
-         gameplay_ui_->machine_open());
+         gameplay_ui_->machine_open() || gameplay_ui_->automation_controller_open() ||
+         gameplay_ui_->ae_network_open());
     if (input.esc_pressed && lan_browser_open) {
         set_lan_server_browser_visible(false);
         lan_browser_open = false;

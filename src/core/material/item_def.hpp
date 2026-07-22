@@ -11,7 +11,7 @@ namespace science_and_theology::gt {
 // ============================================================
 //
 // Every game item has a unique ItemId and these basic properties.
-// Module-specific types (MaterialItem, GT tools, AE patterns) extend
+// Module-specific types (MaterialItem and GT tools) extend
 // this struct with module-specific data.
 //
 // const char* fields point to storage owned by the extending struct.

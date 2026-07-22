@@ -52,6 +52,7 @@ class GameCropGrowthSystem;
 class GameEcosystemSystem;
 class GameWildCreatureSystem;
 class GameFluidSystem;
+class AeNetworkRuntimeService;
 class AutomationControllerRuntimeService;
 class GameTreeGrowthSystem;
 class IGameEcosystemEnvironmentProvider;
@@ -218,6 +219,15 @@ public:
     automation_controller_runtime() const noexcept {
         return automation_controller_runtime_.get();
     }
+    // Physical AE topology is separately owned from SFM flow executors. The
+    // server reads value-only active-node state through this narrow boundary;
+    // durable node records remain owned by world_sidecars().
+    [[nodiscard]] AeNetworkRuntimeService* ae_network_runtime() noexcept {
+        return ae_network_runtime_.get();
+    }
+    [[nodiscard]] const AeNetworkRuntimeService* ae_network_runtime() const noexcept {
+        return ae_network_runtime_.get();
+    }
 
     // Chunk streaming calls these only at an authoritative fixed-tick barrier.
     // They transfer machine ownership before terrain is removed or restored.
@@ -280,6 +290,7 @@ private:
     std::unique_ptr<OfflineIndustrialNetworkIslandSimulator>
         offline_industrial_network_simulator_;
     std::unique_ptr<OfflineMachineSimulationService> offline_machine_simulation_;
+    std::unique_ptr<AeNetworkRuntimeService> ae_network_runtime_;
     std::unique_ptr<AutomationControllerRuntimeService> automation_controller_runtime_;
     IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;

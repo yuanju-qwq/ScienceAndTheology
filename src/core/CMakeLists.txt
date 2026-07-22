@@ -142,20 +142,6 @@ target_sources(snt_core PRIVATE
 # target_sources(snt_core PRIVATE
 #     common/graph/graph.cpp
 # )
-# AE2 autocrafting system
-target_sources(snt_core PRIVATE
-    ae2/ae2_pattern.cpp
-    ae2/ae2_crafting_tree.cpp
-    ae2/ae2_crafting_resolver.cpp
-    ae2/ae2_crafting_cpu.cpp
-    ae2/ae2_crafting_service.cpp
-    ae2/ae2_pattern_provider.cpp
-    ae2/ae2_pattern_cache.cpp
-    ae2/ae2_resource_id.cpp
-    ae2/ae2_storage_cell.cpp
-    ae2/ae2_me_network.cpp
-)
-
 # Magic system (runes, glyphs, spell books, altars, rituals)
 target_sources(snt_core PRIVATE
     magic/rune_registry.cpp
@@ -247,26 +233,4 @@ target_sources(snt_core PRIVATE
     universe/structure_anchor_manager.cpp
     universe/virtual_planet_simulator.hpp
     universe/virtual_planet_simulator.cpp
-)
-
-# SFM (Steve's Factory Manager) — visual flow-programming logistics system
-# Design: node-based editor controlling item/fluid/energy/redstone transfer
-# between containers connected via cables to a Manager block.
-target_sources(snt_core PRIVATE
-    sfm/flow_types.hpp
-    sfm/flow_node.hpp
-    sfm/flow_node_factory.hpp
-    sfm/flow_node_factory.cpp
-    sfm/flow_program.hpp
-    sfm/flow_program.cpp
-    sfm/flow_variable.hpp
-    sfm/flow_variable.cpp
-    sfm/i_container_access.hpp
-    sfm/i_container_access.cpp
-    sfm/flow_executor.hpp
-    sfm/flow_executor.cpp
-    sfm/cable_graph.hpp
-    sfm/cable_graph.cpp
-    sfm/sfm_manager.hpp
-    sfm/sfm_manager.cpp
 )

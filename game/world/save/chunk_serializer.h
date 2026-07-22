@@ -18,10 +18,10 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v25 adds stable automation-controller
-    // content keys beside durable SFM flow graphs; compact ResourceKey IDs
-    // never cross the persistence boundary.
-    static constexpr uint8_t kCurrentVersion = 25;
+    // Current binary format version. v27 adds durable AE drive cell contents
+    // beside typed physical node owners; compact ResourceKey IDs never cross
+    // the persistence boundary.
+    static constexpr uint8_t kCurrentVersion = 27;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current
@@ -127,6 +127,23 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         AutomationControllerPersistenceRecord& record);
+
+    // --- AE-network node sidecar serialization ---
+
+    static void write_ae_network_node_record(
+        std::vector<uint8_t>& buf,
+        const AeNetworkNodePersistenceRecord& record);
+    static bool read_ae_network_node_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        AeNetworkNodePersistenceRecord& record);
+    static void write_ae_drive_storage_record(
+        std::vector<uint8_t>& buf,
+        const AeDriveStoragePersistenceRecord& record);
+    static bool read_ae_drive_storage_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        AeDriveStoragePersistenceRecord& record);
 
     // --- Tree-growth sidecar serialization ---
 

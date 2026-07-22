@@ -90,9 +90,12 @@ TEST(SourceLawContentTest, BuiltinV01DeclaresTheEightSlotSharedRockLizardTemplat
 
     ASSERT_NE(content.find_organ("snt:rock_core_heart"), nullptr);
     ASSERT_NE(content.find_organ("snt:mineral_viscera"), nullptr);
+    ASSERT_NE(content.find_tuning("snt:tuning.rock_core_purification"), nullptr);
     ASSERT_NE(content.find_system("snt:system.sand_armor.circulatory"), nullptr);
     ASSERT_NE(content.find_system("snt:system.sand_armor.musculoskeletal"), nullptr);
+    ASSERT_NE(content.find_system("snt:system.sand_armor.integumentary"), nullptr);
     ASSERT_NE(content.find_intrinsic("snt:intrinsic.sand_armor.pressure_shell"), nullptr);
+    ASSERT_NE(content.find_intrinsic("snt:intrinsic.sand_armor.boundary_shell"), nullptr);
     ASSERT_NE(content.find_hybrid_link("snt:hybrid.sand_armor.mantle_charge"), nullptr);
     ASSERT_NE(content.find_spell_graph("snt:spell_graph.sand_armor.signature_mantle_charge"),
               nullptr);
@@ -115,10 +118,14 @@ TEST(SourceLawEvaluatorTest, SandArmorLoopsCloseAndPrimaryCircuitRemainsValid) {
         evaluation, "snt:system.sand_armor.circulatory");
     const SourceLawSystemReport* musculoskeletal = find_system(
         evaluation, "snt:system.sand_armor.musculoskeletal");
+    const SourceLawSystemReport* integumentary = find_system(
+        evaluation, "snt:system.sand_armor.integumentary");
     ASSERT_NE(circulatory, nullptr);
     ASSERT_NE(musculoskeletal, nullptr);
+    ASSERT_NE(integumentary, nullptr);
     EXPECT_EQ(circulatory->state, SourceLawSystemState::kClosed);
     EXPECT_EQ(musculoskeletal->state, SourceLawSystemState::kGrowing);
+    EXPECT_EQ(integumentary->state, SourceLawSystemState::kClosed);
     EXPECT_TRUE(circulatory->reaction.is_continuous);
     EXPECT_TRUE(circulatory->reaction.all_byproducts_resolved);
     EXPECT_TRUE(evaluation.circuit_schedule.primary_circuit_is_valid);
@@ -129,13 +136,17 @@ TEST(SourceLawEvaluatorTest, SandArmorLoopsCloseAndPrimaryCircuitRemainsValid) {
     EXPECT_EQ(evaluation.integration.stage, SourceBodyStage::kGrowing);
     EXPECT_TRUE(evaluation.path.definition_exists);
     EXPECT_TRUE(evaluation.path.is_resonant);
-    EXPECT_EQ(evaluation.path.applied_reaction_preferences.size(), 2U);
+    EXPECT_EQ(evaluation.path.applied_reaction_preferences.size(), 3U);
     EXPECT_TRUE(has_id(evaluation.capability_snapshot.available_intrinsic_ids,
                        "snt:intrinsic.sand_armor.pressure_shell"));
     EXPECT_TRUE(has_id(evaluation.capability_snapshot.available_intrinsic_ids,
                        "snt:intrinsic.sand_armor.structural_charge"));
+    EXPECT_TRUE(has_id(evaluation.capability_snapshot.available_intrinsic_ids,
+                       "snt:intrinsic.sand_armor.boundary_shell"));
     EXPECT_TRUE(has_id(evaluation.capability_snapshot.available_product_ids,
                        "snt:product.sand_armor.pressure"));
+    EXPECT_TRUE(has_id(evaluation.capability_snapshot.available_product_ids,
+                       "snt:product.sand_armor.boundary"));
 }
 
 TEST(SourceLawEvaluatorTest, MissingBloodDowngradesLoopWithReadableReactionReason) {
@@ -316,6 +327,56 @@ TEST(SourceLawTransactionTest, ImplantIsAtomicAndPublishesStateTransitionsOnlyAf
     EXPECT_FALSE(rejected);
     EXPECT_EQ(body.source_reserve_current, 10);
     EXPECT_FALSE(body.organs[static_cast<size_t>(SourceOrganSlot::kBone)]);
+}
+
+TEST(SourceLawTransactionTest, ContentBoundedTuningPurifiesOnlyLowRiskInstalledOrgans) {
+    const SourceLawContentSnapshot content = builtin_content();
+    SourceLawBodyState body = make_sand_armor_body();
+    body.source_reserve_current = 20;
+    body.source_reserve_max = 20;
+    body.stability = 80.0F;
+    body.mutation = 20.0F;
+    auto& heart = body.organs[static_cast<size_t>(SourceOrganSlot::kHeart)];
+    ASSERT_TRUE(heart);
+    heart->contamination = 0.50F;
+
+    const auto committed = SourceLawTransactionService::tune_organ(content, body, {
+        .slot = SourceOrganSlot::kHeart,
+        .tuning_definition_id = "snt:tuning.rock_core_purification",
+        .diagnostic_subject_id = "test-player",
+    });
+    ASSERT_TRUE(committed) << (committed ? "" : committed.error().format());
+    EXPECT_EQ(body.source_reserve_current, 20);
+    EXPECT_EQ(committed->body.source_reserve_current, 17);
+    EXPECT_EQ(committed->body.body_revision, 1U);
+    EXPECT_FLOAT_EQ(committed->body.stability, 85.0F);
+    EXPECT_FLOAT_EQ(committed->body.mutation, 16.0F);
+    const auto& tuned = committed->body.organs[static_cast<size_t>(SourceOrganSlot::kHeart)];
+    ASSERT_TRUE(tuned);
+    EXPECT_FLOAT_EQ(tuned->contamination, 0.25F);
+    EXPECT_TRUE(has_id(tuned->tuning_tags, "snt:tuning.rock_core.purified"));
+    EXPECT_EQ(committed->evaluation.capability_snapshot.body_revision, 1U);
+
+    const auto tuning_event = std::find_if(
+        committed->events.begin(), committed->events.end(), [](const auto& event) {
+            return event.kind == SourceLawTransactionEventKind::kOrganTuned;
+        });
+    ASSERT_NE(tuning_event, committed->events.end());
+    EXPECT_EQ(tuning_event->definition_id, "snt:tuning.rock_core_purification");
+    EXPECT_FLOAT_EQ(tuning_event->contamination_delta, -0.25F);
+    EXPECT_FLOAT_EQ(tuning_event->mutation_delta, -4.0F);
+    EXPECT_FLOAT_EQ(tuning_event->stability_delta, 5.0F);
+
+    SourceLawBodyState severe = body;
+    severe.mutation = 26.0F;
+    const SourceLawBodyState severe_before = severe;
+    const auto rejected = SourceLawTransactionService::tune_organ(content, severe, {
+        .slot = SourceOrganSlot::kHeart,
+        .tuning_definition_id = "snt:tuning.rock_core_purification",
+        .diagnostic_subject_id = "test-player",
+    });
+    EXPECT_FALSE(rejected);
+    EXPECT_EQ(severe, severe_before);
 }
 
 TEST(SourceLawPersistenceTest, CurrentSchemaRoundTripsAndRejectsRetiredSchemas) {

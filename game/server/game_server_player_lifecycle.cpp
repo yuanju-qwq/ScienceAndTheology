@@ -6,6 +6,7 @@
 #include "core/error.h"
 #include "core/log.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <utility>
@@ -26,10 +27,11 @@ namespace {
 GameServerPlayerLifecycle::GameServerPlayerLifecycle(QuestRegistry& quests,
                                                      GameServerPlayerState& player_state,
                                                      std::string universe_save_dir,
-                                                     uint64_t autosave_interval_ticks)
+                                                     uint64_t autosave_interval_ticks,
+                                                     std::vector<IGameServerPlayerLifecycleParticipant*> participants)
     : quests_(&quests), player_state_(&player_state), persistence_(universe_save_dir),
       player_state_persistence_(std::move(universe_save_dir)),
-      autosave_interval_ticks_(autosave_interval_ticks) {}
+      participants_(std::move(participants)), autosave_interval_ticks_(autosave_interval_ticks) {}
 
 snt::core::Expected<void> GameServerPlayerLifecycle::on_peer_authenticated(
     const GameAuthenticatedPeer& peer,
@@ -45,6 +47,12 @@ snt::core::Expected<void> GameServerPlayerLifecycle::on_peer_authenticated(
     }
     if (active_accounts_.contains(peer.identity.account_id)) {
         return invalid_state("Authenticated player lifecycle already has this account online");
+    }
+    if (std::any_of(participants_.begin(), participants_.end(),
+                    [](const IGameServerPlayerLifecycleParticipant* participant) {
+                        return participant == nullptr;
+                    })) {
+        return invalid_state("Game server player lifecycle has a null participant");
     }
 
     const auto [resident, inserted] = resident_accounts_.emplace(peer.identity.account_id);
@@ -73,6 +81,23 @@ snt::core::Expected<void> GameServerPlayerLifecycle::on_peer_authenticated(
     active_peers_.emplace(peer.peer, peer.identity.account_id);
     active_sessions_.emplace(peer.peer, peer);
     active_accounts_.emplace(peer.identity.account_id, peer.peer);
+    size_t activated_participant_count = 0;
+    for (IGameServerPlayerLifecycleParticipant* participant : participants_) {
+        if (auto result = participant->on_player_activated(peer); !result) {
+            for (size_t index = activated_participant_count; index > 0; --index) {
+                participants_[index - 1]->on_player_deactivated(
+                    peer, "player lifecycle activation rollback");
+            }
+            active_accounts_.erase(peer.identity.account_id);
+            active_sessions_.erase(peer.peer);
+            active_peers_.erase(peer.peer);
+            player_state_->on_peer_disconnected(peer, "player lifecycle activation rollback");
+            auto error = result.error();
+            error.with_context("GameServerPlayerLifecycle::on_peer_authenticated(participant)");
+            return error;
+        }
+        ++activated_participant_count;
+    }
     SNT_LOG_INFO("Player account '%s' became active on peer %llu at tick %llu (%s task state)",
                  peer.identity.account_id.c_str(), static_cast<unsigned long long>(peer.peer),
                  static_cast<unsigned long long>(context.tick_index),
@@ -117,6 +142,9 @@ snt::core::Expected<void> GameServerPlayerLifecycle::on_peer_replaced(
     active_sessions_.erase(previous_peer.peer);
     active_sessions_.emplace(replacement_peer.peer, replacement_peer);
     account->second = replacement_peer.peer;
+    for (IGameServerPlayerLifecycleParticipant* participant : participants_) {
+        participant->on_player_replaced(previous_peer, replacement_peer);
+    }
     SNT_LOG_INFO("Player account '%s' transferred from peer %llu to peer %llu at tick %llu without reload",
                  replacement_peer.identity.account_id.c_str(),
                  static_cast<unsigned long long>(previous_peer.peer),
@@ -145,6 +173,9 @@ void GameServerPlayerLifecycle::on_peer_disconnected(const GameAuthenticatedPeer
     } else {
         SNT_LOG_INFO("Saved quest progress for disconnected player '%s' (%.*s)",
                      active->second.c_str(), static_cast<int>(reason.size()), reason.data());
+    }
+    for (IGameServerPlayerLifecycleParticipant* participant : participants_) {
+        participant->on_player_deactivated(peer, reason);
     }
     if (player_state_ != nullptr) player_state_->on_peer_disconnected(peer, reason);
     dirty_player_accounts_.erase(active->second);
@@ -288,6 +319,12 @@ void GameServerPlayerLifecycle::shutdown() noexcept {
     if (stopped_) return;
     if (auto result = flush_all(); !result) {
         SNT_LOG_ERROR("Final quest progress flush failed: %s", result.error().format().c_str());
+    }
+    for (const auto& [peer_id, peer] : active_sessions_) {
+        static_cast<void>(peer_id);
+        for (IGameServerPlayerLifecycleParticipant* participant : participants_) {
+            participant->on_player_deactivated(peer, "server shutdown");
+        }
     }
     stopped_ = true;
     active_peers_.clear();

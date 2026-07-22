@@ -1,8 +1,10 @@
 // Snapshot-bound aggregate ResourceStack storage implementation.
 
+#define SNT_LOG_CHANNEL "game.resources.ledger"
 #include "game/resources/resource_ledger_storage.h"
 
 #include "core/error.h"
+#include "core/log.h"
 
 #include <algorithm>
 #include <limits>
@@ -50,7 +52,13 @@ int64_t ResourceLedgerStorage::insert(const ResourceKeyContext& context,
     const int64_t accepted = std::min(stack.amount,
                                       std::numeric_limits<int64_t>::max() - current);
     if (accepted <= 0 || mode == ResourceTransferMode::kSimulate) return accepted;
+    const ResourceStack changed{.key = stack.key, .amount = accepted};
+    if (!can_apply_resource_aggregate_delta(changed, accepted)) {
+        SNT_LOG_ERROR("Resource ledger insert rejected because its aggregate index is unavailable");
+        return 0;
+    }
     amounts_[stack.key] = current + accepted;
+    apply_resource_aggregate_delta(changed, accepted);
     return accepted;
 }
 
@@ -65,8 +73,14 @@ int64_t ResourceLedgerStorage::extract(const ResourceKeyContext& context,
     if (extracted <= 0 || mode == ResourceTransferMode::kSimulate) return extracted;
     const auto found = amounts_.find(requested.key);
     if (found == amounts_.end()) return 0;
+    const ResourceStack changed{.key = requested.key, .amount = extracted};
+    if (!can_apply_resource_aggregate_delta(changed, -extracted)) {
+        SNT_LOG_ERROR("Resource ledger extract rejected because its aggregate index is unavailable");
+        return 0;
+    }
     found->second -= extracted;
     if (found->second == 0) amounts_.erase(found);
+    apply_resource_aggregate_delta(changed, -extracted);
     return extracted;
 }
 
@@ -86,6 +100,41 @@ std::vector<ResourceKey> ResourceLedgerStorage::stored_keys(
     return keys;
 }
 
+std::vector<ResourceStack> ResourceLedgerStorage::capture_runtime_contents(
+    const ResourceKeyContext& context) const {
+    if (!context_.is_valid() || !context.is_valid() || !context_.matches(context)) return {};
+    std::vector<ResourceStack> contents;
+    contents.reserve(amounts_.size());
+    for (const auto& [key, amount] : amounts_) {
+        if (amount > 0) contents.push_back({.key = key, .amount = amount});
+    }
+    std::sort(contents.begin(), contents.end(), [](const ResourceStack& left,
+                                                   const ResourceStack& right) {
+        if (left.key.kind != right.key.kind) return left.key.kind < right.key.kind;
+        if (left.key.runtime_id != right.key.runtime_id) {
+            return left.key.runtime_id < right.key.runtime_id;
+        }
+        return left.key.variant < right.key.variant;
+    });
+    return contents;
+}
+
+bool ResourceLedgerStorage::set_resource_aggregate_observer(
+    ResourceAggregateStorageHandle handle,
+    IResourceAggregateMutationObserver& observer) noexcept {
+    if (!handle.is_valid() || !context_.is_valid() || resource_aggregate_observer_ != nullptr) {
+        return false;
+    }
+    resource_aggregate_handle_ = handle;
+    resource_aggregate_observer_ = &observer;
+    return true;
+}
+
+void ResourceLedgerStorage::clear_resource_aggregate_observer() noexcept {
+    resource_aggregate_observer_ = nullptr;
+    resource_aggregate_handle_ = {};
+}
+
 snt::core::Expected<void> ResourceLedgerStorage::rebind(
     const IResourceKeyResolver& previous_resolver,
     const IResourceKeyResolver& next_resolver) {
@@ -96,6 +145,9 @@ snt::core::Expected<void> ResourceLedgerStorage::rebind(
     }
     if (!next_context.is_valid()) {
         return invalid_argument("Resource ledger rebind requires a valid next snapshot");
+    }
+    if (has_resource_aggregate_observer()) {
+        return invalid_state("Resource ledger must detach from its aggregate before rebind");
     }
     if (context_.matches(next_context)) return {};
 
@@ -117,6 +169,20 @@ snt::core::Expected<void> ResourceLedgerStorage::rebind(
     amounts_ = std::move(rebound);
     context_ = next_context;
     return {};
+}
+
+bool ResourceLedgerStorage::can_apply_resource_aggregate_delta(
+    const ResourceStack& changed, int64_t delta) const noexcept {
+    return resource_aggregate_observer_ == nullptr ||
+        resource_aggregate_observer_->can_apply_resource_aggregate_delta(
+            resource_aggregate_handle_, context_, changed, delta);
+}
+
+void ResourceLedgerStorage::apply_resource_aggregate_delta(
+    const ResourceStack& changed, int64_t delta) noexcept {
+    if (resource_aggregate_observer_ == nullptr) return;
+    resource_aggregate_observer_->apply_resource_aggregate_delta(
+        resource_aggregate_handle_, context_, changed, delta);
 }
 
 }  // namespace snt::game

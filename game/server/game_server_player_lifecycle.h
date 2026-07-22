@@ -33,6 +33,22 @@ public:
         const GameAuthenticatedPeer& peer) = 0;
 };
 
+// Server-owned gameplay modules may retain transient state derived from a
+// persistent player payload. The lifecycle is the single place that tells
+// those modules when an authenticated actor becomes usable, changes peers,
+// or disappears; modules never infer it from transport callbacks themselves.
+class IGameServerPlayerLifecycleParticipant {
+public:
+    virtual ~IGameServerPlayerLifecycleParticipant() = default;
+
+    [[nodiscard]] virtual snt::core::Expected<void> on_player_activated(
+        const GameAuthenticatedPeer& peer) = 0;
+    virtual void on_player_replaced(const GameAuthenticatedPeer& previous_peer,
+                                    const GameAuthenticatedPeer& replacement_peer) noexcept = 0;
+    virtual void on_player_deactivated(const GameAuthenticatedPeer& peer,
+                                       std::string_view reason) noexcept = 0;
+};
+
 class GameServerPlayerLifecycle final : public IGamePlayerSessionLifecycle,
                                         public IGameServerPlayerStateCheckpointSink {
 public:
@@ -40,7 +56,8 @@ public:
     // controlled-shutdown saves remain mandatory in either case.
     GameServerPlayerLifecycle(QuestRegistry& quests, GameServerPlayerState& player_state,
                               std::string universe_save_dir,
-                              uint64_t autosave_interval_ticks = 0);
+                              uint64_t autosave_interval_ticks = 0,
+                              std::vector<IGameServerPlayerLifecycleParticipant*> participants = {});
 
     GameServerPlayerLifecycle(const GameServerPlayerLifecycle&) = delete;
     GameServerPlayerLifecycle& operator=(const GameServerPlayerLifecycle&) = delete;
@@ -94,6 +111,7 @@ private:
     std::map<std::string, uint64_t, std::less<>> saved_progress_revisions_;
     std::set<std::string, std::less<>> dirty_player_accounts_;
     std::map<std::string, GamePlayerPersistentState, std::less<>> pending_player_states_;
+    std::vector<IGameServerPlayerLifecycleParticipant*> participants_;
     uint64_t autosave_interval_ticks_ = 0;
     uint64_t last_autosave_tick_ = 0;
     bool has_last_autosave_tick_ = false;

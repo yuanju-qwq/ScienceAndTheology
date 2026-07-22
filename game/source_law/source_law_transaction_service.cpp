@@ -1,10 +1,8 @@
 // Source-law body transaction implementation.
 
-#define SNT_LOG_CHANNEL "game.source_law.transaction"
 #include "game/source_law/source_law_transaction_service.h"
 
 #include "core/error.h"
-#include "core/log.h"
 
 #include <algorithm>
 #include <cmath>
@@ -35,6 +33,34 @@ template <typename T>
         if (id.empty() || !seen.insert(id).second) return true;
     }
     return false;
+}
+
+[[nodiscard]] bool is_valid_tuning_target(const OrganInstance& organ) {
+    return !organ.definition_id.empty() && std::isfinite(organ.contamination) &&
+           organ.contamination >= 0.0F && organ.contamination <= 1.0F &&
+           std::isfinite(organ.integrity) && organ.integrity > 0.0F &&
+           organ.integrity <= 1.0F && !has_duplicate_ids(organ.tuning_tags);
+}
+
+[[nodiscard]] bool organ_has_tuning_tag(const OrganDefinition& definition,
+                                         const OrganInstance& instance,
+                                         const SourceLawId& tag) {
+    return contains(definition.bloodline_tags, tag) ||
+           contains(definition.ecology_tags, tag) ||
+           contains(definition.system_tags, tag) ||
+           contains(definition.native_path_tags, tag) ||
+           contains(definition.pressure_tags, tag) || contains(instance.tuning_tags, tag);
+}
+
+[[nodiscard]] bool tuning_applies_to_organ(const SourceLawTuningDefinition& tuning,
+                                            SourceOrganSlot slot,
+                                            const OrganDefinition& definition,
+                                            const OrganInstance& instance) {
+    return contains(tuning.allowed_slots, slot) &&
+           std::all_of(tuning.required_organ_tags.begin(), tuning.required_organ_tags.end(),
+                       [&definition, &instance](const SourceLawId& tag) {
+                           return organ_has_tuning_tag(definition, instance, tag);
+                       });
 }
 
 [[nodiscard]] const SourceLawSystemReport* find_system_report(
@@ -89,7 +115,6 @@ void append_transition_events(const SourceLawEvaluation& before,
     for (SourceLawTransactionEvent& event : result.events) {
         event.body_revision = result.body.body_revision;
     }
-    SourceLawBodyTransitionLogger::log_if_changed(subject_id, previous, evaluation);
     return result;
 }
 
@@ -174,6 +199,84 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::rem
         .definition_id = removed_definition_id,
         .slot = request.slot,
         .body_revision = result.body.body_revision,
+    });
+    return result;
+}
+
+snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::tune_organ(
+    const SourceLawContentSnapshot& content,
+    const SourceLawBodyState& body,
+    const SourceLawTuneOrganRequest& request,
+    const SourceLawEvaluationContext& context) {
+    if (!is_valid_source_organ_slot(request.slot) || request.tuning_definition_id.empty()) {
+        return invalid_argument("Source-law organ tuning request is invalid");
+    }
+    if (!std::isfinite(body.stability) || body.stability < 0.0F || body.stability > 100.0F ||
+        !std::isfinite(body.mutation) || body.mutation < 0.0F || body.mutation > 100.0F) {
+        return invalid_state("Source-law organ tuning requires a valid body risk state");
+    }
+    const SourceLawTuningDefinition* tuning = content.find_tuning(request.tuning_definition_id);
+    if (tuning == nullptr) {
+        return invalid_argument("Source-law organ tuning references an unknown definition");
+    }
+    const size_t slot_index = static_cast<size_t>(request.slot);
+    if (!body.organs[slot_index]) {
+        return invalid_state("Source-law organ tuning target slot is empty");
+    }
+    const OrganInstance& target = *body.organs[slot_index];
+    const OrganDefinition* definition = content.find_organ(target.definition_id);
+    if (definition == nullptr || definition->slot != request.slot ||
+        !is_valid_tuning_target(target)) {
+        return invalid_state("Source-law organ tuning target is not a usable installed organ");
+    }
+    if (!tuning_applies_to_organ(*tuning, request.slot, *definition, target)) {
+        return invalid_state("Source-law tuning definition is incompatible with the target organ");
+    }
+    if (body.mutation > tuning->maximum_mutation_before) {
+        return invalid_state("Source-law tuning cannot purify this severe mutation state");
+    }
+    if (body.source_reserve_current < tuning->source_reserve_cost) {
+        return invalid_state("Source-law organ tuning has insufficient source reserve");
+    }
+
+    const SourceLawEvaluation before = SourceLawBodyEvaluator::evaluate(content, body, context);
+    SourceLawBodyState candidate = body;
+    OrganInstance& tuned = *candidate.organs[slot_index];
+    tuned.tuning_tags.erase(
+        std::remove_if(tuned.tuning_tags.begin(), tuned.tuning_tags.end(),
+                       [&tuning](const SourceLawId& tag) {
+                           return contains(tuning->removed_tuning_tags, tag);
+                       }),
+        tuned.tuning_tags.end());
+    for (const SourceLawId& tag : tuning->added_tuning_tags) {
+        if (!contains(tuned.tuning_tags, tag)) tuned.tuning_tags.push_back(tag);
+    }
+    tuned.contamination = std::max(0.0F, tuned.contamination - tuning->contamination_reduction);
+    candidate.mutation = std::max(0.0F, candidate.mutation - tuning->mutation_reduction);
+    candidate.stability = std::clamp(candidate.stability + tuning->stability_delta, 0.0F, 100.0F);
+    if (tuned == target && candidate.mutation == body.mutation &&
+        candidate.stability == body.stability) {
+        return invalid_state("Source-law organ tuning has no remaining effect on the target");
+    }
+    candidate.source_reserve_current -= tuning->source_reserve_cost;
+    if (auto result = advance_body_revision(candidate); !result) return result.error();
+
+    // Re-evaluate every affected reaction and risk-dependent integration after
+    // the complete candidate is formed. A tuning may intentionally change a
+    // system's availability, so diagnostics are returned as value events.
+    const SourceLawEvaluation after = SourceLawBodyEvaluator::evaluate(content, candidate, context);
+    SourceLawTransactionResult result = make_result(candidate, before, after,
+                                                     request.diagnostic_subject_id);
+    const OrganInstance& committed = *result.body.organs[slot_index];
+    result.events.insert(result.events.begin(), {
+        .kind = SourceLawTransactionEventKind::kOrganTuned,
+        .subject_id = std::string{request.diagnostic_subject_id},
+        .definition_id = tuning->id,
+        .slot = request.slot,
+        .body_revision = result.body.body_revision,
+        .contamination_delta = committed.contamination - target.contamination,
+        .mutation_delta = result.body.mutation - body.mutation,
+        .stability_delta = result.body.stability - body.stability,
     });
     return result;
 }

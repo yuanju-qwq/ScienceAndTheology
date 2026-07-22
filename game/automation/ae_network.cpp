@@ -265,7 +265,10 @@ void AeNetworkTopology::rebuild_topology() noexcept {
         }
 
         std::sort(members.begin(), members.end());
-        AeNetworkComponentState component{.id = component_id};
+        AeNetworkComponentState component{
+            .id = component_id,
+            .node_count = static_cast<uint32_t>(members.size()),
+        };
         for (const uint32_t member : members) {
             const NodeSlot& slot = slots_[member];
             if (slot.type == AeNetworkNodeType::kController) ++component.controller_count;
@@ -312,7 +315,7 @@ AeNetworkStorageIndex::AeNetworkStorageIndex(ResourceKeyContext context)
     slots_.emplace_back();
 }
 
-snt::core::Expected<AeNetworkStorageHandle> AeNetworkStorageIndex::attach_storage(
+snt::core::Expected<ResourceAggregateStorageHandle> AeNetworkStorageIndex::attach_storage(
     std::vector<ResourceStack> initial_contents) {
     if (!context_.is_valid()) {
         return invalid_state("AE network storage index requires a valid resource snapshot");
@@ -351,10 +354,10 @@ snt::core::Expected<AeNetworkStorageHandle> AeNetworkStorageIndex::attach_storag
         aggregate_amounts_[key] += amount;
     }
     ++storage_count_;
-    return AeNetworkStorageHandle{.slot = slot_index, .generation = slot.generation};
+    return ResourceAggregateStorageHandle{.slot = slot_index, .generation = slot.generation};
 }
 
-bool AeNetworkStorageIndex::detach_storage(AeNetworkStorageHandle handle) noexcept {
+bool AeNetworkStorageIndex::detach_storage(ResourceAggregateStorageHandle handle) noexcept {
     StorageSlot* const slot = find_slot(handle);
     if (slot == nullptr) return false;
     for (const auto& [key, amount] : slot->amounts) {
@@ -377,7 +380,7 @@ bool AeNetworkStorageIndex::detach_storage(AeNetworkStorageHandle handle) noexce
     return true;
 }
 
-bool AeNetworkStorageIndex::is_attached(AeNetworkStorageHandle handle) const noexcept {
+bool AeNetworkStorageIndex::is_attached(ResourceAggregateStorageHandle handle) const noexcept {
     return find_slot(handle) != nullptr;
 }
 
@@ -391,8 +394,8 @@ int64_t AeNetworkStorageIndex::amount_of(const ResourceKeyContext& context,
     return found == aggregate_amounts_.end() ? 0 : found->second;
 }
 
-bool AeNetworkStorageIndex::can_apply_ae_storage_delta(
-    AeNetworkStorageHandle handle,
+bool AeNetworkStorageIndex::can_apply_resource_aggregate_delta(
+    ResourceAggregateStorageHandle handle,
     const ResourceKeyContext& context,
     const ResourceStack& changed,
     int64_t delta) const noexcept {
@@ -415,13 +418,14 @@ bool AeNetworkStorageIndex::can_apply_ae_storage_delta(
     return current_storage >= removed && current_aggregate >= removed;
 }
 
-void AeNetworkStorageIndex::apply_ae_storage_delta(
-    AeNetworkStorageHandle handle,
+void AeNetworkStorageIndex::apply_resource_aggregate_delta(
+    ResourceAggregateStorageHandle handle,
     const ResourceKeyContext& context,
     const ResourceStack& changed,
     int64_t delta) noexcept {
     StorageSlot* const slot = find_slot(handle);
-    if (slot == nullptr || !can_apply_ae_storage_delta(handle, context, changed, delta)) {
+    if (slot == nullptr ||
+        !can_apply_resource_aggregate_delta(handle, context, changed, delta)) {
         SNT_LOG_ERROR("AE network storage index rejected an unprepared storage mutation: slot=%u",
                       static_cast<unsigned int>(handle.slot));
         return;
@@ -430,7 +434,7 @@ void AeNetworkStorageIndex::apply_ae_storage_delta(
 }
 
 AeNetworkStorageIndex::StorageSlot* AeNetworkStorageIndex::find_slot(
-    AeNetworkStorageHandle handle) noexcept {
+    ResourceAggregateStorageHandle handle) noexcept {
     if (!handle.is_valid() || handle.slot >= slots_.size()) return nullptr;
     StorageSlot& slot = slots_[handle.slot];
     if (!slot.occupied || slot.generation != handle.generation) return nullptr;
@@ -438,7 +442,7 @@ AeNetworkStorageIndex::StorageSlot* AeNetworkStorageIndex::find_slot(
 }
 
 const AeNetworkStorageIndex::StorageSlot* AeNetworkStorageIndex::find_slot(
-    AeNetworkStorageHandle handle) const noexcept {
+    ResourceAggregateStorageHandle handle) const noexcept {
     if (!handle.is_valid() || handle.slot >= slots_.size()) return nullptr;
     const StorageSlot& slot = slots_[handle.slot];
     if (!slot.occupied || slot.generation != handle.generation) return nullptr;

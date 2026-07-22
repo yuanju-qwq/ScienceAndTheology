@@ -5,8 +5,6 @@ set(SOURCES
     network/gd_power_network.cpp
     network/gd_signal_network.cpp
     crafting/gd_crafting.cpp
-    ae2/gd_ae2_autocrafting.cpp
-    ae2/gd_me_network.cpp
     network/gd_fluid_network.cpp
     fluid/gd_fluid_registry.cpp
     item/gd_item_registry.cpp
@@ -56,7 +54,6 @@ set(SOURCES
     multiplayer/gd_network_server.cpp
     multiplayer/gd_network_client.cpp
     multiplayer/gd_prediction_buffer.cpp
-    sfm/gd_sfm_manager.cpp
     gd_registry_bank.cpp
 )
 

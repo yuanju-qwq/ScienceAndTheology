@@ -30,6 +30,7 @@ class TcpUdpReplicationTransport;
 
 namespace snt::game::replication {
 class GameServerCommandSink;
+class GameServerAeNetworkReplication;
 class GameServerAutomationControllerReplication;
 class GameServerCreatureInteractionService;
 class GameServerCreaturePresentationReplication;
@@ -45,6 +46,7 @@ class GameServerQuestBookReplication;
 class GameServerPlayerReplication;
 class GameServerPlayerRespawnResolver;
 class GameServerPlayerState;
+class GameServerSourceLawService;
 }
 
 namespace snt::game {
@@ -82,6 +84,7 @@ private:
     std::unique_ptr<ServerChunkTicketController> chunk_ticket_controller_;
     std::unique_ptr<replication::GameServerCommandSink> command_sink_;
     std::unique_ptr<replication::GameServerPlayerState> player_state_;
+    std::unique_ptr<replication::GameServerSourceLawService> source_law_service_;
     std::unique_ptr<replication::GameServerPlayerMovement> player_movement_;
     std::unique_ptr<replication::GameServerPlayerBedService> player_beds_;
     std::unique_ptr<replication::GameServerPlayerGraveStore> player_graves_;
@@ -93,6 +96,7 @@ private:
     std::unique_ptr<replication::GameServerQuestEventService> quest_events_;
     std::unique_ptr<replication::GameServerQuestBookReplication> quest_book_replication_;
     std::unique_ptr<replication::GameServerInventoryReplication> inventory_replication_;
+    std::unique_ptr<replication::GameServerAeNetworkReplication> ae_network_replication_;
     std::unique_ptr<replication::GameServerAutomationControllerReplication>
         automation_controller_replication_;
     std::unique_ptr<replication::GameServerCreaturePresentationReplication>

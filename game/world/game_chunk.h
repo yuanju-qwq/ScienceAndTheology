@@ -12,6 +12,7 @@
 #include "game/world/defs/crop_species_def.h"
 #include "game/world/defs/entity_data.h"
 #include "game/world/defs/population_cell.h"
+#include "game/automation/ae_network_types.h"
 #include "game/automation/sfm_flow_program.h"
 #include "game/resources/resource_key.h"
 #include "game/simulation/machine_fluid_tank.h"
@@ -130,9 +131,9 @@ struct MachineRuntimePersistenceRecord {
 // this typed record carries the durable SFM graph and future controller state.
 enum class AutomationControllerKind : uint8_t {
     kSfmManager = 1,
-    // Reserved for the game-owned AE controller runtime. It is intentionally
-    // not accepted by the current persistence codec until its typed durable
-    // state is defined alongside the topology owner.
+    // Game-owned AE controller with a one-to-one physical topology node.
+    // Its durable config lives with the typed AE node record rather than an
+    // SFM flow graph.
     kAeController = 2,
 };
 
@@ -149,6 +150,36 @@ struct AutomationControllerPersistenceRecord {
     // other state without changing the graph's optimistic-edit base.
     uint64_t revision = 1;
     SfmFlowProgramRecord sfm_program;
+};
+
+// One voxel-anchored node in the physical AE cable topology. Controller nodes
+// share their anchor with an AutomationControllerPersistenceRecord of kind
+// kAeController. Every other node owns an AUTOMATION_NETWORK_NODE anchor.
+// Edges are deliberately not persisted: active topology derives only from
+// adjacent roots with compatible reciprocal port bits at materialize time.
+struct AeNetworkNodePersistenceRecord {
+    EntityId anchor_entity_id;
+    // Stable authored topology/device key. It resolves drive cell behavior at
+    // materialization time; compact runtime IDs never enter the sidecar.
+    std::string node_key;
+    AeNetworkNodeType type = AeNetworkNodeType::kCable;
+    bool enabled = true;
+    // Zero selects the runtime default for a controller/channel provider.
+    // Other node categories must preserve zero.
+    int32_t provided_channels = 0;
+    uint8_t connection_mask = CONN_ALL;
+    uint64_t revision = 1;
+};
+
+// One drive owns one compact digital cell. Its capacity/filter configuration
+// comes from the current AE node content key, while this durable record keeps
+// only stable resource identities and amounts. Storage buses deliberately do
+// not use this record: their future external endpoint binding has a separate
+// owner contract.
+struct AeDriveStoragePersistenceRecord {
+    EntityId anchor_entity_id;
+    uint64_t revision = 1;
+    std::vector<ResourceContentStack> stored_resources;
 };
 
 // A network island is anchored by its lexicographically first member chunk.
@@ -318,6 +349,8 @@ struct GameChunkSidecar {
     std::vector<EntityId> entities;
     std::vector<MachineRuntimePersistenceRecord> machine_runtime_records;
     std::vector<AutomationControllerPersistenceRecord> automation_controller_records;
+    std::vector<AeNetworkNodePersistenceRecord> ae_network_node_records;
+    std::vector<AeDriveStoragePersistenceRecord> ae_drive_storage_records;
     // Only an island's anchor chunk contains a record here. The registry
     // validates this against member machine ownership during world startup.
     std::vector<OfflineNetworkIslandSnapshot> offline_network_islands;

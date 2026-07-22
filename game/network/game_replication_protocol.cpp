@@ -536,6 +536,7 @@ bool is_known_game_replication_value_kind(GameReplicationValueKind kind) noexcep
         case GameReplicationValueKind::kPlayerInventory:
         case GameReplicationValueKind::kCreaturePresentation:
         case GameReplicationValueKind::kAutomationControllers:
+        case GameReplicationValueKind::kAeNetworkNodes:
             return true;
     }
     return false;

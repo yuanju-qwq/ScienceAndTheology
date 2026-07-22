@@ -12,8 +12,10 @@
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/ae_network_runtime.h"
 #include "game/simulation/block_physics_events.h"
 #include "game/simulation/automation_controller_persistence.h"
+#include "game/simulation/automation_controller_runtime.h"
 #include "game/simulation/crop_growth_system.h"
 #include "game/simulation/game_fluid_system_events.h"
 #include "game/simulation/machine_interaction_service.h"
@@ -678,9 +680,6 @@ GameServerPlayerInteractionService::apply_automation_controller_place(
         return invalid_state(
             "Client automation controller item is not in the host placement registry");
     }
-    if (placement->kind != AutomationControllerKind::kSfmManager) {
-        return invalid_state("Client automation controller kind is not implemented by the host");
-    }
     const TerrainMaterialDef* terrain_material = find_terrain_material(placement->material_key);
     if (terrain_material == nullptr || terrain_material->id == worldgen.roles.air ||
         terrain_material->id == config_.reserved_grave_material_id ||
@@ -722,6 +721,35 @@ GameServerPlayerInteractionService::apply_automation_controller_place(
         return anchor.error();
     }
 
+    // resolve_target() only succeeds for a resident chunk. Materialize the
+    // new owner before consuming the item so active AOI/UI readers cannot see
+    // an accepted controller block without its SFM or AE runtime state.
+    if (auto result = refresh_automation_runtime(target->chunk_key); !result) {
+        const auto refresh_error = result.error();
+        if (auto rollback = GameAutomationControllerPersistence::remove_controller(
+                *sidecars_, anchor->anchor_entity_id);
+            !rollback) {
+            SNT_LOG_ERROR(
+                "Automation controller runtime refresh rollback left an anchor for '%s' at (%d,%d,%d): %s",
+                placement->controller_key.c_str(), target->position.position.x,
+                target->position.position.y, target->position.position.z,
+                rollback.error().format().c_str());
+        } else {
+            if (created_sidecar) sidecars_->remove(target->chunk_key);
+            if (auto restored = refresh_automation_runtime(target->chunk_key); !restored) {
+                SNT_LOG_ERROR(
+                    "Automation controller runtime rollback refresh failed for '%s' at (%d,%d,%d): %s",
+                    placement->controller_key.c_str(), target->position.position.x,
+                    target->position.position.y, target->position.position.z,
+                    restored.error().format().c_str());
+            }
+        }
+        auto error = refresh_error;
+        error.with_context(
+            "GameServerPlayerInteractionService::apply_automation_controller_place(runtime refresh)");
+        return error;
+    }
+
     const snt::voxel::TerrainCell previous = *target->cell;
     *target->cell = {
         .material = static_cast<snt::voxel::TerrainMaterial>(terrain_material->id),
@@ -737,8 +765,15 @@ GameServerPlayerInteractionService::apply_automation_controller_place(
                 placement->controller_key.c_str(), target->position.position.x,
                 target->position.position.y, target->position.position.z,
                 rollback.error().format().c_str());
-        } else if (created_sidecar) {
-            sidecars_->remove(target->chunk_key);
+        } else {
+            if (created_sidecar) sidecars_->remove(target->chunk_key);
+            if (auto restored = refresh_automation_runtime(target->chunk_key); !restored) {
+                SNT_LOG_ERROR(
+                    "Automation controller inventory rollback refresh failed for '%s' at (%d,%d,%d): %s",
+                    placement->controller_key.c_str(), target->position.position.x,
+                    target->position.position.y, target->position.position.z,
+                    restored.error().format().c_str());
+            }
         }
         auto error = result.error();
         error.with_context(
@@ -1435,6 +1470,42 @@ snt::core::Expected<void> GameServerPlayerInteractionService::mark_player_state_
     const GameAuthenticatedPeer& peer) {
     if (checkpoint_sink_ == nullptr) return {};
     return checkpoint_sink_->mark_player_state_dirty(peer);
+}
+
+snt::core::Expected<void>
+GameServerPlayerInteractionService::refresh_automation_runtime(const ChunkKey& chunk_key) {
+    if (sidecars_ == nullptr) {
+        return invalid_state("Automation runtime refresh has no game sidecar registry");
+    }
+    const GameChunkSidecar* const sidecar = sidecars_->get(chunk_key);
+    if (config_.automation_controller_runtime != nullptr) {
+        if (sidecar == nullptr) {
+            config_.automation_controller_runtime->dematerialize_chunk(chunk_key);
+        } else if (auto result = config_.automation_controller_runtime->materialize_chunk(
+                       chunk_key, *sidecar);
+                   !result) {
+            auto error = result.error();
+            error.with_context("GameServerPlayerInteractionService::refresh_automation_runtime(SFM)");
+            return error;
+        }
+    }
+    if (config_.ae_network_runtime != nullptr) {
+        if (sidecar == nullptr) {
+            auto result = config_.ae_network_runtime->dematerialize_chunk(chunk_key);
+            if (!result) {
+                auto error = result.error();
+                error.with_context(
+                    "GameServerPlayerInteractionService::refresh_automation_runtime(AE remove)");
+                return error;
+            }
+        } else if (auto result = config_.ae_network_runtime->materialize_chunk(chunk_key, *sidecar);
+                   !result) {
+            auto error = result.error();
+            error.with_context("GameServerPlayerInteractionService::refresh_automation_runtime(AE)");
+            return error;
+        }
+    }
+    return {};
 }
 
 snt::core::Expected<void>

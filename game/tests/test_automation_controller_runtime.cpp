@@ -1,6 +1,8 @@
 #include "game/simulation/automation_controller_runtime.h"
 
+#include "game/network/game_automation_controller_replication.h"
 #include "game/resources/resource_ledger_storage.h"
+#include "game/server/game_server_automation_controller_replication.h"
 
 #include <gtest/gtest.h>
 
@@ -119,6 +121,39 @@ TEST_F(AutomationControllerRuntimeFixture, EmptyProgramIsOnlineWithoutATickExecu
     ASSERT_TRUE(tick);
     EXPECT_EQ(tick->dispatched_nodes, 0u);
     EXPECT_EQ(tick->executed_transfers, 0u);
+}
+
+TEST_F(AutomationControllerRuntimeFixture, WithholdsControllerGraphsThatExceedPeerValueBudget) {
+    const auto source_handle = runtime->register_sfm_endpoint(
+        {.value = "controller.test.source"}, source);
+    const auto destination_handle = runtime->register_sfm_endpoint(
+        {.value = "controller.test.destination"}, destination);
+    ASSERT_TRUE(source_handle);
+    ASSERT_TRUE(destination_handle);
+    const ChunkKey chunk{"snt:overworld", 0, 0, 0};
+    ASSERT_TRUE(runtime->materialize_chunk(
+        chunk, make_controller_sidecar(EntityId{0x2000000000000003ull})));
+
+    auto replication = replication::GameServerAutomationControllerReplication::create(*runtime);
+    ASSERT_TRUE(replication);
+    const replication::GameReplicationBudget budget{
+        .max_reliable_bytes_per_tick = static_cast<uint32_t>(
+            replication::kGameAutomationControllerReplicationHeaderBytes),
+        .max_value_snapshots_per_tick = 1,
+    };
+    const replication::GameAuthenticatedPeer peer{.peer = 42};
+    const replication::GameReplicationInterest interest{.chunks = {chunk}};
+    auto values = (*replication)->collect_values(
+        peer, interest, budget, {.tick_index = 1},
+        replication::GameReplicationValueCollectionPhase::kInitialSnapshot);
+    ASSERT_TRUE(values);
+    ASSERT_EQ(values->size(), 1u);
+    EXPECT_LE(values->front().payload.size(),
+              replication::kGameAutomationControllerReplicationHeaderBytes);
+    auto decoded = replication::decode_game_automation_controller_replication_snapshot(
+        values->front().payload);
+    ASSERT_TRUE(decoded);
+    EXPECT_TRUE(decoded->controllers.empty());
 }
 
 }  // namespace

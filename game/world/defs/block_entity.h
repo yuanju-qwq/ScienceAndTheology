@@ -65,12 +65,16 @@ enum class BlockEntityType : uint8_t {
     // Root anchor for SFM managers, AE controllers, and other automation
     // logic. Typed mutable state is owned by automation_controller_records.
     AUTOMATION_CONTROLLER = 10,
-    COUNT       = 11,
+    // Non-controller AE devices/cables. Their typed node state is in
+    // GameChunkSidecar::ae_network_node_records, never type_data_json.
+    AUTOMATION_NETWORK_NODE = 11,
+    COUNT       = 12,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
     "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
     "Farmland", "Crop", "SignalWire", "Custom", "AutomationController",
+    "AutomationNetworkNode",
 };
 
 // 6-face connection bitmask used by PIPE and CABLE entities.
@@ -85,6 +89,8 @@ enum BlockEntityConnectionMask : uint8_t {
     CONN_NEG_Y = 1u << 3,
     CONN_POS_Z = 1u << 4,
     CONN_NEG_Z = 1u << 5,
+    CONN_ALL = CONN_POS_X | CONN_NEG_X | CONN_POS_Y | CONN_NEG_Y |
+        CONN_POS_Z | CONN_NEG_Z,
 };
 
 // A cell coordinate owned by a BlockEntity.

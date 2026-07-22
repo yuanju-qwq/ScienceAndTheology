@@ -217,6 +217,7 @@ void snt_register() {
                           "components/station_blueprint_icon_32.png");
     register_catalog_item("sfm_manager", "sfm.block.manager", 64, kPlaceables,
                           "components/sfm_manager_icon_32.png");
+    register_catalog_item("ae_controller", "ae.block.controller", 64, kPlaceables, "");
     register_catalog_item("sfm_cable", "sfm.block.cable", 64, kPlaceables,
                           "components/sfm_cable_icon_32.png");
     register_tinted_catalog_item("iron_ore", "item.iron_ore", 64, kResources,

@@ -9,8 +9,8 @@
 #pragma once
 
 #include "core/expected.h"
-#include "game/automation/ae_network.h"
 #include "game/resources/resource_key.h"
+#include "game/resources/resource_aggregate_storage.h"
 #include "game/resources/resource_runtime_index.h"
 
 #include <cstddef>
@@ -45,7 +45,7 @@ struct AeStorageCellPersistenceRecord {
 // Snapshot-bound AE drive cell. The amount map and used-byte counter make
 // amount_of(), insert(), and extract() expected O(1) operations. Enumeration
 // remains an inspection/UI boundary and is therefore intentionally separate.
-class AeStorageCell final : public IResourceStorage,
+class AeStorageCell final : public IResourceAggregateStorage,
                             public IResourceRuntimeSnapshotParticipant {
 public:
     [[nodiscard]] static snt::core::Expected<AeStorageCell> create(
@@ -82,18 +82,18 @@ public:
     // enumeration is intentionally O(n) and must only run while attaching,
     // detaching, or rebuilding an aggregate network index, never per tick.
     [[nodiscard]] std::vector<ResourceStack> capture_runtime_contents(
-        const ResourceKeyContext& context) const;
+        const ResourceKeyContext& context) const override;
 
-    // AE network ownership is opt-in.  Once attached, every execute-mode
+    // Aggregate ownership is opt-in. Once attached, every execute-mode
     // insert/extract preflights and publishes exactly one delta to the owning
-    // aggregate index.  The owner must detach before content reload because
-    // compact keys are snapshot-scoped and the aggregate is rebuilt there.
-    [[nodiscard]] bool set_network_storage_observer(
-        AeNetworkStorageHandle handle,
-        IAeNetworkStorageMutationObserver& observer) noexcept;
-    void clear_network_storage_observer() noexcept;
-    [[nodiscard]] bool has_network_storage_observer() const noexcept {
-        return network_storage_observer_ != nullptr;
+    // index. The owner must detach before content reload because compact keys
+    // are snapshot-scoped and the aggregate is rebuilt at that boundary.
+    [[nodiscard]] bool set_resource_aggregate_observer(
+        ResourceAggregateStorageHandle handle,
+        IResourceAggregateMutationObserver& observer) noexcept override;
+    void clear_resource_aggregate_observer() noexcept override;
+    [[nodiscard]] bool has_resource_aggregate_observer() const noexcept override {
+        return resource_aggregate_observer_ != nullptr;
     }
 
     [[nodiscard]] int64_t byte_capacity() const noexcept {
@@ -170,8 +170,8 @@ private:
     std::unordered_map<ResourceKey, int64_t, ResourceKey::Hash> amounts_;
     int64_t used_bytes_ = 0;
     std::optional<PendingResourceRuntimeSnapshot> pending_resource_runtime_snapshot_;
-    IAeNetworkStorageMutationObserver* network_storage_observer_ = nullptr;
-    AeNetworkStorageHandle network_storage_handle_;
+    IResourceAggregateMutationObserver* resource_aggregate_observer_ = nullptr;
+    ResourceAggregateStorageHandle resource_aggregate_handle_;
 };
 
 }  // namespace snt::game

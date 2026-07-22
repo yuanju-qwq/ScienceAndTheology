@@ -1,10 +1,8 @@
 // Source-law personal spell graph validation and compilation implementation.
 
-#define SNT_LOG_CHANNEL "game.source_law.spell_compiler"
 #include "game/source_law/source_law_spell_compiler.h"
 
 #include "core/error.h"
-#include "core/log.h"
 
 #include <algorithm>
 #include <cmath>
@@ -569,9 +567,6 @@ snt::core::Expected<SourceLawSpellProgramEditResult> SourceLawSpellProgramServic
     } else {
         result.state.personal_spell_programs.push_back(result.program);
     }
-    SNT_LOG_INFO("Updated source-law personal spell program=%llu source_revision=%u",
-                 static_cast<unsigned long long>(result.program.program_id.value),
-                 result.program.source_revision);
     return result;
 }
 

@@ -11,6 +11,7 @@
 #include "ui/retained_mui_controls.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdio>
 #include <filesystem>
@@ -481,6 +482,67 @@ UiWidgetTemplate automation_controller_panel_template(
     return panel;
 }
 
+UiWidgetTemplate ae_network_panel_template(
+    const AeNetworkPanelViewModel& model,
+    const localization::LocalizationService& localization) {
+    const AeNetworkPanelState* const network = model.state();
+    UiWidgetTemplate panel;
+    panel.type = UiWidgetType::Flex;
+    panel.id = "ae_network_panel";
+    panel.layout.orientation = Orientation::Vertical;
+    panel.layout.spacing = 8.0f;
+    panel.layout.padding = {10, 10, 10, 10};
+    panel.background = Color{17, 27, 31, 240};
+    panel.background_radius = 6.0f;
+    panel.layout.params = fixed(500.0f, 260.0f);
+    if (network == nullptr) return panel;
+
+    UiWidgetTemplate title = text_widget(
+        "ae_network_title", localization.translate("ui.ae_network.title"), 18.0f);
+    title.layout.params = fixed(460.0f, 24.0f);
+    append_child(panel, std::move(title));
+
+    UiWidgetTemplate status = text_widget(
+        "ae_network_status",
+        localization.format(
+            network->online ? "ui.ae_network.online" : "ui.ae_network.offline",
+            {{"nodes", std::to_string(network->component_node_count)},
+             {"controllers", std::to_string(network->component_controller_count)},
+             {"channels", std::to_string(network->component_total_channels)}}),
+        13.0f);
+    status.layout.params = fixed(460.0f, 20.0f);
+    append_child(panel, std::move(status));
+
+    const std::array<std::pair<const char*, std::string>, 3> details{{
+        {"ae_network_component",
+         localization.format("ui.ae_network.component",
+                             {{"id", std::to_string(network->component_id)},
+                              {"provided", std::to_string(network->provided_channels)},
+                              {"power", network->component_powered
+                                  ? localization.translate("ui.ae_network.powered")
+                                  : localization.translate("ui.ae_network.unpowered")}})},
+        {"ae_network_devices",
+         localization.format("ui.ae_network.devices",
+                             {{"online", std::to_string(network->component_online_devices)},
+                              {"offline", std::to_string(network->component_offline_devices)}})},
+        {"ae_network_topology",
+         localization.format("ui.ae_network.topology",
+                             {{"revision", std::to_string(network->topology_revision)},
+                              {"enabled", network->enabled
+                                  ? localization.translate("ui.ae_network.enabled")
+                                  : localization.translate("ui.ae_network.disabled")}})},
+    }};
+    for (const auto& [id, text] : details) {
+        UiWidgetTemplate row = text_widget(id, text, 14.0f);
+        row.layout.params = fixed(460.0f, 24.0f);
+        row.background = Color{30, 43, 48, 220};
+        row.background_radius = 4.0f;
+        row.layout.padding = {6, 3, 6, 3};
+        append_child(panel, std::move(row));
+    }
+    return panel;
+}
+
 void dispatch_crafting_action(CraftingViewModel& model, std::string_view action_id) {
     constexpr std::string_view kCraftActionPrefix = "craft:";
     if (!action_id.starts_with(kCraftActionPrefix)) {
@@ -703,6 +765,48 @@ void AutomationControllerPanelViewModel::clear() noexcept {
     ++revision_;
 }
 
+bool AeNetworkPanelViewModel::apply_authoritative_state(AeNetworkPanelState state) {
+    const auto invalid_component = [&state]() {
+        if (state.component_id == 0) {
+            return state.enabled || state.online || state.component_powered ||
+                state.component_node_count != 0 || state.component_controller_count != 0 ||
+                state.component_total_channels != 0 || state.component_online_devices != 0 ||
+                state.component_offline_devices != 0;
+        }
+        return !state.enabled || (state.online && !state.component_powered) ||
+            state.component_node_count == 0 || state.component_total_channels < 0 ||
+            state.component_online_devices < 0 || state.component_offline_devices < 0 ||
+            state.component_online_devices > static_cast<int32_t>(state.component_node_count) ||
+            state.component_offline_devices > static_cast<int32_t>(state.component_node_count) ||
+            state.component_online_devices + state.component_offline_devices >
+                static_cast<int32_t>(state.component_node_count) ||
+            state.component_powered != (state.component_controller_count == 1);
+    };
+    if (state.dimension_id.empty() || state.anchor_entity_id == 0 || state.node_revision == 0 ||
+        state.topology_revision == 0 || state.provided_channels < 0 || invalid_component()) {
+        SNT_LOG_ERROR("AE network panel rejected an invalid authoritative state");
+        return false;
+    }
+    if (state_ && state.anchor_entity_id == state_->anchor_entity_id &&
+        (state.topology_revision < state_->topology_revision ||
+         (state.topology_revision == state_->topology_revision &&
+          state.node_revision < state_->node_revision))) {
+        SNT_LOG_WARN("AE network panel rejected a stale topology=%llu node=%llu",
+                     static_cast<unsigned long long>(state.topology_revision),
+                     static_cast<unsigned long long>(state.node_revision));
+        return false;
+    }
+    state_ = std::move(state);
+    ++revision_;
+    return true;
+}
+
+void AeNetworkPanelViewModel::clear() noexcept {
+    if (!state_) return;
+    state_.reset();
+    ++revision_;
+}
+
 InventoryViewModel::InventoryViewModel(InventoryState state)
     : state_(std::move(state)) {
     publish();
@@ -918,6 +1022,11 @@ void GameplayUiController::open_machine(MachinePanelState state) {
 void GameplayUiController::open_automation_controller(AutomationControllerPanelState state) {
     if (!automation_controller_panel_.apply_authoritative_state(std::move(state))) return;
     set_open_screen(GameplayUiScreen::AutomationController);
+}
+
+void GameplayUiController::open_ae_network(AeNetworkPanelState state) {
+    if (!ae_network_panel_.apply_authoritative_state(std::move(state))) return;
+    set_open_screen(GameplayUiScreen::AeNetwork);
 }
 
 void GameplayUiController::close() {
@@ -1203,6 +1312,11 @@ void GameplayUiController::clear_automation_controller_authority() noexcept {
     if (automation_controller_open()) set_open_screen(GameplayUiScreen::None);
 }
 
+void GameplayUiController::clear_ae_network_authority() noexcept {
+    ae_network_panel_.clear();
+    if (ae_network_open()) set_open_screen(GameplayUiScreen::None);
+}
+
 void GameplayUiController::set_open_screen(GameplayUiScreen screen) {
     if (open_screen_ == screen) return;
     open_screen_ = screen;
@@ -1233,6 +1347,12 @@ std::unique_ptr<ViewGroup> build_automation_controller_panel_view(
     const AutomationControllerPanelViewModel& model,
     const localization::LocalizationService& localization) {
     return instantiate_group(automation_controller_panel_template(model, localization));
+}
+
+std::unique_ptr<ViewGroup> build_ae_network_panel_view(
+    const AeNetworkPanelViewModel& model,
+    const localization::LocalizationService& localization) {
+    return instantiate_group(ae_network_panel_template(model, localization));
 }
 
 std::unique_ptr<ViewGroup> build_performance_panel_view(
@@ -1290,6 +1410,13 @@ UiWidgetTree build_gameplay_ui_widget_tree(
             (viewport.x - automation.layout.params.width) * 0.5f;
         automation.layout.params.margin.top =
             (viewport.y - automation.layout.params.height) * 0.5f;
+    } else if (controller.ae_network_open()) {
+        UiWidgetTemplate& ae_network = append_child(
+            root, ae_network_panel_template(controller.ae_network_panel(), localization));
+        ae_network.layout.params.margin.left =
+            (viewport.x - ae_network.layout.params.width) * 0.5f;
+        ae_network.layout.params.margin.top =
+            (viewport.y - ae_network.layout.params.height) * 0.5f;
     }
 
     return tree;
@@ -1306,6 +1433,7 @@ struct GameplayUiTreeState {
     uint64_t crafting_revision = 0;
     uint64_t machine_revision = 0;
     uint64_t automation_controller_revision = 0;
+    uint64_t ae_network_revision = 0;
     uint64_t item_content_revision = 0;
     Vec2 viewport{};
 
@@ -1315,6 +1443,7 @@ struct GameplayUiTreeState {
             crafting_revision == other.crafting_revision &&
             machine_revision == other.machine_revision &&
             automation_controller_revision == other.automation_controller_revision &&
+            ae_network_revision == other.ae_network_revision &&
             item_content_revision == other.item_content_revision &&
             viewport.x == other.viewport.x && viewport.y == other.viewport.y;
     }
@@ -1328,6 +1457,7 @@ GameplayUiTreeState gameplay_ui_tree_state(GameplayUiController& controller,
         .crafting_revision = controller.crafting().revision(),
         .machine_revision = controller.machine_panel().revision(),
         .automation_controller_revision = controller.automation_controller_panel().revision(),
+        .ae_network_revision = controller.ae_network_panel().revision(),
         .item_content_revision = controller.item_content_revision(),
         .viewport = viewport,
     };

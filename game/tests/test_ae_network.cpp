@@ -35,6 +35,7 @@ TEST(AeNetworkTopologyTest, KeepsNormalNodeAndChannelQueriesConstantTimeAfterReb
     const auto state = topology.component_state(*component);
     ASSERT_TRUE(state);
     EXPECT_TRUE(state->is_powered);
+    EXPECT_EQ(state->node_count, 3u);
     EXPECT_EQ(state->total_channels, 32);
     EXPECT_EQ(state->online_devices, 2);
     EXPECT_TRUE(topology.is_online(*controller));
@@ -95,7 +96,7 @@ TEST(AeNetworkStorageIndexTest, TracksCellMutationsWithoutStorageScans) {
     const auto handle = index.attach_storage(
         cell.capture_runtime_contents(snapshot.key_context()));
     ASSERT_TRUE(handle);
-    ASSERT_TRUE(cell.set_network_storage_observer(*handle, index));
+    ASSERT_TRUE(cell.set_resource_aggregate_observer(*handle, index));
     EXPECT_EQ(index.amount_of(snapshot.key_context(), iron), 10);
     EXPECT_EQ(index.amount_of(snapshot.key_context(), copper), 0);
 
@@ -112,7 +113,7 @@ TEST(AeNetworkStorageIndexTest, TracksCellMutationsWithoutStorageScans) {
               9);
     EXPECT_EQ(index.amount_of(snapshot.key_context(), iron), 8);
 
-    cell.clear_network_storage_observer();
+    cell.clear_resource_aggregate_observer();
     EXPECT_TRUE(index.detach_storage(*handle));
     EXPECT_EQ(index.amount_of(snapshot.key_context(), iron), 0);
     EXPECT_EQ(index.storage_count(), 0u);

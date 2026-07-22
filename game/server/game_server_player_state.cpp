@@ -276,6 +276,26 @@ snt::core::Expected<GamePlayerEquipment> GameServerPlayerState::equipment_for_pe
         inventory.resource_runtime_index);
 }
 
+snt::core::Expected<GamePlayerOrganState> GameServerPlayerState::organ_state_for_peer(
+    const GameAuthenticatedPeer& peer) const {
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+    return world_->get_component<GamePlayerOrganState>(*entity);
+}
+
+snt::core::Expected<void> GameServerPlayerState::set_authoritative_organ_state(
+    const GameAuthenticatedPeer& peer, GamePlayerOrganState organs) {
+    if (auto result = validate_organ_state(organs); !result) return result.error();
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+    world_->get_component<GamePlayerOrganState>(*entity) = std::move(organs);
+    return {};
+}
+
 snt::core::Expected<void> GameServerPlayerState::rebind_resource_snapshot(
     ResourceRuntimeIndex::Snapshot next_snapshot) {
     if (auto result = prepare_resource_runtime_snapshot(std::move(next_snapshot)); !result) {

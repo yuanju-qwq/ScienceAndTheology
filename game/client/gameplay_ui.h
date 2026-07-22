@@ -171,6 +171,44 @@ private:
     uint64_t revision_ = 0;
 };
 
+// Read-only terminal-facing view of one AE controller's active physical
+// component. Resource storage contents deliberately have a different owner
+// and are not inferred by this topology presentation.
+struct AeNetworkPanelState {
+    std::string dimension_id;
+    int32_t root_x = 0;
+    int32_t root_y = 0;
+    int32_t root_z = 0;
+    uint64_t anchor_entity_id = 0;
+    uint64_t node_revision = 0;
+    uint64_t topology_revision = 0;
+    bool enabled = false;
+    bool online = false;
+    bool component_powered = false;
+    uint32_t component_id = 0;
+    uint32_t component_node_count = 0;
+    uint32_t component_controller_count = 0;
+    int32_t provided_channels = 0;
+    int32_t component_total_channels = 0;
+    int32_t component_online_devices = 0;
+    int32_t component_offline_devices = 0;
+};
+
+class AeNetworkPanelViewModel {
+public:
+    [[nodiscard]] bool apply_authoritative_state(AeNetworkPanelState state);
+    void clear() noexcept;
+
+    [[nodiscard]] const AeNetworkPanelState* state() const noexcept {
+        return state_ ? &*state_ : nullptr;
+    }
+    [[nodiscard]] uint64_t revision() const noexcept { return revision_; }
+
+private:
+    std::optional<AeNetworkPanelState> state_;
+    uint64_t revision_ = 0;
+};
+
 struct PerformanceStats {
     float fps = 0.0f;
     float frame_ms = 0.0f;
@@ -267,6 +305,7 @@ enum class GameplayUiScreen : uint8_t {
     Crafting,
     Machine,
     AutomationController,
+    AeNetwork,
 };
 
 class GameplayUiController {
@@ -287,6 +326,7 @@ public:
     AutomationControllerPanelViewModel& automation_controller_panel() {
         return automation_controller_panel_;
     }
+    AeNetworkPanelViewModel& ae_network_panel() { return ae_network_panel_; }
     [[nodiscard]] const GameContentRegistry* content() const noexcept { return content_; }
     [[nodiscard]] uint64_t item_content_revision() const noexcept;
     // The source path is session-owned and stable for the controller lifetime.
@@ -302,12 +342,14 @@ public:
     bool automation_controller_open() const {
         return open_screen_ == GameplayUiScreen::AutomationController;
     }
+    bool ae_network_open() const { return open_screen_ == GameplayUiScreen::AeNetwork; }
     uint64_t revision() const noexcept { return revision_; }
 
     void open_inventory();
     void open_crafting();
     void open_machine(MachinePanelState state);
     void open_automation_controller(AutomationControllerPanelState state);
+    void open_ae_network(AeNetworkPanelState state);
     void close();
     void toggle_inventory();
     void toggle_crafting();
@@ -333,6 +375,7 @@ public:
     void clear_inventory_authority() noexcept;
     void clear_machine_authority() noexcept;
     void clear_automation_controller_authority() noexcept;
+    void clear_ae_network_authority() noexcept;
     [[nodiscard]] bool inventory_slot_transfer_pending() const noexcept {
         return pending_slot_transfer_.has_value();
     }
@@ -359,6 +402,7 @@ private:
     CraftingViewModel crafting_;
     MachinePanelViewModel machine_panel_;
     AutomationControllerPanelViewModel automation_controller_panel_;
+    AeNetworkPanelViewModel ae_network_panel_;
     GameplayUiScreen open_screen_ = GameplayUiScreen::None;
     std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink_;
     std::shared_ptr<IMachineInputSlotTransferCommandSink> machine_input_slot_transfer_sink_;
@@ -382,6 +426,9 @@ std::unique_ptr<snt::ui::ViewGroup> build_machine_panel_view(
     const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_automation_controller_panel_view(
     const AutomationControllerPanelViewModel& model,
+    const localization::LocalizationService& localization);
+std::unique_ptr<snt::ui::ViewGroup> build_ae_network_panel_view(
+    const AeNetworkPanelViewModel& model,
     const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_performance_panel_view(
     const PerformanceViewModel& model, const localization::LocalizationService& localization);

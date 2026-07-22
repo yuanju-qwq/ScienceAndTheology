@@ -21,9 +21,6 @@ inline constexpr ItemId kMaterialItemBase = 1;
 inline constexpr ItemId kMaterialItemMax =
     kMaterialItemBase + static_cast<ItemId>(kMaxMaterials) * kFormCount;
 
-// Encoded patterns use dynamic IDs starting right after material items.
-inline constexpr ItemId ENCODED_PATTERN_BASE = kMaterialItemMax + 1;
-
 // ============================================================
 // Dynamic (non-material) item registry
 // ============================================================

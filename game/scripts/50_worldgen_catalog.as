@@ -306,6 +306,7 @@ void register_terrain_materials() {
     snt_register_worldgen_material("snt:runtime.machine.bloomery", "terrain.runtime.machine.bloomery", 11, 3.0f, "", 0, 0.3f, 5, "");
     snt_register_worldgen_material("snt:runtime.machine.anvil", "terrain.runtime.machine.anvil", 11, 4.0f, "", 0, 0.3f, 5, "");
     snt_register_worldgen_material("snt:runtime.automation.sfm_manager", "terrain.runtime.automation.sfm_manager", 11, 2.0f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_controller", "terrain.runtime.automation.ae_controller", 11, 2.0f, "", 0, 0.3f, 5, "");
 }
 
 void register_terrain_roles() {

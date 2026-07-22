@@ -483,6 +483,35 @@ snt::core::Expected<void> SourceLawContentBuilder::validate_snapshot(
         }
     }
 
+    for (const auto& [id, tuning] : snapshot.tunings_) {
+        if (id != tuning.id || !is_valid_id(id) || tuning.allowed_slots.empty() ||
+            !is_unique_and_valid(tuning.allowed_slots, is_valid_source_organ_slot) ||
+            !has_unique_valid_ids(tuning.required_organ_tags) ||
+            !has_unique_valid_ids(tuning.added_tuning_tags) ||
+            !has_unique_valid_ids(tuning.removed_tuning_tags) ||
+            tuning.source_reserve_cost <= 0 ||
+            !std::isfinite(tuning.contamination_reduction) ||
+            tuning.contamination_reduction < 0.0F || tuning.contamination_reduction > 1.0F ||
+            !std::isfinite(tuning.mutation_reduction) || tuning.mutation_reduction < 0.0F ||
+            tuning.mutation_reduction > 100.0F || !std::isfinite(tuning.stability_delta) ||
+            tuning.stability_delta < -100.0F || tuning.stability_delta > 100.0F ||
+            !std::isfinite(tuning.maximum_mutation_before) ||
+            tuning.maximum_mutation_before < 0.0F ||
+            tuning.maximum_mutation_before > 100.0F) {
+            return invalid_argument("Source-law tuning definition is invalid: " + id);
+        }
+        if (tuning.added_tuning_tags.empty() && tuning.removed_tuning_tags.empty() &&
+            tuning.contamination_reduction == 0.0F && tuning.mutation_reduction == 0.0F &&
+            tuning.stability_delta == 0.0F) {
+            return invalid_argument("Source-law tuning definition has no effect: " + id);
+        }
+        for (const SourceLawId& tag : tuning.added_tuning_tags) {
+            if (contains(tuning.removed_tuning_tags, tag)) {
+                return invalid_argument("Source-law tuning adds and removes the same tag: " + id);
+            }
+        }
+    }
+
     for (const auto& [id, reaction] : snapshot.reactions_) {
         if (id != reaction.id || !is_valid_id(id) || reaction.closure_steps.empty() ||
             !is_valid_id(reaction.product_definition_id) ||
@@ -829,6 +858,11 @@ const OrganDefinition* SourceLawContentSnapshot::find_organ(const SourceLawId& i
     return find_or_null(organs_, id);
 }
 
+const SourceLawTuningDefinition* SourceLawContentSnapshot::find_tuning(
+    const SourceLawId& id) const {
+    return find_or_null(tunings_, id);
+}
+
 const ElementalReactionDefinition* SourceLawContentSnapshot::find_reaction(
     const SourceLawId& id) const {
     return find_or_null(reactions_, id);
@@ -896,6 +930,11 @@ snt::core::Expected<void> SourceLawContentBuilder::add_element_rule(
 
 snt::core::Expected<void> SourceLawContentBuilder::add_organ(OrganDefinition definition) {
     return add_unique_definition(snapshot_.organs_, std::move(definition), "organ");
+}
+
+snt::core::Expected<void> SourceLawContentBuilder::add_tuning(
+    SourceLawTuningDefinition definition) {
+    return add_unique_definition(snapshot_.tunings_, std::move(definition), "tuning");
 }
 
 snt::core::Expected<void> SourceLawContentBuilder::add_reaction(
@@ -979,10 +1018,10 @@ snt::core::Expected<SourceLawContentSnapshot> SourceLawContentBuilder::build(
     uint64_t revision) && {
     snapshot_.revision_ = revision;
     if (auto result = validate_snapshot(snapshot_); !result) return result.error();
-    SNT_LOG_INFO("Published source-law content snapshot revision=%llu organs=%zu systems=%zu intrinsics=%zu graphs=%zu paths=%zu creatures=%zu",
+    SNT_LOG_INFO("Published source-law content snapshot revision=%llu organs=%zu tunings=%zu systems=%zu intrinsics=%zu graphs=%zu paths=%zu creatures=%zu",
                  static_cast<unsigned long long>(snapshot_.revision_), snapshot_.organs_.size(),
-                 snapshot_.systems_.size(), snapshot_.intrinsics_.size(), snapshot_.spell_graphs_.size(),
-                 snapshot_.paths_.size(),
+                 snapshot_.tunings_.size(), snapshot_.systems_.size(), snapshot_.intrinsics_.size(),
+                 snapshot_.spell_graphs_.size(), snapshot_.paths_.size(),
                  snapshot_.creature_bodies_.size());
     return std::move(snapshot_);
 }

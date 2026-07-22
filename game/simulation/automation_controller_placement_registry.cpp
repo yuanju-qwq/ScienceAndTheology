@@ -30,7 +30,8 @@ constexpr size_t kMaxPlacementIdentifierBytes = 256;
 }
 
 [[nodiscard]] bool is_supported_kind(AutomationControllerKind kind) noexcept {
-    return kind == AutomationControllerKind::kSfmManager;
+    return kind == AutomationControllerKind::kSfmManager ||
+        kind == AutomationControllerKind::kAeController;
 }
 
 }  // namespace

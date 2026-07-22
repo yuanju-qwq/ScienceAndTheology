@@ -83,6 +83,9 @@ snt::core::Expected<void> AutomationControllerRuntimeService::materialize_chunk(
     replacements.reserve(sidecar.automation_controller_records.size());
     for (const AutomationControllerPersistenceRecord& record :
          sidecar.automation_controller_records) {
+        // The AE topology has its own active owner. This SFM executor service
+        // must not materialize an offline placeholder for an AE controller.
+        if (record.kind != AutomationControllerKind::kSfmManager) continue;
         if (!record.anchor_entity_id.is_valid() ||
             !seen_anchors.insert(record.anchor_entity_id.id).second) {
             return invalid_state("Automation controller chunk has duplicate or invalid anchors");

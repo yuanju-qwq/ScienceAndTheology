@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <string>
 
 namespace snt::game::replication {
 namespace {
@@ -117,6 +118,33 @@ TEST(GameAutomationControllerReplicationTest, RejectsMalformedFlowNode) {
     malformed.sfm_program.nodes[0].interval_ticks = 0;
     EXPECT_FALSE(encode_game_automation_controller_replication_snapshot({
         .controllers = {std::move(malformed)},
+    }));
+}
+
+TEST(GameAutomationControllerReplicationTest, RejectsGraphThatExceedsSingleValueBudget) {
+    GameAutomationControllerReplicationState oversized = make_controller();
+    oversized.sfm_program.nodes.clear();
+    oversized.sfm_program.connections.clear();
+    constexpr size_t kTransferNodeCount = 128;
+    constexpr size_t kMaximumEndpointAddressBytes = 512;
+    const std::string endpoint(kMaximumEndpointAddressBytes, 'a');
+    for (size_t index = 0; index < kTransferNodeCount; ++index) {
+        oversized.sfm_program.nodes.push_back({
+            .id = static_cast<SfmFlowNodeId>(index + 1),
+            .type = SfmFlowNodeType::kTransfer,
+            .transfer = {
+                .source = {.value = endpoint},
+                .destination = {.value = endpoint},
+                .requested = ResourceContentStack::item("iron.ingot", 1),
+            },
+        });
+    }
+    auto state_size = measure_game_automation_controller_replication_state(oversized);
+    ASSERT_TRUE(state_size);
+    EXPECT_GT(*state_size + kGameAutomationControllerReplicationHeaderBytes,
+              kMaxGameAutomationControllerReplicationPayloadBytes);
+    EXPECT_FALSE(encode_game_automation_controller_replication_snapshot({
+        .controllers = {std::move(oversized)},
     }));
 }
 

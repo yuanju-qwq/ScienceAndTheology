@@ -25,6 +25,7 @@
 
 #include "game/chemistry/element_catalog.h"
 #include "game/resources/resource_runtime_index.h"
+#include "game/simulation/ae_network_node_placement_registry.h"
 #include "game/simulation/automation_controller_placement_registry.h"
 #include "game/simulation/machine_placement_registry.h"
 #include "script/content_host.h"
@@ -401,6 +402,8 @@ public:
         MachinePlacementDefinition definition);
     snt::core::Expected<void> register_builtin_automation_controller_placement(
         AutomationControllerPlacementDefinition definition);
+    snt::core::Expected<void> register_builtin_ae_network_node_placement(
+        AeNetworkNodePlacementDefinition definition);
     snt::core::Expected<void> register_builtin_quest_chapter(
         QuestBookChapterDefinition definition);
     snt::core::Expected<void> register_builtin_quest(QuestDefinition definition);
@@ -432,6 +435,8 @@ public:
         ScriptId script_id, MachinePlacementDefinition definition);
     snt::core::Expected<void> register_script_automation_controller_placement(
         ScriptId script_id, AutomationControllerPlacementDefinition definition);
+    snt::core::Expected<void> register_script_ae_network_node_placement(
+        ScriptId script_id, AeNetworkNodePlacementDefinition definition);
     snt::core::Expected<void> register_script_quest_chapter(
         ScriptId script_id, QuestBookChapterDefinition definition);
     snt::core::Expected<void> register_script_quest(ScriptId script_id,
@@ -513,6 +518,16 @@ public:
     // does not turn a controller into a processing machine.
     [[nodiscard]] snt::core::Expected<void>
     validate_automation_controller_placement_references() const;
+    [[nodiscard]] const AeNetworkNodePlacementDefinition*
+    find_ae_network_node_placement_by_item(std::string_view item_id) const noexcept;
+    [[nodiscard]] const AeNetworkNodePlacementDefinition*
+    find_ae_network_node_placement_by_node_key(std::string_view node_key) const noexcept;
+    [[nodiscard]] const AeNetworkNodePlacementDefinition*
+    find_ae_network_node_placement_by_material_key(std::string_view material_key) const noexcept;
+    [[nodiscard]] std::vector<AeNetworkNodePlacementDefinition>
+    ae_network_node_placement_definitions() const;
+    [[nodiscard]] snt::core::Expected<void>
+    validate_ae_network_node_placement_references() const;
     const QuestBookChapterDefinition* find_quest_chapter(std::string_view id) const;
     const QuestDefinition* find_quest(std::string_view id) const;
     std::vector<RecipeDefinition> recipes_for_machine(std::string_view machine_id) const;
@@ -652,6 +667,7 @@ private:
     QuestMap live_quests_;
     MachinePlacementRegistry machine_placements_;
     AutomationControllerPlacementRegistry automation_controller_placements_;
+    AeNetworkNodePlacementRegistry ae_network_node_placements_;
     std::map<std::string, std::vector<EventListener>, std::less<>> event_listeners_;
     std::map<ScriptId, std::map<std::string, std::string, std::less<>>> state_store_;
     std::map<ScriptId, ReloadSnapshot> reloads_;

@@ -22,6 +22,16 @@
 namespace snt::game::replication {
 
 inline constexpr uint8_t kGameAutomationControllerReplicationVersion = 1;
+// Controller graphs are AOI presentation, not bulk save transfer. Keep one
+// value well below the peer's default reliable-tick budget so terrain and
+// player state still have room in the same snapshot.
+inline constexpr size_t kMaxGameAutomationControllerReplicationPayloadBytes =
+    96u * 1024u;
+inline constexpr size_t kGameAutomationControllerReplicationHeaderBytes =
+    sizeof(uint8_t) + sizeof(uint16_t);
+inline constexpr size_t kMaxGameAutomationControllerStates = 256;
+static_assert(kMaxGameAutomationControllerReplicationPayloadBytes <=
+              kMaxGameReplicationValuePayloadBytes);
 
 struct GameAutomationControllerReplicationState {
     snt::voxel::ChunkKey anchor_chunk;
@@ -38,6 +48,14 @@ struct GameAutomationControllerReplicationState {
 struct GameAutomationControllerReplicationSnapshot {
     std::vector<GameAutomationControllerReplicationState> controllers;
 };
+
+// Returns the exact encoded size of one state, excluding the snapshot header.
+// Server AOI sources use this to choose a complete bounded projection in one
+// linear pass before serializing it. Invalid durable/editor values are
+// rejected here rather than being allowed to overflow a transport value.
+[[nodiscard]] snt::core::Expected<size_t>
+measure_game_automation_controller_replication_state(
+    const GameAutomationControllerReplicationState& state);
 
 [[nodiscard]] snt::core::Expected<std::vector<std::byte>>
 encode_game_automation_controller_replication_snapshot(

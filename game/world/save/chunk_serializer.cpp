@@ -26,6 +26,9 @@ constexpr uint32_t kMaxAutomationEndpointAddressBytes = 512;
 constexpr uint32_t kMaxAutomationResourceTypeBytes = 64;
 constexpr uint32_t kMaxAutomationResourceIdBytes = 256;
 constexpr uint32_t kMaxAutomationResourceVariantBytes = 256;
+constexpr uint32_t kMaxAeNetworkNodeRecords = 16384;
+constexpr uint32_t kMaxAeDriveStorageRecords = 4096;
+constexpr uint32_t kMaxAeDriveStoredResources = 4096;
 constexpr uint32_t kMaxOfflineNetworkIslands = 1024;
 constexpr uint32_t kMaxOfflineNetworkMemberChunks = 4096;
 constexpr uint32_t kMaxOfflineNetworkMachineGuids = 16384;
@@ -155,6 +158,21 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     for (const AutomationControllerPersistenceRecord& record :
          chunk.automation_controller_records) {
         write_automation_controller_record(buf, record);
+    }
+
+    // Physical AE topology is reconstructed from typed node anchors and
+    // reciprocal port masks. No runtime handle, component id, or edge list is
+    // persisted here.
+    write_uint32(buf, static_cast<uint32_t>(chunk.ae_network_node_records.size()));
+    for (const AeNetworkNodePersistenceRecord& record : chunk.ae_network_node_records) {
+        write_ae_network_node_record(buf, record);
+    }
+
+    // A drive cell stores stable content stacks only. Its typed node anchor
+    // and authored cell config determine the live compact storage instance.
+    write_uint32(buf, static_cast<uint32_t>(chunk.ae_drive_storage_records.size()));
+    for (const AeDriveStoragePersistenceRecord& record : chunk.ae_drive_storage_records) {
+        write_ae_drive_storage_record(buf, record);
     }
 
     // Typed tree-growth state is kept separate from generic block anchors so
@@ -373,6 +391,32 @@ bool GameChunkSerializer::deserialize(
         AutomationControllerPersistenceRecord record;
         if (!read_automation_controller_record(data, offset, record)) return false;
         chunk.automation_controller_records.push_back(std::move(record));
+    }
+
+    uint32_t ae_network_node_count;
+    if (!read_uint32(data, offset, ae_network_node_count) ||
+        ae_network_node_count > kMaxAeNetworkNodeRecords) {
+        return false;
+    }
+    chunk.ae_network_node_records.clear();
+    chunk.ae_network_node_records.reserve(ae_network_node_count);
+    for (uint32_t i = 0; i < ae_network_node_count; ++i) {
+        AeNetworkNodePersistenceRecord record;
+        if (!read_ae_network_node_record(data, offset, record)) return false;
+        chunk.ae_network_node_records.push_back(std::move(record));
+    }
+
+    uint32_t ae_drive_storage_count;
+    if (!read_uint32(data, offset, ae_drive_storage_count) ||
+        ae_drive_storage_count > kMaxAeDriveStorageRecords) {
+        return false;
+    }
+    chunk.ae_drive_storage_records.clear();
+    chunk.ae_drive_storage_records.reserve(ae_drive_storage_count);
+    for (uint32_t i = 0; i < ae_drive_storage_count; ++i) {
+        AeDriveStoragePersistenceRecord record;
+        if (!read_ae_drive_storage_record(data, offset, record)) return false;
+        chunk.ae_drive_storage_records.push_back(std::move(record));
     }
 
     uint32_t tree_growth_record_count;
@@ -821,7 +865,8 @@ bool GameChunkSerializer::read_automation_controller_record(
     uint8_t kind = 0;
     if (!read_uint64(data, offset, raw_anchor_id) ||
         !read_uint8(data, offset, kind) ||
-        kind != static_cast<uint8_t>(AutomationControllerKind::kSfmManager) ||
+        (kind != static_cast<uint8_t>(AutomationControllerKind::kSfmManager) &&
+         kind != static_cast<uint8_t>(AutomationControllerKind::kAeController)) ||
         !read_string(data, offset, record.controller_key) ||
         record.controller_key.empty() ||
         record.controller_key.size() > kMaxAutomationControllerKeyBytes ||
@@ -899,6 +944,97 @@ bool GameChunkSerializer::read_automation_controller_record(
             connection.destination;
         if (!seen_connections.insert(key).second) return false;
         record.sfm_program.connections.push_back(connection);
+    }
+    if (record.kind == AutomationControllerKind::kAeController &&
+        (!record.sfm_program.nodes.empty() || !record.sfm_program.connections.empty())) {
+        return false;
+    }
+    return true;
+}
+
+// --- AE-network node sidecar helpers ---
+
+void GameChunkSerializer::write_ae_network_node_record(
+    std::vector<uint8_t>& buf,
+    const AeNetworkNodePersistenceRecord& record) {
+    write_uint64(buf, record.anchor_entity_id.id);
+    write_string(buf, record.node_key);
+    write_uint8(buf, static_cast<uint8_t>(record.type));
+    write_uint8(buf, record.enabled ? 1 : 0);
+    write_int32(buf, record.provided_channels);
+    write_uint8(buf, record.connection_mask);
+    write_uint64(buf, record.revision);
+}
+
+bool GameChunkSerializer::read_ae_network_node_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    AeNetworkNodePersistenceRecord& record) {
+    uint64_t raw_anchor_id = 0;
+    uint8_t type = 0;
+    uint8_t enabled = 0;
+    if (!read_uint64(data, offset, raw_anchor_id) ||
+        !read_string(data, offset, record.node_key) ||
+        !read_uint8(data, offset, type) ||
+        !read_uint8(data, offset, enabled) || enabled > 1 ||
+        !read_int32(data, offset, record.provided_channels) ||
+        !read_uint8(data, offset, record.connection_mask) ||
+        !read_uint64(data, offset, record.revision)) {
+        return false;
+    }
+    record.anchor_entity_id = EntityId{raw_anchor_id};
+    record.type = static_cast<AeNetworkNodeType>(type);
+    record.enabled = enabled != 0;
+    if (!record.anchor_entity_id.is_valid() || record.node_key.empty() ||
+        record.node_key.size() > kMaxAutomationControllerKeyBytes ||
+        record.node_key.find('\0') != std::string::npos ||
+        !is_known_ae_network_node_type(record.type) ||
+        record.provided_channels < 0 ||
+        (!ae_network_node_is_channel_provider(record.type) &&
+         record.provided_channels != 0) ||
+        (record.connection_mask & static_cast<uint8_t>(~CONN_ALL)) != 0 ||
+        record.revision == 0) {
+        return false;
+    }
+    return true;
+}
+
+void GameChunkSerializer::write_ae_drive_storage_record(
+    std::vector<uint8_t>& buf,
+    const AeDriveStoragePersistenceRecord& record) {
+    write_uint64(buf, record.anchor_entity_id.id);
+    write_uint64(buf, record.revision);
+    write_uint32(buf, static_cast<uint32_t>(record.stored_resources.size()));
+    for (const ResourceContentStack& stack : record.stored_resources) {
+        write_machine_runtime_resource_stack(buf, stack);
+    }
+}
+
+bool GameChunkSerializer::read_ae_drive_storage_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    AeDriveStoragePersistenceRecord& record) {
+    uint64_t raw_anchor_id = 0;
+    uint32_t stack_count = 0;
+    if (!read_uint64(data, offset, raw_anchor_id) ||
+        !read_uint64(data, offset, record.revision) ||
+        !read_uint32(data, offset, stack_count) ||
+        stack_count > kMaxAeDriveStoredResources) {
+        return false;
+    }
+    record.anchor_entity_id = EntityId{raw_anchor_id};
+    if (!record.anchor_entity_id.is_valid() || record.revision == 0) return false;
+    record.stored_resources.clear();
+    record.stored_resources.reserve(stack_count);
+    std::unordered_set<ResourceContentKey, ResourceContentKey::Hash> seen;
+    seen.reserve(stack_count);
+    for (uint32_t index = 0; index < stack_count; ++index) {
+        ResourceContentStack stack;
+        if (!read_machine_runtime_resource_stack(data, offset, stack) || !stack.is_valid() ||
+            !seen.insert(stack.key).second) {
+            return false;
+        }
+        record.stored_resources.push_back(std::move(stack));
     }
     return true;
 }

@@ -85,6 +85,13 @@ public:
         const GameAuthenticatedPeer& peer) const;
     [[nodiscard]] snt::core::Expected<GamePlayerEquipment> equipment_for_peer(
         const GameAuthenticatedPeer& peer) const;
+    // Source-law owns the payload schema, while this service keeps the live
+    // ECS component and persistence envelope authoritative. These narrow
+    // accessors prevent a source-law runtime from reaching into World/ECS.
+    [[nodiscard]] snt::core::Expected<GamePlayerOrganState> organ_state_for_peer(
+        const GameAuthenticatedPeer& peer) const;
+    [[nodiscard]] snt::core::Expected<void> set_authoritative_organ_state(
+        const GameAuthenticatedPeer& peer, GamePlayerOrganState organs);
     // Rebinds every active player's compact inventory/equipment keys through
     // the stable content-key boundary. The operation is all-or-nothing: an
     // unresolved content definition leaves every active component and the

@@ -337,6 +337,23 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
         return result.error();
     }
 
+    // The first profile intentionally handles only low-grade contamination
+    // and mutation. Severe body conflicts require a later ritual/rebuild
+    // path rather than allowing a repeatable purification to erase them.
+    if (auto result = builder.add_tuning({
+            .id = "snt:tuning.rock_core_purification",
+            .allowed_slots = {SourceOrganSlot::kHeart},
+            .required_organ_tags = {"snt:system.sand_armor"},
+            .added_tuning_tags = {"snt:tuning.rock_core.purified"},
+            .source_reserve_cost = 3,
+            .contamination_reduction = 0.25F,
+            .mutation_reduction = 4.0F,
+            .stability_delta = 5.0F,
+            .maximum_mutation_before = 25.0F,
+        }); !result) {
+        return result.error();
+    }
+
     if (auto result = builder.add_reaction({
             .id = "snt:reaction.sand_armor.circulatory",
             .closure_steps = {
@@ -386,6 +403,28 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
         }); !result) {
         return result.error();
     }
+    if (auto result = builder.add_reaction({
+            .id = "snt:reaction.sand_armor.integumentary",
+            .closure_steps = {
+                step("snt:reaction.sand_armor.integumentary.generation",
+                     ElementalReactionStage::kGenerationOrIntake,
+                     {ElementalPhysiologyAction::kAnchorShapeDeposit},
+                     {SourceLawElement::kEarth}),
+                step("snt:reaction.sand_armor.integumentary.transport",
+                     ElementalReactionStage::kTransport,
+                     {ElementalPhysiologyAction::kDissolveCarryRecover},
+                     {SourceLawElement::kWater}),
+                step("snt:reaction.sand_armor.integumentary.effect",
+                     ElementalReactionStage::kEffectOrRelease,
+                     {ElementalPhysiologyAction::kAnchorShapeDeposit},
+                     {SourceLawElement::kEarth}),
+            },
+            .product_definition_id = "snt:product.sand_armor.boundary",
+            .byproduct_tags = {"snt:source_law.byproduct.structural_strain"},
+            .required_relief_tags = {"snt:source_law.relief.structural_release"},
+        }); !result) {
+        return result.error();
+    }
 
     if (auto result = builder.add_intrinsic({
             .id = "snt:intrinsic.sand_armor.pressure_shell",
@@ -418,6 +457,23 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
             .required_throughput = 12.0F,
             .mana_cost = 5,
             .risk_tags = {"snt:risk.sand_armor.structural_load"},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_intrinsic({
+            .id = "snt:intrinsic.sand_armor.boundary_shell",
+            .required_closed_systems = {SourceBodySystem::kIntegumentary},
+            .required_stages = {ElementalReactionStage::kGenerationOrIntake,
+                                ElementalReactionStage::kTransport,
+                                ElementalReactionStage::kEffectOrRelease},
+            .required_actions = {ElementalPhysiologyAction::kAnchorShapeDeposit,
+                                 ElementalPhysiologyAction::kDissolveCarryRecover},
+            .required_product_tags = {"snt:product.sand_armor.boundary"},
+            .input_port_types = {SourceLawSpellPortType::kMana},
+            .output_port_types = {SourceLawSpellPortType::kEffect},
+            .required_throughput = 10.0F,
+            .mana_cost = 4,
+            .risk_tags = {"snt:risk.sand_armor.boundary_strain"},
         }); !result) {
         return result.error();
     }
@@ -647,6 +703,27 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
         }); !result) {
         return result.error();
     }
+    if (auto result = builder.add_system({
+            .id = "snt:system.sand_armor.integumentary",
+            .body_system = SourceBodySystem::kIntegumentary,
+            .resonance_requirements = {
+                requirement({SourceOrganSlot::kHeart}, {OrganSystemRole::kCore},
+                            {"snt:system.sand_armor"}),
+                requirement({SourceOrganSlot::kBlood}, {OrganSystemRole::kConduit},
+                            {"snt:system.sand_armor"}),
+                requirement({SourceOrganSlot::kSkin}, {OrganSystemRole::kEffector},
+                            {"snt:system.sand_armor"}),
+            },
+            .closure_requirements = {
+                requirement({SourceOrganSlot::kSkin}, {OrganSystemRole::kStabilizer},
+                            {"snt:source_law.relief.structural_release"}),
+            },
+            .elemental_reaction_id = "snt:reaction.sand_armor.integumentary",
+            .intrinsic_operation_ids = {"snt:intrinsic.sand_armor.boundary_shell"},
+            .pressure_tags = {"snt:source_law.byproduct.structural_strain"},
+        }); !result) {
+        return result.error();
+    }
 
     if (auto result = builder.set_integration_definition({
             .id = "snt:integration.source_body.v0_1",
@@ -727,7 +804,8 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
     if (auto result = builder.add_path({
             .id = "snt:path.sand_armor",
             .preferred_systems = {SourceBodySystem::kCirculatory,
-                                  SourceBodySystem::kMusculoskeletal},
+                                  SourceBodySystem::kMusculoskeletal,
+                                  SourceBodySystem::kIntegumentary},
             .reaction_preferences = {
                 {
                     .body_system = SourceBodySystem::kCirculatory,
@@ -741,6 +819,13 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
                     .stage = ElementalReactionStage::kEffectOrRelease,
                     .action = ElementalPhysiologyAction::kAnchorShapeDeposit,
                     .product_modifier_id = "snt:modifier.sand_armor.mining_force",
+                    .byproduct_handling_modifier_id = "snt:modifier.sand_armor.structural_release",
+                },
+                {
+                    .body_system = SourceBodySystem::kIntegumentary,
+                    .stage = ElementalReactionStage::kEffectOrRelease,
+                    .action = ElementalPhysiologyAction::kAnchorShapeDeposit,
+                    .product_modifier_id = "snt:modifier.sand_armor.boundary",
                     .byproduct_handling_modifier_id = "snt:modifier.sand_armor.structural_release",
                 },
             },
@@ -774,7 +859,8 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
             .lineage_tags = {"snt:bloodline.rock_lizard"},
             .ecology_tags = {"snt:ecology.arid"},
             .innate_reaction_ids = {"snt:reaction.sand_armor.circulatory",
-                                    "snt:reaction.sand_armor.musculoskeletal"},
+                                    "snt:reaction.sand_armor.musculoskeletal",
+                                    "snt:reaction.sand_armor.integumentary"},
             .compatible_bloodline_tags = {"snt:bloodline.rock_lizard"},
         }); !result) {
         return result.error();
@@ -783,9 +869,11 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
         .id = "snt:template.rock_lizard",
         .innate_path_id = "snt:path.sand_armor",
         .initial_system_ids = {"snt:system.sand_armor.circulatory",
-                               "snt:system.sand_armor.musculoskeletal"},
+                               "snt:system.sand_armor.musculoskeletal",
+                               "snt:system.sand_armor.integumentary"},
         .initial_reaction_ids = {"snt:reaction.sand_armor.circulatory",
-                                 "snt:reaction.sand_armor.musculoskeletal"},
+                                 "snt:reaction.sand_armor.musculoskeletal",
+                                 "snt:reaction.sand_armor.integumentary"},
         .innate_spell_graph_ids = {"snt:spell_graph.rock_lizard.innate_shell"},
         .integration_condition_ids = {"snt:ecology.arid"},
     };

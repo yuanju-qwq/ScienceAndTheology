@@ -37,6 +37,7 @@ public:
 enum class SourceLawTransactionEventKind : uint8_t {
     kOrganImplanted = 0,
     kOrganRemoved,
+    kOrganTuned,
     kPathAnchored,
     kCircuitScheduled,
     kSpellGraphChanged,
@@ -57,6 +58,9 @@ struct SourceLawTransactionEvent {
     SourceLawSpellProgramId spell_program_id;
     uint32_t source_revision = 0;
     uint64_t body_revision = 0;
+    float contamination_delta = 0.0F;
+    float mutation_delta = 0.0F;
+    float stability_delta = 0.0F;
     bool is_compilable = false;
     std::vector<SourceLawId> blocking_reason_ids;
 };
@@ -79,6 +83,14 @@ struct SourceLawImplantRequest {
 
 struct SourceLawRemoveOrganRequest {
     SourceOrganSlot slot = SourceOrganSlot::kCount;
+    std::string_view diagnostic_subject_id;
+};
+
+// The tuning definition owns costs, scalar effects, and compatible tags. A
+// request only identifies the installed organ and the content recipe to use.
+struct SourceLawTuneOrganRequest {
+    SourceOrganSlot slot = SourceOrganSlot::kCount;
+    SourceLawId tuning_definition_id;
     std::string_view diagnostic_subject_id;
 };
 
@@ -113,6 +125,12 @@ public:
         const SourceLawContentSnapshot& content,
         const SourceLawBodyState& body,
         const SourceLawRemoveOrganRequest& request,
+        const SourceLawEvaluationContext& context = {});
+
+    [[nodiscard]] static snt::core::Expected<SourceLawTransactionResult> tune_organ(
+        const SourceLawContentSnapshot& content,
+        const SourceLawBodyState& body,
+        const SourceLawTuneOrganRequest& request,
         const SourceLawEvaluationContext& context = {});
 
     [[nodiscard]] static snt::core::Expected<SourceLawTransactionResult> anchor_path(

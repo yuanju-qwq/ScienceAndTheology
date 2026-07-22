@@ -25,6 +25,7 @@
 #include <string_view>
 
 namespace snt::game::replication {
+class GameRemoteAeNetworkWorld;
 class GameRemoteAutomationControllerWorld;
 class GameClientInventoryState;
 class GameClientQuestBookState;
@@ -100,9 +101,11 @@ private:
     current_network_interaction_target() const;
     [[nodiscard]] std::optional<GameClientCreatureInteractionTarget>
     current_network_creature_interaction_target() const;
+    [[nodiscard]] bool try_open_network_ae_network_panel();
     [[nodiscard]] bool try_open_network_automation_controller_panel();
     [[nodiscard]] bool try_open_network_machine_panel();
     void refresh_open_automation_controller_panel();
+    void refresh_open_ae_network_panel();
     void refresh_open_machine_panel();
     [[nodiscard]] bool handle_network_creature_interaction_input(
         snt::engine::ClientFrameContext& context);
@@ -127,6 +130,7 @@ private:
     std::unique_ptr<replication::GameRemoteMachineWorld> remote_machine_world_;
     std::unique_ptr<replication::GameRemoteAutomationControllerWorld>
         remote_automation_controller_world_;
+    std::unique_ptr<replication::GameRemoteAeNetworkWorld> remote_ae_network_world_;
     std::unique_ptr<replication::GameRemoteCreatureWorld> remote_creature_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;

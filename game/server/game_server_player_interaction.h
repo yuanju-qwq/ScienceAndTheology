@@ -10,6 +10,7 @@
 
 #include "core/expected.h"
 #include "game/network/game_replication_services.h"
+#include "game/world/game_chunk.h"
 
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,8 @@ namespace snt::game {
 class GameChunkSidecarRegistry;
 class GameContentRegistry;
 class GameCropGrowthSystem;
+class AeNetworkRuntimeService;
+class AutomationControllerRuntimeService;
 class IBlockPhysicsTrigger;
 class IFluidTrigger;
 class MachineInteractionService;
@@ -66,6 +69,11 @@ struct GameServerPlayerInteractionConfig {
     // Session-owned crop mutation authority. A null pointer leaves unrelated
     // block/machine commands usable, while every farming action is rejected.
     GameCropGrowthSystem* crop_growth_system = nullptr;
+    // Active-chunk owners are optional for isolated transaction tests. A
+    // server session supplies both so an accepted controller placement is
+    // visible to SFM/AE queries before the next ticket reconciliation.
+    AutomationControllerRuntimeService* automation_controller_runtime = nullptr;
+    AeNetworkRuntimeService* ae_network_runtime = nullptr;
     // Item-key semantics are explicit here until farming content has its own
     // immutable registration snapshot. The host validates both content and
     // authoritative inventory before consuming this item.
@@ -205,6 +213,8 @@ private:
         std::string_view material_key) const noexcept;
     [[nodiscard]] snt::core::Expected<void> mark_player_state_dirty(
         const GameAuthenticatedPeer& peer);
+    [[nodiscard]] snt::core::Expected<void> refresh_automation_runtime(
+        const ChunkKey& chunk_key);
     [[nodiscard]] snt::core::Expected<void> validate_selected_inventory_item(
         const GameAuthenticatedPeer& peer, std::string_view item_id) const;
     void rollback_inventory_transaction(const GameAuthenticatedPeer& peer,

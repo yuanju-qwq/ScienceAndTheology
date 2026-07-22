@@ -53,6 +53,24 @@ struct OrganDefinition {
     std::vector<SourceLawId> pressure_tags;
 };
 
+// Immutable content recipe for a low-risk organ tuning or purification. The
+// request selects this definition by id; it never supplies arbitrary scalar
+// recovery or compatibility tags from a client-controlled payload.
+struct SourceLawTuningDefinition {
+    SourceLawId id;
+    std::vector<SourceOrganSlot> allowed_slots;
+    std::vector<SourceLawId> required_organ_tags;
+    std::vector<SourceLawId> added_tuning_tags;
+    std::vector<SourceLawId> removed_tuning_tags;
+    int32_t source_reserve_cost = 0;
+    float contamination_reduction = 0.0F;
+    float mutation_reduction = 0.0F;
+    float stability_delta = 0.0F;
+    // Low-grade purification cannot erase a severe mutation state. Content
+    // chooses the threshold for each recipe instead of trusting the caller.
+    float maximum_mutation_before = 100.0F;
+};
+
 struct OrganSystemRequirement {
     std::vector<SourceOrganSlot> allowed_slots;
     std::vector<OrganSystemRole> required_roles;
@@ -246,6 +264,8 @@ public:
     [[nodiscard]] const ElementalPhysiologyRule* find_element_rule(
         SourceLawElement element) const noexcept;
     [[nodiscard]] const OrganDefinition* find_organ(const SourceLawId& id) const;
+    [[nodiscard]] const SourceLawTuningDefinition* find_tuning(
+        const SourceLawId& id) const;
     [[nodiscard]] const ElementalReactionDefinition* find_reaction(
         const SourceLawId& id) const;
     [[nodiscard]] const OrganSystemDefinition* find_system(const SourceLawId& id) const;
@@ -281,6 +301,7 @@ private:
     std::array<std::optional<ElementalPhysiologyRule>, kSourceLawElementCount>
         element_rules_;
     std::map<SourceLawId, OrganDefinition> organs_;
+    std::map<SourceLawId, SourceLawTuningDefinition> tunings_;
     std::map<SourceLawId, ElementalReactionDefinition> reactions_;
     std::map<SourceLawId, OrganSystemDefinition> systems_;
     std::map<SourceLawId, SourceLawIntrinsicDefinition> intrinsics_;
@@ -301,6 +322,7 @@ class SourceLawContentBuilder final {
 public:
     [[nodiscard]] snt::core::Expected<void> add_element_rule(ElementalPhysiologyRule definition);
     [[nodiscard]] snt::core::Expected<void> add_organ(OrganDefinition definition);
+    [[nodiscard]] snt::core::Expected<void> add_tuning(SourceLawTuningDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_reaction(ElementalReactionDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_system(OrganSystemDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_intrinsic(

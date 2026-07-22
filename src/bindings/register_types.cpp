@@ -6,8 +6,6 @@
 #include "network/gd_power_network.h"
 #include "network/gd_signal_network.h"
 #include "crafting/gd_crafting.h"
-#include "ae2/gd_ae2_autocrafting.h"
-#include "ae2/gd_me_network.h"
 #include "network/gd_fluid_network.h"
 #include "fluid/gd_fluid_registry.h"
 #include "item/gd_item_registry.h"
@@ -53,7 +51,6 @@
 #include "multiplayer/gd_network_server.hpp"
 #include "multiplayer/gd_network_client.hpp"
 #include "multiplayer/gd_prediction_buffer.hpp"
-#include "sfm/gd_sfm_manager.h"
 #include "magic/gd_ritual_recipe_registry.hpp"
 #include "source_law/gd_elixir_registry.hpp"
 #include "source_law/gd_sublimation_path_registry.hpp"
@@ -134,9 +131,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDCustomBlockEntityRegistry>();
     ClassDB::register_class<GDGameCommandServer>();
     ClassDB::register_class<GDShipCommandBridge>();
-    ClassDB::register_class<GDAutocraftingCPU>();
-    ClassDB::register_class<GDAutocraftingService>();
-    ClassDB::register_class<GDMENetwork>();
     ClassDB::register_class<GDTickSystem>();
     ClassDB::register_class<GDRegistryBank>();
     ClassDB::register_class<GDPlayerInventory>();
@@ -163,8 +157,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDNetworkServer>();
     ClassDB::register_class<GDNetworkClient>();
     ClassDB::register_class<GDPredictionBuffer>();
-    ClassDB::register_class<GDFlowManager>();
-    GDAutocraftingService::initialize();
 }
 
 void uninitialize_snt_extension(ModuleInitializationLevel p_level) {

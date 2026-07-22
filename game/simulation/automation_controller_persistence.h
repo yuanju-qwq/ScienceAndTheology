@@ -21,14 +21,22 @@ struct AutomationControllerAnchor {
 };
 
 inline constexpr std::string_view kSfmManagerControllerKey = "automation.sfm_manager";
+inline constexpr std::string_view kAeControllerKey = "automation.ae_controller";
 
-// A block placement supplies this complete durable identity. Future AE
-// controller state can extend this request without making a processing
-// MachineRuntimeComponent own a controller block.
+struct AutomationAeControllerNodeConfig {
+    bool enabled = true;
+    int32_t provided_channels = 0;
+    uint8_t connection_mask = CONN_ALL;
+};
+
+// A block placement supplies this complete durable identity. AE controller
+// creation atomically adds its physical topology node without making a
+// processing MachineRuntimeComponent own a controller block.
 struct AutomationControllerCreateRequest {
     AutomationControllerKind kind = AutomationControllerKind::kSfmManager;
     std::string controller_key;
     SfmFlowProgramRecord sfm_program;
+    AutomationAeControllerNodeConfig ae_node;
 };
 
 class GameAutomationControllerPersistence final {

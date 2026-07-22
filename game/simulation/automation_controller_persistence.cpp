@@ -43,7 +43,8 @@ constexpr size_t kMaxAutomationControllerKeyBytes = 256;
 }
 
 [[nodiscard]] bool is_known_controller_kind(AutomationControllerKind kind) noexcept {
-    return kind == AutomationControllerKind::kSfmManager;
+    return kind == AutomationControllerKind::kSfmManager ||
+        kind == AutomationControllerKind::kAeController;
 }
 
 [[nodiscard]] bool is_valid_controller_key(std::string_view key) noexcept {
@@ -58,6 +59,22 @@ constexpr size_t kMaxAutomationControllerKeyBytes = 256;
 [[nodiscard]] bool is_absent_transfer(const SfmResourceTransferRule& transfer) noexcept {
     return transfer.source.value.empty() && transfer.destination.value.empty() &&
         transfer.requested.is_absent();
+}
+
+[[nodiscard]] bool is_valid_ae_node_config(
+    const AutomationAeControllerNodeConfig& config) noexcept {
+    return config.provided_channels >= 0 &&
+        (config.connection_mask & static_cast<uint8_t>(~CONN_ALL)) == 0;
+}
+
+[[nodiscard]] size_t matching_ae_controller_nodes(
+    const GameChunkSidecar& sidecar, EntityId anchor_entity_id) noexcept {
+    return static_cast<size_t>(std::count_if(
+        sidecar.ae_network_node_records.begin(), sidecar.ae_network_node_records.end(),
+        [anchor_entity_id](const AeNetworkNodePersistenceRecord& node) {
+            return node.anchor_entity_id == anchor_entity_id &&
+                node.type == AeNetworkNodeType::kController;
+        }));
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_program(
@@ -126,7 +143,16 @@ constexpr size_t kMaxAutomationControllerKeyBytes = 256;
         floor_div_chunk(anchor->root_z) != chunk_key.chunk_z) {
         return invalid_state("Automation controller anchor root is owned by another chunk");
     }
-    return validate_program(record.sfm_program);
+    if (auto result = validate_program(record.sfm_program); !result) return result.error();
+    if (record.kind == AutomationControllerKind::kAeController &&
+        (!record.sfm_program.nodes.empty() || !record.sfm_program.connections.empty())) {
+        return invalid_argument("AE controller records cannot contain an SFM flow program");
+    }
+    if (record.kind == AutomationControllerKind::kAeController &&
+        matching_ae_controller_nodes(sidecar, record.anchor_entity_id) != 1) {
+        return invalid_state("AE controller record has no unique topology controller node");
+    }
+    return {};
 }
 
 [[nodiscard]] snt::core::Expected<EntityId> allocate_anchor_id(
@@ -176,10 +202,15 @@ GameAutomationControllerPersistence::create_controller(
         return invalid_argument("Automation controller root is not owned by its target chunk");
     }
     if (!is_known_controller_kind(request.kind) ||
-        !is_valid_controller_key(request.controller_key)) {
+        !is_valid_controller_key(request.controller_key) ||
+        !is_valid_ae_node_config(request.ae_node)) {
         return invalid_argument("Automation controller creation has an invalid kind or content key");
     }
     if (auto result = validate_program(request.sfm_program); !result) return result.error();
+    if (request.kind == AutomationControllerKind::kAeController &&
+        (!request.sfm_program.nodes.empty() || !request.sfm_program.connections.empty())) {
+        return invalid_argument("AE controller creation cannot contain an SFM flow program");
+    }
     for (const BlockEntityPlacement& placement : sidecar->block_entities) {
         if (placement.root_x == root_x && placement.root_y == root_y && placement.root_z == root_z) {
             return invalid_state("Automation controller root already has a block-entity owner");
@@ -203,7 +234,21 @@ GameAutomationControllerPersistence::create_controller(
         .root_z = root_z,
         .owned_cell_count = 1,
     });
+    if (record.kind == AutomationControllerKind::kAeController) {
+        sidecar->ae_network_node_records.push_back({
+            .anchor_entity_id = *anchor_id,
+            .node_key = record.controller_key,
+            .type = AeNetworkNodeType::kController,
+            .enabled = request.ae_node.enabled,
+            .provided_channels = request.ae_node.provided_channels,
+            .connection_mask = request.ae_node.connection_mask,
+            .revision = 1,
+        });
+    }
     if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
+        if (record.kind == AutomationControllerKind::kAeController) {
+            sidecar->ae_network_node_records.pop_back();
+        }
         sidecar->block_entities.pop_back();
         return result.error();
     }
@@ -238,6 +283,9 @@ snt::core::Expected<void> GameAutomationControllerPersistence::replace_sfm_progr
     }
     if (auto result = validate_record(*target_key, *target_sidecar, *target); !result) {
         return result.error();
+    }
+    if (target->kind != AutomationControllerKind::kSfmManager) {
+        return invalid_argument("Only SFM controllers accept flow-program replacement");
     }
     if (target->revision == std::numeric_limits<uint64_t>::max()) {
         return invalid_state("Automation controller revision is exhausted");
@@ -278,10 +326,28 @@ snt::core::Expected<void> GameAutomationControllerPersistence::remove_controller
     if (anchor == target_sidecar->block_entities.end()) {
         return invalid_state("Automation controller record has no removable block anchor");
     }
+    const AutomationControllerKind kind =
+        target_sidecar->automation_controller_records[target_record_index].kind;
+    auto ae_node = target_sidecar->ae_network_node_records.end();
+    if (kind == AutomationControllerKind::kAeController) {
+        ae_node = std::find_if(
+            target_sidecar->ae_network_node_records.begin(),
+            target_sidecar->ae_network_node_records.end(),
+            [anchor_entity_id](const AeNetworkNodePersistenceRecord& node) {
+                return node.anchor_entity_id == anchor_entity_id &&
+                    node.type == AeNetworkNodeType::kController;
+            });
+        if (ae_node == target_sidecar->ae_network_node_records.end()) {
+            return invalid_state("AE controller record has no removable topology node");
+        }
+    }
     target_sidecar->automation_controller_records.erase(
         target_sidecar->automation_controller_records.begin() +
         static_cast<std::ptrdiff_t>(target_record_index));
     target_sidecar->block_entities.erase(anchor);
+    if (ae_node != target_sidecar->ae_network_node_records.end()) {
+        target_sidecar->ae_network_node_records.erase(ae_node);
+    }
     return {};
 }
 

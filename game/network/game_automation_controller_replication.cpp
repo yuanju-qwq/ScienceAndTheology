@@ -14,7 +14,6 @@
 namespace snt::game::replication {
 namespace {
 
-constexpr size_t kMaxControllerStates = 256;
 constexpr size_t kMaxControllerKeyBytes = 256;
 constexpr size_t kMaxEndpointAddressBytes = 512;
 constexpr size_t kMaxFlowNodes = 1024;
@@ -89,6 +88,16 @@ void append_i64(std::vector<std::byte>& bytes, int64_t value) {
 [[nodiscard]] uint64_t connection_key(SfmFlowNodeId source,
                                       SfmFlowNodeId destination) noexcept {
     return (static_cast<uint64_t>(source) << 32u) | destination;
+}
+
+[[nodiscard]] size_t encoded_string_size(std::string_view value) noexcept {
+    return sizeof(uint16_t) + value.size();
+}
+
+[[nodiscard]] size_t encoded_content_stack_size(
+    const ResourceContentStack& stack) noexcept {
+    return encoded_string_size(stack.key.type) + encoded_string_size(stack.key.id) +
+        encoded_string_size(stack.key.variant) + sizeof(int64_t);
 }
 
 [[nodiscard]] snt::core::Expected<void> append_string(
@@ -274,20 +283,56 @@ struct ReplicationValueLookup {
 
 }  // namespace
 
+snt::core::Expected<size_t>
+measure_game_automation_controller_replication_state(
+    const GameAutomationControllerReplicationState& state) {
+    if (auto result = validate_state(state); !result) return result.error();
+
+    size_t bytes = encoded_string_size(state.anchor_chunk.dimension_id) +
+        sizeof(uint32_t) * 3 + sizeof(uint64_t) + sizeof(uint32_t) * 3 +
+        encoded_string_size(state.controller_key) + sizeof(uint64_t) +
+        sizeof(uint8_t) + sizeof(uint64_t) + sizeof(uint16_t) +
+        sizeof(uint16_t);
+    for (const SfmFlowNodeRecord& node : state.sfm_program.nodes) {
+        bytes += sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+        if (node.type == SfmFlowNodeType::kTransfer) {
+            bytes += encoded_string_size(node.transfer.source.value) +
+                encoded_string_size(node.transfer.destination.value) +
+                encoded_content_stack_size(node.transfer.requested);
+        }
+    }
+    bytes += state.sfm_program.connections.size() * sizeof(uint32_t) * 2;
+    return bytes;
+}
+
 snt::core::Expected<std::vector<std::byte>>
 encode_game_automation_controller_replication_snapshot(
     const GameAutomationControllerReplicationSnapshot& snapshot) {
-    if (snapshot.controllers.size() > kMaxControllerStates) {
+    if (snapshot.controllers.size() > kMaxGameAutomationControllerStates) {
         return protocol_error("Automation controller snapshot has too many controllers");
     }
     std::unordered_set<uint64_t> anchor_ids;
     anchor_ids.reserve(snapshot.controllers.size());
+    size_t encoded_size = kGameAutomationControllerReplicationHeaderBytes;
+    for (const GameAutomationControllerReplicationState& state : snapshot.controllers) {
+        auto state_size = measure_game_automation_controller_replication_state(state);
+        if (!state_size) return state_size.error();
+        if (!anchor_ids.insert(state.anchor_entity_id).second) {
+            return protocol_error("Automation controller snapshot has duplicate anchors");
+        }
+        if (*state_size >
+            kMaxGameAutomationControllerReplicationPayloadBytes - encoded_size) {
+            return protocol_error("Automation controller snapshot exceeds its value payload budget");
+        }
+        encoded_size += *state_size;
+    }
+
+    anchor_ids.clear();
     std::vector<std::byte> bytes;
-    bytes.reserve(128);
+    bytes.reserve(encoded_size);
     bytes.push_back(static_cast<std::byte>(kGameAutomationControllerReplicationVersion));
     append_u16(bytes, static_cast<uint16_t>(snapshot.controllers.size()));
     for (const GameAutomationControllerReplicationState& state : snapshot.controllers) {
-        if (auto result = validate_state(state); !result) return result.error();
         if (!anchor_ids.insert(state.anchor_entity_id).second) {
             return protocol_error("Automation controller snapshot has duplicate anchors");
         }
@@ -338,7 +383,8 @@ encode_game_automation_controller_replication_snapshot(
 
 snt::core::Expected<GameAutomationControllerReplicationSnapshot>
 decode_game_automation_controller_replication_snapshot(std::span<const std::byte> payload) {
-    if (payload.size() < sizeof(uint8_t) + sizeof(uint16_t) ||
+    if (payload.size() > kMaxGameAutomationControllerReplicationPayloadBytes ||
+        payload.size() < kGameAutomationControllerReplicationHeaderBytes ||
         std::to_integer<uint8_t>(payload.front()) !=
             kGameAutomationControllerReplicationVersion) {
         return protocol_error("Automation controller snapshot version is invalid");
@@ -346,7 +392,7 @@ decode_game_automation_controller_replication_snapshot(std::span<const std::byte
     size_t offset = sizeof(uint8_t);
     const size_t controller_count = read_u16(payload, offset);
     offset += sizeof(uint16_t);
-    if (controller_count > kMaxControllerStates) {
+    if (controller_count > kMaxGameAutomationControllerStates) {
         return protocol_error("Automation controller snapshot has too many controllers");
     }
     GameAutomationControllerReplicationSnapshot snapshot;
@@ -562,7 +608,7 @@ void GameRemoteAutomationControllerWorld::clear() noexcept {
 
 snt::core::Expected<void> GameRemoteAutomationControllerWorld::replace_current_set(
     const GameAutomationControllerReplicationSnapshot& snapshot) {
-    if (snapshot.controllers.size() > kMaxControllerStates) {
+    if (snapshot.controllers.size() > kMaxGameAutomationControllerStates) {
         return protocol_error("Remote automation controller snapshot has too many states");
     }
     std::unordered_map<uint64_t, GameAutomationControllerReplicationState> next_controllers;

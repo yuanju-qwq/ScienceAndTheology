@@ -11,7 +11,9 @@
 #pragma once
 
 #include "core/expected.h"
+#include "game/automation/ae_network_types.h"
 #include "game/resources/resource_key.h"
+#include "game/resources/resource_aggregate_storage.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,16 +23,6 @@
 #include <vector>
 
 namespace snt::game {
-
-enum class AeNetworkNodeType : uint8_t {
-    kController = 0,
-    kChannelProvider = 1,
-    kDrive = 2,
-    kStorageBus = 3,
-    kInterface = 4,
-    kTerminal = 5,
-    kCable = 6,
-};
 
 // Generation checked handles are runtime-only.  A world/controller owner
 // keeps stable block addresses in persistence and resolves them after load.
@@ -66,6 +58,7 @@ struct AeNetworkNodeState {
 
 struct AeNetworkComponentState {
     uint32_t id = 0;
+    uint32_t node_count = 0;
     uint32_t controller_count = 0;
     int32_t total_channels = 0;
     int32_t online_devices = 0;
@@ -139,49 +132,12 @@ private:
     uint64_t topology_revision_ = 0;
 };
 
-// Opaque association between an AE-owned storage implementation and this
-// network's aggregate index.  It has no durable meaning and must be rebuilt
-// after unload/reload or topology materialization.
-struct AeNetworkStorageHandle {
-    uint32_t slot = 0;
-    uint32_t generation = 0;
-
-    [[nodiscard]] bool is_valid() const noexcept {
-        return slot != 0 && generation != 0;
-    }
-
-    friend bool operator==(const AeNetworkStorageHandle&,
-                           const AeNetworkStorageHandle&) = default;
-};
-static_assert(std::is_trivially_copyable_v<AeNetworkStorageHandle>);
-
-// A concrete AE storage calls this observer around every execute-mode change.
-// `can_apply_ae_storage_delta()` is a preflight guard; on success the caller
-// mutates its own storage and immediately calls `apply_ae_storage_delta()`.
-// The two calls are main-thread transactional boundaries, not a general
-// observer for arbitrary IResourceStorage implementations.
-class IAeNetworkStorageMutationObserver {
-public:
-    virtual ~IAeNetworkStorageMutationObserver() = default;
-
-    [[nodiscard]] virtual bool can_apply_ae_storage_delta(
-        AeNetworkStorageHandle handle,
-        const ResourceKeyContext& context,
-        const ResourceStack& changed,
-        int64_t delta) const noexcept = 0;
-    virtual void apply_ae_storage_delta(
-        AeNetworkStorageHandle handle,
-        const ResourceKeyContext& context,
-        const ResourceStack& changed,
-        int64_t delta) noexcept = 0;
-};
-
 // Aggregate amounts for storage that has opted into the AE network ownership
 // contract.  Attach and detach are boundary operations and may enumerate a
-// cell's compact contents.  Every normal `amount_of` query and accepted
+// endpoint's compact contents. Every normal `amount_of` query and accepted
 // mutation is an expected O(1) lookup/update; this class deliberately does
 // not expose extract/insert over an arbitrary collection of storages.
-class AeNetworkStorageIndex final : public IAeNetworkStorageMutationObserver {
+class AeNetworkStorageIndex final : public IResourceAggregateMutationObserver {
 public:
     explicit AeNetworkStorageIndex(ResourceKeyContext context);
 
@@ -189,21 +145,21 @@ public:
     AeNetworkStorageIndex& operator=(const AeNetworkStorageIndex&) = delete;
 
     [[nodiscard]] ResourceKeyContext key_context() const noexcept { return context_; }
-    [[nodiscard]] snt::core::Expected<AeNetworkStorageHandle> attach_storage(
+    [[nodiscard]] snt::core::Expected<ResourceAggregateStorageHandle> attach_storage(
         std::vector<ResourceStack> initial_contents);
-    [[nodiscard]] bool detach_storage(AeNetworkStorageHandle handle) noexcept;
-    [[nodiscard]] bool is_attached(AeNetworkStorageHandle handle) const noexcept;
+    [[nodiscard]] bool detach_storage(ResourceAggregateStorageHandle handle) noexcept;
+    [[nodiscard]] bool is_attached(ResourceAggregateStorageHandle handle) const noexcept;
     [[nodiscard]] size_t storage_count() const noexcept { return storage_count_; }
     [[nodiscard]] int64_t amount_of(const ResourceKeyContext& context,
                                     const ResourceKey& key) const noexcept;
 
-    [[nodiscard]] bool can_apply_ae_storage_delta(
-        AeNetworkStorageHandle handle,
+    [[nodiscard]] bool can_apply_resource_aggregate_delta(
+        ResourceAggregateStorageHandle handle,
         const ResourceKeyContext& context,
         const ResourceStack& changed,
         int64_t delta) const noexcept override;
-    void apply_ae_storage_delta(
-        AeNetworkStorageHandle handle,
+    void apply_resource_aggregate_delta(
+        ResourceAggregateStorageHandle handle,
         const ResourceKeyContext& context,
         const ResourceStack& changed,
         int64_t delta) noexcept override;
@@ -215,8 +171,9 @@ private:
         std::unordered_map<ResourceKey, int64_t, ResourceKey::Hash> amounts;
     };
 
-    [[nodiscard]] StorageSlot* find_slot(AeNetworkStorageHandle handle) noexcept;
-    [[nodiscard]] const StorageSlot* find_slot(AeNetworkStorageHandle handle) const noexcept;
+    [[nodiscard]] StorageSlot* find_slot(ResourceAggregateStorageHandle handle) noexcept;
+    [[nodiscard]] const StorageSlot* find_slot(
+        ResourceAggregateStorageHandle handle) const noexcept;
     [[nodiscard]] static bool is_valid_delta(const ResourceStack& changed,
                                              int64_t delta) noexcept;
     void apply_delta_unchecked(StorageSlot& slot,
