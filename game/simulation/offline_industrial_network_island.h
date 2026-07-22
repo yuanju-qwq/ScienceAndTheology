@@ -2,9 +2,10 @@
 //
 // The provider owns one atomic unload boundary across cable and pipe graphs,
 // then records separate resource segments inside that boundary. The simulator
-// executes explicit power and item transfers before delegating machine work to
-// the shared execution core. Fluid segments deliberately keep their component
-// materialized until a fluid simulator is bound.
+// executes explicit power, item, liquid, and gas transfers before delegating
+// machine work to the shared execution core. Complex signal propagation stays
+// outside this value-only ownership boundary until it has an equivalent
+// durable topology snapshot.
 
 #pragma once
 

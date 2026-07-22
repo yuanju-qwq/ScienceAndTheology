@@ -464,6 +464,13 @@ public:
         const ResourceKey& key) const;
     [[nodiscard]] ResourceRuntimeIndex::Snapshot resource_runtime_index() const noexcept;
     [[nodiscard]] uint64_t resource_runtime_generation() const noexcept;
+    // Live compact storages register here while their owner is active. Content
+    // publishes a candidate snapshot only after every participant has
+    // prepared a lossless rebind through ResourceContentKey.
+    [[nodiscard]] snt::core::Expected<void> add_resource_runtime_snapshot_participant(
+        IResourceRuntimeSnapshotParticipant& participant);
+    void remove_resource_runtime_snapshot_participant(
+        IResourceRuntimeSnapshotParticipant& participant) noexcept;
     [[nodiscard]] std::vector<GameItemDefinition> item_definitions() const;
     [[nodiscard]] std::vector<GameFluidDefinition> fluid_definitions() const;
     [[nodiscard]] std::vector<GameMaterialDefinition> material_definitions() const;
@@ -589,6 +596,13 @@ private:
     static snt::core::Expected<std::string> normalize_item_key(std::string_view key);
 
     snt::core::Expected<void> rebuild_generated_material_items();
+    [[nodiscard]] snt::core::Expected<ResourceRuntimeIndex::Snapshot>
+    build_resource_runtime_snapshot() const;
+    [[nodiscard]] snt::core::Expected<void> prepare_resource_runtime_snapshot(
+        const ResourceRuntimeIndex::Snapshot& next_snapshot);
+    void commit_resource_runtime_snapshot(
+        ResourceRuntimeIndex::Snapshot next_snapshot) noexcept;
+    void cancel_resource_runtime_snapshot() noexcept;
     snt::core::Expected<void> publish_resource_runtime_index();
     snt::core::Expected<void> validate_fluid_references() const;
     snt::core::Expected<void> validate_machine_item_references() const;
@@ -625,6 +639,7 @@ private:
     std::map<ScriptId, ReloadSnapshot> reloads_;
     std::optional<ReloadBatch> reload_batch_;
     ResourceRuntimeIndex resource_runtime_index_;
+    std::vector<IResourceRuntimeSnapshotParticipant*> resource_runtime_snapshot_participants_;
     uint64_t item_content_revision_ = 1;
     uint64_t quest_content_revision_ = 1;
 };

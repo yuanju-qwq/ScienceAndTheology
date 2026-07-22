@@ -124,14 +124,14 @@ struct MachineEntityChange {
     return found == sidecar.block_entities.end() ? nullptr : &*found;
 }
 
-[[nodiscard]] bool same_machine_stack(const GameReplicatedMachineItemStack& left,
-                                       const GameReplicatedMachineItemStack& right) noexcept {
-    return left.item_id == right.item_id && left.count == right.count;
+[[nodiscard]] bool same_machine_stack(const ResourceContentStack& left,
+                                       const ResourceContentStack& right) noexcept {
+    return left == right;
 }
 
 [[nodiscard]] bool same_machine_stacks(
-    const std::vector<GameReplicatedMachineItemStack>& left,
-    const std::vector<GameReplicatedMachineItemStack>& right) noexcept {
+    const std::vector<ResourceContentStack>& left,
+    const std::vector<ResourceContentStack>& right) noexcept {
     return left.size() == right.size() &&
            std::equal(left.begin(), left.end(), right.begin(), same_machine_stack);
 }
@@ -1080,6 +1080,9 @@ GameServerPlayerReplication::visible_machines(const GameReplicationInterest& int
             }
             const MachineRuntimeComponent& runtime =
                 world_->get_component<MachineRuntimeComponent>(entity);
+            if (!runtime.resource_runtime_index.key_context().is_valid()) {
+                return invalid_state("Dedicated server machine replication has no resource snapshot");
+            }
             GameReplicatedMachineState state{
                 .anchor_chunk = key,
                 .root_x = anchor->root_x,
@@ -1097,18 +1100,24 @@ GameServerPlayerReplication::visible_machines(const GameReplicationInterest& int
                 .run_state = static_cast<uint8_t>(runtime.state),
             };
             state.input_slots.reserve(runtime.input_slots.size());
-            for (const MachineItemStack& stack : runtime.input_slots) {
-                state.input_slots.push_back({
-                    .item_id = stack.resource.key.id,
-                    .count = static_cast<int32_t>(stack.resource.amount),
-                });
+            for (const ResourceStack& stack : runtime.input_slots) {
+                const auto content = resolve_content_stack(
+                    stack, runtime.resource_runtime_index);
+                if (!content) {
+                    return invalid_state(
+                        "Dedicated server machine replication could not resolve an input key");
+                }
+                state.input_slots.push_back(*content);
             }
             state.output_slots.reserve(runtime.output_slots.size());
-            for (const MachineItemStack& stack : runtime.output_slots) {
-                state.output_slots.push_back({
-                    .item_id = stack.resource.key.id,
-                    .count = static_cast<int32_t>(stack.resource.amount),
-                });
+            for (const ResourceStack& stack : runtime.output_slots) {
+                const auto content = resolve_content_stack(
+                    stack, runtime.resource_runtime_index);
+                if (!content) {
+                    return invalid_state(
+                        "Dedicated server machine replication could not resolve an output key");
+                }
+                state.output_slots.push_back(*content);
             }
             if (!machines.emplace(entity_guid.value,
                                   VisibleMachine{.entity_guid = entity_guid,

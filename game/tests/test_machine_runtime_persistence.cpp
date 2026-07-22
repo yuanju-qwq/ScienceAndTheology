@@ -9,12 +9,38 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
 constexpr uint64_t kMachineGuid = 0xAABBCCDD00112233ULL;
 constexpr snt::game::EntityId kMachineAnchor{41};
+
+[[nodiscard]] snt::game::ResourceRuntimeIndex::Snapshot machine_resource_snapshot() {
+    static const snt::game::ResourceRuntimeIndex::Snapshot snapshot = [] {
+        snt::game::ResourceRuntimeIndex index;
+        const std::vector<snt::game::ResourceContentKey> keys{
+            snt::game::ResourceContentKey::item("charcoal"),
+            snt::game::ResourceContentKey::item("iron_ingot"),
+            snt::game::ResourceContentKey::item("iron_ore"),
+            snt::game::ResourceContentKey::item("slag"),
+        };
+        const auto result = index.rebuild(keys);
+        if (!result) throw std::logic_error("Machine persistence test snapshot failed");
+        return index.snapshot();
+    }();
+    return snapshot;
+}
+
+[[nodiscard]] snt::game::ResourceStack machine_item(std::string id, int64_t amount) {
+    const auto stack = snt::game::resolve_resource_stack(
+        snt::game::ResourceContentStack::item(std::move(id), amount),
+        machine_resource_snapshot());
+    if (!stack) throw std::logic_error("Machine persistence test item is missing");
+    return *stack;
+}
 
 snt::game::BlockEntityPlacement make_machine_anchor() {
     return {
@@ -36,10 +62,10 @@ snt::game::MachineRuntimePersistenceRecord make_machine_record() {
     record.entity_guid = kMachineGuid;
     record.machine_id = "furnace";
     record.input_slots = {
-        MachineRuntimeItemStack::item("iron_ore", 3),
-        MachineRuntimeItemStack::item("charcoal", 5),
+        ResourceContentStack::item("iron_ore", 3),
+        ResourceContentStack::item("charcoal", 5),
     };
-    record.output_slots = {MachineRuntimeItemStack::item("slag", 2)};
+    record.output_slots = {ResourceContentStack::item("slag", 2)};
     record.stored_energy = 17;
     record.energy_capacity = 100;
     record.max_input_slots = 4;
@@ -49,10 +75,10 @@ snt::game::MachineRuntimePersistenceRecord make_machine_record() {
     record.active_recipe = MachineRuntimeRecipeSnapshot{
         .id = "snt.furnace.iron",
         .inputs = {
-            MachineRuntimeItemStack::item("iron_ore", 1),
-            MachineRuntimeItemStack::item("charcoal", 1),
+            ResourceContentStack::item("iron_ore", 1),
+            ResourceContentStack::item("charcoal", 1),
         },
-        .outputs = {MachineRuntimeItemStack::item("iron_ingot", 1)},
+        .outputs = {ResourceContentStack::item("iron_ingot", 1)},
         .duration_ticks = 5,
         .energy_per_tick = 3,
     };
@@ -92,16 +118,16 @@ TEST(GameChunkSerializerTest, RoundTripsChunkAnchoredMachineRuntimeRecord) {
     EXPECT_EQ(record.machine_id, "furnace");
     EXPECT_EQ(record.max_input_slots, 4);
     ASSERT_EQ(record.input_slots.size(), 2u);
-    EXPECT_EQ(record.input_slots[0].resource.key.id, "iron_ore");
-    EXPECT_EQ(record.input_slots[0].resource.amount, 3);
-    EXPECT_EQ(record.input_slots[1].resource.key.id, "charcoal");
-    EXPECT_EQ(record.input_slots[1].resource.amount, 5);
+    EXPECT_EQ(record.input_slots[0].key.id, "iron_ore");
+    EXPECT_EQ(record.input_slots[0].amount, 3);
+    EXPECT_EQ(record.input_slots[1].key.id, "charcoal");
+    EXPECT_EQ(record.input_slots[1].amount, 5);
     ASSERT_TRUE(record.active_recipe.has_value());
     EXPECT_EQ(record.active_recipe->id, "snt.furnace.iron");
     ASSERT_EQ(record.active_recipe->inputs.size(), 2u);
-    EXPECT_EQ(record.active_recipe->inputs[1].resource.key.id, "charcoal");
-    EXPECT_EQ(record.active_recipe->inputs[1].resource.amount, 1);
-    EXPECT_EQ(record.active_recipe->outputs.front().resource.key.id, "iron_ingot");
+    EXPECT_EQ(record.active_recipe->inputs[1].key.id, "charcoal");
+    EXPECT_EQ(record.active_recipe->inputs[1].amount, 1);
+    EXPECT_EQ(record.active_recipe->outputs.front().key.id, "iron_ingot");
     EXPECT_FALSE(record.activation_requested);
     EXPECT_EQ(record.job_owner_account_id, "account:machine-owner");
     EXPECT_EQ(record.run_state,
@@ -137,8 +163,8 @@ TEST(GameChunkSerializerTest, RoundTripsPendingManualMachineActivation) {
     EXPECT_EQ(restored_record.run_state,
               static_cast<uint8_t>(snt::game::MachineRunState::WaitingForActivation));
     ASSERT_EQ(restored_record.input_slots.size(), 2u);
-    EXPECT_EQ(restored_record.input_slots[0].resource.key.id, "iron_ore");
-    EXPECT_EQ(restored_record.input_slots[1].resource.key.id, "charcoal");
+    EXPECT_EQ(restored_record.input_slots[0].key.id, "iron_ore");
+    EXPECT_EQ(restored_record.input_slots[1].key.id, "charcoal");
 }
 
 TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMachines) {
@@ -149,7 +175,8 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     sidecars.set(chunk_key, make_machine_sidecar());
 
     snt::ecs::World world;
-    ASSERT_TRUE(GameMachineRuntimePersistence::restore(world, sidecars));
+    ASSERT_TRUE(GameMachineRuntimePersistence::restore(
+        world, sidecars, machine_resource_snapshot()));
 
     const snt::ecs::EntityGuid machine_guid{kMachineGuid};
     const entt::entity machine_entity = world.find_entity_by_guid(machine_guid);
@@ -158,15 +185,15 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     EXPECT_EQ(restored.machine_id, "furnace");
     EXPECT_EQ(restored.stored_energy, 17);
     ASSERT_EQ(restored.input_slots.size(), 2u);
-    EXPECT_EQ(restored.input_slots[1].resource.key.id, "charcoal");
+    EXPECT_EQ(restored.input_slots[1].key, machine_item("charcoal", 1).key);
     ASSERT_TRUE(restored.active_recipe.has_value());
-    EXPECT_EQ(restored.active_recipe->outputs.front().resource.key.id, "iron_ingot");
+    EXPECT_EQ(restored.active_recipe->outputs.front().key, machine_item("iron_ingot", 1).key);
     EXPECT_EQ(restored.job_owner_account_id, "account:machine-owner");
 
     restored.stored_energy = 33;
     restored.input_slots = {
-        MachineItemStack::item("iron_ore", 2),
-        MachineItemStack::item("charcoal", 4),
+        machine_item("iron_ore", 2),
+        machine_item("charcoal", 4),
     };
     restored.active_recipe.reset();
     restored.progress_ticks = 0;
@@ -190,7 +217,7 @@ TEST(GameMachineRuntimePersistenceTest, RestoresCapturesAndRejectsUnanchoredMach
     ASSERT_NE(captured, nullptr);
     EXPECT_EQ(captured->machine_runtime_records.front().stored_energy, 33);
     ASSERT_EQ(captured->machine_runtime_records.front().input_slots.size(), 2u);
-    EXPECT_EQ(captured->machine_runtime_records.front().input_slots[1].resource.key.id,
+    EXPECT_EQ(captured->machine_runtime_records.front().input_slots[1].key.id,
               "charcoal");
     EXPECT_TRUE(captured->machine_runtime_records.front().activation_requested);
     EXPECT_EQ(captured->machine_runtime_records.front().job_owner_account_id,
@@ -209,6 +236,7 @@ TEST(GameMachineRuntimePersistenceTest, CreatesAndRemovesThroughTheAnchorLifecyc
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "furnace";
+    runtime.resource_runtime_index = machine_resource_snapshot();
 
     const auto created = GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, -1, 4, 5, std::move(runtime));

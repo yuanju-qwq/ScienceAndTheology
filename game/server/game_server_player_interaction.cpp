@@ -678,6 +678,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_plac
 
     MachineRuntimeComponent runtime;
     runtime.machine_id = machine->id;
+    runtime.resource_runtime_index = content_->resource_runtime_index();
     runtime.energy_capacity = machine->power_capacity;
     auto anchored = GameMachineRuntimePersistence::create_anchored_machine(
         *world_, *sidecars_, target->chunk_key, target->position.position.x,
@@ -845,10 +846,40 @@ GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
         return invalid_state("Machine input transfer player slot changed before host commit");
     }
 
-    std::vector<MachineItemStack> candidate_inputs = runtime.input_slots;
-    for (const MachineItemStack& input : candidate_inputs) {
-        if (!input.is_valid_item() || input.resource.key.id.size() > kMaxGameItemIdBytes ||
-            input.resource.amount > runtime.max_stack_size) {
+    const ResourceRuntimeIndex::Snapshot resource_runtime_index =
+        runtime.resource_runtime_index;
+    if (!resource_runtime_index.key_context().is_valid() ||
+        !resource_runtime_index.key_context().matches(
+            content_->resource_runtime_index().key_context())) {
+        return invalid_state("Machine input transfer target has a stale resource snapshot");
+    }
+    const auto to_content_stack = [&resource_runtime_index](const ResourceStack& stack)
+        -> snt::core::Expected<ResourceContentStack> {
+        const auto content = resolve_content_stack(stack, resource_runtime_index);
+        if (!content || !content->is_valid()) {
+            return invalid_state("Machine input transfer could not resolve a compact resource stack");
+        }
+        return *content;
+    };
+    const auto to_runtime_stack = [&resource_runtime_index](const GamePlayerItemStack& stack)
+        -> snt::core::Expected<ResourceStack> {
+        if (!stack.is_valid_item() || !stack.instance_data.empty()) {
+            return invalid_state("Machine input transfer cannot store a singular player item");
+        }
+        const auto runtime_stack = resolve_resource_stack(
+            stack.resource, resource_runtime_index);
+        if (!runtime_stack || !runtime_stack->is_valid()) {
+            return invalid_state("Machine input transfer player resource is unavailable in current content");
+        }
+        return *runtime_stack;
+    };
+
+    std::vector<ResourceStack> candidate_inputs = runtime.input_slots;
+    for (const ResourceStack& input : candidate_inputs) {
+        auto content = to_content_stack(input);
+        if (!content || !content->is_item() ||
+            content->key.id.size() > kMaxGameItemIdBytes ||
+            input.amount > runtime.max_stack_size) {
             return invalid_state("Machine input transfer target has invalid input storage");
         }
     }
@@ -864,10 +895,13 @@ GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
     }
 
     GamePlayerItemStack candidate_player = player_inventory->slots[command.player_slot];
-    MachineItemStack& candidate_machine = candidate_inputs[machine_slot_index];
-    const GamePlayerItemStack observed_machine{
-        .resource = candidate_machine.resource,
-    };
+    ResourceStack& candidate_machine = candidate_inputs[machine_slot_index];
+    GamePlayerItemStack observed_machine;
+    if (!candidate_machine.is_empty()) {
+        auto content = to_content_stack(candidate_machine);
+        if (!content) return content.error();
+        observed_machine.resource = std::move(*content);
+    }
     if (observed_machine != command.expected_machine_input_slot) {
         return invalid_state("Machine input transfer input position changed before host commit");
     }
@@ -875,87 +909,76 @@ GameServerPlayerInteractionService::apply_machine_input_slot_transfer(
     const auto clear_player = [](GamePlayerItemStack& stack) {
         stack.clear();
     };
-    const auto clear_machine = [](MachineItemStack& stack) {
-        stack.resource = {};
-        stack.runtime_key = {};
-    };
-    const auto assign_machine = [](MachineItemStack& target,
-                                   const GamePlayerItemStack& source) {
-        target.resource = source.resource;
-        target.runtime_key = {};
-    };
-    const auto assign_player = [](GamePlayerItemStack& target,
-                                  const MachineItemStack& source) {
-        target.resource = source.resource;
-        target.instance_data.clear();
-    };
 
     if (command.direction ==
         GameMachineInputSlotTransferDirection::kPlayerToMachineInput) {
-        if (!candidate_player.is_valid_item() ||
-            !candidate_player.instance_data.empty()) {
-            return invalid_state("Machine input transfer cannot store a singular player item");
-        }
-        if (candidate_machine.empty()) {
-            MachineItemStack moved;
-            assign_machine(moved, candidate_player);
-            moved.resource.amount = command.count;
+        auto player_runtime = to_runtime_stack(candidate_player);
+        if (!player_runtime) return player_runtime.error();
+        if (candidate_machine.is_empty()) {
+            ResourceStack moved = *player_runtime;
+            moved.amount = command.count;
             candidate_machine = std::move(moved);
             candidate_player.resource.amount -= command.count;
             if (candidate_player.resource.amount == 0) clear_player(candidate_player);
-        } else if (candidate_machine.resource.has_same_key(candidate_player.resource)) {
-            if (candidate_machine.resource.amount > runtime.max_stack_size - command.count) {
+        } else if (candidate_machine.key == player_runtime->key) {
+            if (candidate_machine.amount > runtime.max_stack_size - command.count) {
                 return invalid_state("Machine input transfer does not fit the target stack");
             }
-            candidate_machine.resource.amount += command.count;
+            candidate_machine.amount += command.count;
             candidate_player.resource.amount -= command.count;
             if (candidate_player.resource.amount == 0) clear_player(candidate_player);
         } else {
             if (command.count != candidate_player.resource.amount) {
                 return invalid_state("Machine input transfer can only swap a complete player stack");
             }
-            if (candidate_machine.resource.amount > player_inventory->max_stack_size) {
+            if (candidate_machine.amount > player_inventory->max_stack_size) {
                 return invalid_state("Machine input transfer target stack exceeds player capacity");
             }
-            const MachineItemStack previous_machine = candidate_machine;
-            assign_machine(candidate_machine, candidate_player);
-            assign_player(candidate_player, previous_machine);
+            auto previous_machine = to_content_stack(candidate_machine);
+            if (!previous_machine) return previous_machine.error();
+            candidate_machine = *player_runtime;
+            candidate_player.resource = std::move(*previous_machine);
+            candidate_player.instance_data.clear();
         }
     } else {
-        if (candidate_machine.empty()) {
+        if (candidate_machine.is_empty()) {
             return invalid_state("Machine input transfer source slot is empty");
         }
+        auto machine_content = to_content_stack(candidate_machine);
+        if (!machine_content) return machine_content.error();
         if (candidate_player.is_empty()) {
             GamePlayerItemStack moved;
-            assign_player(moved, candidate_machine);
+            moved.resource = *machine_content;
             moved.resource.amount = command.count;
             candidate_player = std::move(moved);
-            candidate_machine.resource.amount -= command.count;
-            if (candidate_machine.resource.amount == 0) clear_machine(candidate_machine);
+            candidate_machine.amount -= command.count;
+            if (candidate_machine.amount == 0) candidate_machine = {};
         } else if (candidate_player.instance_data.empty() &&
-                   candidate_player.resource.has_same_key(candidate_machine.resource)) {
+                   candidate_player.resource.has_same_key(*machine_content)) {
             if (candidate_player.resource.amount > player_inventory->max_stack_size - command.count) {
                 return invalid_state("Machine input transfer does not fit the player stack");
             }
             candidate_player.resource.amount += command.count;
-            candidate_machine.resource.amount -= command.count;
-            if (candidate_machine.resource.amount == 0) clear_machine(candidate_machine);
+            candidate_machine.amount -= command.count;
+            if (candidate_machine.amount == 0) candidate_machine = {};
         } else {
-            if (command.count != candidate_machine.resource.amount) {
+            if (command.count != candidate_machine.amount) {
                 return invalid_state("Machine input transfer can only swap a complete machine stack");
             }
             if (!candidate_player.instance_data.empty() ||
                 candidate_player.resource.amount > runtime.max_stack_size) {
                 return invalid_state("Machine input transfer player stack cannot enter the machine");
             }
-            const GamePlayerItemStack previous_player = candidate_player;
-            assign_player(candidate_player, candidate_machine);
-            assign_machine(candidate_machine, previous_player);
+            auto previous_player = to_runtime_stack(candidate_player);
+            if (!previous_player) return previous_player.error();
+            candidate_player.resource = std::move(*machine_content);
+            candidate_player.instance_data.clear();
+            candidate_machine = std::move(*previous_player);
         }
     }
 
-    std::erase_if(candidate_inputs, [](const MachineItemStack& stack) {
-        return stack.empty();
+    std::erase_if(candidate_inputs, [](const ResourceStack& stack) {
+        return stack.is_empty();
     });
     const GamePlayerInventorySlotMutation mutation{
         .slot = command.player_slot,
@@ -989,15 +1012,22 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_coll
         return invalid_state("Machine collect target has no live host runtime");
     }
     MachineRuntimeComponent& runtime = world_->get_component<MachineRuntimeComponent>(entity);
+    if (!runtime.resource_runtime_index.key_context().is_valid() ||
+        !runtime.resource_runtime_index.key_context().matches(
+            content_->resource_runtime_index().key_context())) {
+        return invalid_state("Machine collect target has a stale resource snapshot");
+    }
     GamePlayerInventoryTransaction transaction;
     transaction.additions.reserve(runtime.output_slots.size());
-    for (const MachineItemStack& output : runtime.output_slots) {
-        if (output.empty()) continue;
-        if (!output.is_valid_item() || output.resource.key.id.size() > kMaxGameItemIdBytes ||
+    for (const ResourceStack& output : runtime.output_slots) {
+        if (output.is_empty()) continue;
+        const auto content = resolve_content_stack(output, runtime.resource_runtime_index);
+        if (!content || !content->is_item() ||
+            content->key.id.size() > kMaxGameItemIdBytes ||
             transaction.additions.size() == kMaxCollectedMachineStacks) {
             return invalid_state("Machine collect target has invalid output storage");
         }
-        transaction.additions.push_back({.resource = output.resource});
+        transaction.additions.push_back({.resource = *content});
     }
     if (transaction.additions.empty()) {
         return invalid_state("Machine collect target has no output");
@@ -1011,10 +1041,7 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_machine_coll
     if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
         return result.error();
     }
-    for (MachineItemStack& output : runtime.output_slots) {
-        output.resource = {};
-        output.runtime_key = {};
-    }
+    runtime.output_slots.clear();
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kMachineOutputCollected,
         .account_id = peer.identity.account_id,

@@ -5,6 +5,7 @@
 #include "ecs/world.h"
 #include "game/player/player_identity.h"
 #include "game/server/game_server_player_state.h"
+#include "game/tests/test_player_resource_snapshot.h"
 #include "voxel/data/chunk_registry.h"
 
 #include <gtest/gtest.h>
@@ -20,6 +21,7 @@ using snt::game::GameChunkSidecarRegistry;
 using snt::game::GamePlayerEquipmentSlot;
 using snt::game::GamePlayerItemStack;
 using snt::game::GamePlayerWorldPosition;
+using snt::game::test_support::player_resource_snapshot;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameServerPlayerBedService;
 using snt::game::replication::GameServerPlayerDeathService;
@@ -94,6 +96,7 @@ TEST(GameServerPlayerDeathTest, CreatesPersistentGraveKeepsEquipmentAndRespawnsA
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 3,
             .inventory_max_stack_size = 5,
@@ -184,6 +187,7 @@ TEST(GameServerPlayerDeathTest, LeavesGraveForInventoryUiWhenDirectClaimCannotFi
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 1,
             .inventory_max_stack_size = 5,

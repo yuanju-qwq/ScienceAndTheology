@@ -563,7 +563,8 @@ snt::core::Expected<void> OfflineMachineSimulationService::materialize_chunk(
     std::optional<snt::core::Error> restore_error;
     for (const ChunkKey& materialized_chunk : materialized_chunks) {
         if (auto result = GameMachineRuntimePersistence::restore_chunk(
-                world, *sidecars_, materialized_chunk); !result) {
+                world, *sidecars_, materialized_chunk,
+                content_->resource_runtime_index()); !result) {
             restore_error = result.error();
             break;
         }
@@ -760,9 +761,17 @@ snt::core::Expected<void> OfflineMachineSimulationService::advance_record(
     // still run, so deterministic catch-up remains ordered by server ticks.
     const uint64_t elapsed = std::min<uint64_t>(available_ticks, batch_ticks_for(*definition));
 
+    auto runtime = GameMachineRuntimePersistence::make_runtime_component(
+        record, content_->resource_runtime_index());
+    if (!runtime) {
+        record.residency = MachineRuntimeResidency::kPaused;
+        SNT_LOG_WARN("Paused offline machine %llu: %s",
+                     static_cast<unsigned long long>(record.entity_guid),
+                     runtime.error().format().c_str());
+        return {};
+    }
     auto input = make_machine_execution_input(
-        *content_, snt::ecs::EntityGuid{record.entity_guid},
-        GameMachineRuntimePersistence::make_runtime_component(record));
+        *content_, snt::ecs::EntityGuid{record.entity_guid}, std::move(*runtime));
     if (!input) {
         record.residency = MachineRuntimeResidency::kPaused;
         SNT_LOG_WARN("Paused offline machine %llu: %s",
@@ -774,7 +783,11 @@ snt::core::Expected<void> OfflineMachineSimulationService::advance_record(
                              !definition->requires_manual_activation;
     MachineExecutionResult result = advance_machine_execution(
         std::move(*input), record.offline_last_simulated_tick + 1, elapsed);
-    GameMachineRuntimePersistence::copy_runtime_to_record(record, result.machine);
+    if (auto persisted =
+            GameMachineRuntimePersistence::copy_runtime_to_record(record, result.machine);
+        !persisted) {
+        return persisted.error();
+    }
     const bool reschedule = should_schedule(record, *definition);
     if (reschedule) {
         record.offline_last_simulated_tick += result.advanced_ticks;

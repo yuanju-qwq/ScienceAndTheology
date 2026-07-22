@@ -103,6 +103,13 @@ public:
     // Client presentation may read immutable game definitions through this
     // narrow accessor. It never receives mutable QuestRegistry progress.
     const GameContentRegistry& content() const noexcept { return content_registry_; }
+    // Runtime owners attach only during their active session lifetime. The
+    // registry calls them transactionally before publishing a content reload
+    // snapshot, keeping all live ResourceKey values in one generation.
+    [[nodiscard]] snt::core::Expected<void> add_resource_runtime_snapshot_participant(
+        IResourceRuntimeSnapshotParticipant& participant);
+    void remove_resource_runtime_snapshot_participant(
+        IResourceRuntimeSnapshotParticipant& participant) noexcept;
     // The immutable worldgen snapshot is shared by client presentation and
     // dedicated-server authority. Callers may resolve runtime IDs from it but
     // cannot mutate content after the session has published the snapshot.

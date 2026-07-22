@@ -55,16 +55,15 @@ int64_t ResourceLedgerStorage::insert(const ResourceKeyContext& context,
 }
 
 int64_t ResourceLedgerStorage::extract(const ResourceKeyContext& context,
-                                       const ResourceKey& key,
-                                       int64_t amount,
+                                       const ResourceStack& requested,
                                        ResourceTransferMode mode) {
     if (!context_.is_valid() || !context.is_valid() || !context_.matches(context) ||
-        !key.is_valid() || amount <= 0) {
+        !requested.is_valid()) {
         return 0;
     }
-    const int64_t extracted = std::min(amount_of(context, key), amount);
+    const int64_t extracted = std::min(amount_of(context, requested.key), requested.amount);
     if (extracted <= 0 || mode == ResourceTransferMode::kSimulate) return extracted;
-    const auto found = amounts_.find(key);
+    const auto found = amounts_.find(requested.key);
     if (found == amounts_.end()) return 0;
     found->second -= extracted;
     if (found->second == 0) amounts_.erase(found);

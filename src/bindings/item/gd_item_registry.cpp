@@ -11,23 +11,18 @@ using namespace godot;
 
 int64_t GDItemRegistry::register_item(const Dictionary& def) {
     String key = def.get("item_key", "");
-    if (key.is_empty()) {
+    if (key.is_empty() || !def.has("item_id")) {
         return 0;
     }
 
     String title = def.get("title_key", "");
     const char* title_ptr = title.is_empty() ? nullptr : gt::intern_string(title.utf8().get_data());
 
-    gt::ItemId id = gt::kInvalidItemId;
     const char* key_ptr = gt::intern_string(key.utf8().get_data());
-    if (def.has("item_id")) {
-        id = gt::ItemRegistry::register_item_with_id(
-            static_cast<gt::ItemId>(static_cast<int64_t>(def.get("item_id", 0))),
-            key_ptr,
-            title_ptr);
-    } else {
-        id = gt::ItemRegistry::register_item(key_ptr, title_ptr);
-    }
+    const gt::ItemId id = gt::ItemRegistry::register_item_with_id(
+        static_cast<gt::ItemId>(static_cast<int64_t>(def.get("item_id", 0))),
+        key_ptr,
+        title_ptr);
     return static_cast<int64_t>(id);
 }
 

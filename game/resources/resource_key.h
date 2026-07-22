@@ -222,7 +222,7 @@ public:
                                          const ResourceStack& stack,
                                          ResourceTransferMode mode) = 0;
     [[nodiscard]] virtual int64_t extract(const ResourceKeyContext& context,
-                                          const ResourceKey& key, int64_t amount,
+                                          const ResourceStack& requested,
                                           ResourceTransferMode mode) = 0;
     [[nodiscard]] virtual std::vector<ResourceKey> stored_keys(
         const ResourceKeyContext& context) const = 0;

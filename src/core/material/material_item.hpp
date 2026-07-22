@@ -28,15 +28,9 @@ inline constexpr ItemId ENCODED_PATTERN_BASE = kMaterialItemMax + 1;
 // Dynamic (non-material) item registry
 // ============================================================
 //
-// All dynamically-registered non-material items (builtin compounds,
-// mod items, etc.) share a single key→id registry in this ID range.
-// IDs are assigned sequentially on registration; lookups by key and
-// by id are O(1) via maps.
-//
-// Having one unified range (instead of the old mod/builtin split)
-// simplifies the API and removes the 256-slot builtin cap. Saves
-// should use item_key (string) for stability — the numeric ID is
-// not part of any persistent format.
+// All legacy non-material items share this historical explicit-ID range.
+// Current game content uses stable ResourceContentKey values and receives
+// compact IDs only from ResourceRuntimeIndex snapshots.
 inline constexpr ItemId kDynamicItemBase = 0x80000000u;
 inline constexpr ItemId kDynamicItemMax  = 0xFFFFFFFEu;
 
@@ -91,8 +85,9 @@ struct MaterialItem : ItemDefinition {
 //   3. Query items by ID, or look up by material+form combination
 //
 // Material items use deterministic IDs: f(material_id, form) → ItemId.
-// Dynamic (non-material) items use sequentially assigned IDs from
-// the unified [kDynamicItemBase, kDynamicItemMax) range.
+// Dynamic (non-material) items use explicit historical IDs in the unified
+// [kDynamicItemBase, kDynamicItemMax) range. Current game code does not use
+// this registry.
 class ItemRegistry {
 public:
     ItemRegistry() = default;
@@ -134,21 +129,11 @@ public:
     static bool is_valid_item(ItemId item_id);
 
     // ============================================================
-    // Dynamic item registration (unified key→id registry)
+    // Historical dynamic item registration (explicit key→id registry)
     // ============================================================
     //
-    // Registers a non-material item with an auto-assigned ItemId from
-    // the dynamic range [kDynamicItemBase, kDynamicItemMax).
-    // The item_key must be globally unique. Strings are interned into
-    // the core string pool; the caller can free its copies immediately.
-    //
-    // Idempotent: if item_key is already registered (in dynamic range
-    // or as a material item), returns the existing ItemId.
-    //
-    // Returns the ItemId on success, or kInvalidItemId on failure
-    // (empty key or range full).
-    static ItemId register_item(const char* item_key,
-                                const char* title_key);
+    // The caller must provide the historical ID explicitly. Automatic
+    // allocation was removed with the retired persistent incrementer.
     static ItemId register_item_with_id(ItemId item_id,
                                         const char* item_key,
                                         const char* title_key);
@@ -157,7 +142,7 @@ public:
     static bool is_dynamic_item(ItemId item_id);
 
     // 重置整个 ItemRegistry 到初始状态：清空固定数组与所有动态映射、
-    // 复位 ID 分配器、复位 initialized 标志。之后可重新调用 initialize()。
+    // 复位 initialized 标志。之后可重新调用 initialize()。
     static void reset();
 
 private:

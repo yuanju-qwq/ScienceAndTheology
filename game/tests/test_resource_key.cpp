@@ -37,14 +37,14 @@ public:
     }
 
     [[nodiscard]] int64_t extract(const ResourceKeyContext& context,
-                                  const ResourceKey& key,
-                                  int64_t amount,
+                                  const ResourceStack& requested,
                                   ResourceTransferMode mode) override {
-        if (!context_.matches(context) || !key.is_valid() || amount <= 0) return 0;
-        const int64_t extracted = std::min(amount_of(context, key), amount);
+        if (!context_.matches(context) || !requested.is_valid()) return 0;
+        const int64_t extracted = std::min(
+            amount_of(context, requested.key), requested.amount);
         if (mode == ResourceTransferMode::kExecute && extracted != 0) {
-            amounts_[key] -= extracted;
-            if (amounts_[key] == 0) amounts_.erase(key);
+            amounts_[requested.key] -= extracted;
+            if (amounts_[requested.key] == 0) amounts_.erase(requested.key);
         }
         return extracted;
     }
@@ -274,9 +274,9 @@ TEST(ResourceLedgerStorageTest, StoresAndExtractsOnlyWithinItsBoundSnapshot) {
               12);
     EXPECT_EQ(ledger.insert(first.key_context(), {water, 1'000}, ResourceTransferMode::kExecute),
               1'000);
-    EXPECT_EQ(ledger.extract(first.key_context(), iron, 5, ResourceTransferMode::kSimulate), 5);
+    EXPECT_EQ(ledger.extract(first.key_context(), {iron, 5}, ResourceTransferMode::kSimulate), 5);
     EXPECT_EQ(ledger.amount_of(first.key_context(), iron), 12);
-    EXPECT_EQ(ledger.extract(first.key_context(), iron, 5, ResourceTransferMode::kExecute), 5);
+    EXPECT_EQ(ledger.extract(first.key_context(), {iron, 5}, ResourceTransferMode::kExecute), 5);
     EXPECT_EQ(ledger.amount_of(first.key_context(), iron), 7);
 
     const std::vector<ResourceKey> keys = ledger.stored_keys(first.key_context());

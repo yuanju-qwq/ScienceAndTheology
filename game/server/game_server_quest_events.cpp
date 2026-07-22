@@ -116,11 +116,17 @@ void GameServerQuestEventService::on_machine_tick_event(const MachineTickEvent& 
         event.account_id.empty()) {
         return;
     }
-    for (const MachineItemStack& output : event.outputs) {
-        if (output.empty()) continue;
+    for (const ResourceStack& output : event.outputs) {
+        if (output.is_empty()) continue;
+        const auto content = resolve_content_stack(output, event.resource_runtime_index);
+        if (!content || !content->is_item()) {
+            SNT_LOG_WARN("Ignored unresolved compact machine completion output for account '%s'",
+                         event.account_id.c_str());
+            continue;
+        }
         record_progress(event.account_id, QuestObjectiveKind::kCraftItem,
-                        output.resource.key.id,
-                        static_cast<int32_t>(output.resource.amount), event.tick_index);
+                        content->key.id,
+                        static_cast<int32_t>(output.amount), event.tick_index);
     }
 }
 

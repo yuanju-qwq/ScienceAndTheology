@@ -24,6 +24,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "core/expected.h"
@@ -40,41 +41,14 @@ namespace snt::game {
 
 class GameContentRegistry;
 
-struct MachineItemStack {
-    // Machine slots persist content resource identity and quantity. The
-    // worker receives runtime_key from an immutable content snapshot and
-    // never compares the strings inside resource.key.
-    ResourceContentStack resource;
-    // Filled only on the main-thread capture boundary. Persistent storage,
-    // command payloads, and events retain ResourceContentStack; worker calculations use
-    // runtime_key from one immutable ResourceRuntimeIndex snapshot.
-    ResourceKey runtime_key;
-
-    [[nodiscard]] static MachineItemStack item(std::string id, int64_t count,
-                                               std::string variant = {}) {
-        return {.resource = ResourceContentStack::item(
-            std::move(id), count, std::move(variant))};
-    }
-
-    [[nodiscard]] bool empty() const noexcept { return resource.is_empty(); }
-    [[nodiscard]] bool is_valid_item() const noexcept {
-        return resource.is_valid() && resource.is_item();
-    }
-};
-
 // Game-owned recipe copy. It deliberately mirrors only the data needed by
 // the tick loop and never contains GameContentRegistry or AngelScript references.
 struct MachineRecipeSnapshot {
     std::string id;
-    std::vector<MachineItemStack> inputs;
-    std::vector<MachineItemStack> outputs;
+    std::vector<ResourceStack> inputs;
+    std::vector<ResourceStack> outputs;
     int32_t duration_ticks = 0;
     int32_t energy_per_tick = 0;
-    // An active job keeps this immutable mapping across a content reload so
-    // it never combines IDs from different generations. Persistence excludes
-    // the snapshot and restores it from the current catalog on first capture.
-    ResourceRuntimeIndex::Snapshot resource_runtime_index;
-    uint64_t resource_runtime_generation = 0;
 };
 
 enum class MachineRunState : uint8_t {
@@ -93,8 +67,12 @@ enum class MachineRunState : uint8_t {
 // at the controlled save boundary instead of being silently omitted.
 struct MachineRuntimeComponent {
     std::string machine_id;
-    std::vector<MachineItemStack> input_slots;
-    std::vector<MachineItemStack> output_slots;
+    // Every compact stack in this component belongs to this immutable
+    // snapshot. Content reload prepares a complete rebinding before it
+    // publishes the next snapshot, so worker code never mixes generations.
+    ResourceRuntimeIndex::Snapshot resource_runtime_index;
+    std::vector<ResourceStack> input_slots;
+    std::vector<ResourceStack> output_slots;
     // Fluid tanks are durable value storage. The generic execution core does
     // not consume them yet; offline industrial transport owns their movement.
     std::vector<MachineFluidTank> fluid_tanks;
@@ -131,7 +109,10 @@ struct MachineTickEvent {
     std::string machine_id;
     std::string recipe_id;
     std::string account_id;
-    std::vector<MachineItemStack> outputs;
+    std::vector<ResourceStack> outputs;
+    // Completion consumers resolve the compact outputs only at their own
+    // content-facing boundary (quests, persistence, or protocol adapters).
+    ResourceRuntimeIndex::Snapshot resource_runtime_index;
     // Online ticks emit one completed job. Offline simulation may coalesce
     // several identical jobs while retaining the aggregate output count.
     uint64_t completed_jobs = 0;
@@ -167,10 +148,29 @@ struct MachineExecutionResult {
     snt::ecs::EntityGuid entity_guid,
     MachineRuntimeComponent machine);
 
+// Compiles the content-facing recipe definitions at a snapshot boundary. The
+// returned values contain only compact ResourceStack keys and are suitable for
+// repeated worker or offline ticks without further content lookup.
+[[nodiscard]] snt::core::Expected<std::vector<MachineRecipeSnapshot>>
+compile_machine_recipe_snapshots(
+    GameContentRegistry& content_registry,
+    std::string_view machine_id,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index);
+
+[[nodiscard]] MachineExecutionResult advance_machine_execution(
+    snt::ecs::EntityGuid entity_guid,
+    MachineRuntimeComponent machine,
+    const std::vector<MachineRecipeSnapshot>& recipes,
+    bool requires_manual_activation,
+    bool allow_new_jobs,
+    uint64_t first_tick_index,
+    uint64_t tick_count);
+
 [[nodiscard]] MachineExecutionResult advance_machine_execution(
     MachineExecutionInput input, uint64_t first_tick_index, uint64_t tick_count);
 
-class MachineTickSystem final : public snt::ecs::IWorkerSystem {
+class MachineTickSystem final : public snt::ecs::IWorkerSystem,
+                                public IResourceRuntimeSnapshotParticipant {
 public:
     explicit MachineTickSystem(GameContentRegistry& content_registry,
                                IMachineTickEventSink* event_sink = nullptr);
@@ -182,6 +182,14 @@ public:
     void set_event_sink(IMachineTickEventSink* event_sink) noexcept {
         event_sink_ = event_sink;
     }
+    // The simulation session binds the authoritative world before it
+    // registers this system as a content-snapshot participant.
+    void bind_world(snt::ecs::World& world) noexcept { world_ = &world; }
+
+    [[nodiscard]] snt::core::Expected<void> prepare_resource_runtime_snapshot(
+        ResourceRuntimeIndex::Snapshot next_snapshot) override;
+    void commit_resource_runtime_snapshot() noexcept override;
+    void cancel_resource_runtime_snapshot() noexcept override;
 
     snt::ecs::SystemMetadata metadata() const override {
         return {
@@ -199,11 +207,34 @@ public:
         const snt::ecs::World& world, float dt) override;
 
 private:
+    struct RecipeCache {
+        ResourceRuntimeIndex::Snapshot resource_runtime_index;
+        std::unordered_map<std::string, std::vector<MachineRecipeSnapshot>> by_machine;
+    };
+
+    struct PendingResourceRuntimeSnapshot {
+        struct Machine {
+            snt::ecs::EntityGuid entity_guid;
+            MachineRuntimeComponent runtime;
+        };
+
+        RecipeCache recipe_cache;
+        std::vector<Machine> machines;
+    };
+
+    [[nodiscard]] snt::core::Expected<std::vector<MachineRecipeSnapshot>>
+    compile_recipes_for_machine(std::string_view machine_id,
+                                const ResourceRuntimeIndex::Snapshot& resource_index) const;
+    [[nodiscard]] snt::core::Expected<void> ensure_recipe_cache(
+        const ResourceRuntimeIndex::Snapshot& resource_index);
     void log_unresolved_item_key(uint64_t generation, std::string_view key);
 
     GameContentRegistry& content_registry_;
+    snt::ecs::World* world_ = nullptr;
     IMachineTickEventSink* event_sink_ = nullptr;
     uint64_t tick_index_ = 0;
+    std::optional<RecipeCache> recipe_cache_;
+    std::optional<PendingResourceRuntimeSnapshot> pending_resource_runtime_snapshot_;
     uint64_t unresolved_item_log_generation_ = 0;
     std::set<std::string, std::less<>> unresolved_item_keys_logged_;
 };

@@ -13,6 +13,7 @@
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/tests/test_player_resource_snapshot.h"
 #include "game/simulation/crop_growth_system.h"
 #include "game/simulation/machine_interaction_service.h"
 #include "game/world/game_chunk.h"
@@ -46,6 +47,7 @@ using snt::game::MachineInteractionService;
 using snt::game::MachineRunState;
 using snt::game::MachineRuntimeComponent;
 using snt::game::QuestRegistry;
+using snt::game::test_support::player_resource_snapshot;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameBlockInteractionAction;
 using snt::game::replication::GameBlockInteractionCommand;
@@ -79,6 +81,15 @@ GameAuthenticatedPeer make_peer(snt::network::PeerId peer_id, std::string name) 
 
 GamePlayerWorldPosition position(int x, int y, int z) {
     return {.dimension_id = "overworld", .position = {.x = x, .y = y, .z = z}};
+}
+
+[[nodiscard]] snt::game::ResourceStack machine_item_stack(
+    const GameContentRegistry& content, std::string id, int64_t amount) {
+    const auto stack = snt::game::resolve_resource_stack(
+        snt::game::ResourceContentStack::item(std::move(id), amount),
+        content.resource_runtime_index());
+    if (!stack) throw std::logic_error("Machine interaction test item is absent from content");
+    return *stack;
 }
 
 const snt::game::WorldGenConfigSnapshot& interaction_worldgen_config() {
@@ -266,6 +277,7 @@ TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTr
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,
@@ -367,6 +379,7 @@ TEST(GameServerPlayerInteractionTest,
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 6,
             .inventory_max_stack_size = 8,
@@ -496,6 +509,7 @@ TEST(GameServerPlayerInteractionTest, SchedulesPhysicsOnlyAfterHostTerrainCommit
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,
@@ -562,6 +576,7 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,
@@ -645,6 +660,7 @@ TEST(GameServerPlayerInteractionTest, RejectsUnknownMachinePlacementAtServiceCre
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,
@@ -674,6 +690,7 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,
@@ -692,13 +709,16 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
 
     GameContentRegistry content;
     ASSERT_TRUE(content.register_builtin_item(make_hammer_item()));
+    ASSERT_TRUE(content.register_builtin_item(
+        {.id = "iron_bloom", .title_key = "item.iron_bloom", .max_stack = 64}));
     ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
     MachineInteractionService machine_interactions(content);
     const entt::entity machine_entity = world.create_entity();
     auto& runtime = world.add_component<MachineRuntimeComponent>(machine_entity);
     runtime.machine_id = "bloomery";
+    runtime.resource_runtime_index = content.resource_runtime_index();
     runtime.state = MachineRunState::WaitingForActivation;
-    runtime.output_slots = {snt::game::MachineItemStack::item("iron_bloom", 2)};
+    runtime.output_slots = {machine_item_stack(content, "iron_bloom", 2)};
     const auto machine_guid = world.guid_of(machine_entity);
 
     auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
@@ -759,7 +779,7 @@ TEST(GameServerPlayerInteractionTest, TrustsMachineHintsButKeepsOutputAndSidecar
         .block_z = 2,
     };
     ASSERT_TRUE((*interactions)->apply_block_interaction(hammer_peer, collect, 22));
-    EXPECT_TRUE(runtime.output_slots[0].empty());
+    EXPECT_TRUE(runtime.output_slots.empty());
     auto inventory = (*player_state)->inventory_for_peer(hammer_peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0].resource.key.id, "iron_bloom");
@@ -786,6 +806,7 @@ TEST(GameServerPlayerInteractionTest,
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = position(2, 1, 2),
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,
@@ -799,15 +820,18 @@ TEST(GameServerPlayerInteractionTest,
         peer, {.additions = {snt::game::GamePlayerItemStack::item("iron_ore", 6)}}));
 
     GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(
+        {.id = "iron_ore", .title_key = "item.iron_ore", .max_stack = 64}));
     ASSERT_TRUE(content.register_builtin_machine(make_manual_machine()));
     MachineInteractionService machine_interactions(content);
     const entt::entity machine_entity = world.create_entity();
     auto& runtime = world.add_component<MachineRuntimeComponent>(machine_entity);
     runtime.machine_id = "bloomery";
+    runtime.resource_runtime_index = content.resource_runtime_index();
     runtime.max_input_slots = 2;
     runtime.max_output_slots = 1;
     runtime.max_stack_size = 5;
-    runtime.input_slots = {snt::game::MachineItemStack::item("iron_ore", 2)};
+    runtime.input_slots = {machine_item_stack(content, "iron_ore", 2)};
     const auto machine_guid = world.guid_of(machine_entity);
 
     auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
@@ -891,7 +915,7 @@ TEST(GameServerPlayerInteractionTest,
     EXPECT_EQ(rejected_capacity.response.kind,
               GameInventoryCommandKind::kMachineInputSlotTransfer);
     EXPECT_EQ(rejected_capacity.response.outcome, GameInventorySlotTransferOutcome::kRejected);
-    EXPECT_EQ(runtime.input_slots[0].resource.amount, 2);
+    EXPECT_EQ(runtime.input_slots[0].amount, 2);
     auto inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 6)));
@@ -907,7 +931,7 @@ TEST(GameServerPlayerInteractionTest,
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 3)));
     ASSERT_EQ(runtime.input_slots.size(), 1u);
-    EXPECT_EQ(runtime.input_slots[0].resource.amount, 5);
+    EXPECT_EQ(runtime.input_slots[0].amount, 5);
 
     auto accepted_values = (*inventory_source)->collect_values(
         peer, {}, budget, context,
@@ -945,7 +969,7 @@ TEST(GameServerPlayerInteractionTest,
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 5)));
     ASSERT_EQ(runtime.input_slots.size(), 1u);
-    EXPECT_EQ(runtime.input_slots[0].resource.amount, 3);
+    EXPECT_EQ(runtime.input_slots[0].amount, 3);
 
     auto returned_values = (*inventory_source)->collect_values(
         peer, {}, budget, context,
@@ -983,7 +1007,7 @@ TEST(GameServerPlayerInteractionTest,
     inventory = (*player_state)->inventory_for_peer(peer);
     ASSERT_TRUE(inventory) << inventory.error().format();
     EXPECT_EQ(inventory->slots[0], (snt::game::GamePlayerItemStack::item("iron_ore", 5)));
-    EXPECT_EQ(runtime.input_slots[0].resource.amount, 3);
+    EXPECT_EQ(runtime.input_slots[0].amount, 3);
     EXPECT_EQ(checkpoint.marks, 2);
     (*player_state)->shutdown();
 }

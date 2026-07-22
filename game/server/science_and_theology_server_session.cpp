@@ -196,6 +196,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     auto player_state = replication::GameServerPlayerState::create(
         world.world(),
         {
+            .resource_runtime_index = simulation_session_.content().resource_runtime_index(),
             .spawn = {
                 .dimension_id = config_.persistence.world_dimension_id,
                 .position = {
@@ -415,6 +416,14 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         }
         lan_discovery_responder_ = std::move(*discovery);
     }
+    if (auto result = simulation_session_.add_resource_runtime_snapshot_participant(
+            *player_state_);
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologyServerSession::create_world(player resource snapshot)");
+        return error;
+    }
     SNT_LOG_INFO("Dedicated server replication enabled (tcp=%u udp=%u max_peers=%u)",
                  transport_->tcp_port(), transport_->udp_port(), config_.server_network.max_peers);
     if (lan_discovery_responder_) {
@@ -588,6 +597,9 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     server_password_.clear();
     player_movement_.reset();
     player_lifecycle_.reset();
+    if (player_state_) {
+        simulation_session_.remove_resource_runtime_snapshot_participant(*player_state_);
+    }
     if (player_state_) player_state_->shutdown();
     player_state_.reset();
     services_ = nullptr;

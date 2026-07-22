@@ -18,7 +18,9 @@ namespace {
 constexpr uint8_t kGameTerrainChunkPayloadVersion = 2;
 constexpr size_t kMaxReplicatedMachineSlots = 64;
 constexpr size_t kMaxReplicatedMachineIdBytes = 512;
-constexpr size_t kMaxReplicatedItemIdBytes = 512;
+constexpr size_t kMaxReplicatedResourceTypeBytes = 64;
+constexpr size_t kMaxReplicatedResourceIdBytes = 512;
+constexpr size_t kMaxReplicatedResourceVariantBytes = 512;
 constexpr int32_t kMaxReplicatedMachineValue = 1'000'000'000;
 constexpr uint8_t kMachineRunStateCount = 6;
 
@@ -41,8 +43,18 @@ void append_u32(std::vector<std::byte>& bytes, uint32_t value) {
     }
 }
 
+void append_u64(std::vector<std::byte>& bytes, uint64_t value) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        bytes.push_back(static_cast<std::byte>((value >> shift) & 0xffu));
+    }
+}
+
 void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     append_u32(bytes, std::bit_cast<uint32_t>(value));
+}
+
+void append_i64(std::vector<std::byte>& bytes, int64_t value) {
+    append_u64(bytes, std::bit_cast<uint64_t>(value));
 }
 
 void append_i16(std::vector<std::byte>& bytes, int16_t value) {
@@ -62,8 +74,20 @@ void append_i16(std::vector<std::byte>& bytes, int16_t value) {
     return value;
 }
 
+[[nodiscard]] uint64_t read_u64(std::span<const std::byte> bytes, size_t offset) {
+    uint64_t value = 0;
+    for (size_t index = 0; index < sizeof(uint64_t); ++index) {
+        value = (value << 8u) | std::to_integer<uint8_t>(bytes[offset + index]);
+    }
+    return value;
+}
+
 [[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
     return std::bit_cast<int32_t>(read_u32(bytes, offset));
+}
+
+[[nodiscard]] int64_t read_i64(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int64_t>(read_u64(bytes, offset));
 }
 
 [[nodiscard]] int16_t read_i16(std::span<const std::byte> bytes, size_t offset) {
@@ -170,17 +194,15 @@ void append_i16(std::vector<std::byte>& bytes, int16_t value) {
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_machine_stack(
-    const GameReplicatedMachineItemStack& stack) {
-    if (stack.item_id.empty()) {
-        if (stack.count != 0) {
-            return protocol_error("Game machine empty stack has a nonzero count");
-        }
-        return {};
-    }
-    if (stack.item_id.size() > kMaxReplicatedItemIdBytes ||
-        has_embedded_nul(stack.item_id) || stack.count <= 0 ||
-        stack.count > kMaxReplicatedMachineValue) {
-        return protocol_error("Game machine item stack is invalid");
+    const ResourceContentStack& stack) {
+    if (stack.is_absent()) return {};
+    if (!stack.is_valid() ||
+        stack.key.type.size() > kMaxReplicatedResourceTypeBytes ||
+        stack.key.id.size() > kMaxReplicatedResourceIdBytes ||
+        stack.key.variant.size() > kMaxReplicatedResourceVariantBytes ||
+        has_embedded_nul(stack.key.type) || has_embedded_nul(stack.key.id) ||
+        has_embedded_nul(stack.key.variant)) {
+        return protocol_error("Game machine resource stack is invalid");
     }
     return {};
 }
@@ -206,60 +228,82 @@ void append_i16(std::vector<std::byte>& bytes, int16_t value) {
         machine.run_state >= kMachineRunStateCount) {
         return protocol_error("Game machine presentation state is invalid");
     }
-    for (const GameReplicatedMachineItemStack& stack : machine.input_slots) {
+    for (const ResourceContentStack& stack : machine.input_slots) {
         if (auto result = validate_machine_stack(stack); !result) return result.error();
     }
-    for (const GameReplicatedMachineItemStack& stack : machine.output_slots) {
+    for (const ResourceContentStack& stack : machine.output_slots) {
         if (auto result = validate_machine_stack(stack); !result) return result.error();
     }
     return {};
 }
 
 [[nodiscard]] snt::core::Expected<void> append_machine_stack(
-    std::vector<std::byte>& bytes, const GameReplicatedMachineItemStack& stack) {
+    std::vector<std::byte>& bytes, const ResourceContentStack& stack) {
     if (auto result = validate_machine_stack(stack); !result) return result.error();
-    if (auto result = append_short_string(bytes, stack.item_id,
-                                          kMaxReplicatedItemIdBytes,
-                                          "item id", false);
+    if (auto result = append_short_string(bytes, stack.key.type,
+                                          kMaxReplicatedResourceTypeBytes,
+                                          "resource type", false);
         !result) {
         return result.error();
     }
-    append_i32(bytes, stack.count);
+    if (auto result = append_short_string(bytes, stack.key.id,
+                                          kMaxReplicatedResourceIdBytes,
+                                          "resource id", false);
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_short_string(bytes, stack.key.variant,
+                                          kMaxReplicatedResourceVariantBytes,
+                                          "resource variant", false);
+        !result) {
+        return result.error();
+    }
+    append_i64(bytes, stack.amount);
     return {};
 }
 
-[[nodiscard]] snt::core::Expected<GameReplicatedMachineItemStack> read_machine_stack(
+[[nodiscard]] snt::core::Expected<ResourceContentStack> read_machine_stack(
     std::span<const std::byte> bytes, size_t& offset) {
-    auto item_id = read_short_string(bytes, offset, kMaxReplicatedItemIdBytes,
-                                     "item id", false);
-    if (!item_id) return item_id.error();
-    if (bytes.size() - offset < sizeof(uint32_t)) {
-        return protocol_error("Game machine item stack is truncated");
+    auto type = read_short_string(bytes, offset, kMaxReplicatedResourceTypeBytes,
+                                  "resource type", false);
+    if (!type) return type.error();
+    auto id = read_short_string(bytes, offset, kMaxReplicatedResourceIdBytes,
+                                "resource id", false);
+    if (!id) return id.error();
+    auto variant = read_short_string(bytes, offset, kMaxReplicatedResourceVariantBytes,
+                                     "resource variant", false);
+    if (!variant) return variant.error();
+    if (bytes.size() - offset < sizeof(uint64_t)) {
+        return protocol_error("Game machine resource stack is truncated");
     }
-    GameReplicatedMachineItemStack stack{
-        .item_id = std::move(*item_id),
-        .count = read_i32(bytes, offset),
+    ResourceContentStack stack{
+        .key = {
+            .type = std::move(*type),
+            .id = std::move(*id),
+            .variant = std::move(*variant),
+        },
+        .amount = read_i64(bytes, offset),
     };
-    offset += sizeof(uint32_t);
+    offset += sizeof(uint64_t);
     if (auto result = validate_machine_stack(stack); !result) return result.error();
     return stack;
 }
 
 [[nodiscard]] snt::core::Expected<void> append_machine_stacks(
-    std::vector<std::byte>& bytes, const std::vector<GameReplicatedMachineItemStack>& stacks,
+    std::vector<std::byte>& bytes, const std::vector<ResourceContentStack>& stacks,
     const char* field_name) {
     if (stacks.size() > kMaxReplicatedMachineSlots ||
         stacks.size() > std::numeric_limits<uint8_t>::max()) {
         return protocol_error(std::string("Game machine ") + field_name + " exceeds the slot limit");
     }
     bytes.push_back(static_cast<std::byte>(stacks.size()));
-    for (const GameReplicatedMachineItemStack& stack : stacks) {
+    for (const ResourceContentStack& stack : stacks) {
         if (auto result = append_machine_stack(bytes, stack); !result) return result.error();
     }
     return {};
 }
 
-[[nodiscard]] snt::core::Expected<std::vector<GameReplicatedMachineItemStack>>
+[[nodiscard]] snt::core::Expected<std::vector<ResourceContentStack>>
 read_machine_stacks(std::span<const std::byte> bytes, size_t& offset, const char* field_name) {
     if (offset >= bytes.size()) {
         return protocol_error(std::string("Game machine ") + field_name + " is truncated");
@@ -268,7 +312,7 @@ read_machine_stacks(std::span<const std::byte> bytes, size_t& offset, const char
     if (count > kMaxReplicatedMachineSlots) {
         return protocol_error(std::string("Game machine ") + field_name + " exceeds the slot limit");
     }
-    std::vector<GameReplicatedMachineItemStack> stacks;
+    std::vector<ResourceContentStack> stacks;
     stacks.reserve(count);
     for (size_t index = 0; index < count; ++index) {
         auto stack = read_machine_stack(bytes, offset);
@@ -302,9 +346,9 @@ read_machine_stacks(std::span<const std::byte> bytes, size_t& offset, const char
     return {};
 }
 
-[[nodiscard]] bool same_machine_stack(const GameReplicatedMachineItemStack& left,
-                                       const GameReplicatedMachineItemStack& right) noexcept {
-    return left.item_id == right.item_id && left.count == right.count;
+[[nodiscard]] bool same_machine_stack(const ResourceContentStack& left,
+                                       const ResourceContentStack& right) noexcept {
+    return left == right;
 }
 
 }  // namespace

@@ -2,7 +2,6 @@
 
 #include "core/material/material.hpp"
 #include "core/material/material_registry.hpp"
-#include "core/common/string_pool.hpp"
 #include "core/material/material_item.hpp"
 #include "core/fuel/fuel_registry.hpp"
 
@@ -39,9 +38,6 @@ void GDMaterialRegistry::_bind_methods() {
     ClassDB::bind_static_method("GDMaterialRegistry",
         D_METHOD("register_material", "def"),
         &GDMaterialRegistry::register_material);
-    ClassDB::bind_static_method("GDMaterialRegistry",
-        D_METHOD("register_compound", "item_key", "title_key"),
-        &GDMaterialRegistry::register_compound);
     ClassDB::bind_static_method("GDMaterialRegistry",
         D_METHOD("finalize"),
         &GDMaterialRegistry::finalize);
@@ -106,16 +102,6 @@ bool GDMaterialRegistry::register_material(const Dictionary& def) {
         elem_count > 0 ? comp_buf : nullptr);
 
     return true;
-}
-
-bool GDMaterialRegistry::register_compound(const String& p_item_key, const String& p_title_key) {
-    if (p_item_key.is_empty()) return false;
-
-    gt::ItemId id = gt::ItemRegistry::register_item(
-        gt::intern_string(p_item_key.utf8().get_data()),
-        gt::intern_string(p_title_key.utf8().get_data())
-    );
-    return id != gt::kInvalidItemId;
 }
 
 void GDMaterialRegistry::finalize() {

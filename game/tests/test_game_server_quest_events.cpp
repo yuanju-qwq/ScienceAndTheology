@@ -7,6 +7,7 @@
 #include "game/player/player_identity.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/tests/test_player_resource_snapshot.h"
 
 #include <gtest/gtest.h>
 
@@ -25,9 +26,9 @@ using snt::game::QuestRewardDefinition;
 using snt::game::QuestRewardKind;
 using snt::game::QuestState;
 using snt::game::QuestRegistry;
-using snt::game::MachineItemStack;
 using snt::game::MachineTickEvent;
 using snt::game::MachineTickEventKind;
+using snt::game::test_support::player_resource_snapshot;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameServerPlayerInteractionEvent;
 using snt::game::replication::GameServerPlayerInteractionEventKind;
@@ -114,6 +115,7 @@ TEST(GameServerQuestEventServiceTest,
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = {.dimension_id = "overworld", .position = {}},
             .inventory_slots = 6,
             .inventory_max_stack_size = 8,
@@ -139,11 +141,16 @@ TEST(GameServerQuestEventServiceTest,
         .tick_index = 3,
         .item_id = "stone",
     });
+    const auto iron_ingot = snt::game::resolve_resource_stack(
+        snt::game::ResourceContentStack::item("iron_ingot", 1),
+        player_resource_snapshot());
+    ASSERT_TRUE(iron_ingot.has_value());
     events.on_machine_tick_event({
         .kind = MachineTickEventKind::RecipeCompleted,
         .tick_index = 4,
         .account_id = peer.identity.account_id,
-        .outputs = {MachineItemStack::item("iron_ingot", 1)},
+        .outputs = {*iron_ingot},
+        .resource_runtime_index = player_resource_snapshot(),
     });
 
     const auto* progress = quests.find_progress(peer.identity.account_id, "p7.event_flow");
@@ -190,6 +197,7 @@ TEST(GameServerQuestEventServiceTest, CommittedMachinePlacementDrivesPlaceMachin
     auto player_state = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = {.dimension_id = "overworld", .position = {}},
             .inventory_slots = 4,
             .inventory_max_stack_size = 8,

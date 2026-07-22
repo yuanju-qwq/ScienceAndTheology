@@ -178,20 +178,20 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         MachineRuntimePersistenceRecord& record);
-    static void write_machine_runtime_item_stack(
+    static void write_machine_runtime_resource_stack(
         std::vector<uint8_t>& buf,
-        const MachineRuntimeItemStack& stack);
-    static bool read_machine_runtime_item_stack(
+        const ResourceContentStack& stack);
+    static bool read_machine_runtime_resource_stack(
         const std::vector<uint8_t>& data,
         size_t& offset,
-        MachineRuntimeItemStack& stack);
+        ResourceContentStack& stack);
     static void write_machine_fluid_tank(
         std::vector<uint8_t>& buf,
-        const MachineFluidTank& tank);
+        const MachineFluidTankRecord& tank);
     static bool read_machine_fluid_tank(
         const std::vector<uint8_t>& data,
         size_t& offset,
-        MachineFluidTank& tank);
+        MachineFluidTankRecord& tank);
     static void write_machine_runtime_recipe_snapshot(
         std::vector<uint8_t>& buf,
         const MachineRuntimeRecipeSnapshot& recipe);

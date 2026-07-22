@@ -285,7 +285,7 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     constexpr uint64_t kMachineGuid = 0xABCDEF0102030405ULL;
 
     snt::game::GameSessionConfig session_config;
-    session_config.scripts.enabled = false;
+    session_config.scripts.enabled = true;
     session_config.demo.seed = 909;
     session_config.persistence.world_save_enabled = true;
     session_config.persistence.universe_save_dir = "saves/machine_restart";
@@ -319,8 +319,8 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     record.anchor_entity_id = anchor_id;
     record.entity_guid = kMachineGuid;
     record.machine_id = "furnace";
-    record.input_slots = {snt::game::MachineRuntimeItemStack::item("iron_ore", 2)};
-    record.output_slots = {snt::game::MachineRuntimeItemStack::item("slag", 1)};
+    record.input_slots = {snt::game::ResourceContentStack::item("iron_ore", 2)};
+    record.output_slots = {snt::game::ResourceContentStack::item("ingot.iron", 1)};
     record.stored_energy = 12;
     record.energy_capacity = 100;
     record.max_input_slots = 4;
@@ -329,8 +329,8 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     record.progress_ticks = 2;
     record.active_recipe = snt::game::MachineRuntimeRecipeSnapshot{
         .id = "snt.furnace.iron",
-        .inputs = {snt::game::MachineRuntimeItemStack::item("iron_ore", 1)},
-        .outputs = {snt::game::MachineRuntimeItemStack::item("iron_ingot", 1)},
+        .inputs = {snt::game::ResourceContentStack::item("iron_ore", 1)},
+        .outputs = {snt::game::ResourceContentStack::item("ingot.iron", 1)},
         .duration_ticks = 5,
         .energy_per_tick = 3,
     };
@@ -343,14 +343,15 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     snt::core::RuntimeConfig runtime_config;
     runtime_config.assets.manifest_path = "missing_manifest.json";
     snt::engine::SimulationRuntime first_runtime;
-    ASSERT_TRUE(first_runtime.init(
+    const auto first_init = first_runtime.init(
         runtime_config,
         {
             .engine_root = (root / "engine").string(),
             .game_root = (root / "game").string(),
             .user_root = (root / "user").string(),
         },
-        std::make_unique<snt::game::ScienceAndTheologySimulationSession>(session_config)));
+        std::make_unique<snt::game::ScienceAndTheologySimulationSession>(session_config));
+    ASSERT_TRUE(first_init) << first_init.error().format();
 
     const snt::ecs::EntityGuid machine_guid{kMachineGuid};
     const entt::entity machine_entity = first_runtime.world_session().world().find_entity_by_guid(
@@ -362,7 +363,11 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
     ASSERT_TRUE(machine.active_recipe.has_value());
     EXPECT_EQ(machine.active_recipe->id, "snt.furnace.iron");
     machine.stored_energy = 47;
-    machine.output_slots.push_back(snt::game::MachineItemStack::item("iron_ingot", 1));
+    const auto added_output = snt::game::resolve_resource_stack(
+        snt::game::ResourceContentStack::item("ingot.iron", 1),
+        machine.resource_runtime_index);
+    ASSERT_TRUE(added_output.has_value());
+    machine.output_slots.push_back(*added_output);
     first_runtime.shutdown();
 
     snt::engine::SimulationRuntime restarted_runtime;
@@ -381,7 +386,10 @@ TEST(GameSimulationSessionTest, RestoresAndSavesChunkAnchoredMachineRuntime) {
         snt::game::MachineRuntimeComponent>(restored_entity);
     EXPECT_EQ(restored_machine.stored_energy, 47);
     ASSERT_EQ(restored_machine.output_slots.size(), 2u);
-    EXPECT_EQ(restored_machine.output_slots.back().resource.key.id, "iron_ingot");
+    const auto restored_output = snt::game::resolve_content_stack(
+        restored_machine.output_slots.back(), restored_machine.resource_runtime_index);
+    ASSERT_TRUE(restored_output.has_value());
+    EXPECT_EQ(restored_output->key.id, "ingot.iron");
     restarted_runtime.shutdown();
 
     std::error_code error;

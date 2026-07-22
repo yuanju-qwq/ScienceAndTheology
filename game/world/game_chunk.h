@@ -66,20 +66,10 @@ struct MechanismPlacement {
 // Machine persistence is anchored to a MACHINE BlockEntityPlacement in the
 // same chunk sidecar. These values deliberately mirror only durable machine
 // state: they do not include ECS handles, script VM objects, or callbacks.
-struct MachineRuntimeItemStack {
-    ResourceContentStack resource;
-
-    [[nodiscard]] static MachineRuntimeItemStack item(std::string id, int64_t count,
-                                                      std::string variant = {}) {
-        return {.resource = ResourceContentStack::item(
-            std::move(id), count, std::move(variant))};
-    }
-};
-
 struct MachineRuntimeRecipeSnapshot {
     std::string id;
-    std::vector<MachineRuntimeItemStack> inputs;
-    std::vector<MachineRuntimeItemStack> outputs;
+    std::vector<ResourceContentStack> inputs;
+    std::vector<ResourceContentStack> outputs;
     int32_t duration_ticks = 0;
     int32_t energy_per_tick = 0;
 };
@@ -105,9 +95,9 @@ struct MachineRuntimePersistenceRecord {
     uint64_t entity_guid = 0;
 
     std::string machine_id;
-    std::vector<MachineRuntimeItemStack> input_slots;
-    std::vector<MachineRuntimeItemStack> output_slots;
-    std::vector<MachineFluidTank> fluid_tanks;
+    std::vector<ResourceContentStack> input_slots;
+    std::vector<ResourceContentStack> output_slots;
+    std::vector<MachineFluidTankRecord> fluid_tanks;
 
     int32_t stored_energy = 0;
     int32_t energy_capacity = 0;

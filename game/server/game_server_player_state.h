@@ -56,7 +56,7 @@ struct GameServerPlayerSnapshot {
     snt::network::PeerId peer = snt::network::kInvalidPeerId;
 };
 
-class GameServerPlayerState final {
+class GameServerPlayerState final : public IResourceRuntimeSnapshotParticipant {
 public:
     [[nodiscard]] static snt::core::Expected<std::unique_ptr<GameServerPlayerState>> create(
         snt::ecs::World& world, GameServerPlayerStateConfig config = {});
@@ -88,6 +88,10 @@ public:
     // currently published player snapshot unchanged.
     [[nodiscard]] snt::core::Expected<void> rebind_resource_snapshot(
         ResourceRuntimeIndex::Snapshot next_snapshot);
+    [[nodiscard]] snt::core::Expected<void> prepare_resource_runtime_snapshot(
+        ResourceRuntimeIndex::Snapshot next_snapshot) override;
+    void commit_resource_runtime_snapshot() noexcept override;
+    void cancel_resource_runtime_snapshot() noexcept override;
     // Gameplay action services derive behavior from this server-owned main
     // hand value through the content catalog; clients never provide a tool
     // identity as an authority input.
@@ -108,6 +112,11 @@ public:
     [[nodiscard]] snt::core::Expected<void> set_respawn_point(
         const GameAuthenticatedPeer& peer,
         std::optional<GamePlayerWorldPosition> respawn_point);
+    // Authoritative equipment changes cross the content boundary here. The
+    // ECS component remains compact and bound to the player's inventory
+    // snapshot, so callers cannot insert a numeric key from another reload.
+    [[nodiscard]] snt::core::Expected<void> set_authoritative_equipment(
+        const GameAuthenticatedPeer& peer, GamePlayerEquipment equipment);
     [[nodiscard]] snt::core::Expected<bool> is_target_reachable(
         const GameAuthenticatedPeer& peer,
         const GamePlayerWorldPosition& target) const;
@@ -165,6 +174,16 @@ private:
     struct RuntimeInventoryTransaction;
     struct RuntimeInventorySlotTransfer;
     struct RuntimeInventorySlotMutation;
+    struct PendingResourceSnapshotRebind {
+        struct Player {
+            entt::entity entity = entt::null;
+            GamePlayerRuntimeInventory inventory;
+            GamePlayerRuntimeEquipment equipment;
+        };
+
+        ResourceRuntimeIndex::Snapshot next_snapshot;
+        std::vector<Player> players;
+    };
 
     GameServerPlayerState(snt::ecs::World& world, GameServerPlayerStateConfig config);
 
@@ -235,6 +254,7 @@ private:
     snt::ecs::World* world_ = nullptr;
     GameServerPlayerStateConfig config_;
     ResourceRuntimeIndex::Snapshot resource_runtime_index_;
+    std::optional<PendingResourceSnapshotRebind> pending_resource_snapshot_rebind_;
     std::map<std::string, PlayerRecord, std::less<>> players_;
     std::map<snt::network::PeerId, std::string> active_peers_;
     bool stopped_ = false;

@@ -3,6 +3,7 @@
 #include "game/player/player_replication.h"
 #include "game/server/game_server_player_replication.h"
 #include "game/server/game_server_player_state.h"
+#include "game/tests/test_player_resource_snapshot.h"
 #include "game/world/game_chunk.h"
 
 #include "ecs/world.h"
@@ -22,6 +23,7 @@ namespace {
 using snt::game::GamePlayerPersistentState;
 using snt::game::PlayerIdentity;
 using snt::game::make_local_name_player_identity;
+using snt::game::test_support::player_resource_snapshot;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GamePlayerReplicationEntity;
 using snt::game::replication::GamePlayerReplicationOperation;
@@ -156,7 +158,8 @@ TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToR
     snt::ecs::World world;
     snt::voxel::ChunkRegistry chunks;
     snt::game::GameChunkSidecarRegistry sidecars;
-    auto players = GameServerPlayerState::create(world);
+    auto players = GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(players) << players.error().format();
 
     const GameAuthenticatedPeer alice = make_peer(101, "Alice");
@@ -216,10 +219,10 @@ TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToR
 
     ASSERT_TRUE((*players)->set_authoritative_position(
         bob, {.dimension_id = "overworld", .position = {.x = 9, .y = 64, .z = 1}}));
-    const entt::entity bob_actor = world.find_entity_by_guid(bob_snapshot->entity_guid);
-    ASSERT_TRUE(bob_actor != entt::null);
-    world.get_component<snt::game::GamePlayerEquipment>(bob_actor).slots[0] =
-        snt::game::GamePlayerItemStack::item("iron_pickaxe", 1);
+    auto bob_equipment = (*players)->equipment_for_peer(bob);
+    ASSERT_TRUE(bob_equipment) << bob_equipment.error().format();
+    bob_equipment->slots[0] = snt::game::GamePlayerItemStack::item("iron_pickaxe", 1);
+    ASSERT_TRUE((*players)->set_authoritative_equipment(bob, std::move(*bob_equipment)));
 
     auto changed_interest = (*replication)->compute_interest(alice, context);
     ASSERT_TRUE(changed_interest) << changed_interest.error().format();
@@ -259,7 +262,8 @@ TEST(GameServerPlayerReplicationTest, LimitsInitialPlayerSnapshotToObserverBudge
     snt::ecs::World world;
     snt::voxel::ChunkRegistry chunks;
     snt::game::GameChunkSidecarRegistry sidecars;
-    auto players = GameServerPlayerState::create(world);
+    auto players = GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(players) << players.error().format();
 
     const GameAuthenticatedPeer observer = make_peer(201, "Observer");
@@ -294,7 +298,8 @@ TEST(GameServerPlayerReplicationTest, ReplicatesValueBaselinesWithoutRepeatingUn
     snt::ecs::World world;
     snt::voxel::ChunkRegistry chunks;
     snt::game::GameChunkSidecarRegistry sidecars;
-    auto players = GameServerPlayerState::create(world);
+    auto players = GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(players) << players.error().format();
 
     const GameAuthenticatedPeer observer = make_peer(301, "QuestObserver");
@@ -437,8 +442,11 @@ TEST(GameMachineReplicationTest, RoundTripsPresentationStateAndAppliesOrderedRem
         .root_y = 8,
         .root_z = -2,
         .machine_id = "primitive_furnace",
-        .input_slots = {{.item_id = "iron_crushed", .count = 2}, {}},
-        .output_slots = {{.item_id = "iron_ingot", .count = 1}},
+        .input_slots = {
+            snt::game::ResourceContentStack::item("iron_crushed", 2),
+            {},
+        },
+        .output_slots = {snt::game::ResourceContentStack::item("iron_ingot", 1)},
         .max_input_slots = 6,
         .max_output_slots = 3,
         .stored_energy = 20,
@@ -495,7 +503,8 @@ TEST(GameServerPlayerReplicationTest, EmitsCommittedBlockDeltaForVisibleAuthorit
     terrain.terrain.cells[1] = {.material = 1, .flags = snt::voxel::TF_SOLID};
     chunks.set_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z, std::move(terrain));
 
-    auto players = GameServerPlayerState::create(world);
+    auto players = GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(players) << players.error().format();
     const GameAuthenticatedPeer observer = make_peer(701, "TerrainObserver");
     ASSERT_TRUE((*players)->on_peer_authenticated(

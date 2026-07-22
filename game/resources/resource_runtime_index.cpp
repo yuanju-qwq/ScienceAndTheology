@@ -80,6 +80,14 @@ std::optional<ResourceContentKey> ResourceRuntimeIndex::Snapshot::resolve_conten
     return content;
 }
 
+std::optional<ResourceKind> ResourceRuntimeIndex::Snapshot::resource_kind(
+    std::string_view type) const noexcept {
+    if (!data_) return std::nullopt;
+    const auto kind = data_->type_ids.find_id(type);
+    if (!kind || *kind > std::numeric_limits<ResourceKind>::max()) return std::nullopt;
+    return static_cast<ResourceKind>(*kind);
+}
+
 uint64_t ResourceRuntimeIndex::Snapshot::generation() const noexcept {
     return data_ ? data_->generation : 0;
 }
@@ -88,8 +96,8 @@ size_t ResourceRuntimeIndex::Snapshot::size() const noexcept {
     return data_ ? data_->runtime_by_key.size() : 0;
 }
 
-snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
-    std::span<const ResourceContentKey> keys) {
+snt::core::Expected<ResourceRuntimeIndex::Snapshot> ResourceRuntimeIndex::build_snapshot(
+    std::span<const ResourceContentKey> keys) const {
     if (data_ && data_->generation == std::numeric_limits<uint64_t>::max()) {
         return invalid_state("Resource runtime key index generation is exhausted");
     }
@@ -183,7 +191,14 @@ snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
         });
     }
     candidate->generation = data_ ? data_->generation + 1 : 1;
-    data_ = std::move(candidate);
+    return Snapshot(std::move(candidate));
+}
+
+snt::core::Expected<void> ResourceRuntimeIndex::rebuild(
+    std::span<const ResourceContentKey> keys) {
+    auto snapshot = build_snapshot(keys);
+    if (!snapshot) return snapshot.error();
+    restore(std::move(*snapshot));
     return {};
 }
 

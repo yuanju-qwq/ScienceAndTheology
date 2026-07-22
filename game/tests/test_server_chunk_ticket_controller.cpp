@@ -74,7 +74,12 @@ TEST(ServerChunkTicketControllerTest,
 
     snt::game::MachineRuntimeComponent machine;
     machine.machine_id = "furnace";
-    machine.input_slots = {snt::game::MachineItemStack::item("iron_ore", 1)};
+    machine.resource_runtime_index = session_view->content().resource_runtime_index();
+    const auto iron_ore = snt::game::resolve_resource_stack(
+        snt::game::ResourceContentStack::item("iron_ore", 1),
+        machine.resource_runtime_index);
+    ASSERT_TRUE(iron_ore.has_value());
+    machine.input_slots = {*iron_ore};
     const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         runtime.world_session().world(), session_view->world_sidecars(), machine_chunk_key,
         machine_block_x, 0, 0, std::move(machine));
@@ -174,7 +179,12 @@ TEST(ServerChunkTicketControllerTest,
         first_session_view->world_sidecars().set(machine_chunk_key, {});
         snt::game::MachineRuntimeComponent machine;
         machine.machine_id = "furnace";
-        machine.input_slots = {snt::game::MachineItemStack::item("iron_ore", 1)};
+        machine.resource_runtime_index = first_session_view->content().resource_runtime_index();
+        const auto iron_ore = snt::game::resolve_resource_stack(
+            snt::game::ResourceContentStack::item("iron_ore", 1),
+            machine.resource_runtime_index);
+        ASSERT_TRUE(iron_ore.has_value());
+        machine.input_slots = {*iron_ore};
         const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
             first_runtime.world_session().world(), first_session_view->world_sidecars(),
             machine_chunk_key, machine_block_x, 0, 0, std::move(machine));

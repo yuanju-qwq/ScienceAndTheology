@@ -16,12 +16,6 @@ public:
     //   elements (Array of {element: String, count: int})
     static bool register_material(const Dictionary& def);
 
-    // Register a compound/mineral as a lightweight mod item.
-    // Compounds are NOT C++ materials — they are simple items with a key
-    // and title, registered dynamically. No gen_flags, no formula needed.
-    // Call BEFORE finalize() so items exist when ItemRegistry initializes.
-    static bool register_compound(const String& item_key, const String& title_key);
-
     // Finalize the registry — locks materials and triggers ItemRegistry init.
     static void finalize();
 

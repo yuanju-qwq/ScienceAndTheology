@@ -15,6 +15,7 @@
 
 #include "core/expected.h"
 #include "ecs/entity_guid.h"
+#include "game/resources/resource_runtime_index.h"
 #include "game/world/game_chunk.h"
 
 #include <cstdint>
@@ -64,14 +65,16 @@ public:
     // colliding record rejects the entire world session.
     [[nodiscard]] static snt::core::Expected<void> restore(
         snt::ecs::World& world,
-        const GameChunkSidecarRegistry& sidecars);
+        const GameChunkSidecarRegistry& sidecars,
+        ResourceRuntimeIndex::Snapshot resource_runtime_index);
 
     // Materializes only kLoaded records owned by one chunk. A streaming
     // coordinator calls this after terrain and its sidecar are available.
     [[nodiscard]] static snt::core::Expected<void> restore_chunk(
         snt::ecs::World& world,
         const GameChunkSidecarRegistry& sidecars,
-        const ChunkKey& chunk_key);
+        const ChunkKey& chunk_key,
+        ResourceRuntimeIndex::Snapshot resource_runtime_index);
 
     // Copies every anchored ECS machine back into its sidecar record before a
     // controlled world save. It rejects an unanchored live component so a
@@ -104,9 +107,10 @@ public:
 
     // Value conversion used by the offline service. These functions never
     // allocate entities or alter residency metadata.
-    [[nodiscard]] static MachineRuntimeComponent make_runtime_component(
-        const MachineRuntimePersistenceRecord& record);
-    static void copy_runtime_to_record(
+    [[nodiscard]] static snt::core::Expected<MachineRuntimeComponent> make_runtime_component(
+        const MachineRuntimePersistenceRecord& record,
+        ResourceRuntimeIndex::Snapshot resource_runtime_index);
+    [[nodiscard]] static snt::core::Expected<void> copy_runtime_to_record(
         MachineRuntimePersistenceRecord& record,
         const MachineRuntimeComponent& runtime);
 };

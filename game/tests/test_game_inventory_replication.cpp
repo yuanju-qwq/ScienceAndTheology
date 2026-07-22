@@ -8,6 +8,7 @@
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/tests/test_player_resource_snapshot.h"
 
 #include "ecs/world.h"
 
@@ -27,6 +28,7 @@ using snt::game::GamePlayerItemStack;
 using snt::game::PlayerIdentity;
 using snt::game::QuestRegistry;
 using snt::game::make_local_name_player_identity;
+using snt::game::test_support::player_resource_snapshot;
 using snt::game::replication::GameAuthenticatedPeer;
 using snt::game::replication::GameClientInventoryState;
 using snt::game::replication::GameDelta;
@@ -290,6 +292,7 @@ TEST(GameServerInventoryReplicationTest, KeepsPendingDeltaUntilReliableCommit) {
     auto players = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .inventory_slots = 4,
             .inventory_max_stack_size = 64,
         });
@@ -382,6 +385,7 @@ TEST(GameServerCommandSinkTest, RoutesInventoryTransferToAuthoritativeSource) {
     auto players = GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .inventory_slots = 3,
             .inventory_max_stack_size = 64,
         });

@@ -18,6 +18,22 @@ target_link_libraries(snt_game_resources PUBLIC
     snt_core
 )
 
+# Game automation owns AE/SFM behavior above the compact resource-storage
+# contract. It deliberately depends on game resources instead of the retired
+# src/Godot resource model.
+add_library(snt_game_automation STATIC
+    automation/ae_storage_cell.cpp
+    automation/sfm_endpoint_registry.cpp
+    automation/sfm_resource_transfer.cpp
+)
+target_include_directories(snt_game_automation PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_automation PUBLIC
+    snt_engine_settings
+    snt_game_resources
+)
+
 # ScienceAndTheology world rules are game-owned. The engine supplies only
 # generic voxel/chunk primitives and raw region blob framing.
 add_library(snt_game_world_data STATIC
@@ -326,11 +342,13 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # Keep their tests on the same small closure so script/content reload work
     # can be validated without the client, transport, or server test sources.
     add_executable(snt_game_content_tests
+        tests/test_ae_storage_cell.cpp
         tests/test_element_catalog.cpp
         tests/test_game_content_registry.cpp
         tests/test_game_script_content.cpp
         tests/test_machine_tick_system.cpp
         tests/test_resource_key.cpp
+        tests/test_sfm_resource_transfer.cpp
     )
     target_include_directories(snt_game_content_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -341,6 +359,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         SNT_GAME_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
     )
     target_link_libraries(snt_game_content_tests PRIVATE
+        snt_game_automation
         snt_game_simulation
         snt_engine_settings
         GTest::gtest_main

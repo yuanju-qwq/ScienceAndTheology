@@ -10,6 +10,7 @@
 
 #include "core/expected.h"
 #include "game/network/game_replication_protocol.h"
+#include "game/resources/resource_key.h"
 #include "voxel/data/chunk_registry.h"
 
 #include <cstddef>
@@ -64,16 +65,11 @@ encode_game_terrain_chunk_snapshot(const snt::voxel::VoxelChunk& chunk);
 decode_game_terrain_chunk_snapshot(std::span<const std::byte> payload);
 
 inline constexpr uint8_t kGameMachineReplicationEntityKind = 2;
-inline constexpr uint8_t kGameMachineReplicationEntityVersion = 2;
+inline constexpr uint8_t kGameMachineReplicationEntityVersion = 3;
 
 enum class GameMachineReplicationOperation : uint8_t {
     kUpsert = 1,
     kRemove = 2,
-};
-
-struct GameReplicatedMachineItemStack {
-    std::string item_id;
-    int32_t count = 0;
 };
 
 // The client needs enough state to render a machine and later build a machine
@@ -85,8 +81,10 @@ struct GameReplicatedMachineState {
     int32_t root_y = 0;
     int32_t root_z = 0;
     std::string machine_id;
-    std::vector<GameReplicatedMachineItemStack> input_slots;
-    std::vector<GameReplicatedMachineItemStack> output_slots;
+    // Protocol strings are the content boundary. The client resolves these
+    // before placing them into compact local resource storage.
+    std::vector<ResourceContentStack> input_slots;
+    std::vector<ResourceContentStack> output_slots;
     uint8_t max_input_slots = 4;
     uint8_t max_output_slots = 4;
     int32_t stored_energy = 0;

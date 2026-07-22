@@ -9,6 +9,7 @@
 #include "game/server/game_server_command_sink.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_movement.h"
+#include "game/tests/test_player_resource_snapshot.h"
 #include "game/world/save/player_state_persistence.h"
 #include "network/tcp_udp_transport.h"
 #include "network/lan_discovery.h"
@@ -50,6 +51,7 @@ using snt::game::QuestObjectiveKind;
 using snt::game::QuestRewardKind;
 using snt::game::QuestRegistry;
 using snt::game::QuestState;
+using snt::game::test_support::player_resource_snapshot;
 
 PlayerIdentity make_local_identity(std::string display_name) {
     auto identity = snt::game::make_local_name_player_identity(std::move(display_name));
@@ -1088,7 +1090,8 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
 
     QuestRegistry live_quests(content);
     snt::ecs::World live_world;
-    auto live_player_state = snt::game::replication::GameServerPlayerState::create(live_world);
+    auto live_player_state = snt::game::replication::GameServerPlayerState::create(
+        live_world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(live_player_state) << live_player_state.error().format();
     snt::game::replication::GameServerPlayerLifecycle live_lifecycle(
         live_quests, **live_player_state, save_dir.string());
@@ -1117,7 +1120,7 @@ TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRes
     QuestRegistry restarted_quests(content);
     snt::ecs::World restarted_world;
     auto restarted_player_state = snt::game::replication::GameServerPlayerState::create(
-        restarted_world);
+        restarted_world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(restarted_player_state) << restarted_player_state.error().format();
     snt::game::replication::GameServerPlayerLifecycle restarted_lifecycle(
         restarted_quests, **restarted_player_state, save_dir.string());
@@ -1165,7 +1168,8 @@ TEST(GameServerPlayerLifecycleTest, AutosavesOnlyChangedProgressAtConfiguredInte
 
     QuestRegistry quests(content);
     snt::ecs::World world;
-    auto player_state = snt::game::replication::GameServerPlayerState::create(world);
+    auto player_state = snt::game::replication::GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(player_state) << player_state.error().format();
     snt::game::replication::GameServerPlayerLifecycle lifecycle(
         quests, **player_state, save_dir.string(), 5);
@@ -1209,7 +1213,8 @@ TEST(GameServerPlayerLifecycleTest, AutosavesMarkedAuthoritativePlayerStateAtCon
     GameContentRegistry content;
     QuestRegistry quests(content);
     snt::ecs::World world;
-    auto player_state = snt::game::replication::GameServerPlayerState::create(world);
+    auto player_state = snt::game::replication::GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(player_state) << player_state.error().format();
 
     const auto identity = make_local_identity("StateAutosavePlayer");

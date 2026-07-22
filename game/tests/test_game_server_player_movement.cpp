@@ -4,6 +4,7 @@
 #include "game/player/player_identity.h"
 #include "game/server/game_server_player_movement.h"
 #include "game/server/game_server_player_state.h"
+#include "game/tests/test_player_resource_snapshot.h"
 #include "voxel/data/chunk_registry.h"
 
 #include <gtest/gtest.h>
@@ -56,7 +57,10 @@ TEST(GameServerPlayerMovementTest, IntegratesServerOwnedInputAndExpiresStaleInte
 
     auto player_state = snt::game::replication::GameServerPlayerState::create(
         world,
-        {.spawn = {.dimension_id = "overworld", .position = {.x = 1, .y = 1, .z = 1}}});
+        {
+            .resource_runtime_index = snt::game::test_support::player_resource_snapshot(),
+            .spawn = {.dimension_id = "overworld", .position = {.x = 1, .y = 1, .z = 1}},
+        });
     ASSERT_TRUE(player_state) << player_state.error().format();
     const auto peer = make_peer(701, "Movement Player");
     ASSERT_TRUE((*player_state)->on_peer_authenticated(peer, (*player_state)->default_persistent_state()));
@@ -92,7 +96,10 @@ TEST(GameServerPlayerMovementTest, StopsAtSolidVoxelInsteadOfTrustingClientPosit
 
     auto player_state = snt::game::replication::GameServerPlayerState::create(
         world,
-        {.spawn = {.dimension_id = "overworld", .position = {.x = 1, .y = 1, .z = 1}}});
+        {
+            .resource_runtime_index = snt::game::test_support::player_resource_snapshot(),
+            .spawn = {.dimension_id = "overworld", .position = {.x = 1, .y = 1, .z = 1}},
+        });
     ASSERT_TRUE(player_state) << player_state.error().format();
     const auto peer = make_peer(702, "Collision Player");
     ASSERT_TRUE((*player_state)->on_peer_authenticated(peer, (*player_state)->default_persistent_state()));

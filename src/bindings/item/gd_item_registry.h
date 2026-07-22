@@ -10,23 +10,9 @@ namespace science_and_theology {
 // GDItemRegistry — GDScript binding for gt::ItemRegistry
 // ============================================================
 //
-// Allows content packs (and builtin GD scripts) to register new
-// non-material items at load time. All dynamically-registered
-// non-material items (builtin compounds, mod items, etc.) share a
-// single key→id registry in the dynamic range
-// [kDynamicItemBase, kDynamicItemMax) and do not collide with
-// builtin material items or encoded patterns.
+// Historical GDScript binding for the retired explicit-ID registry. Current
+// content registration is owned by GameContentRegistry and AngelScript.
 //
-// Saves should reference items by item_key (string) for stability;
-// the numeric ItemId is runtime-only and may shift across hot reloads
-// or content changes.
-//
-// GDScript usage:
-//   var id = GDItemRegistry.register_item({
-//       "item_key": "my_mod:custom_widget",
-//       "title_key": "item.my_mod.custom_widget",
-//   })
-//   var key = GDItemRegistry.get_item_key(id)
 class GDItemRegistry : public godot::Object {
     GDCLASS(GDItemRegistry, godot::Object)
 
@@ -34,12 +20,12 @@ public:
     GDItemRegistry() = default;
     ~GDItemRegistry() override = default;
 
-    // Register a non-material item with auto-assigned ID.
+    // Register a historical non-material item with an explicit ID.
     // Returns the assigned ItemId, or 0 on failure.
     // Dictionary fields:
     //   item_key (String, required): globally unique stable key.
     //   title_key (String, optional): localization key.
-    //   item_id (int, optional): explicit dynamic-range ID for builtins.
+    //   item_id (int, required): explicit dynamic-range ID.
     // Idempotent: returns existing ItemId if item_key already registered.
     static int64_t register_item(const godot::Dictionary& def);
 

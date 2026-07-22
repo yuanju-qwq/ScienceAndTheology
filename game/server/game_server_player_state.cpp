@@ -276,6 +276,83 @@ snt::core::Expected<GamePlayerEquipment> GameServerPlayerState::equipment_for_pe
         inventory.resource_runtime_index);
 }
 
+snt::core::Expected<void> GameServerPlayerState::rebind_resource_snapshot(
+    ResourceRuntimeIndex::Snapshot next_snapshot) {
+    if (auto result = prepare_resource_runtime_snapshot(std::move(next_snapshot)); !result) {
+        return result.error();
+    }
+    commit_resource_runtime_snapshot();
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::prepare_resource_runtime_snapshot(
+    ResourceRuntimeIndex::Snapshot next_snapshot) {
+    if (stopped_) return invalid_state("Dedicated server player state is stopped");
+    if (!next_snapshot.key_context().is_valid()) {
+        return invalid_argument("Player resource rebind requires a valid next runtime snapshot");
+    }
+    if (pending_resource_snapshot_rebind_) {
+        return invalid_state("Dedicated server player resource rebind is already prepared");
+    }
+    if (resource_runtime_index_.key_context().matches(next_snapshot.key_context())) return {};
+
+    PendingResourceSnapshotRebind pending;
+    pending.next_snapshot = std::move(next_snapshot);
+    pending.players.reserve(players_.size());
+    for (const auto& [account_id, record] : players_) {
+        static_cast<void>(account_id);
+        auto entity = entity_for_record(record);
+        if (!entity) return entity.error();
+        const auto& current_inventory =
+            world_->get_component<GamePlayerRuntimeInventory>(*entity);
+        const auto& current_equipment =
+            world_->get_component<GamePlayerRuntimeEquipment>(*entity);
+        if (auto result = validate_runtime_inventory(current_inventory); !result) {
+            return result.error();
+        }
+        if (auto result = validate_runtime_equipment(current_equipment); !result) {
+            return result.error();
+        }
+        auto content_inventory = resolve_content_inventory(current_inventory);
+        if (!content_inventory) return content_inventory.error();
+        auto content_equipment = resolve_content_equipment(
+            current_equipment, current_inventory.resource_runtime_index);
+        if (!content_equipment) return content_equipment.error();
+        auto next_inventory = resolve_runtime_inventory(*content_inventory, pending.next_snapshot);
+        if (!next_inventory) return next_inventory.error();
+        auto next_equipment = resolve_runtime_equipment(*content_equipment, pending.next_snapshot);
+        if (!next_equipment) return next_equipment.error();
+        pending.players.push_back({
+            .entity = *entity,
+            .inventory = std::move(*next_inventory),
+            .equipment = std::move(*next_equipment),
+        });
+    }
+    pending_resource_snapshot_rebind_ = std::move(pending);
+    return {};
+}
+
+void GameServerPlayerState::commit_resource_runtime_snapshot() noexcept {
+    if (!pending_resource_snapshot_rebind_) return;
+    PendingResourceSnapshotRebind pending = std::move(*pending_resource_snapshot_rebind_);
+    pending_resource_snapshot_rebind_.reset();
+    resource_runtime_index_ = std::move(pending.next_snapshot);
+    config_.resource_runtime_index = resource_runtime_index_;
+    for (PendingResourceSnapshotRebind::Player& player : pending.players) {
+        world_->get_component<GamePlayerRuntimeInventory>(player.entity) =
+            std::move(player.inventory);
+        world_->get_component<GamePlayerRuntimeEquipment>(player.entity) =
+            std::move(player.equipment);
+    }
+    SNT_LOG_INFO("Rebound %zu active player inventories to resource snapshot generation %llu",
+                 pending.players.size(),
+                 static_cast<unsigned long long>(resource_runtime_index_.generation()));
+}
+
+void GameServerPlayerState::cancel_resource_runtime_snapshot() noexcept {
+    pending_resource_snapshot_rebind_.reset();
+}
+
 snt::core::Expected<std::string> GameServerPlayerState::main_hand_item_id_for_peer(
     const GameAuthenticatedPeer& peer) const {
     auto record = find_active_record(peer);
@@ -372,6 +449,20 @@ snt::core::Expected<void> GameServerPlayerState::set_respawn_point(
     if (!entity) return entity.error();
     world_->get_component<GamePlayerRespawnPointComponent>(*entity).position =
         std::move(respawn_point);
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::set_authoritative_equipment(
+    const GameAuthenticatedPeer& peer, GamePlayerEquipment equipment) {
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+    const auto& inventory = world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    auto runtime = resolve_runtime_equipment(equipment, inventory.resource_runtime_index);
+    if (!runtime) return runtime.error();
+    if (auto result = validate_runtime_equipment(*runtime); !result) return result.error();
+    world_->get_component<GamePlayerRuntimeEquipment>(*entity) = std::move(*runtime);
     return {};
 }
 
@@ -570,6 +661,7 @@ snt::core::Expected<bool> GameServerPlayerState::can_apply_inventory_slot_mutati
 void GameServerPlayerState::shutdown() noexcept {
     if (stopped_) return;
     stopped_ = true;
+    cancel_resource_runtime_snapshot();
     size_t destroyed = 0;
     if (world_ != nullptr) {
         for (const auto& [account_id, record] : players_) {
@@ -953,8 +1045,8 @@ snt::core::Expected<entt::entity> GameServerPlayerState::entity_for_record(
                                    GamePlayerDimensionComponent,
                                    GamePlayerRespawnPointComponent,
                                    snt::ecs::Position,
-                                   GamePlayerInventory,
-                                   GamePlayerEquipment,
+                                   GamePlayerRuntimeInventory,
+                                   GamePlayerRuntimeEquipment,
                                    GamePlayerOrganState>(entity)) {
         return invalid_state("Authoritative player entity is absent or has invalid components");
     }
@@ -967,6 +1059,11 @@ snt::core::Expected<GameServerPlayerSnapshot> GameServerPlayerState::snapshot_fo
     if (!entity) return entity.error();
     const auto& identity = world_->get_component<GamePlayerIdentityComponent>(*entity);
     const auto& dimension = world_->get_component<GamePlayerDimensionComponent>(*entity);
+    const auto& inventory = world_->get_component<GamePlayerRuntimeInventory>(*entity);
+    auto equipment = resolve_content_equipment(
+        world_->get_component<GamePlayerRuntimeEquipment>(*entity),
+        inventory.resource_runtime_index);
+    if (!equipment) return equipment.error();
     return GameServerPlayerSnapshot{
         .identity_provider = identity.provider,
         .account_id = identity.account_id,
@@ -976,7 +1073,7 @@ snt::core::Expected<GameServerPlayerSnapshot> GameServerPlayerState::snapshot_fo
             .dimension_id = dimension.dimension_id,
             .position = world_->get_component<snt::ecs::Position>(*entity),
         },
-        .equipment = world_->get_component<GamePlayerEquipment>(*entity),
+        .equipment = std::move(*equipment),
         .peer = record.peer,
     };
 }
@@ -984,6 +1081,12 @@ snt::core::Expected<GameServerPlayerSnapshot> GameServerPlayerState::snapshot_fo
 snt::core::Expected<snt::ecs::EntityGuid> GameServerPlayerState::create_player_entity(
     const GameAuthenticatedPeer& peer, const GamePlayerPersistentState& state) {
     if (world_ == nullptr) return invalid_state("Dedicated server player state has no ECS World");
+    auto inventory = resolve_runtime_inventory(state.inventory, resource_runtime_index_);
+    if (!inventory) return inventory.error();
+    auto equipment = resolve_runtime_equipment(state.equipment, resource_runtime_index_);
+    if (!equipment) return equipment.error();
+    if (auto result = validate_runtime_inventory(*inventory); !result) return result.error();
+    if (auto result = validate_runtime_equipment(*equipment); !result) return result.error();
     const entt::entity entity = world_->create_entity();
     if (entity == entt::null) {
         return invalid_state("Dedicated server could not create an authoritative player entity");
@@ -1000,31 +1103,31 @@ snt::core::Expected<snt::ecs::EntityGuid> GameServerPlayerState::create_player_e
         .position = state.respawn_point,
     });
     world_->add_component<snt::ecs::Position>(entity, state.position.position);
-    world_->add_component<GamePlayerInventory>(entity, state.inventory);
-    world_->add_component<GamePlayerEquipment>(entity, state.equipment);
+    world_->add_component<GamePlayerRuntimeInventory>(entity, std::move(*inventory));
+    world_->add_component<GamePlayerRuntimeEquipment>(entity, std::move(*equipment));
     world_->add_component<GamePlayerOrganState>(entity, state.organs);
     return world_->guid_of(entity);
 }
 
-bool GameServerPlayerState::is_empty_stack(const GamePlayerItemStack& stack) noexcept {
-    return is_empty_stack_value(stack);
+bool GameServerPlayerState::is_empty_stack(const GamePlayerRuntimeItemStack& stack) noexcept {
+    return stack.is_empty();
 }
 
-void GameServerPlayerState::clear_stack(GamePlayerItemStack& stack) noexcept {
+void GameServerPlayerState::clear_stack(GamePlayerRuntimeItemStack& stack) noexcept {
     stack.clear();
 }
 
-bool GameServerPlayerState::stacks_can_merge(const GamePlayerItemStack& left,
-                                              const GamePlayerItemStack& right) noexcept {
-    return left.resource.is_valid() && left.resource.has_same_key(right.resource) &&
+bool GameServerPlayerState::stacks_can_merge(const GamePlayerRuntimeItemStack& left,
+                                              const GamePlayerRuntimeItemStack& right) noexcept {
+    return left.resource.is_valid() && left.resource.key == right.resource.key &&
            left.instance_data.empty() && right.instance_data.empty();
 }
 
-bool GameServerPlayerState::remove_items(GamePlayerInventory& inventory,
-                                         const GamePlayerItemStack& stack) noexcept {
+bool GameServerPlayerState::remove_items(GamePlayerRuntimeInventory& inventory,
+                                         const GamePlayerRuntimeItemStack& stack) noexcept {
     int64_t available = 0;
-    for (const GamePlayerItemStack& existing : inventory.slots) {
-        if (existing.resource.has_same_key(stack.resource) &&
+    for (const GamePlayerRuntimeItemStack& existing : inventory.slots) {
+        if (existing.resource.key == stack.resource.key &&
             existing.instance_data == stack.instance_data) {
             available += existing.resource.amount;
         }
@@ -1032,8 +1135,8 @@ bool GameServerPlayerState::remove_items(GamePlayerInventory& inventory,
     if (available < stack.resource.amount) return false;
 
     int64_t remaining = stack.resource.amount;
-    for (GamePlayerItemStack& existing : inventory.slots) {
-        if (!existing.resource.has_same_key(stack.resource) ||
+    for (GamePlayerRuntimeItemStack& existing : inventory.slots) {
+        if (existing.resource.key != stack.resource.key ||
             existing.instance_data != stack.instance_data ||
             remaining == 0) {
             continue;
@@ -1046,10 +1149,10 @@ bool GameServerPlayerState::remove_items(GamePlayerInventory& inventory,
     return true;
 }
 
-bool GameServerPlayerState::add_items(GamePlayerInventory& inventory,
-                                      const GamePlayerItemStack& stack) noexcept {
+bool GameServerPlayerState::add_items(GamePlayerRuntimeInventory& inventory,
+                                      const GamePlayerRuntimeItemStack& stack) noexcept {
     if (!stack.instance_data.empty()) {
-        for (GamePlayerItemStack& existing : inventory.slots) {
+        for (GamePlayerRuntimeItemStack& existing : inventory.slots) {
             if (!is_empty_stack(existing)) continue;
             existing = stack;
             return true;
@@ -1058,7 +1161,7 @@ bool GameServerPlayerState::add_items(GamePlayerInventory& inventory,
     }
 
     int64_t remaining = stack.resource.amount;
-    for (GamePlayerItemStack& existing : inventory.slots) {
+    for (GamePlayerRuntimeItemStack& existing : inventory.slots) {
         if (!stacks_can_merge(existing, stack) ||
             existing.resource.amount >= inventory.max_stack_size) {
             continue;
@@ -1069,7 +1172,7 @@ bool GameServerPlayerState::add_items(GamePlayerInventory& inventory,
         remaining -= added;
         if (remaining == 0) return true;
     }
-    for (GamePlayerItemStack& existing : inventory.slots) {
+    for (GamePlayerRuntimeItemStack& existing : inventory.slots) {
         if (!is_empty_stack(existing)) continue;
         const int64_t added = std::min<int64_t>(remaining, inventory.max_stack_size);
         existing = {
@@ -1086,15 +1189,15 @@ bool GameServerPlayerState::add_items(GamePlayerInventory& inventory,
 }
 
 bool GameServerPlayerState::apply_slot_transfer(
-    GamePlayerInventory& inventory,
-    const GamePlayerInventorySlotTransfer& transfer) noexcept {
+    GamePlayerRuntimeInventory& inventory,
+    const RuntimeInventorySlotTransfer& transfer) noexcept {
     if (transfer.source_slot >= inventory.slots.size() ||
         transfer.target_slot >= inventory.slots.size()) {
         return false;
     }
 
-    GamePlayerItemStack& source = inventory.slots[transfer.source_slot];
-    GamePlayerItemStack& target = inventory.slots[transfer.target_slot];
+    GamePlayerRuntimeItemStack& source = inventory.slots[transfer.source_slot];
+    GamePlayerRuntimeItemStack& target = inventory.slots[transfer.target_slot];
     if (source != transfer.expected_source || target != transfer.expected_target ||
         transfer.count > source.resource.amount) {
         return false;

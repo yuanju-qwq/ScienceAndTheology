@@ -94,6 +94,17 @@ ScienceAndTheologySimulationSession::ScienceAndTheologySimulationSession(GameSes
 
 ScienceAndTheologySimulationSession::~ScienceAndTheologySimulationSession() { shutdown(); }
 
+snt::core::Expected<void>
+ScienceAndTheologySimulationSession::add_resource_runtime_snapshot_participant(
+    IResourceRuntimeSnapshotParticipant& participant) {
+    return content_registry_.add_resource_runtime_snapshot_participant(participant);
+}
+
+void ScienceAndTheologySimulationSession::remove_resource_runtime_snapshot_participant(
+    IResourceRuntimeSnapshotParticipant& participant) noexcept {
+    content_registry_.remove_resource_runtime_snapshot_participant(participant);
+}
+
 void ScienceAndTheologySimulationSession::request_content_reload(
     GameContentReloadTarget target) noexcept {
     pending_content_reload_ = target;
@@ -286,7 +297,18 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     if (gameplay_content_loaded_) {
         machine_tick_system_ = std::make_shared<MachineTickSystem>(
             content_registry_, machine_tick_event_sink_);
+        machine_tick_system_->bind_world(world_session.world());
+        if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
+                *machine_tick_system_); !result) {
+            machine_tick_system_.reset();
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::create_world(machine resource snapshot)");
+            return error;
+        }
         if (auto result = world_session.register_worker_system(machine_tick_system_); !result) {
+            content_registry_.remove_resource_runtime_snapshot_participant(
+                *machine_tick_system_);
             machine_tick_system_.reset();
             auto error = result.error();
             error.with_context(
@@ -705,7 +727,10 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
     fluid_presentation_sink_ = nullptr;
     fluid_telemetry_sink_ = nullptr;
     fluid_compute_backend_ = nullptr;
-    if (machine_tick_system_) machine_tick_system_->set_event_sink(nullptr);
+    if (machine_tick_system_) {
+        content_registry_.remove_resource_runtime_snapshot_participant(*machine_tick_system_);
+        machine_tick_system_->set_event_sink(nullptr);
+    }
     machine_tick_system_.reset();
     if (offline_machine_simulation_) {
         if (auto result = offline_machine_simulation_->flush(

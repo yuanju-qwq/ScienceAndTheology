@@ -1,8 +1,10 @@
 // Dedicated-server authoritative player state coverage.
 
 #include "game/server/game_server_player_state.h"
+#include "game/tests/test_player_resource_snapshot.h"
 
 #include "ecs/world.h"
+#include "game/client/game_content_registry.h"
 #include "game/player/player_death.h"
 #include "game/player/player_identity.h"
 #include "game/quest/quest_book.h"
@@ -15,6 +17,17 @@
 namespace {
 
 using snt::game::GamePlayerItemStack;
+using snt::game::GameContentRegistry;
+using snt::game::GameItemDefinition;
+using snt::game::test_support::player_resource_snapshot;
+
+GameItemDefinition make_content_item(std::string id) {
+    return {
+        .id = std::move(id),
+        .title_key = "item.test",
+        .max_stack = 64,
+    };
+}
 
 snt::game::replication::GameAuthenticatedPeer make_peer(
     snt::network::PeerId peer_id, std::string name) {
@@ -29,7 +42,8 @@ snt::game::replication::GameAuthenticatedPeer make_peer(
 
 TEST(GameServerPlayerStateTest, TransfersTakeoverButDestroysDisconnectedActor) {
     snt::ecs::World world;
-    auto state = snt::game::replication::GameServerPlayerState::create(world);
+    auto state = snt::game::replication::GameServerPlayerState::create(
+        world, {.resource_runtime_index = player_resource_snapshot()});
     ASSERT_TRUE(state) << state.error().format();
 
     auto original_identity = snt::game::make_steam_player_identity(
@@ -114,6 +128,7 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOw
     auto state = snt::game::replication::GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = {.dimension_id = "overworld", .position = {}},
             .inventory_slots = 2,
             .inventory_max_stack_size = 5,
@@ -171,11 +186,85 @@ TEST(GameServerPlayerStateTest, CommitsInventoryChangesAtomicallyAndUsesServerOw
     (*state)->shutdown();
 }
 
+TEST(GameServerPlayerStateTest, ContentPublishRebindsActiveCompactInventory) {
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_content_item("iron")));
+    const auto before_snapshot = content.resource_runtime_index();
+    const auto before_runtime = content.find_resource_runtime_key(
+        snt::game::ResourceContentKey::item("iron"));
+    ASSERT_TRUE(before_runtime);
+
+    snt::ecs::World world;
+    auto state = snt::game::replication::GameServerPlayerState::create(
+        world, {.resource_runtime_index = before_snapshot});
+    ASSERT_TRUE(state) << state.error().format();
+    const auto peer = make_peer(106, "Reload Rebind Player");
+    ASSERT_TRUE((*state)->on_peer_authenticated(
+        peer, (*state)->default_persistent_state()));
+    ASSERT_TRUE((*state)->apply_inventory_transaction(
+        peer, {.additions = {GamePlayerItemStack::item("iron", 3)}}));
+    ASSERT_TRUE(content.add_resource_runtime_snapshot_participant(*(*state)));
+
+    ASSERT_TRUE(content.register_builtin_item(make_content_item("aaa_copper")));
+    const auto after_snapshot = content.resource_runtime_index();
+    const auto after_runtime = content.find_resource_runtime_key(
+        snt::game::ResourceContentKey::item("iron"));
+    ASSERT_TRUE(after_runtime);
+    EXPECT_FALSE(before_snapshot.key_context().matches(after_snapshot.key_context()));
+    EXPECT_NE(*before_runtime, *after_runtime);
+
+    const auto inventory = (*state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    ASSERT_EQ(inventory->slots.size(), 36u);
+    EXPECT_EQ(inventory->slots.front(), GamePlayerItemStack::item("iron", 3));
+    ASSERT_TRUE((*state)->apply_inventory_transaction(
+        peer, {.removals = {GamePlayerItemStack::item("iron", 1)}}));
+
+    content.remove_resource_runtime_snapshot_participant(*(*state));
+    (*state)->shutdown();
+}
+
+TEST(GameServerPlayerStateTest, RejectsReloadThatDropsAnActiveResource) {
+    constexpr snt::game::ScriptId kScript = 871;
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_script_item(kScript, make_content_item("iron")));
+    const auto before_snapshot = content.resource_runtime_index();
+
+    snt::ecs::World world;
+    auto state = snt::game::replication::GameServerPlayerState::create(
+        world, {.resource_runtime_index = before_snapshot});
+    ASSERT_TRUE(state) << state.error().format();
+    const auto peer = make_peer(107, "Reload Rejection Player");
+    ASSERT_TRUE((*state)->on_peer_authenticated(
+        peer, (*state)->default_persistent_state()));
+    ASSERT_TRUE((*state)->apply_inventory_transaction(
+        peer, {.additions = {GamePlayerItemStack::item("iron", 2)}}));
+    ASSERT_TRUE(content.add_resource_runtime_snapshot_participant(*(*state)));
+
+    ASSERT_TRUE(content.begin_reload(kScript));
+    ASSERT_TRUE(content.register_script_item(kScript, make_content_item("copper")));
+    EXPECT_FALSE(content.commit_reload(kScript));
+    EXPECT_TRUE(content.resource_runtime_index().key_context().matches(
+        before_snapshot.key_context()));
+
+    const auto inventory_before_rollback = (*state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory_before_rollback) << inventory_before_rollback.error().format();
+    EXPECT_EQ(inventory_before_rollback->slots.front(), GamePlayerItemStack::item("iron", 2));
+    ASSERT_TRUE(content.rollback_reload(kScript));
+    ASSERT_NE(content.find_item("iron"), nullptr);
+    ASSERT_TRUE((*state)->apply_inventory_transaction(
+        peer, {.removals = {GamePlayerItemStack::item("iron", 1)}}));
+
+    content.remove_resource_runtime_snapshot_participant(*(*state));
+    (*state)->shutdown();
+}
+
 TEST(GameServerPlayerStateTest, AppliesConditionalSlotTransfersAtomically) {
     snt::ecs::World world;
     auto state = snt::game::replication::GameServerPlayerState::create(
         world,
         {
+            .resource_runtime_index = player_resource_snapshot(),
             .spawn = {.dimension_id = "overworld", .position = {}},
             .inventory_slots = 4,
             .inventory_max_stack_size = 5,

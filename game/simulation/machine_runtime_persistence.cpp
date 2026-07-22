@@ -118,16 +118,16 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     return {};
 }
 
-[[nodiscard]] bool is_valid_stack(const MachineRuntimeItemStack& stack,
+[[nodiscard]] bool is_valid_stack(const ResourceContentStack& stack,
                                   bool allow_empty) {
-    if (stack.resource.amount < 0 || stack.resource.amount > kMaxMachineStackSize) {
+    if (stack.amount < 0 || stack.amount > kMaxMachineStackSize) {
         return false;
     }
-    if (stack.resource.amount == 0) {
-        return allow_empty && stack.resource.key.type.empty() && stack.resource.key.id.empty() &&
-               stack.resource.key.variant.empty();
+    if (stack.amount == 0) {
+        return allow_empty && stack.key.type.empty() && stack.key.id.empty() &&
+               stack.key.variant.empty();
     }
-    return stack.resource.is_valid();
+    return stack.is_valid();
 }
 
 [[nodiscard]] snt::core::Expected<void> validate_recipe(
@@ -140,13 +140,13 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         return invalid_argument("Machine persistence recipe snapshot is invalid");
     }
     std::unordered_set<ResourceContentKey, ResourceContentKey::Hash> input_keys;
-    for (const MachineRuntimeItemStack& input : recipe.inputs) {
+    for (const ResourceContentStack& input : recipe.inputs) {
         if (!is_valid_stack(input, false) ||
-            !input_keys.insert(input.resource.key).second) {
+            !input_keys.insert(input.key).second) {
             return invalid_argument("Machine persistence recipe input is invalid");
         }
     }
-    for (const MachineRuntimeItemStack& output : recipe.outputs) {
+    for (const ResourceContentStack& output : recipe.outputs) {
         if (!is_valid_stack(output, false)) {
             return invalid_argument("Machine persistence recipe output is invalid");
         }
@@ -195,19 +195,19 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     if (record.output_slots.size() > static_cast<size_t>(record.max_output_slots)) {
         return invalid_argument("Machine persistence output slot count exceeds its configured limit");
     }
-    for (const MachineRuntimeItemStack& input : record.input_slots) {
+    for (const ResourceContentStack& input : record.input_slots) {
         if (!is_valid_stack(input, false) ||
-            input.resource.amount > record.max_stack_size) {
+            input.amount > record.max_stack_size) {
             return invalid_argument("Machine persistence input slot is invalid");
         }
     }
-    for (const MachineRuntimeItemStack& output : record.output_slots) {
+    for (const ResourceContentStack& output : record.output_slots) {
         if (!is_valid_stack(output, false) ||
-            output.resource.amount > record.max_stack_size) {
+            output.amount > record.max_stack_size) {
             return invalid_argument("Machine persistence output slot is invalid");
         }
     }
-    for (const MachineFluidTank& tank : record.fluid_tanks) {
+    for (const MachineFluidTankRecord& tank : record.fluid_tanks) {
         if (!tank.is_valid() || tank.capacity_millibuckets > kMaxMachineFluidTankCapacity) {
             return invalid_argument("Machine persistence fluid tank is invalid");
         }
@@ -231,101 +231,208 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     return {};
 }
 
-[[nodiscard]] MachineRuntimeItemStack to_persisted_stack(const MachineItemStack& stack) {
-    return {.resource = stack.resource};
+[[nodiscard]] snt::core::Expected<ResourceContentStack> to_persisted_stack(
+    const ResourceStack& stack,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
+    if (!stack.is_valid()) {
+        return invalid_state("Machine runtime cannot persist an invalid compact resource stack");
+    }
+    const auto content = resolve_content_stack(stack, resource_runtime_index);
+    if (!content || !content->is_valid()) {
+        return invalid_state("Machine runtime compact resource key is absent from its snapshot");
+    }
+    return *content;
 }
 
-[[nodiscard]] MachineItemStack to_runtime_stack(const MachineRuntimeItemStack& stack) {
-    return {.resource = stack.resource};
+[[nodiscard]] snt::core::Expected<ResourceStack> to_runtime_stack(
+    const ResourceContentStack& stack,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
+    if (!stack.is_valid()) {
+        return invalid_state("Machine persistence contains an invalid content resource stack");
+    }
+    const auto runtime = resolve_resource_stack(stack, resource_runtime_index);
+    if (!runtime || !runtime->is_valid()) {
+        return invalid_state("Machine persistence refers to a resource missing from current content: " +
+                             stack.key.id);
+    }
+    return *runtime;
 }
 
-[[nodiscard]] MachineRuntimeRecipeSnapshot to_persisted_recipe(
-    const MachineRecipeSnapshot& recipe) {
+[[nodiscard]] snt::core::Expected<MachineFluidTankRecord> to_persisted_tank(
+    const MachineFluidTank& tank,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
+    if (!tank.is_valid()) {
+        return invalid_state("Machine runtime fluid tank is invalid");
+    }
+    MachineFluidTankRecord result{
+        .capacity_millibuckets = tank.capacity_millibuckets,
+        .temperature_kelvin = tank.temperature_kelvin,
+        .pressure_pascal = tank.pressure_pascal,
+        .transport = tank.transport,
+        .access = tank.access,
+    };
+    if (tank.fluid.is_absent()) return result;
+
+    auto persisted = to_persisted_stack(tank.fluid, resource_runtime_index);
+    if (!persisted) return persisted.error();
+    if (!persisted->is_fluid()) {
+        return invalid_state("Machine runtime fluid tank holds a non-fluid resource");
+    }
+    result.fluid = std::move(*persisted);
+    return result;
+}
+
+[[nodiscard]] snt::core::Expected<MachineFluidTank> to_runtime_tank(
+    const MachineFluidTankRecord& tank,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
+    if (!tank.is_valid()) {
+        return invalid_state("Machine persistence fluid tank is invalid");
+    }
+    MachineFluidTank result{
+        .capacity_millibuckets = tank.capacity_millibuckets,
+        .temperature_kelvin = tank.temperature_kelvin,
+        .pressure_pascal = tank.pressure_pascal,
+        .transport = tank.transport,
+        .access = tank.access,
+    };
+    if (tank.fluid.is_absent()) return result;
+
+    auto runtime = to_runtime_stack(tank.fluid, resource_runtime_index);
+    if (!runtime) return runtime.error();
+    result.fluid = *runtime;
+    return result;
+}
+
+[[nodiscard]] snt::core::Expected<MachineRuntimeRecipeSnapshot> to_persisted_recipe(
+    const MachineRecipeSnapshot& recipe,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
     MachineRuntimeRecipeSnapshot result;
     result.id = recipe.id;
     result.inputs.reserve(recipe.inputs.size());
-    for (const MachineItemStack& input : recipe.inputs) {
-        result.inputs.push_back(to_persisted_stack(input));
+    for (const ResourceStack& input : recipe.inputs) {
+        auto persisted = to_persisted_stack(input, resource_runtime_index);
+        if (!persisted) return persisted.error();
+        result.inputs.push_back(std::move(*persisted));
     }
     result.duration_ticks = recipe.duration_ticks;
     result.energy_per_tick = recipe.energy_per_tick;
     result.outputs.reserve(recipe.outputs.size());
-    for (const MachineItemStack& output : recipe.outputs) {
-        result.outputs.push_back(to_persisted_stack(output));
+    for (const ResourceStack& output : recipe.outputs) {
+        auto persisted = to_persisted_stack(output, resource_runtime_index);
+        if (!persisted) return persisted.error();
+        result.outputs.push_back(std::move(*persisted));
     }
     return result;
 }
 
-[[nodiscard]] MachineRecipeSnapshot to_runtime_recipe(
-    const MachineRuntimeRecipeSnapshot& recipe) {
+[[nodiscard]] snt::core::Expected<MachineRecipeSnapshot> to_runtime_recipe(
+    const MachineRuntimeRecipeSnapshot& recipe,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
     MachineRecipeSnapshot result;
     result.id = recipe.id;
     result.inputs.reserve(recipe.inputs.size());
-    for (const MachineRuntimeItemStack& input : recipe.inputs) {
-        result.inputs.push_back(to_runtime_stack(input));
+    for (const ResourceContentStack& input : recipe.inputs) {
+        auto runtime = to_runtime_stack(input, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        result.inputs.push_back(*runtime);
     }
     result.duration_ticks = recipe.duration_ticks;
     result.energy_per_tick = recipe.energy_per_tick;
     result.outputs.reserve(recipe.outputs.size());
-    for (const MachineRuntimeItemStack& output : recipe.outputs) {
-        result.outputs.push_back(to_runtime_stack(output));
+    for (const ResourceContentStack& output : recipe.outputs) {
+        auto runtime = to_runtime_stack(output, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        result.outputs.push_back(*runtime);
     }
     return result;
 }
 
-void copy_runtime_fields(MachineRuntimePersistenceRecord& record,
-                         const MachineRuntimeComponent& runtime) {
-    record.machine_id = runtime.machine_id;
-    record.input_slots.clear();
-    record.input_slots.reserve(runtime.input_slots.size());
-    for (const MachineItemStack& input : runtime.input_slots) {
-        record.input_slots.push_back(to_persisted_stack(input));
+[[nodiscard]] snt::core::Expected<void> copy_runtime_fields(
+    MachineRuntimePersistenceRecord& record,
+    const MachineRuntimeComponent& runtime) {
+    if (!runtime.resource_runtime_index.key_context().is_valid()) {
+        return invalid_state("Machine runtime cannot persist without a resource snapshot");
     }
-    record.output_slots.clear();
-    record.output_slots.reserve(runtime.output_slots.size());
-    for (const MachineItemStack& output : runtime.output_slots) {
-        record.output_slots.push_back(to_persisted_stack(output));
+    MachineRuntimePersistenceRecord updated = record;
+    updated.machine_id = runtime.machine_id;
+    updated.input_slots.clear();
+    updated.input_slots.reserve(runtime.input_slots.size());
+    for (const ResourceStack& input : runtime.input_slots) {
+        auto persisted = to_persisted_stack(input, runtime.resource_runtime_index);
+        if (!persisted) return persisted.error();
+        updated.input_slots.push_back(std::move(*persisted));
     }
-    record.fluid_tanks = runtime.fluid_tanks;
-    record.stored_energy = runtime.stored_energy;
-    record.energy_capacity = runtime.energy_capacity;
-    record.max_input_slots = runtime.max_input_slots;
-    record.max_output_slots = runtime.max_output_slots;
-    record.max_stack_size = runtime.max_stack_size;
-    record.progress_ticks = runtime.progress_ticks;
-    record.active_recipe.reset();
+    updated.output_slots.clear();
+    updated.output_slots.reserve(runtime.output_slots.size());
+    for (const ResourceStack& output : runtime.output_slots) {
+        auto persisted = to_persisted_stack(output, runtime.resource_runtime_index);
+        if (!persisted) return persisted.error();
+        updated.output_slots.push_back(std::move(*persisted));
+    }
+    updated.fluid_tanks.clear();
+    updated.fluid_tanks.reserve(runtime.fluid_tanks.size());
+    for (const MachineFluidTank& tank : runtime.fluid_tanks) {
+        auto persisted = to_persisted_tank(tank, runtime.resource_runtime_index);
+        if (!persisted) return persisted.error();
+        updated.fluid_tanks.push_back(std::move(*persisted));
+    }
+    updated.stored_energy = runtime.stored_energy;
+    updated.energy_capacity = runtime.energy_capacity;
+    updated.max_input_slots = runtime.max_input_slots;
+    updated.max_output_slots = runtime.max_output_slots;
+    updated.max_stack_size = runtime.max_stack_size;
+    updated.progress_ticks = runtime.progress_ticks;
+    updated.active_recipe.reset();
     if (runtime.active_recipe) {
-        record.active_recipe = to_persisted_recipe(*runtime.active_recipe);
+        auto persisted_recipe = to_persisted_recipe(
+            *runtime.active_recipe, runtime.resource_runtime_index);
+        if (!persisted_recipe) return persisted_recipe.error();
+        updated.active_recipe = std::move(*persisted_recipe);
     }
-    record.activation_requested = runtime.activation_requested;
-    record.job_owner_account_id = runtime.job_owner_account_id;
-    record.run_state = static_cast<uint8_t>(runtime.state);
+    updated.activation_requested = runtime.activation_requested;
+    updated.job_owner_account_id = runtime.job_owner_account_id;
+    updated.run_state = static_cast<uint8_t>(runtime.state);
+    record = std::move(updated);
+    return {};
 }
 
-[[nodiscard]] MachineRuntimePersistenceRecord make_record(
+[[nodiscard]] snt::core::Expected<MachineRuntimePersistenceRecord> make_record(
     EntityId anchor_entity_id,
     snt::ecs::EntityGuid entity_guid,
     const MachineRuntimeComponent& runtime) {
     MachineRuntimePersistenceRecord result;
     result.anchor_entity_id = anchor_entity_id;
     result.entity_guid = entity_guid.value;
-    copy_runtime_fields(result, runtime);
+    if (auto copied = copy_runtime_fields(result, runtime); !copied) {
+        return copied.error();
+    }
     return result;
 }
 
-[[nodiscard]] MachineRuntimeComponent make_runtime(
-    const MachineRuntimePersistenceRecord& record) {
+[[nodiscard]] snt::core::Expected<MachineRuntimeComponent> make_runtime(
+    const MachineRuntimePersistenceRecord& record,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
     MachineRuntimeComponent result;
     result.machine_id = record.machine_id;
+    result.resource_runtime_index = resource_runtime_index;
     result.input_slots.reserve(record.input_slots.size());
-    for (const MachineRuntimeItemStack& input : record.input_slots) {
-        result.input_slots.push_back(to_runtime_stack(input));
+    for (const ResourceContentStack& input : record.input_slots) {
+        auto runtime = to_runtime_stack(input, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        result.input_slots.push_back(*runtime);
     }
     result.output_slots.reserve(record.output_slots.size());
-    for (const MachineRuntimeItemStack& output : record.output_slots) {
-        result.output_slots.push_back(to_runtime_stack(output));
+    for (const ResourceContentStack& output : record.output_slots) {
+        auto runtime = to_runtime_stack(output, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        result.output_slots.push_back(*runtime);
     }
-    result.fluid_tanks = record.fluid_tanks;
+    result.fluid_tanks.reserve(record.fluid_tanks.size());
+    for (const MachineFluidTankRecord& tank : record.fluid_tanks) {
+        auto runtime = to_runtime_tank(tank, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        result.fluid_tanks.push_back(std::move(*runtime));
+    }
     result.stored_energy = record.stored_energy;
     result.energy_capacity = record.energy_capacity;
     result.max_input_slots = record.max_input_slots;
@@ -333,7 +440,9 @@ void copy_runtime_fields(MachineRuntimePersistenceRecord& record,
     result.max_stack_size = record.max_stack_size;
     result.progress_ticks = record.progress_ticks;
     if (record.active_recipe) {
-        result.active_recipe = to_runtime_recipe(*record.active_recipe);
+        auto runtime_recipe = to_runtime_recipe(*record.active_recipe, resource_runtime_index);
+        if (!runtime_recipe) return runtime_recipe.error();
+        result.active_recipe = std::move(*runtime_recipe);
     }
     result.activation_requested = record.activation_requested;
     result.job_owner_account_id = record.job_owner_account_id;
@@ -375,6 +484,9 @@ GameMachineRuntimePersistence::create_anchored_machine(
     }
     auto anchor_entity_id = allocate_machine_anchor_id(sidecars);
     if (!anchor_entity_id) return anchor_entity_id.error();
+    if (!runtime.resource_runtime_index.key_context().is_valid()) {
+        return invalid_argument("Cannot create an anchored machine without a resource snapshot");
+    }
 
     sidecar->block_entities.push_back({
         .id = *anchor_entity_id,
@@ -391,15 +503,20 @@ GameMachineRuntimePersistence::create_anchored_machine(
 
     const entt::entity entity = world.create_entity();
     const snt::ecs::EntityGuid entity_guid = world.guid_of(entity);
-    MachineRuntimePersistenceRecord record = make_record(*anchor_entity_id, entity_guid, runtime);
-    if (auto result = validate_record(chunk_key, *sidecar, record); !result) {
+    auto record = make_record(*anchor_entity_id, entity_guid, runtime);
+    if (!record) {
+        world.destroy_entity(entity);
+        sidecar->block_entities.pop_back();
+        return record.error();
+    }
+    if (auto result = validate_record(chunk_key, *sidecar, *record); !result) {
         world.destroy_entity(entity);
         sidecar->block_entities.pop_back();
         return result.error();
     }
     try {
         world.add_component<MachineRuntimeComponent>(entity, std::move(runtime));
-        sidecar->machine_runtime_records.push_back(std::move(record));
+        sidecar->machine_runtime_records.push_back(std::move(*record));
     } catch (const std::exception& error) {
         world.destroy_entity(entity);
         sidecar->block_entities.pop_back();
@@ -465,7 +582,11 @@ snt::core::Expected<void> GameMachineRuntimePersistence::remove_anchored_machine
 
 snt::core::Expected<void> GameMachineRuntimePersistence::restore(
     snt::ecs::World& world,
-    const GameChunkSidecarRegistry& sidecars) {
+    const GameChunkSidecarRegistry& sidecars,
+    ResourceRuntimeIndex::Snapshot resource_runtime_index) {
+    if (!resource_runtime_index.key_context().is_valid()) {
+        return invalid_argument("Cannot restore machine runtimes without a resource snapshot");
+    }
     std::vector<const MachineRuntimePersistenceRecord*> records;
     std::unordered_set<uint64_t> seen_guids;
     std::unordered_set<uint64_t> seen_anchors;
@@ -509,6 +630,11 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore(
     created.reserve(records.size());
     for (const size_t index : order) {
         const MachineRuntimePersistenceRecord& record = *records[index];
+        auto runtime = make_runtime(record, resource_runtime_index);
+        if (!runtime) {
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return runtime.error();
+        }
         const entt::entity entity = world.create_entity_with_guid(
             snt::ecs::EntityGuid{record.entity_guid});
         if (entity == entt::null) {
@@ -516,7 +642,7 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore(
             return invalid_state("Failed to recreate persisted machine EntityGuid");
         }
         try {
-            world.add_component<MachineRuntimeComponent>(entity, make_runtime(record));
+            world.add_component<MachineRuntimeComponent>(entity, std::move(*runtime));
             created.push_back(entity);
         } catch (const std::exception& exception) {
             world.destroy_entity(entity);
@@ -539,7 +665,11 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore(
 snt::core::Expected<void> GameMachineRuntimePersistence::restore_chunk(
     snt::ecs::World& world,
     const GameChunkSidecarRegistry& sidecars,
-    const ChunkKey& chunk_key) {
+    const ChunkKey& chunk_key,
+    ResourceRuntimeIndex::Snapshot resource_runtime_index) {
+    if (!resource_runtime_index.key_context().is_valid()) {
+        return invalid_argument("Cannot restore chunk machine runtimes without a resource snapshot");
+    }
     const GameChunkSidecar* sidecar = sidecars.get(chunk_key);
     if (sidecar == nullptr) {
         return invalid_state("Cannot restore machine runtimes without a chunk sidecar");
@@ -569,6 +699,11 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore_chunk(
     std::vector<entt::entity> created;
     created.reserve(records.size());
     for (const MachineRuntimePersistenceRecord* record : records) {
+        auto runtime = make_runtime(*record, resource_runtime_index);
+        if (!runtime) {
+            for (const entt::entity created_entity : created) world.destroy_entity(created_entity);
+            return runtime.error();
+        }
         const entt::entity entity = world.create_entity_with_guid(
             snt::ecs::EntityGuid{record->entity_guid});
         if (entity == entt::null) {
@@ -577,7 +712,7 @@ snt::core::Expected<void> GameMachineRuntimePersistence::restore_chunk(
         }
         try {
             world.add_component<MachineRuntimeComponent>(
-                entity, make_runtime_component(*record));
+                entity, std::move(*runtime));
             created.push_back(entity);
         } catch (const std::exception& exception) {
             world.destroy_entity(entity);
@@ -623,7 +758,10 @@ snt::core::Expected<void> GameMachineRuntimePersistence::capture_chunk(
             return invalid_state("Chunk machine runtime is unavailable during capture");
         }
         MachineRuntimePersistenceRecord updated = record;
-        copy_runtime_to_record(updated, world.get_component<MachineRuntimeComponent>(entity));
+        if (auto result = copy_runtime_to_record(
+                updated, world.get_component<MachineRuntimeComponent>(entity)); !result) {
+            return result.error();
+        }
         if (auto result = validate_record(chunk_key, *sidecar, updated); !result) {
             return result.error();
         }
@@ -687,15 +825,17 @@ snt::core::Expected<void> GameMachineRuntimePersistence::destroy_runtimes(
     return {};
 }
 
-MachineRuntimeComponent GameMachineRuntimePersistence::make_runtime_component(
-    const MachineRuntimePersistenceRecord& record) {
-    return make_runtime(record);
+snt::core::Expected<MachineRuntimeComponent>
+GameMachineRuntimePersistence::make_runtime_component(
+    const MachineRuntimePersistenceRecord& record,
+    ResourceRuntimeIndex::Snapshot resource_runtime_index) {
+    return make_runtime(record, resource_runtime_index);
 }
 
-void GameMachineRuntimePersistence::copy_runtime_to_record(
+snt::core::Expected<void> GameMachineRuntimePersistence::copy_runtime_to_record(
     MachineRuntimePersistenceRecord& record,
     const MachineRuntimeComponent& runtime) {
-    copy_runtime_fields(record, runtime);
+    return copy_runtime_fields(record, runtime);
 }
 
 snt::core::Expected<void> GameMachineRuntimePersistence::capture(
@@ -732,7 +872,10 @@ snt::core::Expected<void> GameMachineRuntimePersistence::capture(
             return invalid_state("Anchored machine runtime entity is unavailable during capture");
         }
         MachineRuntimePersistenceRecord updated = existing;
-        copy_runtime_fields(updated, world.get_component<MachineRuntimeComponent>(entity));
+        if (auto result = copy_runtime_fields(
+                updated, world.get_component<MachineRuntimeComponent>(entity)); !result) {
+            return result.error();
+        }
         if (auto result = validate_record(*location.chunk_key, *location.sidecar, updated); !result) {
             return result.error();
         }

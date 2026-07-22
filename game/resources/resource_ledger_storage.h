@@ -27,8 +27,7 @@ public:
                                  const ResourceStack& stack,
                                  ResourceTransferMode mode) override;
     [[nodiscard]] int64_t extract(const ResourceKeyContext& context,
-                                  const ResourceKey& key,
-                                  int64_t amount,
+                                  const ResourceStack& requested,
                                   ResourceTransferMode mode) override;
     [[nodiscard]] std::vector<ResourceKey> stored_keys(
         const ResourceKeyContext& context) const override;

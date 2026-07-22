@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,9 +25,13 @@ using snt::game::GameChunk;
 using snt::game::GameChunkSidecarRegistry;
 using snt::game::GameChunkSerializer;
 using snt::game::GameContentRegistry;
+using snt::game::GameFluidDefinition;
 using snt::game::IMachineTickEventSink;
 using snt::game::MachineDefinition;
-using snt::game::MachineItemStack;
+using snt::game::MachineFluidTank;
+using snt::game::MachineFluidTankAccess;
+using snt::game::MachineFluidTankRecord;
+using snt::game::MachineFluidTransport;
 using snt::game::MachineOfflineSimulationMode;
 using snt::game::MachineRunState;
 using snt::game::MachineRuntimeComponent;
@@ -36,6 +41,7 @@ using snt::game::MachineTickEvent;
 using snt::game::MachineTickEventKind;
 using snt::game::OfflineMachineSimulationService;
 using snt::game::OfflineNetworkBoundaryPort;
+using snt::game::OfflineNetworkFluidTransport;
 using snt::game::OfflineNetworkIslandRegistry;
 using snt::game::OfflineNetworkIslandSnapshot;
 using snt::game::OfflineNetworkResourceKind;
@@ -48,6 +54,7 @@ using snt::game::RecipeDefinition;
 using snt::game::RecipeInputDefinition;
 using snt::game::RecipeOutputDefinition;
 using snt::game::ResourceContentKey;
+using snt::game::ResourceContentStack;
 using snt::game::VoltageTier;
 using snt::voxel::ChunkKey;
 
@@ -59,6 +66,34 @@ public:
 
     std::vector<MachineTickEvent> events;
 };
+
+[[nodiscard]] snt::game::ResourceStack machine_item_stack(
+    const GameContentRegistry& content, std::string id, int64_t amount) {
+    const auto stack = snt::game::resolve_resource_stack(
+        ResourceContentStack::item(std::move(id), amount),
+        content.resource_runtime_index());
+    if (!stack) throw std::logic_error("Offline machine test item is absent from content");
+    return *stack;
+}
+
+[[nodiscard]] snt::game::ResourceStack machine_fluid_stack(
+    const GameContentRegistry& content, std::string id, int64_t amount) {
+    const auto stack = snt::game::resolve_resource_stack(
+        ResourceContentStack::fluid(std::move(id), amount),
+        content.resource_runtime_index());
+    if (!stack) throw std::logic_error("Offline machine test fluid is absent from content");
+    return *stack;
+}
+
+void bind_machine_resources(MachineRuntimeComponent& runtime,
+                            const GameContentRegistry& content) {
+    runtime.resource_runtime_index = content.resource_runtime_index();
+}
+
+[[nodiscard]] snt::game::ResourceRuntimeIndex::Snapshot empty_machine_snapshot() {
+    static snt::game::ResourceRuntimeIndex index;
+    return index.snapshot();
+}
 
 void register_furnace_content(GameContentRegistry& content,
                               MachineOfflineSimulationMode mode,
@@ -166,6 +201,43 @@ void register_item_network_content(GameContentRegistry& content,
     ASSERT_TRUE(content.register_builtin_recipe(std::move(recipe)));
 }
 
+void register_fluid_network_content(GameContentRegistry& content,
+                                    uint32_t max_batch_ticks = 5,
+                                    int32_t max_transfer_per_tick = 100) {
+    ASSERT_TRUE(content.register_builtin_fluid(GameFluidDefinition{
+        .id = "offline.coolant",
+        .title_key = "fluid.offline.coolant",
+        .chemical_formula = "H2O",
+        .default_temperature_kelvin = 300,
+        .is_gas = false,
+    }));
+    ASSERT_TRUE(content.register_builtin_fluid(GameFluidDefinition{
+        .id = "offline.steam",
+        .title_key = "fluid.offline.steam",
+        .chemical_formula = "H2O",
+        .default_temperature_kelvin = 450,
+        .is_gas = true,
+    }));
+
+    MachineDefinition source;
+    source.id = "offline.fluid_source";
+    source.display_name = "Offline Fluid Source";
+    source.tier = 1;
+    source.offline_simulation.mode = MachineOfflineSimulationMode::kNetworkIsland;
+    source.offline_simulation.max_batch_ticks = max_batch_ticks;
+    source.offline_simulation.max_fluid_export_per_tick = max_transfer_per_tick;
+    ASSERT_TRUE(content.register_builtin_machine(std::move(source)));
+
+    MachineDefinition consumer;
+    consumer.id = "offline.fluid_consumer";
+    consumer.display_name = "Offline Fluid Consumer";
+    consumer.tier = 1;
+    consumer.offline_simulation.mode = MachineOfflineSimulationMode::kNetworkIsland;
+    consumer.offline_simulation.max_batch_ticks = max_batch_ticks;
+    consumer.offline_simulation.max_fluid_import_per_tick = max_transfer_per_tick;
+    ASSERT_TRUE(content.register_builtin_machine(std::move(consumer)));
+}
+
 void add_power_cable(GameChunkSidecarRegistry& sidecars,
                      const ChunkKey& chunk_key,
                      uint64_t entity_id,
@@ -215,7 +287,8 @@ struct PowerMachinePair {
     uint64_t consumer_guid = 0;
 };
 
-PowerMachinePair create_power_machine_pair(snt::ecs::World& world,
+PowerMachinePair create_power_machine_pair(const GameContentRegistry& content,
+                                           snt::ecs::World& world,
                                            GameChunkSidecarRegistry& sidecars,
                                            const ChunkKey& source_chunk,
                                            int32_t source_x,
@@ -226,6 +299,7 @@ PowerMachinePair create_power_machine_pair(snt::ecs::World& world,
                                            int32_t input_count) {
     MachineRuntimeComponent source_runtime;
     source_runtime.machine_id = "offline.power_source";
+    bind_machine_resources(source_runtime, content);
     source_runtime.stored_energy = source_energy;
     source_runtime.energy_capacity = 32;
     const auto source = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
@@ -237,11 +311,12 @@ PowerMachinePair create_power_machine_pair(snt::ecs::World& world,
 
     MachineRuntimeComponent consumer_runtime;
     consumer_runtime.machine_id = "offline.power_consumer";
+    bind_machine_resources(consumer_runtime, content);
     consumer_runtime.stored_energy = consumer_energy;
     consumer_runtime.energy_capacity = 10;
     if (input_count > 0) {
         consumer_runtime.input_slots = {
-            MachineItemStack::item("offline.power_ore", input_count)};
+            machine_item_stack(content, "offline.power_ore", input_count)};
     }
     const auto consumer = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, consumer_chunk, consumer_x, 0, 0, std::move(consumer_runtime));
@@ -257,7 +332,8 @@ struct ItemMachinePair {
     uint64_t consumer_guid = 0;
 };
 
-ItemMachinePair create_item_machine_pair(snt::ecs::World& world,
+ItemMachinePair create_item_machine_pair(const GameContentRegistry& content,
+                                         snt::ecs::World& world,
                                          GameChunkSidecarRegistry& sidecars,
                                          const ChunkKey& source_chunk,
                                          int32_t source_x,
@@ -266,9 +342,10 @@ ItemMachinePair create_item_machine_pair(snt::ecs::World& world,
                                          int32_t output_count) {
     MachineRuntimeComponent source_runtime;
     source_runtime.machine_id = "offline.item_source";
+    bind_machine_resources(source_runtime, content);
     if (output_count > 0) {
         source_runtime.output_slots = {
-            MachineItemStack::item("offline.item_ore", output_count)};
+            machine_item_stack(content, "offline.item_ore", output_count)};
     }
     const auto source = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, source_chunk, source_x, 0, 0, std::move(source_runtime));
@@ -279,6 +356,60 @@ ItemMachinePair create_item_machine_pair(snt::ecs::World& world,
 
     MachineRuntimeComponent consumer_runtime;
     consumer_runtime.machine_id = "offline.item_consumer";
+    bind_machine_resources(consumer_runtime, content);
+    const auto consumer = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, consumer_chunk, consumer_x, 0, 0, std::move(consumer_runtime));
+    if (!consumer) {
+        ADD_FAILURE() << consumer.error().format();
+        return {};
+    }
+    return {source->entity_guid.value, consumer->entity_guid.value};
+}
+
+struct FluidMachinePair {
+    uint64_t source_guid = 0;
+    uint64_t consumer_guid = 0;
+};
+
+FluidMachinePair create_fluid_machine_pair(
+    const GameContentRegistry& content,
+    snt::ecs::World& world,
+    GameChunkSidecarRegistry& sidecars,
+    const ChunkKey& source_chunk,
+    int32_t source_x,
+    const ChunkKey& consumer_chunk,
+    int32_t consumer_x,
+    MachineFluidTransport transport,
+    std::string fluid_id,
+    int64_t source_amount,
+    int64_t source_capacity = 1'000,
+    int64_t consumer_capacity = 1'000) {
+    MachineRuntimeComponent source_runtime;
+    source_runtime.machine_id = "offline.fluid_source";
+    bind_machine_resources(source_runtime, content);
+    source_runtime.fluid_tanks = {{
+        .fluid = machine_fluid_stack(content, std::move(fluid_id), source_amount),
+        .capacity_millibuckets = source_capacity,
+        .temperature_kelvin = transport == MachineFluidTransport::kGas ? 450 : 330,
+        .pressure_pascal = transport == MachineFluidTransport::kGas ? 180'000 : 110'000,
+        .transport = transport,
+        .access = MachineFluidTankAccess::kOutput,
+    }};
+    const auto source = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
+        world, sidecars, source_chunk, source_x, 0, 0, std::move(source_runtime));
+    if (!source) {
+        ADD_FAILURE() << source.error().format();
+        return {};
+    }
+
+    MachineRuntimeComponent consumer_runtime;
+    consumer_runtime.machine_id = "offline.fluid_consumer";
+    bind_machine_resources(consumer_runtime, content);
+    consumer_runtime.fluid_tanks = {{
+        .capacity_millibuckets = consumer_capacity,
+        .transport = transport,
+        .access = MachineFluidTankAccess::kInput,
+    }};
     const auto consumer = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, consumer_chunk, consumer_x, 0, 0, std::move(consumer_runtime));
     if (!consumer) {
@@ -311,7 +442,8 @@ TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMa
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {MachineItemStack::item("offline.ore", 3)};
+    bind_machine_resources(runtime, content);
+    runtime.input_slots = {machine_item_stack(content, "offline.ore", 3)};
     const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 0, 0, 0, std::move(runtime));
     ASSERT_TRUE(anchored);
@@ -337,8 +469,8 @@ TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMa
     const MachineRuntimePersistenceRecord& offline_record =
         sidecar->machine_runtime_records.front();
     ASSERT_EQ(offline_record.output_slots.size(), 1u);
-    EXPECT_EQ(offline_record.output_slots.front().resource.key.id, "offline.ingot");
-    EXPECT_EQ(offline_record.output_slots.front().resource.amount, 2);
+    EXPECT_EQ(offline_record.output_slots.front().key.id, "offline.ingot");
+    EXPECT_EQ(offline_record.output_slots.front().amount, 2);
     ASSERT_TRUE(offline_record.active_recipe.has_value());
     EXPECT_EQ(offline_record.progress_ticks, 1);
 
@@ -350,7 +482,7 @@ TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMa
     EXPECT_EQ(restored.state, MachineRunState::Idle);
     EXPECT_FALSE(restored.active_recipe.has_value());
     ASSERT_EQ(restored.output_slots.size(), 1u);
-    EXPECT_EQ(restored.output_slots.front().resource.amount, 3);
+    EXPECT_EQ(restored.output_slots.front().amount, 3);
     EXPECT_TRUE(restored.input_slots.empty());
     EXPECT_EQ(sidecar->machine_runtime_records.front().residency,
               MachineRuntimeResidency::kLoaded);
@@ -373,7 +505,8 @@ TEST(OfflineMachineSimulationTest, DefersNetworkIslandUntilTopologyProviderExist
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {MachineItemStack::item("offline.ore", 1)};
+    bind_machine_resources(runtime, content);
+    runtime.input_slots = {machine_item_stack(content, "offline.ore", 1)};
     ASSERT_TRUE(snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 0, 0, 0, std::move(runtime)));
 
@@ -396,7 +529,8 @@ TEST(OfflineMachineSimulationTest, ManualMachineFinishesActiveJobButDoesNotStart
 
     MachineRuntimeComponent starting_runtime;
     starting_runtime.machine_id = "offline.furnace";
-    starting_runtime.input_slots = {MachineItemStack::item("offline.ore", 2)};
+    bind_machine_resources(starting_runtime, content);
+    starting_runtime.input_slots = {machine_item_stack(content, "offline.ore", 2)};
     starting_runtime.activation_requested = true;
     starting_runtime.job_owner_account_id = "account:manual-owner";
     auto execution_input = snt::game::make_machine_execution_input(
@@ -407,7 +541,7 @@ TEST(OfflineMachineSimulationTest, ManualMachineFinishesActiveJobButDoesNotStart
     ASSERT_EQ(started.advanced_ticks, 1u);
     ASSERT_TRUE(started.machine.active_recipe.has_value());
     ASSERT_EQ(started.machine.input_slots.size(), 1u);
-    EXPECT_EQ(started.machine.input_slots.front().resource.amount, 1);
+    EXPECT_EQ(started.machine.input_slots.front().amount, 1);
 
     GameChunkSidecarRegistry sidecars;
     const ChunkKey chunk_key = make_chunk_key();
@@ -430,11 +564,11 @@ TEST(OfflineMachineSimulationTest, ManualMachineFinishesActiveJobButDoesNotStart
     EXPECT_FALSE(record.active_recipe.has_value());
     EXPECT_EQ(record.run_state, static_cast<uint8_t>(MachineRunState::Idle));
     ASSERT_EQ(record.input_slots.size(), 1u);
-    EXPECT_EQ(record.input_slots.front().resource.key.id, "offline.ore");
-    EXPECT_EQ(record.input_slots.front().resource.amount, 1);
+    EXPECT_EQ(record.input_slots.front().key.id, "offline.ore");
+    EXPECT_EQ(record.input_slots.front().amount, 1);
     ASSERT_EQ(record.output_slots.size(), 1u);
-    EXPECT_EQ(record.output_slots.front().resource.key.id, "offline.ingot");
-    EXPECT_EQ(record.output_slots.front().resource.amount, 1);
+    EXPECT_EQ(record.output_slots.front().key.id, "offline.ingot");
+    EXPECT_EQ(record.output_slots.front().amount, 1);
 
     size_t completions = 0;
     for (const MachineTickEvent& event : events.events) {
@@ -458,7 +592,8 @@ TEST(OfflineMachineSimulationTest, DelayedSchedulerUsesBoundedOfflineBatches) {
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {MachineItemStack::item("offline.ore", 2)};
+    bind_machine_resources(runtime, content);
+    runtime.input_slots = {machine_item_stack(content, "offline.ore", 2)};
     auto initial_execution = snt::game::make_machine_execution_input(
         content, snt::ecs::EntityGuid{701}, std::move(runtime));
     ASSERT_TRUE(initial_execution);
@@ -479,7 +614,7 @@ TEST(OfflineMachineSimulationTest, DelayedSchedulerUsesBoundedOfflineBatches) {
     const MachineRuntimePersistenceRecord& record = sidecar->machine_runtime_records.front();
     EXPECT_EQ(record.offline_last_simulated_tick, 110u);
     ASSERT_EQ(record.output_slots.size(), 1u);
-    EXPECT_EQ(record.output_slots.front().resource.amount, 1);
+    EXPECT_EQ(record.output_slots.front().amount, 1);
     ASSERT_TRUE(record.active_recipe.has_value());
     EXPECT_EQ(record.progress_ticks, 5);
 }
@@ -494,7 +629,8 @@ TEST(OfflineMachineSimulationTest, OfflineRecordSurvivesChunkSaveAndRestartWitho
     snt::ecs::World original_world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.furnace";
-    runtime.input_slots = {MachineItemStack::item("offline.ore", 2)};
+    bind_machine_resources(runtime, content);
+    runtime.input_slots = {machine_item_stack(content, "offline.ore", 2)};
     const auto anchored = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         original_world, original_sidecars, chunk_key, 0, 0, 0, std::move(runtime));
     ASSERT_TRUE(anchored);
@@ -519,7 +655,7 @@ TEST(OfflineMachineSimulationTest, OfflineRecordSurvivesChunkSaveAndRestartWitho
     restarted_sidecars.set(chunk_key, restored_chunk.sidecar());
     snt::ecs::World restarted_world;
     ASSERT_TRUE(snt::game::GameMachineRuntimePersistence::restore(
-        restarted_world, restarted_sidecars));
+        restarted_world, restarted_sidecars, content.resource_runtime_index()));
     EXPECT_TRUE(restarted_world.find_entity_by_guid(anchored->entity_guid) == entt::null);
 
     OfflineMachineSimulationService restarted_offline(content, restarted_sidecars);
@@ -536,8 +672,9 @@ TEST(OfflineMachineSimulationTest, OfflineRecordSurvivesChunkSaveAndRestartWitho
     const MachineRuntimeComponent& restored_runtime =
         restarted_world.get_component<MachineRuntimeComponent>(restored_entity);
     ASSERT_EQ(restored_runtime.output_slots.size(), 1u);
-    EXPECT_EQ(restored_runtime.output_slots.front().resource.key.id, "offline.ingot");
-    EXPECT_EQ(restored_runtime.output_slots.front().resource.amount, 2);
+    EXPECT_EQ(restored_runtime.output_slots.front().key,
+              machine_item_stack(content, "offline.ingot", 1).key);
+    EXPECT_EQ(restored_runtime.output_slots.front().amount, 2);
     EXPECT_TRUE(restored_runtime.input_slots.empty());
 }
 
@@ -551,6 +688,14 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineOwnershipMetadata)
     record.residency = MachineRuntimeResidency::kOfflineStandalone;
     record.offline_last_simulated_tick = 1234;
     record.offline_epoch = 7;
+    record.fluid_tanks = {{
+        .fluid = ResourceContentStack::fluid("offline.coolant", 250),
+        .capacity_millibuckets = 1'000,
+        .temperature_kelvin = 330,
+        .pressure_pascal = 110'000,
+        .transport = MachineFluidTransport::kLiquid,
+        .access = MachineFluidTankAccess::kOutput,
+    }};
     source.machine_runtime_records.push_back(record);
 
     const GameChunkSerializer serializer;
@@ -564,6 +709,12 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineOwnershipMetadata)
     EXPECT_EQ(restored_record.residency, MachineRuntimeResidency::kOfflineStandalone);
     EXPECT_EQ(restored_record.offline_last_simulated_tick, 1234u);
     EXPECT_EQ(restored_record.offline_epoch, 7u);
+    ASSERT_EQ(restored_record.fluid_tanks.size(), 1u);
+    EXPECT_EQ(restored_record.fluid_tanks.front().fluid,
+              ResourceContentStack::fluid("offline.coolant", 250));
+    EXPECT_EQ(restored_record.fluid_tanks.front().capacity_millibuckets, 1'000);
+    EXPECT_EQ(restored_record.fluid_tanks.front().transport,
+              MachineFluidTransport::kLiquid);
 }
 
 TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnapshot) {
@@ -599,6 +750,7 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnaps
             {
                 .segment_id = 75,
                 .kind = OfflineNetworkResourceKind::kFluid,
+                .fluid_transport = OfflineNetworkFluidTransport::kLiquid,
                 .machine_guids = {101, 202},
                 .capacity = 4000,
                 .max_transfer_per_tick = 250,
@@ -662,6 +814,9 @@ TEST(OfflineMachineSimulationTest, SerializerRoundTripsOfflineNetworkIslandSnaps
     EXPECT_EQ(snapshot.transport_segments[1].segment_id, 74u);
     EXPECT_EQ(snapshot.transport_segments[1].kind, OfflineNetworkResourceKind::kItem);
     EXPECT_EQ(snapshot.transport_segments[2].segment_id, 75u);
+    EXPECT_EQ(snapshot.transport_segments[2].kind, OfflineNetworkResourceKind::kFluid);
+    EXPECT_EQ(snapshot.transport_segments[2].fluid_transport,
+              OfflineNetworkFluidTransport::kLiquid);
     EXPECT_EQ(snapshot.transport_segments[2].max_transfer_per_tick, 250);
     ASSERT_EQ(snapshot.boundary_ports.size(), 1u);
     EXPECT_EQ(snapshot.boundary_ports.front().segment_id, 73u);
@@ -692,11 +847,13 @@ TEST(OfflineMachineSimulationTest, NetworkIslandRegistryClaimsReleasesAndRecover
     snt::ecs::World world;
     MachineRuntimeComponent left_runtime;
     left_runtime.machine_id = "offline.registry_left";
+    left_runtime.resource_runtime_index = empty_machine_snapshot();
     const auto left = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, left_chunk, 0, 0, 0, std::move(left_runtime));
     ASSERT_TRUE(left);
     MachineRuntimeComponent right_runtime;
     right_runtime.machine_id = "offline.registry_right";
+    right_runtime.resource_runtime_index = empty_machine_snapshot();
     const auto right = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, right_chunk, snt::voxel::VoxelChunk::kChunkSize, 0, 0,
         std::move(right_runtime));
@@ -782,6 +939,7 @@ TEST(OfflineMachineSimulationTest, NetworkIslandRegistryRejectsMismatchedRestart
     snt::ecs::World world;
     MachineRuntimeComponent runtime;
     runtime.machine_id = "offline.registry_corrupt";
+    runtime.resource_runtime_index = empty_machine_snapshot();
     const auto machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 0, 0, 0, std::move(runtime));
     ASSERT_TRUE(machine);
@@ -817,7 +975,7 @@ TEST(OfflineMachineSimulationTest, PowerTopologyKeepsPartialTicketedComponentMat
     snt::ecs::World world;
     const int32_t chunk_size = snt::voxel::VoxelChunk::kChunkSize;
     const PowerMachinePair machines = create_power_machine_pair(
-        world, sidecars, left_chunk, chunk_size - 1, right_chunk, chunk_size + 1,
+        content, world, sidecars, left_chunk, chunk_size - 1, right_chunk, chunk_size + 1,
         10, 0, 1);
     ASSERT_NE(machines.source_guid, 0u);
     ASSERT_NE(machines.consumer_guid, 0u);
@@ -859,6 +1017,41 @@ TEST(OfflineMachineSimulationTest, PowerTopologyKeepsPartialTicketedComponentMat
     EXPECT_TRUE(world.find_entity_by_guid(snt::ecs::EntityGuid{machines.consumer_guid}) == entt::null);
 }
 
+TEST(OfflineMachineSimulationTest, TicketExpansionIncludesEveryOfflineIslandMemberChunk) {
+    GameContentRegistry content;
+    register_power_network_content(content);
+
+    GameChunkSidecarRegistry sidecars;
+    const ChunkKey left_chunk = make_chunk_key(0);
+    const ChunkKey right_chunk = make_chunk_key(1);
+    sidecars.set(left_chunk, {});
+    sidecars.set(right_chunk, {});
+    snt::ecs::World world;
+    const int32_t chunk_size = snt::voxel::VoxelChunk::kChunkSize;
+    const PowerMachinePair machines = create_power_machine_pair(
+        content, world, sidecars, left_chunk, chunk_size - 1, right_chunk, chunk_size + 1,
+        10, 0, 1);
+    ASSERT_NE(machines.source_guid, 0u);
+    ASSERT_NE(machines.consumer_guid, 0u);
+    add_power_cable(sidecars, right_chunk, 9005, chunk_size, 0, 0,
+                    static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                         snt::game::CONN_NEG_X));
+
+    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+    OfflineIndustrialNetworkIslandSimulator simulator;
+    OfflineMachineSimulationService offline(content, sidecars);
+    offline.set_network_island_provider(&provider);
+    offline.set_network_island_simulator(&simulator);
+    ASSERT_TRUE(offline.initialize(100));
+    const std::vector<ChunkKey> all_members{left_chunk, right_chunk};
+    ASSERT_TRUE(offline.dematerialize_chunks(world, all_members, 100));
+
+    const std::vector<ChunkKey> one_member_ticket{right_chunk};
+    const auto expanded = offline.expand_materialization_chunks(one_member_ticket);
+    ASSERT_TRUE(expanded);
+    EXPECT_EQ(*expanded, all_members);
+}
+
 TEST(OfflineMachineSimulationTest, PowerIslandTransfersBufferedEnergyAndRestoresMachineProgress) {
     GameContentRegistry content;
     register_power_network_content(content);
@@ -868,7 +1061,7 @@ TEST(OfflineMachineSimulationTest, PowerIslandTransfersBufferedEnergyAndRestores
     sidecars.set(chunk_key, {});
     snt::ecs::World world;
     const PowerMachinePair machines = create_power_machine_pair(
-        world, sidecars, chunk_key, 0, chunk_key, 2, 10, 0, 2);
+        content, world, sidecars, chunk_key, 0, chunk_key, 2, 10, 0, 2);
     ASSERT_NE(machines.source_guid, 0u);
     ASSERT_NE(machines.consumer_guid, 0u);
     add_power_cable(sidecars, chunk_key, 9002, 1, 0, 0,
@@ -896,8 +1089,8 @@ TEST(OfflineMachineSimulationTest, PowerIslandTransfersBufferedEnergyAndRestores
     EXPECT_EQ(source.stored_energy, 0);
     EXPECT_EQ(consumer.stored_energy, 6);
     ASSERT_EQ(consumer.output_slots.size(), 1u);
-    EXPECT_EQ(consumer.output_slots.front().resource.key.id, "offline.power_ingot");
-    EXPECT_EQ(consumer.output_slots.front().resource.amount, 2);
+    EXPECT_EQ(consumer.output_slots.front().key.id, "offline.power_ingot");
+    EXPECT_EQ(consumer.output_slots.front().amount, 2);
     ASSERT_EQ(sidecar->offline_network_islands.size(), 1u);
     const OfflineNetworkIslandSnapshot& snapshot = sidecar->offline_network_islands.front();
     ASSERT_EQ(snapshot.ledgers.size(), 1u);
@@ -925,16 +1118,19 @@ TEST(OfflineMachineSimulationTest, IndustrialTopologySeparatesPowerAndItemSegmen
 
     MachineRuntimeComponent power_runtime;
     power_runtime.machine_id = "offline.power_source";
+    bind_machine_resources(power_runtime, content);
     const auto power_machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 0, 0, 0, std::move(power_runtime));
     ASSERT_TRUE(power_machine);
     MachineRuntimeComponent bridge_runtime;
     bridge_runtime.machine_id = "offline.item_source";
+    bind_machine_resources(bridge_runtime, content);
     const auto bridge_machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 2, 0, 0, std::move(bridge_runtime));
     ASSERT_TRUE(bridge_machine);
     MachineRuntimeComponent item_runtime;
     item_runtime.machine_id = "offline.item_consumer";
+    bind_machine_resources(item_runtime, content);
     const auto item_machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
         world, sidecars, chunk_key, 4, 0, 0, std::move(item_runtime));
     ASSERT_TRUE(item_machine);
@@ -989,7 +1185,7 @@ TEST(OfflineMachineSimulationTest, ItemIslandTransfersOutputsBeforeMachineExecut
     sidecars.set(chunk_key, {});
     snt::ecs::World world;
     const ItemMachinePair machines = create_item_machine_pair(
-        world, sidecars, chunk_key, 0, chunk_key, 2, 3);
+        content, world, sidecars, chunk_key, 0, chunk_key, 2, 3);
     ASSERT_NE(machines.source_guid, 0u);
     ASSERT_NE(machines.consumer_guid, 0u);
     add_pipe(sidecars, chunk_key, 9203, 1, 0, 0,
@@ -1014,8 +1210,8 @@ TEST(OfflineMachineSimulationTest, ItemIslandTransfersOutputsBeforeMachineExecut
     EXPECT_TRUE(source.output_slots.empty());
     EXPECT_TRUE(consumer.input_slots.empty());
     ASSERT_EQ(consumer.output_slots.size(), 1u);
-    EXPECT_EQ(consumer.output_slots.front().resource.key.id, "offline.item_ingot");
-    EXPECT_EQ(consumer.output_slots.front().resource.amount, 3);
+    EXPECT_EQ(consumer.output_slots.front().key.id, "offline.item_ingot");
+    EXPECT_EQ(consumer.output_slots.front().amount, 3);
     ASSERT_EQ(sidecar->offline_network_islands.size(), 1u);
     const OfflineNetworkIslandSnapshot& snapshot = sidecar->offline_network_islands.front();
     ASSERT_EQ(snapshot.transport_segments.size(), 1u);
@@ -1025,43 +1221,67 @@ TEST(OfflineMachineSimulationTest, ItemIslandTransfersOutputsBeforeMachineExecut
     EXPECT_TRUE(snapshot.ledgers.empty());
 }
 
-TEST(OfflineMachineSimulationTest, IndustrialTopologyDefersFluidComponentsUntilSimulatorExists) {
+TEST(OfflineMachineSimulationTest, FluidIslandsTransferLiquidAndGasThroughTypedPipes) {
     GameContentRegistry content;
-    register_power_network_content(content);
+    register_fluid_network_content(content, 3, 150);
 
-    GameChunkSidecarRegistry sidecars;
-    const ChunkKey chunk_key = make_chunk_key();
-    sidecars.set(chunk_key, {});
-    snt::ecs::World world;
-    MachineRuntimeComponent runtime;
-    runtime.machine_id = "offline.power_source";
-    runtime.energy_capacity = 32;
-    const auto machine = snt::game::GameMachineRuntimePersistence::create_anchored_machine(
-        world, sidecars, chunk_key, 0, 0, 0, std::move(runtime));
-    ASSERT_TRUE(machine);
-    add_pipe(sidecars, chunk_key, 9204, 1, 0, 0,
-             snt::game::CONN_NEG_X, PipeType::LIQUID);
+    const std::array phases{
+        std::pair{PipeType::LIQUID, MachineFluidTransport::kLiquid},
+        std::pair{PipeType::GAS, MachineFluidTransport::kGas},
+    };
+    for (const auto [pipe_type, transport] : phases) {
+        SCOPED_TRACE(pipe_type == PipeType::LIQUID ? "liquid" : "gas");
+        GameChunkSidecarRegistry sidecars;
+        const ChunkKey chunk_key = make_chunk_key();
+        sidecars.set(chunk_key, {});
+        snt::ecs::World world;
+        const FluidMachinePair machines = create_fluid_machine_pair(
+            content, world, sidecars, chunk_key, 0, chunk_key, 2, transport,
+            transport == MachineFluidTransport::kLiquid ? "offline.coolant" : "offline.steam",
+            600);
+        ASSERT_NE(machines.source_guid, 0u);
+        ASSERT_NE(machines.consumer_guid, 0u);
+        add_pipe(sidecars, chunk_key,
+                 pipe_type == PipeType::LIQUID ? 9204 : 9205,
+                 1, 0, 0,
+                 static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                      snt::game::CONN_NEG_X),
+                 pipe_type);
 
-    OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
-    const std::vector<ChunkKey> candidates{chunk_key};
-    const auto built = provider.build_offline_islands(candidates, 10);
-    ASSERT_TRUE(built);
-    EXPECT_TRUE(built->empty());
+        OfflineIndustrialNetworkIslandProvider provider(content, sidecars);
+        OfflineIndustrialNetworkIslandSimulator simulator;
+        OfflineMachineSimulationService offline(content, sidecars);
+        offline.set_network_island_provider(&provider);
+        offline.set_network_island_simulator(&simulator);
+        ASSERT_TRUE(offline.initialize(10));
+        const std::vector<ChunkKey> candidates{chunk_key};
+        const auto transition = offline.dematerialize_chunks(world, candidates, 10);
+        ASSERT_TRUE(transition);
+        EXPECT_EQ(transition->network_island_count, 1u);
+        ASSERT_TRUE(offline.tick(13));
 
-    OfflineIndustrialNetworkIslandSimulator simulator;
-    OfflineMachineSimulationService offline(content, sidecars);
-    offline.set_network_island_provider(&provider);
-    offline.set_network_island_simulator(&simulator);
-    ASSERT_TRUE(offline.initialize(10));
-    const auto transition = offline.dematerialize_chunks(world, candidates, 10);
-    ASSERT_TRUE(transition);
-    EXPECT_EQ(transition->network_island_count, 0u);
-    EXPECT_EQ(transition->deferred_network_machine_count, 1u);
-    const auto* sidecar = sidecars.get(chunk_key);
-    ASSERT_NE(sidecar, nullptr);
-    EXPECT_EQ(sidecar->machine_runtime_records.front().residency,
-              MachineRuntimeResidency::kLoaded);
-    EXPECT_TRUE(world.find_entity_by_guid(machine->entity_guid) != entt::null);
+        const auto* sidecar = sidecars.get(chunk_key);
+        ASSERT_NE(sidecar, nullptr);
+        ASSERT_EQ(sidecar->machine_runtime_records.size(), 2u);
+        const MachineFluidTankRecord& source_tank =
+            sidecar->machine_runtime_records[0].fluid_tanks.front();
+        const MachineFluidTankRecord& consumer_tank =
+            sidecar->machine_runtime_records[1].fluid_tanks.front();
+        const int64_t transferred_per_tick = pipe_type == PipeType::LIQUID ? 100 : 150;
+        EXPECT_EQ(source_tank.fluid.amount, 600 - transferred_per_tick * 3);
+        EXPECT_EQ(consumer_tank.fluid.amount, transferred_per_tick * 3);
+        EXPECT_EQ(consumer_tank.transport, transport);
+        EXPECT_EQ(consumer_tank.temperature_kelvin, source_tank.temperature_kelvin);
+        EXPECT_EQ(consumer_tank.pressure_pascal, source_tank.pressure_pascal);
+        ASSERT_EQ(sidecar->offline_network_islands.size(), 1u);
+        ASSERT_EQ(sidecar->offline_network_islands.front().transport_segments.size(), 1u);
+        EXPECT_EQ(sidecar->offline_network_islands.front().transport_segments.front().kind,
+                  OfflineNetworkResourceKind::kFluid);
+        EXPECT_EQ(sidecar->offline_network_islands.front().transport_segments.front().fluid_transport,
+                  transport == MachineFluidTransport::kLiquid
+                      ? OfflineNetworkFluidTransport::kLiquid
+                      : OfflineNetworkFluidTransport::kGas);
+    }
 }
 
 TEST(OfflineMachineSimulationTest, RandomPowerIslandPerTickAndBatchedExecutionAreEquivalent) {
@@ -1090,7 +1310,7 @@ TEST(OfflineMachineSimulationTest, RandomPowerIslandPerTickAndBatchedExecutionAr
         per_tick_sidecars.set(chunk_key, {});
         snt::ecs::World per_tick_world;
         const PowerMachinePair per_tick_machines = create_power_machine_pair(
-            per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2,
+            per_tick_content, per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2,
             source_energy, consumer_energy, input_count);
         ASSERT_NE(per_tick_machines.source_guid, 0u);
         ASSERT_NE(per_tick_machines.consumer_guid, 0u);
@@ -1116,7 +1336,7 @@ TEST(OfflineMachineSimulationTest, RandomPowerIslandPerTickAndBatchedExecutionAr
         batched_sidecars.set(chunk_key, {});
         snt::ecs::World batched_world;
         const PowerMachinePair batched_machines = create_power_machine_pair(
-            batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2,
+            batched_content, batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2,
             source_energy, consumer_energy, input_count);
         ASSERT_NE(batched_machines.source_guid, 0u);
         ASSERT_NE(batched_machines.consumer_guid, 0u);
@@ -1194,7 +1414,8 @@ TEST(OfflineMachineSimulationTest, RandomItemIslandPerTickAndBatchedExecutionAre
         per_tick_sidecars.set(chunk_key, {});
         snt::ecs::World per_tick_world;
         const ItemMachinePair per_tick_machines = create_item_machine_pair(
-            per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2, output_count);
+            per_tick_content, per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2,
+            output_count);
         ASSERT_NE(per_tick_machines.source_guid, 0u);
         ASSERT_NE(per_tick_machines.consumer_guid, 0u);
         add_pipe(per_tick_sidecars, chunk_key, 9300 + case_index, 1, 0, 0,
@@ -1220,7 +1441,8 @@ TEST(OfflineMachineSimulationTest, RandomItemIslandPerTickAndBatchedExecutionAre
         batched_sidecars.set(chunk_key, {});
         snt::ecs::World batched_world;
         const ItemMachinePair batched_machines = create_item_machine_pair(
-            batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2, output_count);
+            batched_content, batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2,
+            output_count);
         ASSERT_NE(batched_machines.source_guid, 0u);
         ASSERT_NE(batched_machines.consumer_guid, 0u);
         add_pipe(batched_sidecars, chunk_key, 9400 + case_index, 1, 0, 0,

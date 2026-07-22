@@ -253,12 +253,27 @@ void hash_node(uint64_t& hash, const IndustrialGraphNode& node) noexcept {
 }
 
 [[nodiscard]] uint64_t segment_id_for(OfflineNetworkResourceKind kind,
+                                      OfflineNetworkFluidTransport fluid_transport,
                                       const std::vector<size_t>& node_indices,
                                       const std::vector<IndustrialGraphNode>& nodes) noexcept {
     uint64_t hash = 1469598103934665603ull;
     hash_byte(hash, static_cast<uint8_t>(kind));
+    hash_byte(hash, static_cast<uint8_t>(fluid_transport));
     for (const size_t index : node_indices) hash_node(hash, nodes[index]);
     return hash == 0 ? 1 : hash;
+}
+
+[[nodiscard]] OfflineNetworkFluidTransport fluid_transport_for(
+    PipeType type) noexcept {
+    switch (type) {
+        case PipeType::LIQUID:
+            return OfflineNetworkFluidTransport::kLiquid;
+        case PipeType::GAS:
+            return OfflineNetworkFluidTransport::kGas;
+        case PipeType::ITEM:
+            return OfflineNetworkFluidTransport::kNone;
+    }
+    return OfflineNetworkFluidTransport::kNone;
 }
 
 [[nodiscard]] uint64_t reserve_segment_id(uint64_t proposed,
@@ -284,13 +299,18 @@ void hash_node(uint64_t& hash, const IndustrialGraphNode& node) noexcept {
 
 struct IndustrialMachineRecord {
     MachineRuntimePersistenceRecord* record = nullptr;
+    MachineRuntimeComponent runtime;
     const MachineDefinition* definition = nullptr;
+    std::vector<MachineRecipeSnapshot> recipes;
+    bool requires_manual_activation = false;
+    bool allow_new_jobs = false;
 };
 
 [[nodiscard]] snt::core::Expected<std::vector<IndustrialMachineRecord>>
 find_industrial_records(OfflineNetworkIslandSnapshot& snapshot,
-                        GameContentRegistry& content,
-                        GameChunkSidecarRegistry& sidecars) {
+                         GameContentRegistry& content,
+                         GameChunkSidecarRegistry& sidecars,
+                         const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
     std::vector<IndustrialMachineRecord> result;
     result.reserve(snapshot.machine_guids.size());
     for (const uint64_t entity_guid : snapshot.machine_guids) {
@@ -317,7 +337,21 @@ find_industrial_records(OfflineNetworkIslandSnapshot& snapshot,
             definition->offline_simulation.mode != MachineOfflineSimulationMode::kNetworkIsland) {
             return invalid_state("Offline industrial island machine content profile is unavailable");
         }
-        result.push_back({found_record, definition});
+        auto runtime = GameMachineRuntimePersistence::make_runtime_component(
+            *found_record, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        auto recipes = compile_machine_recipe_snapshots(
+            content, found_record->machine_id, resource_runtime_index);
+        if (!recipes) return recipes.error();
+        result.push_back({
+            .record = found_record,
+            .runtime = std::move(*runtime),
+            .definition = definition,
+            .recipes = std::move(*recipes),
+            .requires_manual_activation = definition->requires_manual_activation,
+            .allow_new_jobs = definition->offline_simulation.can_start_new_jobs &&
+                              !definition->requires_manual_activation,
+        });
     }
     return result;
 }
@@ -369,7 +403,7 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
     int64_t remaining_export = ledger.max_transfer_per_tick;
     for (IndustrialMachineRecord* machine : machines) {
         if (machine == nullptr || machine->record == nullptr || machine->definition == nullptr ||
-            machine->record->stored_energy < 0 || machine->record->energy_capacity < 0) {
+            machine->runtime.stored_energy < 0 || machine->runtime.energy_capacity < 0) {
             return invalid_state("Offline industrial power machine state is invalid");
         }
         const int64_t room = ledger.capacity - ledger.stored_amount;
@@ -377,10 +411,10 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
             room,
             remaining_export,
             static_cast<int64_t>(machine->definition->offline_simulation.max_power_export_per_tick),
-            static_cast<int64_t>(machine->record->stored_energy),
+            static_cast<int64_t>(machine->runtime.stored_energy),
         });
         if (transferred <= 0) continue;
-        machine->record->stored_energy -= static_cast<int32_t>(transferred);
+        machine->runtime.stored_energy -= static_cast<int32_t>(transferred);
         ledger.stored_amount += transferred;
         remaining_export -= transferred;
     }
@@ -388,12 +422,12 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
     int64_t remaining_import = ledger.max_transfer_per_tick;
     for (IndustrialMachineRecord* machine : machines) {
         if (machine == nullptr || machine->record == nullptr || machine->definition == nullptr ||
-            machine->record->stored_energy < 0 || machine->record->energy_capacity < 0) {
+            machine->runtime.stored_energy < 0 || machine->runtime.energy_capacity < 0) {
             return invalid_state("Offline industrial power machine state is invalid");
         }
         const int64_t room = std::max<int64_t>(
-            0, static_cast<int64_t>(machine->record->energy_capacity) -
-                   machine->record->stored_energy);
+            0, static_cast<int64_t>(machine->runtime.energy_capacity) -
+                   machine->runtime.stored_energy);
         const int64_t transferred = std::min({
             ledger.stored_amount,
             room,
@@ -401,7 +435,7 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
             static_cast<int64_t>(machine->definition->offline_simulation.max_power_import_per_tick),
         });
         if (transferred <= 0) continue;
-        machine->record->stored_energy += static_cast<int32_t>(transferred);
+        machine->runtime.stored_energy += static_cast<int32_t>(transferred);
         ledger.stored_amount -= transferred;
         remaining_import -= transferred;
     }
@@ -409,26 +443,28 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
 }
 
 [[nodiscard]] snt::core::Expected<int64_t> insert_item_into_inputs(
-    MachineRuntimePersistenceRecord& target,
-    const ResourceContentStack& source,
+    MachineRuntimeComponent& target,
+    const ResourceStack& source,
+    ResourceKind item_resource_kind,
     int64_t requested_amount) {
     if (requested_amount <= 0) return int64_t{0};
-    if (!source.is_valid() || !source.is_item() || target.max_input_slots <= 0 ||
+    if (!source.is_valid() || source.key.kind != item_resource_kind ||
+        target.max_input_slots <= 0 ||
         target.max_stack_size <= 0 ||
         target.input_slots.size() > static_cast<size_t>(target.max_input_slots)) {
         return invalid_state("Offline industrial item destination state is invalid");
     }
 
     int64_t remaining = requested_amount;
-    for (MachineRuntimeItemStack& slot : target.input_slots) {
-        if (!slot.resource.is_valid() || !slot.resource.is_item() ||
-            slot.resource.amount > target.max_stack_size) {
+    for (ResourceStack& slot : target.input_slots) {
+        if (!slot.is_valid() || slot.key.kind != item_resource_kind ||
+            slot.amount > target.max_stack_size) {
             return invalid_state("Offline industrial item destination slot is invalid");
         }
-        if (!slot.resource.has_same_key(source) || remaining == 0) continue;
-        const int64_t room = static_cast<int64_t>(target.max_stack_size) - slot.resource.amount;
+        if (slot.key != source.key || remaining == 0) continue;
+        const int64_t room = static_cast<int64_t>(target.max_stack_size) - slot.amount;
         const int64_t moved = std::min(room, remaining);
-        slot.resource.amount += moved;
+        slot.amount += moved;
         remaining -= moved;
     }
 
@@ -436,10 +472,8 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
            target.input_slots.size() < static_cast<size_t>(target.max_input_slots)) {
         const int64_t moved = std::min<int64_t>(target.max_stack_size, remaining);
         target.input_slots.push_back({
-            .resource = {
-                .key = source.key,
-                .amount = moved,
-            },
+            .key = source.key,
+            .amount = moved,
         });
         remaining -= moved;
     }
@@ -448,7 +482,8 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
 
 [[nodiscard]] snt::core::Expected<void> transfer_item_segment(
     const OfflineNetworkTransportSegment& segment,
-    const std::vector<IndustrialMachineRecord*>& machines) {
+    const std::vector<IndustrialMachineRecord*>& machines,
+    ResourceKind item_resource_kind) {
     if (segment.kind != OfflineNetworkResourceKind::kItem ||
         segment.capacity < 0 || segment.max_transfer_per_tick < 0) {
         return invalid_state("Offline industrial item segment is invalid");
@@ -474,40 +509,153 @@ records_for_segment(const OfflineNetworkTransportSegment& segment,
         int64_t remaining_export =
             static_cast<int64_t>(source.definition->offline_simulation.max_item_export_per_tick);
         size_t slot_index = 0;
-        while (slot_index < source.record->output_slots.size() &&
+        while (slot_index < source.runtime.output_slots.size() &&
                remaining_export != 0 && remaining_segment_transfer != 0) {
-            MachineRuntimeItemStack& source_slot = source.record->output_slots[slot_index];
-            if (!source_slot.resource.is_valid() || !source_slot.resource.is_item() ||
-                source_slot.resource.amount > source.record->max_stack_size) {
+            ResourceStack& source_slot = source.runtime.output_slots[slot_index];
+            if (!source_slot.is_valid() || source_slot.key.kind != item_resource_kind ||
+                source_slot.amount > source.runtime.max_stack_size) {
                 return invalid_state("Offline industrial item source slot is invalid");
             }
 
             for (size_t target_index = 0;
-                 target_index < machines.size() && source_slot.resource.amount != 0 &&
+                 target_index < machines.size() && source_slot.amount != 0 &&
                  remaining_export != 0 && remaining_segment_transfer != 0;
                  ++target_index) {
                 if (target_index == source_index || remaining_import[target_index] == 0) continue;
                 const int64_t request = std::min({
-                    source_slot.resource.amount,
+                    source_slot.amount,
                     remaining_export,
                     remaining_import[target_index],
                     remaining_segment_transfer,
                 });
                 auto transferred = insert_item_into_inputs(
-                    *machines[target_index]->record, source_slot.resource, request);
+                    machines[target_index]->runtime, source_slot, item_resource_kind, request);
                 if (!transferred) return transferred.error();
                 if (*transferred == 0) continue;
-                source_slot.resource.amount -= *transferred;
+                source_slot.amount -= *transferred;
                 remaining_export -= *transferred;
                 remaining_import[target_index] -= *transferred;
                 remaining_segment_transfer -= *transferred;
             }
 
-            if (source_slot.resource.amount == 0) {
-                source.record->output_slots.erase(
-                    source.record->output_slots.begin() + static_cast<std::ptrdiff_t>(slot_index));
+            if (source_slot.amount == 0) {
+                source.runtime.output_slots.erase(
+                    source.runtime.output_slots.begin() + static_cast<std::ptrdiff_t>(slot_index));
             } else {
                 ++slot_index;
+            }
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] bool tank_matches_transport(
+    const MachineFluidTank& tank,
+    OfflineNetworkFluidTransport transport) noexcept {
+    return (transport == OfflineNetworkFluidTransport::kLiquid &&
+            tank.transport == MachineFluidTransport::kLiquid) ||
+           (transport == OfflineNetworkFluidTransport::kGas &&
+            tank.transport == MachineFluidTransport::kGas);
+}
+
+[[nodiscard]] bool same_fluid_state(const MachineFluidTank& left,
+                                    const MachineFluidTank& right) noexcept {
+    return left.temperature_kelvin == right.temperature_kelvin &&
+           left.pressure_pascal == right.pressure_pascal;
+}
+
+[[nodiscard]] snt::core::Expected<void> transfer_fluid_segment(
+    const OfflineNetworkTransportSegment& segment,
+    const std::vector<IndustrialMachineRecord*>& machines,
+    ResourceKind fluid_resource_kind) {
+    if (segment.kind != OfflineNetworkResourceKind::kFluid ||
+        segment.fluid_transport == OfflineNetworkFluidTransport::kNone ||
+        segment.capacity < 0 || segment.max_transfer_per_tick < 0) {
+        return invalid_state("Offline industrial fluid segment is invalid");
+    }
+
+    std::vector<int64_t> remaining_import;
+    remaining_import.reserve(machines.size());
+    for (IndustrialMachineRecord* machine : machines) {
+        if (machine == nullptr || machine->record == nullptr || machine->definition == nullptr ||
+            machine->definition->offline_simulation.max_fluid_import_per_tick < 0 ||
+            machine->definition->offline_simulation.max_fluid_export_per_tick < 0) {
+            return invalid_state("Offline industrial fluid machine profile is invalid");
+        }
+        for (const MachineFluidTank& tank : machine->runtime.fluid_tanks) {
+            if (!tank.is_valid() ||
+                (!tank.is_empty() && tank.fluid.key.kind != fluid_resource_kind)) {
+                return invalid_state("Offline industrial machine fluid tank is invalid");
+            }
+        }
+        remaining_import.push_back(static_cast<int64_t>(
+            machine->definition->offline_simulation.max_fluid_import_per_tick));
+    }
+
+    int64_t remaining_segment_transfer = segment.max_transfer_per_tick;
+    for (size_t source_index = 0;
+         source_index < machines.size() && remaining_segment_transfer != 0;
+         ++source_index) {
+        IndustrialMachineRecord& source = *machines[source_index];
+        int64_t remaining_export = static_cast<int64_t>(
+            source.definition->offline_simulation.max_fluid_export_per_tick);
+        for (MachineFluidTank& source_tank : source.runtime.fluid_tanks) {
+            if (remaining_export == 0 || remaining_segment_transfer == 0) break;
+            if (!tank_matches_transport(source_tank, segment.fluid_transport) ||
+                !source_tank.allows_output() || source_tank.is_empty()) {
+                continue;
+            }
+            if (!source_tank.is_valid() ||
+                source_tank.fluid.key.kind != fluid_resource_kind) {
+                return invalid_state("Offline industrial fluid source tank is invalid");
+            }
+
+            for (size_t target_index = 0;
+                 target_index < machines.size() && source_tank.fluid.amount != 0 &&
+                 remaining_export != 0 && remaining_segment_transfer != 0;
+                 ++target_index) {
+                if (target_index == source_index || remaining_import[target_index] == 0) continue;
+                IndustrialMachineRecord& target = *machines[target_index];
+                for (MachineFluidTank& target_tank : target.runtime.fluid_tanks) {
+                    if (source_tank.fluid.amount == 0 || remaining_export == 0 ||
+                        remaining_segment_transfer == 0 || remaining_import[target_index] == 0) {
+                        break;
+                    }
+                    if (!tank_matches_transport(target_tank, segment.fluid_transport) ||
+                        !target_tank.accepts_input() || !target_tank.is_valid() ||
+                        (!target_tank.is_empty() &&
+                         target_tank.fluid.key.kind != fluid_resource_kind)) {
+                        continue;
+                    }
+                    if (!target_tank.is_empty() &&
+                        (target_tank.fluid.key != source_tank.fluid.key ||
+                         !same_fluid_state(target_tank, source_tank))) {
+                        continue;
+                    }
+                    const int64_t room = target_tank.capacity_millibuckets -
+                                         target_tank.fluid.amount;
+                    const int64_t transferred = std::min({
+                        source_tank.fluid.amount,
+                        room,
+                        remaining_export,
+                        remaining_import[target_index],
+                        remaining_segment_transfer,
+                    });
+                    if (transferred <= 0) continue;
+                    if (target_tank.is_empty()) {
+                        target_tank.fluid.key = source_tank.fluid.key;
+                        target_tank.temperature_kelvin = source_tank.temperature_kelvin;
+                        target_tank.pressure_pascal = source_tank.pressure_pascal;
+                    }
+                    target_tank.fluid.amount += transferred;
+                    source_tank.fluid.amount -= transferred;
+                    remaining_export -= transferred;
+                    remaining_import[target_index] -= transferred;
+                    remaining_segment_transfer -= transferred;
+                    if (source_tank.fluid.amount == 0) {
+                        source_tank.fluid = {};
+                    }
+                }
             }
         }
     }
@@ -626,6 +774,8 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
     DisjointSets island_graph(nodes.size());
     DisjointSets power_graph(nodes.size());
     DisjointSets item_graph(nodes.size());
+    DisjointSets liquid_graph(nodes.size());
+    DisjointSets gas_graph(nodes.size());
     for (size_t index = 0; index < nodes.size(); ++index) {
         const IndustrialGraphNode& node = nodes[index];
         if (node.kind == IndustrialGraphNodeKind::kMachine) continue;
@@ -658,10 +808,14 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
                 const IndustrialGraphNode& other = nodes[other_pipe->second];
                 if ((other.connections &
                      (uint8_t{1} << kOppositeDirection[direction])) != 0) {
-                    island_graph.join(index, other_pipe->second);
-                    if (node.pipe_type == PipeType::ITEM) {
-                        item_graph.join(index, other_pipe->second);
-                    }
+                        island_graph.join(index, other_pipe->second);
+                        if (node.pipe_type == PipeType::ITEM) {
+                            item_graph.join(index, other_pipe->second);
+                        } else if (node.pipe_type == PipeType::LIQUID) {
+                            liquid_graph.join(index, other_pipe->second);
+                        } else if (node.pipe_type == PipeType::GAS) {
+                            gas_graph.join(index, other_pipe->second);
+                        }
                 }
                 continue;
             }
@@ -670,6 +824,10 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
                 island_graph.join(index, machine->second);
                 if (node.pipe_type == PipeType::ITEM) {
                     item_graph.join(index, machine->second);
+                } else if (node.pipe_type == PipeType::LIQUID) {
+                    liquid_graph.join(index, machine->second);
+                } else if (node.pipe_type == PipeType::GAS) {
+                    gas_graph.join(index, machine->second);
                 }
             }
         }
@@ -681,12 +839,10 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
     }
 
     std::vector<OfflineNetworkIslandSnapshot> snapshots;
-    size_t fluid_deferred_components = 0;
     for (const auto& [root, component] : island_components) {
         static_cast<void>(root);
         bool has_candidate_machine = false;
         bool all_nodes_are_candidates = true;
-        bool has_fluid_transport = false;
         std::vector<ChunkKey> member_chunks;
         std::vector<uint64_t> island_machine_guids;
         std::string dimension_id;
@@ -695,20 +851,11 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
             if (!candidates.contains(node.chunk_key)) all_nodes_are_candidates = false;
             member_chunks.push_back(node.chunk_key);
             if (dimension_id.empty()) dimension_id = node.position.dimension_id;
-            if (node.kind == IndustrialGraphNodeKind::kPipe &&
-                node.pipe_type != PipeType::ITEM) {
-                has_fluid_transport = true;
-            }
             if (node.kind != IndustrialGraphNodeKind::kMachine) continue;
             has_candidate_machine = has_candidate_machine || candidates.contains(node.chunk_key);
             island_machine_guids.push_back(node.machine_guid);
         }
         if (!has_candidate_machine || !all_nodes_are_candidates) continue;
-        if (has_fluid_transport) {
-            ++fluid_deferred_components;
-            continue;
-        }
-
         std::sort(member_chunks.begin(), member_chunks.end(), chunk_key_less);
         member_chunks.erase(std::unique(member_chunks.begin(), member_chunks.end(), same_chunk),
                             member_chunks.end());
@@ -734,7 +881,8 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
         std::set<uint64_t> segment_ids;
 
         const auto append_segments = [&](DisjointSets& resource_graph,
-                                         OfflineNetworkResourceKind kind)
+                                         OfflineNetworkResourceKind kind,
+                                         OfflineNetworkFluidTransport fluid_transport)
             -> snt::core::Expected<void> {
             std::map<size_t, std::vector<size_t>> resource_components;
             for (const size_t index : component) {
@@ -767,6 +915,12 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
                         has_transport = true;
                         maximum_transfer = std::min(
                             maximum_transfer, kDefaultThroughput(node.pipe_type));
+                    } else if (kind == OfflineNetworkResourceKind::kFluid &&
+                               node.kind == IndustrialGraphNodeKind::kPipe &&
+                               fluid_transport_for(node.pipe_type) == fluid_transport) {
+                        has_transport = true;
+                        maximum_transfer = std::min(
+                            maximum_transfer, kDefaultThroughput(node.pipe_type));
                     }
                 }
                 if (!has_transport || segment_machine_guids.empty()) continue;
@@ -778,7 +932,7 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
                     return invalid_state("Offline industrial transport segment has invalid machines");
                 }
                 const uint64_t segment_id = reserve_segment_id(
-                    segment_id_for(kind, resource_component, nodes), segment_ids);
+                    segment_id_for(kind, fluid_transport, resource_component, nodes), segment_ids);
                 if (segment_id == 0) {
                     return invalid_state("Offline industrial transport segment ids are exhausted");
                 }
@@ -788,6 +942,7 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
                 snapshot.transport_segments.push_back({
                     .segment_id = segment_id,
                     .kind = kind,
+                    .fluid_transport = fluid_transport,
                     .machine_guids = std::move(segment_machine_guids),
                     .capacity = capacity,
                     .max_transfer_per_tick = maximum_transfer,
@@ -805,20 +960,31 @@ OfflineIndustrialNetworkIslandProvider::build_offline_islands(
             return {};
         };
 
-        if (auto result = append_segments(power_graph, OfflineNetworkResourceKind::kPower);
+        if (auto result = append_segments(
+                power_graph, OfflineNetworkResourceKind::kPower,
+                OfflineNetworkFluidTransport::kNone);
             !result) {
             return result.error();
         }
-        if (auto result = append_segments(item_graph, OfflineNetworkResourceKind::kItem);
+        if (auto result = append_segments(
+                item_graph, OfflineNetworkResourceKind::kItem,
+                OfflineNetworkFluidTransport::kNone);
+            !result) {
+            return result.error();
+        }
+        if (auto result = append_segments(
+                liquid_graph, OfflineNetworkResourceKind::kFluid,
+                OfflineNetworkFluidTransport::kLiquid);
+            !result) {
+            return result.error();
+        }
+        if (auto result = append_segments(
+                gas_graph, OfflineNetworkResourceKind::kFluid,
+                OfflineNetworkFluidTransport::kGas);
             !result) {
             return result.error();
         }
         snapshots.push_back(std::move(snapshot));
-    }
-    if (fluid_deferred_components != 0) {
-        SNT_LOG_INFO("Deferred %zu offline industrial component(s) at tick %llu because liquid/gas simulation is not yet available",
-                     fluid_deferred_components,
-                     static_cast<unsigned long long>(source_tick));
     }
     std::sort(snapshots.begin(), snapshots.end(),
               [](const OfflineNetworkIslandSnapshot& left,
@@ -842,8 +1008,13 @@ snt::core::Expected<uint64_t> OfflineIndustrialNetworkIslandSimulator::advance_o
     IMachineTickEventSink* event_sink,
     uint64_t first_tick,
     uint64_t tick_count) {
-    auto records = find_industrial_records(snapshot, content, sidecars);
+    const ResourceRuntimeIndex::Snapshot resource_runtime_index =
+        content.resource_runtime_index();
+    auto records = find_industrial_records(
+        snapshot, content, sidecars, resource_runtime_index);
     if (!records) return records.error();
+    const auto item_resource_kind = resource_runtime_index.resource_kind(kResourceTypeItem);
+    const auto fluid_resource_kind = resource_runtime_index.resource_kind(kResourceTypeFluid);
 
     struct PowerSegmentRuntime {
         const OfflineNetworkTransportSegment* segment = nullptr;
@@ -854,8 +1025,13 @@ snt::core::Expected<uint64_t> OfflineIndustrialNetworkIslandSimulator::advance_o
         const OfflineNetworkTransportSegment* segment = nullptr;
         std::vector<IndustrialMachineRecord*> machines;
     };
+    struct FluidSegmentRuntime {
+        const OfflineNetworkTransportSegment* segment = nullptr;
+        std::vector<IndustrialMachineRecord*> machines;
+    };
     std::vector<PowerSegmentRuntime> power_segments;
     std::vector<ItemSegmentRuntime> item_segments;
+    std::vector<FluidSegmentRuntime> fluid_segments;
     for (const OfflineNetworkTransportSegment& segment : snapshot.transport_segments) {
         auto segment_records = records_for_segment(segment, *records);
         if (!segment_records) return segment_records.error();
@@ -872,10 +1048,17 @@ snt::core::Expected<uint64_t> OfflineIndustrialNetworkIslandSimulator::advance_o
             }
             power_segments.push_back({&segment, &*ledger, std::move(*segment_records)});
         } else if (segment.kind == OfflineNetworkResourceKind::kItem) {
+            if (!item_resource_kind) {
+                return invalid_state("Offline industrial item segment has no item resource kind");
+            }
             item_segments.push_back({&segment, std::move(*segment_records)});
+        } else if (segment.kind == OfflineNetworkResourceKind::kFluid) {
+            if (!fluid_resource_kind) {
+                return invalid_state("Offline industrial fluid segment has no fluid resource kind");
+            }
+            fluid_segments.push_back({&segment, std::move(*segment_records)});
         } else {
-            return invalid_state(
-                "Offline industrial island contains a fluid segment without a fluid simulator");
+            return invalid_state("Offline industrial island has an unknown transport segment");
         }
     }
 
@@ -888,26 +1071,42 @@ snt::core::Expected<uint64_t> OfflineIndustrialNetworkIslandSimulator::advance_o
             }
         }
         for (const ItemSegmentRuntime& segment : item_segments) {
-            if (auto result = transfer_item_segment(*segment.segment, segment.machines); !result) {
+            if (auto result = transfer_item_segment(
+                    *segment.segment, segment.machines, *item_resource_kind); !result) {
+                return result.error();
+            }
+        }
+        for (const FluidSegmentRuntime& segment : fluid_segments) {
+            if (auto result = transfer_fluid_segment(
+                    *segment.segment, segment.machines, *fluid_resource_kind); !result) {
                 return result.error();
             }
         }
         for (IndustrialMachineRecord& machine : *records) {
-            auto input = make_machine_execution_input(
-                content, snt::ecs::EntityGuid{machine.record->entity_guid},
-                GameMachineRuntimePersistence::make_runtime_component(*machine.record));
-            if (!input) return input.error();
-            input->allow_new_jobs = machine.definition->offline_simulation.can_start_new_jobs &&
-                                    !machine.definition->requires_manual_activation;
             MachineExecutionResult result = advance_machine_execution(
-                std::move(*input), first_tick + offset, 1);
-            GameMachineRuntimePersistence::copy_runtime_to_record(*machine.record, result.machine);
+                snt::ecs::EntityGuid{machine.record->entity_guid}, std::move(machine.runtime),
+                machine.recipes, machine.requires_manual_activation, machine.allow_new_jobs,
+                first_tick + offset, 1);
+            machine.runtime = std::move(result.machine);
             if (event_sink != nullptr) {
                 for (const MachineTickEvent& event : result.events) {
                     event_sink->on_machine_tick_event(event);
                 }
             }
         }
+    }
+    std::vector<MachineRuntimePersistenceRecord> persisted_records;
+    persisted_records.reserve(records->size());
+    for (const IndustrialMachineRecord& machine : *records) {
+        MachineRuntimePersistenceRecord persisted = *machine.record;
+        if (auto result = GameMachineRuntimePersistence::copy_runtime_to_record(
+                persisted, machine.runtime); !result) {
+            return result.error();
+        }
+        persisted_records.push_back(std::move(persisted));
+    }
+    for (size_t index = 0; index < records->size(); ++index) {
+        *(*records)[index].record = std::move(persisted_records[index]);
     }
     return tick_count;
 }

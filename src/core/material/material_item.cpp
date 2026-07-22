@@ -34,7 +34,6 @@ struct DynamicItemEntry {
 std::vector<DynamicItemEntry> g_dynamic_items;
 std::unordered_map<std::string, ItemId> g_dynamic_key_to_id;
 std::unordered_map<ItemId, size_t> g_dynamic_id_to_index;
-ItemId g_next_dynamic_item_id = kDynamicItemBase;
 } // namespace
 
 void ItemRegistry::initialize() {
@@ -202,19 +201,6 @@ bool ItemRegistry::is_valid_item(ItemId item_id) {
     return false;
 }
 
-ItemId ItemRegistry::register_item(const char* item_key,
-                                    const char* title_key) {
-    while (g_next_dynamic_item_id < kDynamicItemMax &&
-           g_dynamic_id_to_index.count(g_next_dynamic_item_id) > 0) {
-        ++g_next_dynamic_item_id;
-    }
-    if (g_next_dynamic_item_id >= kDynamicItemMax) {
-        return kInvalidItemId;
-    }
-
-    return register_item_with_id(g_next_dynamic_item_id, item_key, title_key);
-}
-
 ItemId ItemRegistry::register_item_with_id(ItemId item_id,
                                            const char* item_key,
                                            const char* title_key) {
@@ -238,9 +224,6 @@ ItemId ItemRegistry::register_item_with_id(ItemId item_id,
     g_dynamic_items.push_back({item_id, item_key, title});
     g_dynamic_key_to_id[item_key] = item_id;
     g_dynamic_id_to_index[item_id] = idx;
-    if (item_id >= g_next_dynamic_item_id) {
-        g_next_dynamic_item_id = item_id + 1;
-    }
     return item_id;
 }
 
@@ -262,11 +245,10 @@ void ItemRegistry::reset() {
     g_registered_item_count = 0;
     g_items_initialized = false;
 
-    // 清空动态 item 相关容器并复位 ID 分配器
+    // 清空动态 item 相关容器
     g_dynamic_items.clear();
     g_dynamic_key_to_id.clear();
     g_dynamic_id_to_index.clear();
-    g_next_dynamic_item_id = kDynamicItemBase;
 }
 
 } // namespace science_and_theology::gt

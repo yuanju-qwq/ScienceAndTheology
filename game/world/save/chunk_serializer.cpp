@@ -994,28 +994,28 @@ bool GameChunkSerializer::read_player_grave_record(
 
 // --- Machine runtime sidecar helpers ---
 
-void GameChunkSerializer::write_machine_runtime_item_stack(
+void GameChunkSerializer::write_machine_runtime_resource_stack(
     std::vector<uint8_t>& buf,
-    const MachineRuntimeItemStack& stack) {
-    write_string(buf, stack.resource.key.type);
-    write_string(buf, stack.resource.key.id);
-    write_string(buf, stack.resource.key.variant);
-    write_int64(buf, stack.resource.amount);
+    const ResourceContentStack& stack) {
+    write_string(buf, stack.key.type);
+    write_string(buf, stack.key.id);
+    write_string(buf, stack.key.variant);
+    write_int64(buf, stack.amount);
 }
 
-bool GameChunkSerializer::read_machine_runtime_item_stack(
+bool GameChunkSerializer::read_machine_runtime_resource_stack(
     const std::vector<uint8_t>& data,
     size_t& offset,
-    MachineRuntimeItemStack& stack) {
-    return read_string(data, offset, stack.resource.key.type) &&
-           read_string(data, offset, stack.resource.key.id) &&
-           read_string(data, offset, stack.resource.key.variant) &&
-           read_int64(data, offset, stack.resource.amount);
+    ResourceContentStack& stack) {
+    return read_string(data, offset, stack.key.type) &&
+           read_string(data, offset, stack.key.id) &&
+           read_string(data, offset, stack.key.variant) &&
+           read_int64(data, offset, stack.amount);
 }
 
 void GameChunkSerializer::write_machine_fluid_tank(
     std::vector<uint8_t>& buf,
-    const MachineFluidTank& tank) {
+    const MachineFluidTankRecord& tank) {
     write_string(buf, tank.fluid.key.type);
     write_string(buf, tank.fluid.key.id);
     write_string(buf, tank.fluid.key.variant);
@@ -1030,7 +1030,7 @@ void GameChunkSerializer::write_machine_fluid_tank(
 bool GameChunkSerializer::read_machine_fluid_tank(
     const std::vector<uint8_t>& data,
     size_t& offset,
-    MachineFluidTank& tank) {
+    MachineFluidTankRecord& tank) {
     uint8_t transport = 0;
     uint8_t access = 0;
     if (!read_string(data, offset, tank.fluid.key.type) ||
@@ -1056,12 +1056,12 @@ void GameChunkSerializer::write_machine_runtime_recipe_snapshot(
     const MachineRuntimeRecipeSnapshot& recipe) {
     write_string(buf, recipe.id);
     write_uint32(buf, static_cast<uint32_t>(recipe.inputs.size()));
-    for (const MachineRuntimeItemStack& input : recipe.inputs) {
-        write_machine_runtime_item_stack(buf, input);
+    for (const ResourceContentStack& input : recipe.inputs) {
+        write_machine_runtime_resource_stack(buf, input);
     }
     write_uint32(buf, static_cast<uint32_t>(recipe.outputs.size()));
-    for (const MachineRuntimeItemStack& output : recipe.outputs) {
-        write_machine_runtime_item_stack(buf, output);
+    for (const ResourceContentStack& output : recipe.outputs) {
+        write_machine_runtime_resource_stack(buf, output);
     }
     write_int32(buf, recipe.duration_ticks);
     write_int32(buf, recipe.energy_per_tick);
@@ -1083,8 +1083,8 @@ bool GameChunkSerializer::read_machine_runtime_recipe_snapshot(
     recipe.inputs.clear();
     recipe.inputs.reserve(input_count);
     for (uint32_t index = 0; index < input_count; ++index) {
-        MachineRuntimeItemStack input;
-        if (!read_machine_runtime_item_stack(data, offset, input)) return false;
+        ResourceContentStack input;
+        if (!read_machine_runtime_resource_stack(data, offset, input)) return false;
         recipe.inputs.push_back(std::move(input));
     }
 
@@ -1096,8 +1096,8 @@ bool GameChunkSerializer::read_machine_runtime_recipe_snapshot(
     recipe.outputs.clear();
     recipe.outputs.reserve(output_count);
     for (uint32_t index = 0; index < output_count; ++index) {
-        MachineRuntimeItemStack output;
-        if (!read_machine_runtime_item_stack(data, offset, output)) return false;
+        ResourceContentStack output;
+        if (!read_machine_runtime_resource_stack(data, offset, output)) return false;
         recipe.outputs.push_back(std::move(output));
     }
 
@@ -1112,15 +1112,15 @@ void GameChunkSerializer::write_machine_runtime_record(
     write_uint64(buf, record.entity_guid);
     write_string(buf, record.machine_id);
     write_uint32(buf, static_cast<uint32_t>(record.input_slots.size()));
-    for (const MachineRuntimeItemStack& input : record.input_slots) {
-        write_machine_runtime_item_stack(buf, input);
+    for (const ResourceContentStack& input : record.input_slots) {
+        write_machine_runtime_resource_stack(buf, input);
     }
     write_uint32(buf, static_cast<uint32_t>(record.output_slots.size()));
-    for (const MachineRuntimeItemStack& output : record.output_slots) {
-        write_machine_runtime_item_stack(buf, output);
+    for (const ResourceContentStack& output : record.output_slots) {
+        write_machine_runtime_resource_stack(buf, output);
     }
     write_uint32(buf, static_cast<uint32_t>(record.fluid_tanks.size()));
-    for (const MachineFluidTank& tank : record.fluid_tanks) {
+    for (const MachineFluidTankRecord& tank : record.fluid_tanks) {
         write_machine_fluid_tank(buf, tank);
     }
     write_int32(buf, record.stored_energy);
@@ -1162,8 +1162,8 @@ bool GameChunkSerializer::read_machine_runtime_record(
     record.input_slots.clear();
     record.input_slots.reserve(input_count);
     for (uint32_t index = 0; index < input_count; ++index) {
-        MachineRuntimeItemStack input;
-        if (!read_machine_runtime_item_stack(data, offset, input)) return false;
+        ResourceContentStack input;
+        if (!read_machine_runtime_resource_stack(data, offset, input)) return false;
         record.input_slots.push_back(std::move(input));
     }
 
@@ -1175,8 +1175,8 @@ bool GameChunkSerializer::read_machine_runtime_record(
     record.output_slots.clear();
     record.output_slots.reserve(output_count);
     for (uint32_t index = 0; index < output_count; ++index) {
-        MachineRuntimeItemStack output;
-        if (!read_machine_runtime_item_stack(data, offset, output)) return false;
+        ResourceContentStack output;
+        if (!read_machine_runtime_resource_stack(data, offset, output)) return false;
         record.output_slots.push_back(std::move(output));
     }
 
@@ -1188,7 +1188,7 @@ bool GameChunkSerializer::read_machine_runtime_record(
     record.fluid_tanks.clear();
     record.fluid_tanks.reserve(fluid_tank_count);
     for (uint32_t index = 0; index < fluid_tank_count; ++index) {
-        MachineFluidTank tank;
+        MachineFluidTankRecord tank;
         if (!read_machine_fluid_tank(data, offset, tank)) return false;
         record.fluid_tanks.push_back(std::move(tank));
     }

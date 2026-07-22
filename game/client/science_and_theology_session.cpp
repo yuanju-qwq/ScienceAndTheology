@@ -147,8 +147,8 @@ struct LocalTerrainCell {
 [[nodiscard]] bool has_collectible_machine_output(
     const replication::GameRemoteMachineState& machine) noexcept {
     return std::any_of(machine.machine.output_slots.begin(), machine.machine.output_slots.end(),
-                       [](const replication::GameReplicatedMachineItemStack& output) {
-                           return !output.item_id.empty() && output.count > 0;
+                       [](const ResourceContentStack& output) {
+                           return output.is_valid() && output.is_item();
                        });
 }
 
@@ -171,12 +171,14 @@ struct LocalTerrainCell {
         .active_recipe_duration_ticks = machine.active_recipe_duration_ticks,
     };
     state.input_slots.reserve(machine.input_slots.size());
-    for (const replication::GameReplicatedMachineItemStack& stack : machine.input_slots) {
-        state.input_slots.push_back({.item_key = stack.item_id, .count = stack.count});
+    for (const ResourceContentStack& stack : machine.input_slots) {
+        state.input_slots.push_back({.item_key = stack.key.id,
+                                     .count = static_cast<int32_t>(stack.amount)});
     }
     state.output_slots.reserve(machine.output_slots.size());
-    for (const replication::GameReplicatedMachineItemStack& stack : machine.output_slots) {
-        state.output_slots.push_back({.item_key = stack.item_id, .count = stack.count});
+    for (const ResourceContentStack& stack : machine.output_slots) {
+        state.output_slots.push_back({.item_key = stack.key.id,
+                                      .count = static_cast<int32_t>(stack.amount)});
     }
     return state;
 }

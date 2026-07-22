@@ -2223,6 +2223,30 @@ uint64_t GameContentRegistry::resource_runtime_generation() const noexcept {
     return resource_runtime_index_.snapshot().generation();
 }
 
+snt::core::Expected<void> GameContentRegistry::add_resource_runtime_snapshot_participant(
+    IResourceRuntimeSnapshotParticipant& participant) {
+    if (std::find(resource_runtime_snapshot_participants_.begin(),
+                  resource_runtime_snapshot_participants_.end(),
+                  &participant) != resource_runtime_snapshot_participants_.end()) {
+        return invalid_state("Resource runtime snapshot participant is already registered");
+    }
+    resource_runtime_snapshot_participants_.push_back(&participant);
+    SNT_LOG_DEBUG("Registered resource runtime snapshot participant (count=%zu)",
+                  resource_runtime_snapshot_participants_.size());
+    return {};
+}
+
+void GameContentRegistry::remove_resource_runtime_snapshot_participant(
+    IResourceRuntimeSnapshotParticipant& participant) noexcept {
+    const auto found = std::find(resource_runtime_snapshot_participants_.begin(),
+                                 resource_runtime_snapshot_participants_.end(),
+                                 &participant);
+    if (found == resource_runtime_snapshot_participants_.end()) return;
+    resource_runtime_snapshot_participants_.erase(found);
+    SNT_LOG_DEBUG("Removed resource runtime snapshot participant (count=%zu)",
+                  resource_runtime_snapshot_participants_.size());
+}
+
 std::vector<GameItemDefinition> GameContentRegistry::item_definitions() const {
     std::vector<GameItemDefinition> definitions;
     definitions.reserve(live_items_.size() + live_generated_material_items_.size());
@@ -2290,7 +2314,8 @@ bool GameContentRegistry::item_matches_tool_requirement(
         (item->tool.has_value() && item->tool->mining_level >= required_mining_level);
 }
 
-snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() {
+snt::core::Expected<ResourceRuntimeIndex::Snapshot>
+GameContentRegistry::build_resource_runtime_snapshot() const {
     std::vector<ResourceContentKey> keys;
     keys.reserve(live_items_.size() + live_generated_material_items_.size() +
                  live_fluids_.size());
@@ -2306,10 +2331,64 @@ snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() 
         (void)entry;
         keys.push_back(ResourceContentKey::fluid(id));
     }
-    if (auto result = resource_runtime_index_.rebuild(keys); !result) return result.error();
+    return resource_runtime_index_.build_snapshot(keys);
+}
+
+snt::core::Expected<void> GameContentRegistry::prepare_resource_runtime_snapshot(
+    const ResourceRuntimeIndex::Snapshot& next_snapshot) {
+    std::vector<IResourceRuntimeSnapshotParticipant*> prepared;
+    prepared.reserve(resource_runtime_snapshot_participants_.size());
+    for (IResourceRuntimeSnapshotParticipant* const participant :
+         resource_runtime_snapshot_participants_) {
+        if (participant == nullptr) {
+            for (auto it = prepared.rbegin(); it != prepared.rend(); ++it) {
+                (*it)->cancel_resource_runtime_snapshot();
+            }
+            return invalid_state("Resource runtime snapshot participant is null");
+        }
+        if (auto result = participant->prepare_resource_runtime_snapshot(next_snapshot); !result) {
+            for (auto it = prepared.rbegin(); it != prepared.rend(); ++it) {
+                (*it)->cancel_resource_runtime_snapshot();
+            }
+            auto error = result.error();
+            error.with_context("GameContentRegistry::prepare_resource_runtime_snapshot");
+            SNT_LOG_WARN("Rejected game resource runtime snapshot generation %llu: %s",
+                         static_cast<unsigned long long>(next_snapshot.generation()),
+                         error.format().c_str());
+            return error;
+        }
+        prepared.push_back(participant);
+    }
+    return {};
+}
+
+void GameContentRegistry::commit_resource_runtime_snapshot(
+    ResourceRuntimeIndex::Snapshot next_snapshot) noexcept {
+    resource_runtime_index_.restore(std::move(next_snapshot));
+    for (IResourceRuntimeSnapshotParticipant* const participant :
+         resource_runtime_snapshot_participants_) {
+        participant->commit_resource_runtime_snapshot();
+    }
     ++item_content_revision_;
+}
+
+void GameContentRegistry::cancel_resource_runtime_snapshot() noexcept {
+    for (auto it = resource_runtime_snapshot_participants_.rbegin();
+         it != resource_runtime_snapshot_participants_.rend(); ++it) {
+        (*it)->cancel_resource_runtime_snapshot();
+    }
+}
+
+snt::core::Expected<void> GameContentRegistry::publish_resource_runtime_index() {
+    auto next_snapshot = build_resource_runtime_snapshot();
+    if (!next_snapshot) return next_snapshot.error();
+    if (auto result = prepare_resource_runtime_snapshot(*next_snapshot); !result) {
+        return result.error();
+    }
+    const size_t resource_count = next_snapshot->size();
+    commit_resource_runtime_snapshot(std::move(*next_snapshot));
     SNT_LOG_INFO("Published %zu game resource runtime key(s), generation=%llu, content_revision=%llu",
-                 keys.size(),
+                 resource_count,
                  static_cast<unsigned long long>(resource_runtime_index_.snapshot().generation()),
                  static_cast<unsigned long long>(item_content_revision_));
     return {};
@@ -2594,12 +2673,16 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
     if (auto result = validate_fluid_references(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
-    if (auto result = publish_resource_runtime_index(); !result) return result.error();
-    if (auto result = machine_placements_.commit_reload(script_id); !result) {
-        resource_runtime_index_.restore(it->second.resource_runtime_index);
-        item_content_revision_ = it->second.item_content_revision;
+    auto next_snapshot = build_resource_runtime_snapshot();
+    if (!next_snapshot) return next_snapshot.error();
+    if (auto result = prepare_resource_runtime_snapshot(*next_snapshot); !result) {
         return result.error();
     }
+    if (auto result = machine_placements_.commit_reload(script_id); !result) {
+        cancel_resource_runtime_snapshot();
+        return result.error();
+    }
+    commit_resource_runtime_snapshot(std::move(*next_snapshot));
     reloads_.erase(it);
     SNT_LOG_INFO("Game content committed reload for script %llu resource_generation=%llu",
                  static_cast<unsigned long long>(script_id),
@@ -2698,10 +2781,16 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
     if (auto result = validate_fluid_references(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
     if (auto result = validate_machine_item_references(); !result) return result.error();
-    if (auto result = publish_resource_runtime_index(); !result) return result.error();
-    if (auto result = machine_placements_.commit_reload_batch(script_ids); !result) {
+    auto next_snapshot = build_resource_runtime_snapshot();
+    if (!next_snapshot) return next_snapshot.error();
+    if (auto result = prepare_resource_runtime_snapshot(*next_snapshot); !result) {
         return result.error();
     }
+    if (auto result = machine_placements_.commit_reload_batch(script_ids); !result) {
+        cancel_resource_runtime_snapshot();
+        return result.error();
+    }
+    commit_resource_runtime_snapshot(std::move(*next_snapshot));
     for (const ScriptId script_id : script_ids) reloads_.erase(script_id);
     reload_batch_.reset();
     SNT_LOG_INFO("Game content committed reload batch with %zu script(s) resource_generation=%llu",
@@ -2796,6 +2885,12 @@ void GameContentRegistry::reset() {
     state_store_.clear();
     reloads_.clear();
     reload_batch_.reset();
+    if (!resource_runtime_snapshot_participants_.empty()) {
+        SNT_LOG_WARN("Resetting game content with %zu active resource snapshot participant(s); "
+                     "owners must unregister before session shutdown",
+                     resource_runtime_snapshot_participants_.size());
+        resource_runtime_snapshot_participants_.clear();
+    }
     const std::vector<ResourceContentKey> no_resource_keys;
     if (auto result = resource_runtime_index_.rebuild(no_resource_keys); !result) {
         SNT_LOG_ERROR("Failed to publish an empty game resource runtime index during reset: %s",
