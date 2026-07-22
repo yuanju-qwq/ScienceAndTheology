@@ -57,6 +57,12 @@ snt::core::Expected<std::shared_ptr<LocalizationService>> make_test_localization
                     {"ui.crafting.ready", "Craftable"},
                     {"ui.crafting.insufficient", "Missing materials"},
                     {"ui.crafting.craft", "Craft"},
+                    {"ui.automation.title", "Automation Controller"},
+                    {"ui.automation.online", "Online  {nodes} nodes  {connections} links"},
+                    {"ui.automation.offline", "Offline  {nodes} nodes  {connections} links"},
+                    {"ui.automation.empty", "No flow nodes"},
+                    {"ui.automation.interval", "#{id} Every {ticks} ticks"},
+                    {"ui.automation.transfer", "#{id} {source} -> {destination} {resource} x{amount}"},
                     {"ui.performance.title", "Performance"},
                     {"ui.performance.fps", "FPS  {fps}   Frame {frame_ms} ms"},
                     {"ui.performance.tps", "TPS  {tps}   MSPT {mspt}"},
@@ -72,6 +78,12 @@ snt::core::Expected<std::shared_ptr<LocalizationService>> make_test_localization
                     {"ui.crafting.ready", "可合成"},
                     {"ui.crafting.insufficient", "材料不足"},
                     {"ui.crafting.craft", "合成"},
+                    {"ui.automation.title", "自动化控制器"},
+                    {"ui.automation.online", "在线  {nodes} 个节点  {connections} 条连接"},
+                    {"ui.automation.offline", "离线  {nodes} 个节点  {connections} 条连接"},
+                    {"ui.automation.empty", "没有流图节点"},
+                    {"ui.automation.interval", "#{id} 每 {ticks} tick"},
+                    {"ui.automation.transfer", "#{id} {source} -> {destination} {resource} x{amount}"},
                     {"ui.performance.title", "性能"},
                     {"ui.performance.fps", "FPS  {fps}   帧时间 {frame_ms} ms"},
                     {"ui.performance.tps", "TPS  {tps}   每刻耗时 {mspt}"},
@@ -842,4 +854,55 @@ TEST(GameplayUi, CraftButtonReceivesMouseActivationThroughMuiRuntime) {
 
     EXPECT_EQ(controller.inventory().count_item("plank.oak"), 4);
     EXPECT_EQ(controller.inventory().count_item("workbench"), 1);
+}
+
+TEST(GameplayUi, AutomationControllerPanelUsesOnlyStablePresentationValues) {
+    const auto localization = make_test_localization();
+    ASSERT_TRUE(localization) << localization.error().format();
+
+    AutomationControllerPanelState state{
+        .dimension_id = "overworld",
+        .root_x = 3,
+        .root_y = 7,
+        .root_z = -2,
+        .anchor_entity_id = 42,
+        .controller_key = "automation.sfm_manager",
+        .authoritative_revision = 8,
+        .online = true,
+        .nodes = {
+            {.id = 1, .type = SfmFlowNodeType::kInterval, .interval_ticks = 20},
+            {.id = 2,
+             .type = SfmFlowNodeType::kTransfer,
+             .source_endpoint = "world:chest_a",
+             .destination_endpoint = "world:chest_b",
+             .requested = ResourceContentStack::item("iron.ingot", 5)},
+        },
+        .connections = {{.source = 1, .destination = 2}},
+    };
+    AutomationControllerPanelViewModel model;
+    ASSERT_TRUE(model.apply_authoritative_state(state));
+    AutomationControllerPanelState stale = state;
+    stale.authoritative_revision = 7;
+    EXPECT_FALSE(model.apply_authoritative_state(std::move(stale)));
+
+    GameplayUiController controller{
+        InventoryViewModel{make_starting_inventory()},
+        make_starting_crafting_recipes(),
+    };
+    controller.open_automation_controller(std::move(state));
+    EXPECT_TRUE(controller.automation_controller_open());
+    auto root = build_gameplay_ui_root(controller, {1280.0f, 720.0f}, **localization);
+    ASSERT_NE(root->find("automation_controller_panel"), nullptr);
+    ASSERT_NE(root->find("automation_node_1"), nullptr);
+    ASSERT_NE(root->find("automation_node_2"), nullptr);
+
+    auto paths = make_test_path_resolver();
+    ASSERT_TRUE(paths) << paths.error().format();
+    UiRuntime runtime(*paths);
+    const UiFrameResult frame = layout_and_paint(runtime, *root, {1280.0f, 720.0f});
+    EXPECT_TRUE(has_text_command(frame.commands, "自动化控制器"));
+    EXPECT_TRUE(has_text_command(frame.commands, "world:chest_a"));
+
+    controller.clear_automation_controller_authority();
+    EXPECT_FALSE(controller.automation_controller_open());
 }

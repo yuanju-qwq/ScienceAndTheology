@@ -9,6 +9,7 @@
 #pragma once
 
 #include "core/expected.h"
+#include "game/automation/ae_network.h"
 #include "game/resources/resource_key.h"
 #include "game/resources/resource_runtime_index.h"
 
@@ -77,6 +78,24 @@ public:
     [[nodiscard]] std::vector<ResourceKey> stored_keys(
         const ResourceKeyContext& context) const override;
 
+    // Captures compact values for an AE network attachment boundary.  This
+    // enumeration is intentionally O(n) and must only run while attaching,
+    // detaching, or rebuilding an aggregate network index, never per tick.
+    [[nodiscard]] std::vector<ResourceStack> capture_runtime_contents(
+        const ResourceKeyContext& context) const;
+
+    // AE network ownership is opt-in.  Once attached, every execute-mode
+    // insert/extract preflights and publishes exactly one delta to the owning
+    // aggregate index.  The owner must detach before content reload because
+    // compact keys are snapshot-scoped and the aggregate is rebuilt there.
+    [[nodiscard]] bool set_network_storage_observer(
+        AeNetworkStorageHandle handle,
+        IAeNetworkStorageMutationObserver& observer) noexcept;
+    void clear_network_storage_observer() noexcept;
+    [[nodiscard]] bool has_network_storage_observer() const noexcept {
+        return network_storage_observer_ != nullptr;
+    }
+
     [[nodiscard]] int64_t byte_capacity() const noexcept {
         return config_.byte_capacity;
     }
@@ -140,6 +159,9 @@ private:
         const ResourceKey& key,
         bool accepts_all_resource_types,
         const std::unordered_set<ResourceKind>& accepted_kinds) noexcept;
+    [[nodiscard]] bool can_apply_network_delta(
+        const ResourceStack& changed, int64_t delta) const noexcept;
+    void apply_network_delta(const ResourceStack& changed, int64_t delta) noexcept;
 
     AeStorageCellConfig config_;
     ResourceRuntimeIndex::Snapshot resource_runtime_index_;
@@ -148,6 +170,8 @@ private:
     std::unordered_map<ResourceKey, int64_t, ResourceKey::Hash> amounts_;
     int64_t used_bytes_ = 0;
     std::optional<PendingResourceRuntimeSnapshot> pending_resource_runtime_snapshot_;
+    IAeNetworkStorageMutationObserver* network_storage_observer_ = nullptr;
+    AeNetworkStorageHandle network_storage_handle_;
 };
 
 }  // namespace snt::game

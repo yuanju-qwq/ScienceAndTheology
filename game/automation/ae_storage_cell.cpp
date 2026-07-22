@@ -175,6 +175,11 @@ int64_t AeStorageCell::insert(const ResourceKeyContext& context,
     if (maximum_stored_amount <= current_amount) return 0;
     const int64_t accepted = std::min(stack.amount, maximum_stored_amount - current_amount);
     if (accepted <= 0 || mode == ResourceTransferMode::kSimulate) return accepted;
+    const ResourceStack changed{.key = stack.key, .amount = accepted};
+    if (!can_apply_network_delta(changed, accepted)) {
+        SNT_LOG_ERROR("AE storage insert rejected because its network aggregate is not prepared");
+        return 0;
+    }
 
     const int64_t next_amount = current_amount + accepted;
     const int64_t next_data_bytes = bytes_for_amount(next_amount, config_.units_per_byte);
@@ -185,6 +190,7 @@ int64_t AeStorageCell::insert(const ResourceKeyContext& context,
         found->second = next_amount;
     }
     used_bytes_ += next_data_bytes - current_data_bytes;
+    apply_network_delta(changed, accepted);
     return accepted;
 }
 
@@ -200,6 +206,11 @@ int64_t AeStorageCell::extract(const ResourceKeyContext& context,
 
     const int64_t extracted = std::min(found->second, requested.amount);
     if (extracted <= 0 || mode == ResourceTransferMode::kSimulate) return extracted;
+    const ResourceStack changed{.key = requested.key, .amount = extracted};
+    if (!can_apply_network_delta(changed, -extracted)) {
+        SNT_LOG_ERROR("AE storage extract rejected because its network aggregate is not prepared");
+        return 0;
+    }
 
     const int64_t current_data_bytes =
         bytes_for_amount(found->second, config_.units_per_byte);
@@ -213,6 +224,7 @@ int64_t AeStorageCell::extract(const ResourceKeyContext& context,
     } else {
         found->second = next_amount;
     }
+    apply_network_delta(changed, -extracted);
     return extracted;
 }
 
@@ -231,11 +243,47 @@ std::vector<ResourceKey> AeStorageCell::stored_keys(const ResourceKeyContext& co
     return keys;
 }
 
+std::vector<ResourceStack> AeStorageCell::capture_runtime_contents(
+    const ResourceKeyContext& context) const {
+    if (!context_.is_valid() || !context.is_valid() || !context_.matches(context)) return {};
+    std::vector<ResourceStack> contents;
+    contents.reserve(amounts_.size());
+    for (const auto& [key, amount] : amounts_) {
+        if (amount > 0) contents.push_back({.key = key, .amount = amount});
+    }
+    std::sort(contents.begin(), contents.end(), [](const ResourceStack& left,
+                                                   const ResourceStack& right) {
+        if (left.key.kind != right.key.kind) return left.key.kind < right.key.kind;
+        if (left.key.runtime_id != right.key.runtime_id) {
+            return left.key.runtime_id < right.key.runtime_id;
+        }
+        return left.key.variant < right.key.variant;
+    });
+    return contents;
+}
+
+bool AeStorageCell::set_network_storage_observer(
+    AeNetworkStorageHandle handle,
+    IAeNetworkStorageMutationObserver& observer) noexcept {
+    if (!handle.is_valid() || !context_.is_valid()) return false;
+    network_storage_handle_ = handle;
+    network_storage_observer_ = &observer;
+    return true;
+}
+
+void AeStorageCell::clear_network_storage_observer() noexcept {
+    network_storage_observer_ = nullptr;
+    network_storage_handle_ = {};
+}
+
 snt::core::Expected<void> AeStorageCell::rebind(
     const ResourceRuntimeIndex::Snapshot& previous_resource_runtime_index,
     const ResourceRuntimeIndex::Snapshot& next_resource_runtime_index) {
     if (pending_resource_runtime_snapshot_) {
         return invalid_state("AE storage cell cannot rebind while a snapshot is pending");
+    }
+    if (has_network_storage_observer()) {
+        return invalid_state("AE storage cell must detach from its network aggregate before rebind");
     }
     auto rebound = build_rebound_snapshot(
         previous_resource_runtime_index, next_resource_runtime_index);
@@ -248,6 +296,9 @@ snt::core::Expected<void> AeStorageCell::prepare_resource_runtime_snapshot(
     ResourceRuntimeIndex::Snapshot next_snapshot) {
     if (pending_resource_runtime_snapshot_) {
         return invalid_state("AE storage cell already has a pending resource snapshot");
+    }
+    if (has_network_storage_observer()) {
+        return invalid_state("AE storage cell must detach from its network aggregate before reload");
     }
     auto rebound = build_rebound_snapshot(resource_runtime_index_, next_snapshot);
     if (!rebound) return rebound.error();
@@ -374,6 +425,20 @@ bool AeStorageCell::accepts_key(
     const std::unordered_set<ResourceKind>& accepted_kinds) noexcept {
     return key.is_valid() &&
            (accepts_all_resource_types || accepted_kinds.contains(key.kind));
+}
+
+bool AeStorageCell::can_apply_network_delta(
+    const ResourceStack& changed, int64_t delta) const noexcept {
+    return network_storage_observer_ == nullptr ||
+        network_storage_observer_->can_apply_ae_storage_delta(
+            network_storage_handle_, context_, changed, delta);
+}
+
+void AeStorageCell::apply_network_delta(
+    const ResourceStack& changed, int64_t delta) noexcept {
+    if (network_storage_observer_ == nullptr) return;
+    network_storage_observer_->apply_ae_storage_delta(
+        network_storage_handle_, context_, changed, delta);
 }
 
 }  // namespace snt::game

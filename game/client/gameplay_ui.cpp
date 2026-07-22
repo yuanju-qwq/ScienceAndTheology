@@ -19,6 +19,8 @@
 #include <optional>
 #include <set>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace snt::game {
@@ -393,6 +395,92 @@ UiWidgetTemplate machine_panel_template(const MachinePanelViewModel& model,
     return panel;
 }
 
+UiWidgetTemplate automation_controller_panel_template(
+    const AutomationControllerPanelViewModel& model,
+    const localization::LocalizationService& localization) {
+    const AutomationControllerPanelState* const controller = model.state();
+    UiWidgetTemplate panel;
+    panel.type = UiWidgetType::Flex;
+    panel.id = "automation_controller_panel";
+    panel.layout.orientation = Orientation::Vertical;
+    panel.layout.spacing = 8.0f;
+    panel.layout.padding = {10, 10, 10, 10};
+    panel.background = Color{16, 20, 25, 240};
+    panel.background_radius = 6.0f;
+    panel.layout.params = fixed(620.0f, 390.0f);
+    if (controller == nullptr) return panel;
+
+    UiWidgetTemplate title = text_widget(
+        "automation_controller_title", localization.translate("ui.automation.title"), 18.0f);
+    title.layout.params = fixed(580.0f, 24.0f);
+    append_child(panel, std::move(title));
+
+    UiWidgetTemplate status = text_widget(
+        "automation_controller_status",
+        localization.format(
+            controller->online ? "ui.automation.online" : "ui.automation.offline",
+            {{"nodes", std::to_string(controller->nodes.size())},
+             {"connections", std::to_string(controller->connections.size())}}),
+        13.0f);
+    status.layout.params = fixed(580.0f, 20.0f);
+    append_child(panel, std::move(status));
+
+    UiWidgetTemplate scroll;
+    scroll.type = UiWidgetType::Scroll;
+    scroll.id = "automation_controller_flow_scroll";
+    scroll.layout.params = fixed(600.0f, 310.0f);
+    UiWidgetTemplate list;
+    list.type = UiWidgetType::Flex;
+    list.id = "automation_controller_flow_nodes";
+    list.layout.orientation = Orientation::Vertical;
+    list.layout.spacing = 5.0f;
+
+    if (controller->nodes.empty()) {
+        UiWidgetTemplate empty = text_widget(
+            "automation_controller_empty", localization.translate("ui.automation.empty"), 14.0f);
+        empty.layout.params = fixed(580.0f, 22.0f);
+        append_child(list, std::move(empty));
+    }
+    for (const AutomationFlowNodePresentation& node : controller->nodes) {
+        UiWidgetTemplate row;
+        row.type = UiWidgetType::Flex;
+        row.id = "automation_node_" + std::to_string(node.id);
+        row.layout.orientation = Orientation::Vertical;
+        row.layout.spacing = 2.0f;
+        row.layout.padding = {6, 4, 6, 4};
+        row.background = Color{31, 38, 46, 220};
+        row.background_radius = 4.0f;
+        row.layout.params = fixed(580.0f, 54.0f);
+
+        std::string label;
+        if (node.type == SfmFlowNodeType::kInterval) {
+            label = localization.format(
+                "ui.automation.interval",
+                {{"id", std::to_string(node.id)},
+                 {"ticks", std::to_string(node.interval_ticks)}});
+        } else {
+            const std::string resource = node.requested.key.id.empty()
+                ? "?"
+                : localization.translate(node.requested.key.id);
+            label = localization.format(
+                "ui.automation.transfer",
+                {{"id", std::to_string(node.id)},
+                 {"source", node.source_endpoint},
+                 {"destination", node.destination_endpoint},
+                 {"resource", resource},
+                 {"amount", std::to_string(node.requested.amount)}});
+        }
+        UiWidgetTemplate node_label = text_widget(
+            "automation_node_label_" + std::to_string(node.id), std::move(label), 13.0f);
+        node_label.layout.params = fixed(564.0f, 20.0f);
+        append_child(row, std::move(node_label));
+        append_child(list, std::move(row));
+    }
+    append_child(scroll, std::move(list));
+    append_child(panel, std::move(scroll));
+    return panel;
+}
+
 void dispatch_crafting_action(CraftingViewModel& model, std::string_view action_id) {
     constexpr std::string_view kCraftActionPrefix = "craft:";
     if (!action_id.starts_with(kCraftActionPrefix)) {
@@ -546,6 +634,70 @@ bool MachinePanelViewModel::apply_authoritative_state(MachinePanelState state) {
 }
 
 void MachinePanelViewModel::clear() noexcept {
+    if (!state_) return;
+    state_.reset();
+    ++revision_;
+}
+
+bool AutomationControllerPanelViewModel::apply_authoritative_state(
+    AutomationControllerPanelState state) {
+    constexpr size_t kMaxNodes = 1024;
+    constexpr size_t kMaxConnections = 4096;
+    if (state.dimension_id.empty() || state.controller_key.empty() ||
+        state.anchor_entity_id == 0 || state.authoritative_revision == 0 ||
+        state.nodes.size() > kMaxNodes || state.connections.size() > kMaxConnections) {
+        SNT_LOG_ERROR("Automation controller panel rejected an invalid authoritative header");
+        return false;
+    }
+    const auto is_absent = [](const AutomationFlowNodePresentation& node) {
+        return node.source_endpoint.empty() && node.destination_endpoint.empty() &&
+            node.requested.is_absent();
+    };
+    std::unordered_map<SfmFlowNodeId, SfmFlowNodeType> node_types;
+    node_types.reserve(state.nodes.size());
+    for (const AutomationFlowNodePresentation& node : state.nodes) {
+        if (node.id == kInvalidSfmFlowNodeId ||
+            !node_types.emplace(node.id, node.type).second) {
+            SNT_LOG_ERROR("Automation controller panel rejected duplicate or invalid flow nodes");
+            return false;
+        }
+        if (node.type == SfmFlowNodeType::kInterval) {
+            if (node.interval_ticks == 0 || !is_absent(node)) {
+                SNT_LOG_ERROR("Automation controller panel rejected an invalid interval node");
+                return false;
+            }
+        } else if (node.type != SfmFlowNodeType::kTransfer || node.interval_ticks != 0 ||
+                   node.source_endpoint.empty() || node.destination_endpoint.empty() ||
+                   !node.requested.is_valid()) {
+            SNT_LOG_ERROR("Automation controller panel rejected an invalid transfer node");
+            return false;
+        }
+    }
+    std::unordered_set<uint64_t> connections;
+    connections.reserve(state.connections.size());
+    for (const AutomationFlowConnectionPresentation& connection : state.connections) {
+        const auto source = node_types.find(connection.source);
+        const auto destination = node_types.find(connection.destination);
+        const uint64_t key = (static_cast<uint64_t>(connection.source) << 32u) |
+            connection.destination;
+        if (source == node_types.end() || destination == node_types.end() ||
+            destination->second == SfmFlowNodeType::kInterval ||
+            !connections.insert(key).second) {
+            SNT_LOG_ERROR("Automation controller panel rejected invalid flow connections");
+            return false;
+        }
+    }
+    if (state_ && state.authoritative_revision < state_->authoritative_revision) {
+        SNT_LOG_WARN("Automation controller panel rejected a stale revision=%llu",
+                     static_cast<unsigned long long>(state.authoritative_revision));
+        return false;
+    }
+    state_ = std::move(state);
+    ++revision_;
+    return true;
+}
+
+void AutomationControllerPanelViewModel::clear() noexcept {
     if (!state_) return;
     state_.reset();
     ++revision_;
@@ -761,6 +913,11 @@ void GameplayUiController::open_crafting() {
 void GameplayUiController::open_machine(MachinePanelState state) {
     if (!machine_panel_.apply_authoritative_state(std::move(state))) return;
     set_open_screen(GameplayUiScreen::Machine);
+}
+
+void GameplayUiController::open_automation_controller(AutomationControllerPanelState state) {
+    if (!automation_controller_panel_.apply_authoritative_state(std::move(state))) return;
+    set_open_screen(GameplayUiScreen::AutomationController);
 }
 
 void GameplayUiController::close() {
@@ -1041,6 +1198,11 @@ void GameplayUiController::clear_machine_authority() noexcept {
     if (machine_open()) set_open_screen(GameplayUiScreen::None);
 }
 
+void GameplayUiController::clear_automation_controller_authority() noexcept {
+    automation_controller_panel_.clear();
+    if (automation_controller_open()) set_open_screen(GameplayUiScreen::None);
+}
+
 void GameplayUiController::set_open_screen(GameplayUiScreen screen) {
     if (open_screen_ == screen) return;
     open_screen_ = screen;
@@ -1065,6 +1227,12 @@ std::unique_ptr<ViewGroup> build_machine_panel_view(
     const MachinePanelViewModel& model, const InventoryViewModel& inventory,
     const localization::LocalizationService& localization) {
     return instantiate_group(machine_panel_template(model, inventory, nullptr, false, localization));
+}
+
+std::unique_ptr<ViewGroup> build_automation_controller_panel_view(
+    const AutomationControllerPanelViewModel& model,
+    const localization::LocalizationService& localization) {
+    return instantiate_group(automation_controller_panel_template(model, localization));
 }
 
 std::unique_ptr<ViewGroup> build_performance_panel_view(
@@ -1114,6 +1282,14 @@ UiWidgetTree build_gameplay_ui_widget_tree(
             (viewport.x - machine.layout.params.width) * 0.5f;
         machine.layout.params.margin.top =
             (viewport.y - machine.layout.params.height) * 0.5f;
+    } else if (controller.automation_controller_open()) {
+        UiWidgetTemplate& automation = append_child(
+            root, automation_controller_panel_template(
+                controller.automation_controller_panel(), localization));
+        automation.layout.params.margin.left =
+            (viewport.x - automation.layout.params.width) * 0.5f;
+        automation.layout.params.margin.top =
+            (viewport.y - automation.layout.params.height) * 0.5f;
     }
 
     return tree;
@@ -1129,6 +1305,7 @@ struct GameplayUiTreeState {
     uint64_t inventory_revision = 0;
     uint64_t crafting_revision = 0;
     uint64_t machine_revision = 0;
+    uint64_t automation_controller_revision = 0;
     uint64_t item_content_revision = 0;
     Vec2 viewport{};
 
@@ -1137,6 +1314,7 @@ struct GameplayUiTreeState {
             inventory_revision == other.inventory_revision &&
             crafting_revision == other.crafting_revision &&
             machine_revision == other.machine_revision &&
+            automation_controller_revision == other.automation_controller_revision &&
             item_content_revision == other.item_content_revision &&
             viewport.x == other.viewport.x && viewport.y == other.viewport.y;
     }
@@ -1149,6 +1327,7 @@ GameplayUiTreeState gameplay_ui_tree_state(GameplayUiController& controller,
         .inventory_revision = controller.inventory().revision(),
         .crafting_revision = controller.crafting().revision(),
         .machine_revision = controller.machine_panel().revision(),
+        .automation_controller_revision = controller.automation_controller_panel().revision(),
         .item_content_revision = controller.item_content_revision(),
         .viewport = viewport,
     };

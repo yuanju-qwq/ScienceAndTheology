@@ -36,6 +36,9 @@ struct GameServerPlayerStateConfig {
     // Content reloads use rebind_resource_snapshot() rather than allowing
     // numeric ResourceKey values from two generations to coexist.
     ResourceRuntimeIndex::Snapshot resource_runtime_index;
+    // Optional game-owned schema validator. The server keeps the generic
+    // player envelope, while a gameplay module owns its opaque payload.
+    const IGamePlayerOrganStateCodec* organ_state_codec = nullptr;
     GamePlayerWorldPosition spawn{
         .dimension_id = "overworld",
         .position = {.x = 4, .y = 6, .z = 8},

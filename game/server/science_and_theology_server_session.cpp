@@ -197,6 +197,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         world.world(),
         {
             .resource_runtime_index = simulation_session_.content().resource_runtime_index(),
+            .organ_state_codec = &source_law_persistence_codec_,
             .spawn = {
                 .dimension_id = config_.persistence.world_dimension_id,
                 .position = {

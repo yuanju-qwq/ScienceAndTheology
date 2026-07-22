@@ -12,6 +12,7 @@
 #include "game/world/defs/crop_species_def.h"
 #include "game/world/defs/entity_data.h"
 #include "game/world/defs/population_cell.h"
+#include "game/automation/sfm_flow_program.h"
 #include "game/resources/resource_key.h"
 #include "game/simulation/machine_fluid_tank.h"
 #include "game/world/voxel_primitives.h"
@@ -121,6 +122,33 @@ struct MachineRuntimePersistenceRecord {
     uint64_t offline_last_simulated_tick = 0;
     uint64_t offline_island_id = 0;
     uint64_t offline_epoch = 0;
+};
+
+// Automation controllers are independent block owners.  They are not recipe
+// machines and therefore must never be represented by MachineRuntimeComponent
+// or machine_runtime_records.  The anchor carries spatial/world ownership;
+// this typed record carries the durable SFM graph and future controller state.
+enum class AutomationControllerKind : uint8_t {
+    kSfmManager = 1,
+    // Reserved for the game-owned AE controller runtime. It is intentionally
+    // not accepted by the current persistence codec until its typed durable
+    // state is defined alongside the topology owner.
+    kAeController = 2,
+};
+
+struct AutomationControllerPersistenceRecord {
+    // Must name a BlockEntityPlacement with entity_type ==
+    // AUTOMATION_CONTROLLER in this sidecar.
+    EntityId anchor_entity_id;
+    AutomationControllerKind kind = AutomationControllerKind::kSfmManager;
+    // Stable content identity. Runtime topology and UI presentation resolve
+    // this key after load; compact ids never enter sidecars or save payloads.
+    std::string controller_key;
+    // Monotonic authoritative editor/presentation revision.  It is distinct
+    // from SfmFlowProgramRecord::revision so a controller can later expose
+    // other state without changing the graph's optimistic-edit base.
+    uint64_t revision = 1;
+    SfmFlowProgramRecord sfm_program;
 };
 
 // A network island is anchored by its lexicographically first member chunk.
@@ -289,6 +317,7 @@ struct GameChunkSidecar {
     std::vector<MechanismPlacement> mechanisms;
     std::vector<EntityId> entities;
     std::vector<MachineRuntimePersistenceRecord> machine_runtime_records;
+    std::vector<AutomationControllerPersistenceRecord> automation_controller_records;
     // Only an island's anchor chunk contains a record here. The registry
     // validates this against member machine ownership during world startup.
     std::vector<OfflineNetworkIslandSnapshot> offline_network_islands;

@@ -62,12 +62,15 @@ enum class BlockEntityType : uint8_t {
     CROP        = 7,   // Crop anchor; growth state is in a chunk sidecar.
     SIGNAL_WIRE = 8,   // Signal wire segment (per-block signal network)
     CUSTOM      = 9,   // Mod-registered block entity type
-    COUNT       = 10,
+    // Root anchor for SFM managers, AE controllers, and other automation
+    // logic. Typed mutable state is owned by automation_controller_records.
+    AUTOMATION_CONTROLLER = 10,
+    COUNT       = 11,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
     "None", "Tree", "Machine", "Creature", "Pipe", "Cable",
-    "Farmland", "Crop", "SignalWire", "Custom",
+    "Farmland", "Crop", "SignalWire", "Custom", "AutomationController",
 };
 
 // 6-face connection bitmask used by PIPE and CABLE entities.

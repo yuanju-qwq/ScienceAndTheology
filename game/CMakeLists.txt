@@ -22,8 +22,10 @@ target_link_libraries(snt_game_resources PUBLIC
 # contract. It deliberately depends on game resources instead of the retired
 # src/Godot resource model.
 add_library(snt_game_automation STATIC
+    automation/ae_network.cpp
     automation/ae_storage_cell.cpp
     automation/sfm_endpoint_registry.cpp
+    automation/sfm_flow_program.cpp
     automation/sfm_resource_transfer.cpp
 )
 target_include_directories(snt_game_automation PUBLIC
@@ -48,6 +50,7 @@ target_include_directories(snt_game_world_data PUBLIC
 target_link_libraries(snt_game_world_data PUBLIC
     snt_engine_settings
     snt_voxel_data
+    snt_game_automation
     snt_game_resources
 )
 
@@ -144,6 +147,25 @@ target_link_libraries(snt_game_chemistry PUBLIC
     snt_core
 )
 
+# Source law is a game-owned, headless body-rule module. It consumes immutable
+# content snapshots and exposes value-only evaluators/codecs; no Godot or
+# retired src source-law API is allowed into this target.
+add_library(snt_game_source_law STATIC
+    source_law/source_law_types.cpp
+    source_law/source_law_definition.cpp
+    source_law/source_law_evaluator.cpp
+    source_law/source_law_transaction_service.cpp
+    source_law/source_law_persistence_codec.cpp
+    source_law/builtin_source_law_content.cpp
+)
+target_include_directories(snt_game_source_law PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_source_law PUBLIC
+    snt_engine_settings
+    snt_core
+)
+
 # Game-owned authoritative replication semantics. This target stays headless:
 # snt_network owns transport framing while this module owns game message
 # versions, authenticated command admission, and AOI/snapshot value contracts.
@@ -186,10 +208,12 @@ add_library(snt_game_simulation STATIC
     simulation/day_night_cycle.cpp
     simulation/block_physics_system.cpp
     simulation/crop_growth_system.cpp
+    simulation/automation_controller_placement_registry.cpp
     simulation/ecosystem_system.cpp
     simulation/wild_creature_system.cpp
     simulation/fluid_lattice_boltzmann.cpp
     simulation/game_content_reload_service.cpp
+    simulation/automation_controller_persistence.cpp
     simulation/game_fluid_system.cpp
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
@@ -210,6 +234,7 @@ target_link_libraries(snt_game_simulation PUBLIC
     snt_engine_settings
     snt_simulation_runtime
     snt_core
+    snt_game_automation
     snt_game_resources
     snt_ecs
     snt_script
@@ -217,6 +242,7 @@ target_link_libraries(snt_game_simulation PUBLIC
     snt_game_world_data
     snt_game_worldgen
     snt_game_chemistry
+    snt_game_source_law
 )
 target_link_libraries(snt_game_simulation PRIVATE
     nlohmann_json::nlohmann_json
@@ -288,6 +314,7 @@ target_link_libraries(snt_game_server PRIVATE
     snt_simulation_runtime
     snt_game_simulation
     snt_game_network
+    snt_game_source_law
     snt_game_world_save
     snt_voxel_collision
 )
@@ -342,6 +369,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # Keep their tests on the same small closure so script/content reload work
     # can be validated without the client, transport, or server test sources.
     add_executable(snt_game_content_tests
+        tests/test_ae_network.cpp
         tests/test_ae_storage_cell.cpp
         tests/test_element_catalog.cpp
         tests/test_game_content_registry.cpp
@@ -349,6 +377,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_machine_tick_system.cpp
         tests/test_resource_key.cpp
         tests/test_sfm_resource_transfer.cpp
+        tests/test_sfm_flow_program.cpp
     )
     target_include_directories(snt_game_content_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/.."
@@ -361,6 +390,37 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     target_link_libraries(snt_game_content_tests PRIVATE
         snt_game_automation
         snt_game_simulation
+        snt_engine_settings
+        GTest::gtest_main
+    )
+
+    add_executable(snt_game_source_law_tests
+        tests/test_source_law.cpp
+    )
+    target_include_directories(snt_game_source_law_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(snt_game_source_law_tests PRIVATE
+        snt_game_source_law
+        snt_engine_settings
+        GTest::gtest_main
+    )
+
+    # Keep source-law persistence admission coverage headless and independent
+    # from the large client/UI integration-test executable.
+    add_executable(snt_game_source_law_server_tests
+        server/game_server_player_state.cpp
+        tests/test_source_law_server_persistence.cpp
+    )
+    target_include_directories(snt_game_source_law_server_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(snt_game_source_law_server_tests PRIVATE
+        snt_game_source_law
+        snt_game_network
+        snt_game_resources
+        snt_game_identity
+        snt_ecs
         snt_engine_settings
         GTest::gtest_main
     )
@@ -430,6 +490,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_machine_placement_registry.cpp
         tests/test_machine_structure_validator.cpp
         tests/test_machine_runtime_persistence.cpp
+        tests/test_automation_controller_persistence.cpp
         tests/test_offline_machine_simulation.cpp
         tests/test_mobile_structure.cpp
         tests/test_game_components.cpp
@@ -483,6 +544,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
 
     include(GoogleTest)
     gtest_discover_tests(snt_game_content_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(snt_game_source_law_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(snt_game_source_law_server_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_creature_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_tests DISCOVERY_MODE PRE_TEST)
 

@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "game/world/defs/creature_species.h"
 
@@ -16,6 +18,14 @@ constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
 constexpr uint32_t kMaxMachineJobOwnerAccountBytes = 256;
+constexpr uint32_t kMaxAutomationControllerRecords = 4096;
+constexpr uint32_t kMaxAutomationFlowNodes = 1024;
+constexpr uint32_t kMaxAutomationFlowConnections = 4096;
+constexpr uint32_t kMaxAutomationControllerKeyBytes = 256;
+constexpr uint32_t kMaxAutomationEndpointAddressBytes = 512;
+constexpr uint32_t kMaxAutomationResourceTypeBytes = 64;
+constexpr uint32_t kMaxAutomationResourceIdBytes = 256;
+constexpr uint32_t kMaxAutomationResourceVariantBytes = 256;
 constexpr uint32_t kMaxOfflineNetworkIslands = 1024;
 constexpr uint32_t kMaxOfflineNetworkMemberChunks = 4096;
 constexpr uint32_t kMaxOfflineNetworkMachineGuids = 16384;
@@ -38,6 +48,15 @@ constexpr uint32_t kMaxFarmlandCropKeyBytes = 256;
 constexpr uint32_t kMaxPlayerBedRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveItemStacks = 128;
+
+[[nodiscard]] bool is_absent_transfer(const SfmResourceTransferRule& transfer) noexcept {
+    return transfer.source.value.empty() && transfer.destination.value.empty() &&
+        transfer.requested.is_absent();
+}
+
+[[nodiscard]] bool is_known_sfm_node_type(SfmFlowNodeType type) noexcept {
+    return type == SfmFlowNodeType::kInterval || type == SfmFlowNodeType::kTransfer;
+}
 
 }  // namespace
 
@@ -128,6 +147,14 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     write_uint32(buf, static_cast<uint32_t>(chunk.block_entities.size()));
     for (const auto& be : chunk.block_entities) {
         write_block_entity(buf, be);
+    }
+
+    // Automation records own mutable controller state separately from their
+    // generic root anchors, exactly like machine runtime and crop sidecars.
+    write_uint32(buf, static_cast<uint32_t>(chunk.automation_controller_records.size()));
+    for (const AutomationControllerPersistenceRecord& record :
+         chunk.automation_controller_records) {
+        write_automation_controller_record(buf, record);
     }
 
     // Typed tree-growth state is kept separate from generic block anchors so
@@ -333,6 +360,19 @@ bool GameChunkSerializer::deserialize(
         BlockEntityPlacement be;
         if (!read_block_entity(data, offset, be)) return false;
         chunk.block_entities.push_back(std::move(be));
+    }
+
+    uint32_t automation_controller_count;
+    if (!read_uint32(data, offset, automation_controller_count) ||
+        automation_controller_count > kMaxAutomationControllerRecords) {
+        return false;
+    }
+    chunk.automation_controller_records.clear();
+    chunk.automation_controller_records.reserve(automation_controller_count);
+    for (uint32_t i = 0; i < automation_controller_count; ++i) {
+        AutomationControllerPersistenceRecord record;
+        if (!read_automation_controller_record(data, offset, record)) return false;
+        chunk.automation_controller_records.push_back(std::move(record));
     }
 
     uint32_t tree_growth_record_count;
@@ -727,7 +767,10 @@ bool GameChunkSerializer::read_block_entity(
     entity.id = EntityId{raw_id};
 
     uint8_t type_byte;
-    if (!read_uint8(data, offset, type_byte)) return false;
+    if (!read_uint8(data, offset, type_byte) ||
+        type_byte >= static_cast<uint8_t>(BlockEntityType::COUNT)) {
+        return false;
+    }
     entity.entity_type = static_cast<BlockEntityType>(type_byte);
 
     if (!read_int32(data, offset, entity.root_x)) return false;
@@ -738,6 +781,125 @@ bool GameChunkSerializer::read_block_entity(
 
     if (!read_uint32(data, offset, entity.owned_cell_count)) return false;
 
+    return true;
+}
+
+// --- Automation-controller sidecar helpers ---
+
+void GameChunkSerializer::write_automation_controller_record(
+    std::vector<uint8_t>& buf,
+    const AutomationControllerPersistenceRecord& record) {
+    write_uint64(buf, record.anchor_entity_id.id);
+    write_uint8(buf, static_cast<uint8_t>(record.kind));
+    write_string(buf, record.controller_key);
+    write_uint64(buf, record.revision);
+    write_uint64(buf, record.sfm_program.revision);
+    write_uint32(buf, static_cast<uint32_t>(record.sfm_program.nodes.size()));
+    for (const SfmFlowNodeRecord& node : record.sfm_program.nodes) {
+        write_uint32(buf, node.id);
+        write_uint8(buf, static_cast<uint8_t>(node.type));
+        write_uint32(buf, node.interval_ticks);
+        write_string(buf, node.transfer.source.value);
+        write_string(buf, node.transfer.destination.value);
+        write_string(buf, node.transfer.requested.key.type);
+        write_string(buf, node.transfer.requested.key.id);
+        write_string(buf, node.transfer.requested.key.variant);
+        write_int64(buf, node.transfer.requested.amount);
+    }
+    write_uint32(buf, static_cast<uint32_t>(record.sfm_program.connections.size()));
+    for (const SfmFlowConnectionRecord& connection : record.sfm_program.connections) {
+        write_uint32(buf, connection.source);
+        write_uint32(buf, connection.destination);
+    }
+}
+
+bool GameChunkSerializer::read_automation_controller_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    AutomationControllerPersistenceRecord& record) {
+    uint64_t raw_anchor_id = 0;
+    uint8_t kind = 0;
+    if (!read_uint64(data, offset, raw_anchor_id) ||
+        !read_uint8(data, offset, kind) ||
+        kind != static_cast<uint8_t>(AutomationControllerKind::kSfmManager) ||
+        !read_string(data, offset, record.controller_key) ||
+        record.controller_key.empty() ||
+        record.controller_key.size() > kMaxAutomationControllerKeyBytes ||
+        record.controller_key.find('\0') != std::string::npos ||
+        !read_uint64(data, offset, record.revision) ||
+        record.revision == 0 ||
+        !read_uint64(data, offset, record.sfm_program.revision)) {
+        return false;
+    }
+    record.anchor_entity_id = EntityId{raw_anchor_id};
+    record.kind = static_cast<AutomationControllerKind>(kind);
+    if (!record.anchor_entity_id.is_valid()) return false;
+
+    uint32_t node_count = 0;
+    if (!read_uint32(data, offset, node_count) || node_count > kMaxAutomationFlowNodes) {
+        return false;
+    }
+    record.sfm_program.nodes.clear();
+    record.sfm_program.nodes.reserve(node_count);
+    std::unordered_map<SfmFlowNodeId, SfmFlowNodeType> node_types;
+    node_types.reserve(node_count);
+    for (uint32_t index = 0; index < node_count; ++index) {
+        SfmFlowNodeRecord node;
+        uint8_t node_type = 0;
+        if (!read_uint32(data, offset, node.id) || node.id == kInvalidSfmFlowNodeId ||
+            !read_uint8(data, offset, node_type) ||
+            !read_uint32(data, offset, node.interval_ticks) ||
+            !read_string(data, offset, node.transfer.source.value) ||
+            node.transfer.source.value.size() > kMaxAutomationEndpointAddressBytes ||
+            !read_string(data, offset, node.transfer.destination.value) ||
+            node.transfer.destination.value.size() > kMaxAutomationEndpointAddressBytes ||
+            !read_string(data, offset, node.transfer.requested.key.type) ||
+            node.transfer.requested.key.type.size() > kMaxAutomationResourceTypeBytes ||
+            !read_string(data, offset, node.transfer.requested.key.id) ||
+            node.transfer.requested.key.id.size() > kMaxAutomationResourceIdBytes ||
+            !read_string(data, offset, node.transfer.requested.key.variant) ||
+            node.transfer.requested.key.variant.size() > kMaxAutomationResourceVariantBytes ||
+            !read_int64(data, offset, node.transfer.requested.amount)) {
+            return false;
+        }
+        node.type = static_cast<SfmFlowNodeType>(node_type);
+        if (!is_known_sfm_node_type(node.type) || !node_types.emplace(node.id, node.type).second) {
+            return false;
+        }
+        if (node.type == SfmFlowNodeType::kInterval) {
+            if (node.interval_ticks == 0 || !is_absent_transfer(node.transfer)) return false;
+        } else if (node.interval_ticks != 0 || !node.transfer.is_valid()) {
+            return false;
+        }
+        record.sfm_program.nodes.push_back(std::move(node));
+    }
+
+    uint32_t connection_count = 0;
+    if (!read_uint32(data, offset, connection_count) ||
+        connection_count > kMaxAutomationFlowConnections) {
+        return false;
+    }
+    record.sfm_program.connections.clear();
+    record.sfm_program.connections.reserve(connection_count);
+    std::unordered_set<uint64_t> seen_connections;
+    seen_connections.reserve(connection_count);
+    for (uint32_t index = 0; index < connection_count; ++index) {
+        SfmFlowConnectionRecord connection;
+        if (!read_uint32(data, offset, connection.source) ||
+            !read_uint32(data, offset, connection.destination)) {
+            return false;
+        }
+        const auto source = node_types.find(connection.source);
+        const auto destination = node_types.find(connection.destination);
+        if (source == node_types.end() || destination == node_types.end() ||
+            destination->second == SfmFlowNodeType::kInterval) {
+            return false;
+        }
+        const uint64_t key = (static_cast<uint64_t>(connection.source) << 32u) |
+            connection.destination;
+        if (!seen_connections.insert(key).second) return false;
+        record.sfm_program.connections.push_back(connection);
+    }
     return true;
 }
 

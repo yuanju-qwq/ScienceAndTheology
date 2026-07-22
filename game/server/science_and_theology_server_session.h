@@ -11,6 +11,7 @@
 #include "game/client/game_session_config.h"
 #include "game/network/game_server_replication_handler.h"
 #include "game/simulation/science_and_theology_simulation_session.h"
+#include "game/source_law/source_law_persistence_codec.h"
 
 #include <memory>
 #include <string>
@@ -74,6 +75,7 @@ private:
     std::string server_password_;
     bool server_password_required_ = false;
     ScienceAndTheologySimulationSession simulation_session_;
+    source_law::SourceLawPersistenceCodec source_law_persistence_codec_;
     snt::engine::SimulationServices* services_ = nullptr;
     std::unique_ptr<ServerEcosystemInterestProvider> ecosystem_interest_provider_;
     std::unique_ptr<ServerChunkTicketController> chunk_ticket_controller_;

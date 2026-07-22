@@ -13,6 +13,7 @@
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/block_physics_events.h"
+#include "game/simulation/automation_controller_persistence.h"
 #include "game/simulation/crop_growth_system.h"
 #include "game/simulation/game_fluid_system_events.h"
 #include "game/simulation/machine_interaction_service.h"
@@ -212,6 +213,36 @@ struct TargetCell {
     return {};
 }
 
+[[nodiscard]] snt::core::Expected<void> validate_automation_controller_placement_catalog(
+    const GameContentRegistry& content,
+    const GameServerPlayerInteractionConfig& config) {
+    if (auto result = content.validate_automation_controller_placement_references(); !result) {
+        return result.error();
+    }
+    const WorldGenConfigSnapshot& worldgen = *config.worldgen_config;
+    std::set<std::string, std::less<>> machine_materials;
+    for (const MachinePlacementDefinition& placement : content.machine_placement_definitions()) {
+        machine_materials.insert(placement.material_key);
+    }
+    for (const AutomationControllerPlacementDefinition& placement :
+         content.automation_controller_placement_definitions()) {
+        const TerrainMaterialDef* material = worldgen.find_material(placement.material_key);
+        const bool collides_with_block = std::any_of(
+            config.block_definitions.begin(), config.block_definitions.end(),
+            [&placement](const GameServerBlockDefinition& block) {
+                return block.material_key == placement.material_key;
+            });
+        if (material == nullptr || material->id == worldgen.roles.air ||
+            material->id == config.reserved_grave_material_id || collides_with_block ||
+            machine_materials.contains(placement.material_key)) {
+            return invalid_argument("Automation controller placement item '" + placement.item_id +
+                                    "' has a terrain material that conflicts with the "
+                                    "server interaction catalog");
+        }
+    }
+    return {};
+}
+
 enum class MiningDropPolicy : uint8_t {
     kGrantDrops,
     kBreakWithoutDrops,
@@ -359,6 +390,9 @@ GameServerPlayerInteractionService::create(
     }
     if (auto result = validate_catalog(config); !result) return result.error();
     if (auto result = validate_machine_placement_catalog(content, config); !result) {
+        return result.error();
+    }
+    if (auto result = validate_automation_controller_placement_catalog(content, config); !result) {
         return result.error();
     }
     if (std::any_of(event_sinks.begin(), event_sinks.end(),
@@ -545,6 +579,9 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
     const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
     uint64_t tick_index) {
+    if (content_->find_automation_controller_placement_by_item(command.selected_item_id) != nullptr) {
+        return apply_automation_controller_place(peer, command, tick_index);
+    }
     if (content_->find_machine_placement_by_item(command.selected_item_id) != nullptr) {
         return apply_machine_place(peer, command, tick_index);
     }
@@ -612,6 +649,115 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
         .tick_index = tick_index,
         .command = command,
         .item_id = definition->item_id,
+        .previous_material = worldgen.roles.air,
+        .current_material = terrain_material->id,
+    });
+    return {};
+}
+
+snt::core::Expected<void>
+GameServerPlayerInteractionService::apply_automation_controller_place(
+    const GameAuthenticatedPeer& peer,
+    const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    if (config_.worldgen_config == nullptr) {
+        return invalid_state("Game server interaction has no worldgen snapshot");
+    }
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    if (static_cast<uint32_t>(target->cell->material) != worldgen.roles.air ||
+        target->cell->has_fluid()) {
+        return invalid_state(
+            "Client automation controller placement target is not an empty host terrain cell");
+    }
+
+    const AutomationControllerPlacementDefinition* placement =
+        content_->find_automation_controller_placement_by_item(command.selected_item_id);
+    if (placement == nullptr) {
+        return invalid_state(
+            "Client automation controller item is not in the host placement registry");
+    }
+    if (placement->kind != AutomationControllerKind::kSfmManager) {
+        return invalid_state("Client automation controller kind is not implemented by the host");
+    }
+    const TerrainMaterialDef* terrain_material = find_terrain_material(placement->material_key);
+    if (terrain_material == nullptr || terrain_material->id == worldgen.roles.air ||
+        terrain_material->id == config_.reserved_grave_material_id ||
+        find_block_by_material(terrain_material->id) != nullptr ||
+        content_->find_machine_placement_by_material_key(placement->material_key) != nullptr) {
+        return invalid_state("Automation controller placement material conflicts with the host catalog");
+    }
+
+    GameChunkSidecar* sidecar = sidecars_->get(target->chunk_key);
+    if (sidecar != nullptr && has_non_bed_sidecar_claim(*sidecar, target->position)) {
+        return invalid_state("Client automation controller placement target owns a protected game sidecar anchor");
+    }
+    auto bed_present = beds_->has_bed_at(target->position);
+    if (!bed_present) return bed_present.error();
+    if (*bed_present) {
+        return invalid_state("Client automation controller placement target already owns a player bed anchor");
+    }
+
+    const GamePlayerInventoryTransaction transaction{
+        .removals = {GamePlayerItemStack::item(placement->item_id, 1)},
+    };
+    auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
+    if (!can_apply) return can_apply.error();
+    if (!*can_apply) {
+        return invalid_state("Client automation controller item is absent from the host inventory");
+    }
+    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+
+    const bool created_sidecar = sidecar == nullptr;
+    if (created_sidecar) sidecars_->set(target->chunk_key, {});
+    auto anchor = GameAutomationControllerPersistence::create_controller(
+        *sidecars_, target->chunk_key,
+        target->position.position.x, target->position.position.y, target->position.position.z,
+        {.kind = placement->kind,
+         .controller_key = placement->controller_key,
+         .sfm_program = {}});
+    if (!anchor) {
+        if (created_sidecar) sidecars_->remove(target->chunk_key);
+        return anchor.error();
+    }
+
+    const snt::voxel::TerrainCell previous = *target->cell;
+    *target->cell = {
+        .material = static_cast<snt::voxel::TerrainMaterial>(terrain_material->id),
+        .flags = terrain_material->flags,
+    };
+    if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+        *target->cell = previous;
+        if (auto rollback = GameAutomationControllerPersistence::remove_controller(
+                *sidecars_, anchor->anchor_entity_id);
+            !rollback) {
+            SNT_LOG_ERROR(
+                "Automation controller placement rollback left an anchor for '%s' at (%d,%d,%d): %s",
+                placement->controller_key.c_str(), target->position.position.x,
+                target->position.position.y, target->position.position.z,
+                rollback.error().format().c_str());
+        } else if (created_sidecar) {
+            sidecars_->remove(target->chunk_key);
+        }
+        auto error = result.error();
+        error.with_context(
+            "GameServerPlayerInteractionService::apply_automation_controller_place(inventory commit)");
+        return error;
+    }
+
+    schedule_terrain_simulation_after_commit(command, tick_index);
+    SNT_LOG_INFO(
+        "Placed automation controller '%s' for account '%s' at (%d,%d,%d) anchor=%llu",
+        placement->controller_key.c_str(), peer.identity.account_id.c_str(),
+        target->position.position.x, target->position.position.y, target->position.position.z,
+        static_cast<unsigned long long>(anchor->anchor_entity_id.id));
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kBlockPlaced,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = placement->item_id,
         .previous_material = worldgen.roles.air,
         .current_material = terrain_material->id,
     });

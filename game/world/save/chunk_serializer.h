@@ -18,10 +18,10 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v23 adds durable machine fluid tanks and
-    // fluid-segment transport class; compact ResourceKey IDs never cross the
-    // persistence boundary.
-    static constexpr uint8_t kCurrentVersion = 23;
+    // Current binary format version. v25 adds stable automation-controller
+    // content keys beside durable SFM flow graphs; compact ResourceKey IDs
+    // never cross the persistence boundary.
+    static constexpr uint8_t kCurrentVersion = 25;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current
@@ -117,6 +117,16 @@ private:
     static bool read_block_entity(const std::vector<uint8_t>& data,
                                   size_t& offset,
                                   BlockEntityPlacement& entity);
+
+    // --- Automation-controller sidecar serialization ---
+
+    static void write_automation_controller_record(
+        std::vector<uint8_t>& buf,
+        const AutomationControllerPersistenceRecord& record);
+    static bool read_automation_controller_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        AutomationControllerPersistenceRecord& record);
 
     // --- Tree-growth sidecar serialization ---
 

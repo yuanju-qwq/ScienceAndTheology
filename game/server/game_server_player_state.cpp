@@ -778,6 +778,14 @@ snt::core::Expected<void> GameServerPlayerState::validate_organ_state(
         organs.payload.size() > kMaxOrganPayloadBytes) {
         return invalid_state("Authoritative player organs exceed persistence limits");
     }
+    if (config_.organ_state_codec != nullptr) {
+        auto result = config_.organ_state_codec->validate_organ_state(organs);
+        if (!result) {
+            auto error = result.error();
+            error.with_context("GameServerPlayerState::validate_organ_state");
+            return error;
+        }
+    }
     return {};
 }
 

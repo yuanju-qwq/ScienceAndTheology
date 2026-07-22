@@ -14,6 +14,7 @@
 #include "ui/retained_mui_drag.h"
 #include "ui/retained_mui_layout.h"
 #include "core/expected.h"
+#include "game/automation/sfm_flow_program.h"
 #include "inventory_slot_transaction.h"
 
 #include <cstdint>
@@ -124,6 +125,52 @@ private:
     uint64_t revision_ = 0;
 };
 
+// Automation-controller presentation is value-only and contains stable
+// endpoint addresses plus ResourceContentStack values.  It intentionally has
+// neither ResourceKey nor a mutable sidecar/program pointer, so the retained
+// UI can never run an SFM graph or mutate its save record directly.
+struct AutomationFlowNodePresentation {
+    SfmFlowNodeId id = kInvalidSfmFlowNodeId;
+    SfmFlowNodeType type = SfmFlowNodeType::kInterval;
+    uint32_t interval_ticks = 0;
+    std::string source_endpoint;
+    std::string destination_endpoint;
+    ResourceContentStack requested;
+};
+
+struct AutomationFlowConnectionPresentation {
+    SfmFlowNodeId source = kInvalidSfmFlowNodeId;
+    SfmFlowNodeId destination = kInvalidSfmFlowNodeId;
+};
+
+struct AutomationControllerPanelState {
+    std::string dimension_id;
+    int32_t root_x = 0;
+    int32_t root_y = 0;
+    int32_t root_z = 0;
+    uint64_t anchor_entity_id = 0;
+    std::string controller_key;
+    uint64_t authoritative_revision = 0;
+    bool online = false;
+    std::vector<AutomationFlowNodePresentation> nodes;
+    std::vector<AutomationFlowConnectionPresentation> connections;
+};
+
+class AutomationControllerPanelViewModel {
+public:
+    [[nodiscard]] bool apply_authoritative_state(AutomationControllerPanelState state);
+    void clear() noexcept;
+
+    [[nodiscard]] const AutomationControllerPanelState* state() const noexcept {
+        return state_ ? &*state_ : nullptr;
+    }
+    [[nodiscard]] uint64_t revision() const noexcept { return revision_; }
+
+private:
+    std::optional<AutomationControllerPanelState> state_;
+    uint64_t revision_ = 0;
+};
+
 struct PerformanceStats {
     float fps = 0.0f;
     float frame_ms = 0.0f;
@@ -219,6 +266,7 @@ enum class GameplayUiScreen : uint8_t {
     Inventory,
     Crafting,
     Machine,
+    AutomationController,
 };
 
 class GameplayUiController {
@@ -236,6 +284,9 @@ public:
     HotbarViewModel& hotbar() { return hotbar_; }
     CraftingViewModel& crafting() { return crafting_; }
     MachinePanelViewModel& machine_panel() { return machine_panel_; }
+    AutomationControllerPanelViewModel& automation_controller_panel() {
+        return automation_controller_panel_;
+    }
     [[nodiscard]] const GameContentRegistry* content() const noexcept { return content_; }
     [[nodiscard]] uint64_t item_content_revision() const noexcept;
     // The source path is session-owned and stable for the controller lifetime.
@@ -248,11 +299,15 @@ public:
     bool inventory_open() const { return open_screen_ == GameplayUiScreen::Inventory; }
     bool crafting_open() const { return open_screen_ == GameplayUiScreen::Crafting; }
     bool machine_open() const { return open_screen_ == GameplayUiScreen::Machine; }
+    bool automation_controller_open() const {
+        return open_screen_ == GameplayUiScreen::AutomationController;
+    }
     uint64_t revision() const noexcept { return revision_; }
 
     void open_inventory();
     void open_crafting();
     void open_machine(MachinePanelState state);
+    void open_automation_controller(AutomationControllerPanelState state);
     void close();
     void toggle_inventory();
     void toggle_crafting();
@@ -277,6 +332,7 @@ public:
     // safely used by a network command adapter with revision zero.
     void clear_inventory_authority() noexcept;
     void clear_machine_authority() noexcept;
+    void clear_automation_controller_authority() noexcept;
     [[nodiscard]] bool inventory_slot_transfer_pending() const noexcept {
         return pending_slot_transfer_.has_value();
     }
@@ -302,6 +358,7 @@ private:
     HotbarViewModel hotbar_;
     CraftingViewModel crafting_;
     MachinePanelViewModel machine_panel_;
+    AutomationControllerPanelViewModel automation_controller_panel_;
     GameplayUiScreen open_screen_ = GameplayUiScreen::None;
     std::shared_ptr<IInventorySlotTransferCommandSink> slot_transfer_sink_;
     std::shared_ptr<IMachineInputSlotTransferCommandSink> machine_input_slot_transfer_sink_;
@@ -322,6 +379,9 @@ std::unique_ptr<snt::ui::ViewGroup> build_crafting_view(
     CraftingViewModel& model, const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_machine_panel_view(
     const MachinePanelViewModel& model, const InventoryViewModel& inventory,
+    const localization::LocalizationService& localization);
+std::unique_ptr<snt::ui::ViewGroup> build_automation_controller_panel_view(
+    const AutomationControllerPanelViewModel& model,
     const localization::LocalizationService& localization);
 std::unique_ptr<snt::ui::ViewGroup> build_performance_panel_view(
     const PerformanceViewModel& model, const localization::LocalizationService& localization);

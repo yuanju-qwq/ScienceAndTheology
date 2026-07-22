@@ -293,6 +293,13 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
             "ScienceAndTheologySimulationSession::create_world(machine placements)");
         return error;
     }
+    if (auto result = content_registry_.validate_automation_controller_placement_references();
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(automation controller placements)");
+        return error;
+    }
 
     if (gameplay_content_loaded_) {
         machine_tick_system_ = std::make_shared<MachineTickSystem>(

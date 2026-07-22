@@ -602,6 +602,24 @@ void api_register_machine_placement(const std::string& item_id,
     }
 }
 
+void api_register_automation_controller_placement(
+    const std::string& item_id,
+    const std::string& controller_key,
+    int kind,
+    const std::string& material_key) {
+    GameContentRegistry* registry = active_registry();
+    if (!registry) return;
+    if (auto result = registry->register_script_automation_controller_placement(
+            g_active_script_id,
+            {.item_id = item_id,
+             .controller_key = controller_key,
+             .kind = static_cast<AutomationControllerKind>(kind),
+             .material_key = material_key});
+        !result) {
+        report_binding_error(result.error());
+    }
+}
+
 void api_set_machine_activation_requirements(
     const std::string& machine_id,
     bool requires_cover,
@@ -909,6 +927,10 @@ snt::core::Expected<void> GameContentRegistry::register_script_api(asIScriptEngi
             engine,
             "void snt_register_machine_placement(const string &in, const string &in, const string &in)",
             asFUNCTION(api_register_machine_placement)); !result) return result;
+    if (auto result = register_function(
+            engine,
+            "void snt_register_automation_controller_placement(const string &in, const string &in, int, const string &in)",
+            asFUNCTION(api_register_automation_controller_placement)); !result) return result;
     if (auto result = register_function(
             engine,
             "void snt_set_machine_activation_requirements(const string &in, bool, bool, bool, const string &in)",
@@ -1452,6 +1474,11 @@ snt::core::Expected<void> GameContentRegistry::register_builtin_machine_placemen
     return machine_placements_.register_builtin(std::move(definition));
 }
 
+snt::core::Expected<void> GameContentRegistry::register_builtin_automation_controller_placement(
+    AutomationControllerPlacementDefinition definition) {
+    return automation_controller_placements_.register_builtin(std::move(definition));
+}
+
 snt::core::Expected<void> GameContentRegistry::register_builtin_quest_chapter(
     QuestBookChapterDefinition definition) {
     return register_quest_chapter(kBuiltinScriptId, std::move(definition), true);
@@ -1731,6 +1758,13 @@ snt::core::Expected<void> GameContentRegistry::register_script_machine(
 snt::core::Expected<void> GameContentRegistry::register_script_machine_placement(
     ScriptId script_id, MachinePlacementDefinition definition) {
     return machine_placements_.register_script(script_id, std::move(definition));
+}
+
+snt::core::Expected<void>
+GameContentRegistry::register_script_automation_controller_placement(
+    ScriptId script_id,
+    AutomationControllerPlacementDefinition definition) {
+    return automation_controller_placements_.register_script(script_id, std::move(definition));
 }
 
 snt::core::Expected<void> GameContentRegistry::register_script_quest_chapter(
@@ -2476,6 +2510,39 @@ snt::core::Expected<void> GameContentRegistry::validate_machine_placement_refere
     return {};
 }
 
+const AutomationControllerPlacementDefinition*
+GameContentRegistry::find_automation_controller_placement_by_item(
+    std::string_view item_id) const noexcept {
+    return automation_controller_placements_.find_by_item(item_id);
+}
+
+const AutomationControllerPlacementDefinition*
+GameContentRegistry::find_automation_controller_placement_by_material_key(
+    std::string_view material_key) const noexcept {
+    return automation_controller_placements_.find_by_material_key(material_key);
+}
+
+std::vector<AutomationControllerPlacementDefinition>
+GameContentRegistry::automation_controller_placement_definitions() const {
+    return automation_controller_placements_.definitions();
+}
+
+snt::core::Expected<void>
+GameContentRegistry::validate_automation_controller_placement_references() const {
+    for (const AutomationControllerPlacementDefinition& placement :
+         automation_controller_placements_.definitions()) {
+        if (find_item(placement.item_id) == nullptr) {
+            return invalid_state("Automation controller placement item '" + placement.item_id +
+                                 "' has no registered game item definition");
+        }
+        if (placement.kind != AutomationControllerKind::kSfmManager) {
+            return invalid_state("Automation controller placement item '" + placement.item_id +
+                                 "' has an unsupported controller kind");
+        }
+    }
+    return {};
+}
+
 snt::core::Expected<void> GameContentRegistry::validate_machine_item_references() const {
     for (const auto& [recipe_id, entry] : live_recipes_) {
         const RecipeDefinition& recipe = entry.definition;
@@ -2494,6 +2561,9 @@ snt::core::Expected<void> GameContentRegistry::validate_machine_item_references(
         if (find_item(placement.item_id) != nullptr) continue;
         return invalid_state("Machine placement item '" + placement.item_id +
                              "' has no registered game item definition");
+    }
+    if (auto result = validate_automation_controller_placement_references(); !result) {
+        return result.error();
     }
     return {};
 }
@@ -2646,6 +2716,10 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
     if (reloads_.contains(script_id)) return invalid_state("Reload is already active for script");
 
     if (auto result = machine_placements_.begin_reload(script_id); !result) return result.error();
+    if (auto result = automation_controller_placements_.begin_reload(script_id); !result) {
+        static_cast<void>(machine_placements_.rollback_reload(script_id));
+        return result.error();
+    }
 
     auto [reload, inserted] = reloads_.emplace(script_id, snapshot_script_content(script_id));
     (void)inserted;
@@ -2653,6 +2727,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload(ScriptId script_id) 
         auto error = result.error();
         static_cast<void>(restore_script_content(reload->second));
         reloads_.erase(reload);
+        static_cast<void>(automation_controller_placements_.rollback_reload(script_id));
         static_cast<void>(machine_placements_.rollback_reload(script_id));
         error.with_context("Game content reload could not remove prior script content");
         return error;
@@ -2672,6 +2747,9 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
     if (auto result = rebuild_generated_material_items(); !result) return result.error();
     if (auto result = validate_fluid_references(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
+    if (auto result = validate_automation_controller_placement_references(); !result) {
+        return result.error();
+    }
     if (auto result = validate_machine_item_references(); !result) return result.error();
     auto next_snapshot = build_resource_runtime_snapshot();
     if (!next_snapshot) return next_snapshot.error();
@@ -2679,6 +2757,10 @@ snt::core::Expected<void> GameContentRegistry::commit_reload(ScriptId script_id)
         return result.error();
     }
     if (auto result = machine_placements_.commit_reload(script_id); !result) {
+        cancel_resource_runtime_snapshot();
+        return result.error();
+    }
+    if (auto result = automation_controller_placements_.commit_reload(script_id); !result) {
         cancel_resource_runtime_snapshot();
         return result.error();
     }
@@ -2695,6 +2777,9 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload(ScriptId script_i
     auto it = reloads_.find(script_id);
     if (it == reloads_.end()) return invalid_state("No active reload for script");
 
+    if (auto result = automation_controller_placements_.rollback_reload(script_id); !result) {
+        return result.error();
+    }
     if (auto result = machine_placements_.rollback_reload(script_id); !result) return result.error();
 
     if (auto result = erase_script_content(script_id); !result) return result.error();
@@ -2727,6 +2812,10 @@ snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
     if (auto result = machine_placements_.begin_reload_batch(script_ids); !result) {
         return result.error();
     }
+    if (auto result = automation_controller_placements_.begin_reload_batch(script_ids); !result) {
+        static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
+        return result.error();
+    }
 
     std::vector<ScriptId> started;
     started.reserve(script_ids.size());
@@ -2734,6 +2823,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
         auto [reload, inserted] = reloads_.emplace(script_id, snapshot_script_content(script_id));
         (void)reload;
         if (!inserted) {
+            static_cast<void>(automation_controller_placements_.rollback_reload_batch(script_ids));
             static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
             for (auto it = started.rbegin(); it != started.rend(); ++it) {
                 const auto snapshot = reloads_.find(*it);
@@ -2745,6 +2835,7 @@ snt::core::Expected<void> GameContentRegistry::begin_reload_batch(
         }
         if (auto result = erase_script_content(script_id); !result) {
             auto error = result.error();
+            static_cast<void>(automation_controller_placements_.rollback_reload_batch(script_ids));
             static_cast<void>(machine_placements_.rollback_reload_batch(script_ids));
             for (auto it = started.rbegin(); it != started.rend(); ++it) {
                 const auto snapshot = reloads_.find(*it);
@@ -2780,6 +2871,9 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
     if (auto result = rebuild_generated_material_items(); !result) return result.error();
     if (auto result = validate_fluid_references(); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) return result.error();
+    if (auto result = validate_automation_controller_placement_references(); !result) {
+        return result.error();
+    }
     if (auto result = validate_machine_item_references(); !result) return result.error();
     auto next_snapshot = build_resource_runtime_snapshot();
     if (!next_snapshot) return next_snapshot.error();
@@ -2787,6 +2881,10 @@ snt::core::Expected<void> GameContentRegistry::commit_reload_batch(
         return result.error();
     }
     if (auto result = machine_placements_.commit_reload_batch(script_ids); !result) {
+        cancel_resource_runtime_snapshot();
+        return result.error();
+    }
+    if (auto result = automation_controller_placements_.commit_reload_batch(script_ids); !result) {
         cancel_resource_runtime_snapshot();
         return result.error();
     }
@@ -2812,6 +2910,9 @@ snt::core::Expected<void> GameContentRegistry::rollback_reload_batch(
     const uint64_t item_content_revision = first_snapshot->second.item_content_revision;
     const uint64_t quest_content_revision = reload_batch_->quest_content_revision;
 
+    if (auto result = automation_controller_placements_.rollback_reload_batch(script_ids); !result) {
+        return result.error();
+    }
     if (auto result = machine_placements_.rollback_reload_batch(script_ids); !result) {
         return result.error();
     }
@@ -2842,6 +2943,14 @@ snt::core::Expected<void> GameContentRegistry::unload_script(ScriptId script_id)
     // that only this script supplied.
     if (auto result = begin_reload(script_id); !result) return result.error();
     if (auto result = validate_machine_placement_references(); !result) {
+        auto error = result.error();
+        if (auto rollback = rollback_reload(script_id); !rollback) {
+            error.with_context("Game content unload rollback failed: " +
+                               rollback.error().format());
+        }
+        return error;
+    }
+    if (auto result = validate_automation_controller_placement_references(); !result) {
         auto error = result.error();
         if (auto rollback = rollback_reload(script_id); !rollback) {
             error.with_context("Game content unload rollback failed: " +
@@ -2881,6 +2990,7 @@ void GameContentRegistry::reset() {
     live_quest_chapters_.clear();
     live_quests_.clear();
     machine_placements_.reset();
+    automation_controller_placements_.reset();
     event_listeners_.clear();
     state_store_.clear();
     reloads_.clear();

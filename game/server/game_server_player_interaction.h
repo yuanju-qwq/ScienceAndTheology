@@ -168,6 +168,9 @@ private:
     [[nodiscard]] snt::core::Expected<void> apply_machine_place(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_automation_controller_place(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> apply_use(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
