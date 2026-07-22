@@ -5,6 +5,7 @@
 
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
+#include "game/simulation/ae_drive_storage_runtime.h"
 #include "game/simulation/ae_network_persistence.h"
 #include "game/simulation/ae_network_runtime.h"
 #include "game/simulation/automation_controller_persistence.h"
@@ -304,6 +305,13 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
             "ScienceAndTheologySimulationSession::create_world(automation controller placements)");
         return error;
     }
+    if (auto result = content_registry_.validate_ae_network_node_placement_references();
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(AE node placements)");
+        return error;
+    }
 
     if (gameplay_content_loaded_) {
         machine_tick_system_ = std::make_shared<MachineTickSystem>(
@@ -382,13 +390,37 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         error.with_context("ScienceAndTheologySimulationSession::create_world(AE node sidecars)");
         return error;
     }
+    if (auto result = GameAeNetworkPersistence::validate_content_references(
+            chunk_sidecars_, content_registry_);
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(AE node content keys)");
+        return error;
+    }
     ae_network_runtime_ = std::make_unique<AeNetworkRuntimeService>();
+    ae_drive_storage_runtime_ = std::make_unique<AeDriveStorageRuntimeService>(
+        *ae_network_runtime_, content_registry_);
+    if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
+            *ae_drive_storage_runtime_);
+        !result) {
+        ae_drive_storage_runtime_.reset();
+        ae_network_runtime_.reset();
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(AE drive resource snapshot)");
+        return error;
+    }
     automation_controller_runtime_ = std::make_unique<AutomationControllerRuntimeService>(
         content_registry_.resource_runtime_index());
-    if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
+        if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
             *automation_controller_runtime_);
         !result) {
+        content_registry_.remove_resource_runtime_snapshot_participant(
+            *ae_drive_storage_runtime_);
         automation_controller_runtime_.reset();
+        ae_drive_storage_runtime_.reset();
+        ae_network_runtime_.reset();
         auto error = result.error();
         error.with_context(
             "ScienceAndTheologySimulationSession::create_world(automation resource snapshot)");
@@ -554,6 +586,18 @@ ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
     if (automation_controller_runtime_) {
         automation_controller_runtime_->dematerialize_chunk(chunk_key);
     }
+    if (ae_drive_storage_runtime_) {
+        GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
+        if (sidecar != nullptr) {
+            if (auto result = ae_drive_storage_runtime_->dematerialize_chunk(chunk_key, *sidecar);
+                !result) {
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::dematerialize_chunk_machines(AE drive)");
+                return error;
+            }
+        }
+    }
     if (ae_network_runtime_) {
         auto result = ae_network_runtime_->dematerialize_chunk(chunk_key);
         if (!result) {
@@ -580,6 +624,19 @@ ScienceAndTheologySimulationSession::dematerialize_chunks_machines(
     if (automation_controller_runtime_) {
         for (const ChunkKey& chunk_key : chunk_keys) {
             automation_controller_runtime_->dematerialize_chunk(chunk_key);
+        }
+    }
+    if (ae_drive_storage_runtime_) {
+        for (const ChunkKey& chunk_key : chunk_keys) {
+            GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
+            if (sidecar == nullptr) continue;
+            if (auto result = ae_drive_storage_runtime_->dematerialize_chunk(chunk_key, *sidecar);
+                !result) {
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::dematerialize_chunks_machines(AE drive)");
+                return error;
+            }
         }
     }
     if (ae_network_runtime_) {
@@ -636,6 +693,16 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
             error.with_context(
                 "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE)");
             return error;
+        }
+        if (ae_drive_storage_runtime_ != nullptr) {
+            if (auto result = ae_drive_storage_runtime_->materialize_chunk(chunk_key, *sidecar);
+                !result) {
+                static_cast<void>(ae_network_runtime_->dematerialize_chunk(chunk_key));
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE drive)");
+                return error;
+            }
         }
     }
     return {};
@@ -850,6 +917,22 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
         content_registry_.remove_resource_runtime_snapshot_participant(
             *automation_controller_runtime_);
         automation_controller_runtime_.reset();
+    }
+    if (ae_drive_storage_runtime_) {
+        std::optional<snt::core::Error> flush_error;
+        chunk_sidecars_.for_each([&](const ChunkKey& chunk_key, GameChunkSidecar& sidecar) {
+            if (flush_error) return;
+            if (auto result = ae_drive_storage_runtime_->flush_chunk(chunk_key, sidecar); !result) {
+                flush_error = result.error();
+            }
+        });
+        if (flush_error) {
+            SNT_LOG_ERROR("AE drive storage flush during session shutdown failed: %s",
+                          flush_error->format().c_str());
+        }
+        content_registry_.remove_resource_runtime_snapshot_participant(
+            *ae_drive_storage_runtime_);
+        ae_drive_storage_runtime_.reset();
     }
     ae_network_runtime_.reset();
     if (offline_machine_simulation_) {

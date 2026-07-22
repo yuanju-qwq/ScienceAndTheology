@@ -15,6 +15,8 @@
 
 namespace snt::game {
 
+class GameContentRegistry;
+
 struct AeNetworkNodeAnchor {
     EntityId anchor_entity_id;
 };
@@ -51,6 +53,13 @@ public:
     // one-to-one association between every AE controller and controller node.
     [[nodiscard]] static snt::core::Expected<void> validate_all(
         const GameChunkSidecarRegistry& sidecars);
+
+    // Resolves every persisted non-controller node through the current
+    // stable content key.  This runs at world/content boundaries; active AE
+    // topology stores only compact node categories and never hashes keys.
+    [[nodiscard]] static snt::core::Expected<void> validate_content_references(
+        const GameChunkSidecarRegistry& sidecars,
+        const GameContentRegistry& content);
 };
 
 }  // namespace snt::game

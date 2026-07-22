@@ -56,12 +56,14 @@ GameChunkSidecar make_connected_sidecar() {
     sidecar.ae_network_node_records = {
         {
             .anchor_entity_id = kAeControllerAnchor,
+            .node_key = std::string(kAeControllerKey),
             .type = AeNetworkNodeType::kController,
             .connection_mask = CONN_POS_X,
             .revision = 1,
         },
         {
             .anchor_entity_id = kAeCableAnchor,
+            .node_key = "automation.ae_cable",
             .type = AeNetworkNodeType::kCable,
             .connection_mask = CONN_NEG_X,
             .revision = 1,
@@ -84,6 +86,9 @@ GameChunkSidecar make_storage_sidecar(
     sidecar.ae_network_node_records[1].connection_mask = CONN_NEG_X | CONN_POS_X;
     sidecar.ae_network_node_records.push_back({
         .anchor_entity_id = kAeDriveAnchor,
+        .node_key = storage_type == AeNetworkNodeType::kDrive
+            ? "automation.ae_drive.1k"
+            : "automation.ae_storage_bus",
         .type = storage_type,
         .connection_mask = CONN_NEG_X,
         .revision = 1,
@@ -134,6 +139,7 @@ TEST(AeNetworkRuntimeTest, FailsClosedForTwoControllersInOnePhysicalComponent) {
     sidecar.ae_network_node_records[1].connection_mask = CONN_NEG_X | CONN_POS_X;
     sidecar.ae_network_node_records.push_back({
         .anchor_entity_id = second_controller,
+        .node_key = std::string(kAeControllerKey),
         .type = AeNetworkNodeType::kController,
         .connection_mask = CONN_NEG_X,
         .revision = 1,
@@ -313,6 +319,7 @@ TEST(AeNetworkPersistenceTest, CreatesAndRemovesNonControllerTypedNode) {
     auto node = GameAeNetworkPersistence::create_node(
         sidecars, chunk_key, 1, 0, 0,
         {
+            .node_key = "automation.ae_cable",
             .type = AeNetworkNodeType::kCable,
             .connection_mask = CONN_NEG_X | CONN_POS_X,
         });

@@ -31,6 +31,11 @@ namespace {
     return (static_cast<uint64_t>(source) << 32u) | destination;
 }
 
+[[nodiscard]] bool is_absent_transfer(const SfmResourceTransferRule& transfer) noexcept {
+    return transfer.source.value.empty() && transfer.destination.value.empty() &&
+        transfer.requested.is_absent();
+}
+
 void saturating_add(int64_t& target, int64_t amount) noexcept {
     if (amount <= 0) return;
     if (target > std::numeric_limits<int64_t>::max() - amount) {
@@ -42,6 +47,75 @@ void saturating_add(int64_t& target, int64_t amount) noexcept {
 
 }  // namespace
 
+snt::core::Expected<void> validate_sfm_flow_program(
+    const SfmFlowProgramRecord& program,
+    SfmFlowProgramValidationLimits limits) {
+    if (program.nodes.size() > limits.max_nodes ||
+        program.connections.size() > limits.max_connections) {
+        return invalid_argument("SFM flow program exceeds durable limits");
+    }
+
+    std::unordered_map<SfmFlowNodeId, SfmFlowNodeType> node_types;
+    node_types.reserve(program.nodes.size());
+    for (const SfmFlowNodeRecord& node : program.nodes) {
+        if (node.id == kInvalidSfmFlowNodeId || !is_known_node_type(node.type) ||
+            !node_types.emplace(node.id, node.type).second) {
+            return invalid_argument("SFM flow program has an invalid node identity");
+        }
+        if (node.type == SfmFlowNodeType::kInterval) {
+            if (node.interval_ticks == 0 || !is_absent_transfer(node.transfer)) {
+                return invalid_argument("SFM interval node is malformed");
+            }
+        } else if (node.interval_ticks != 0 || !node.transfer.is_valid()) {
+            return invalid_argument("SFM transfer node is malformed");
+        }
+    }
+
+    std::unordered_map<SfmFlowNodeId, std::vector<SfmFlowNodeId>> outgoing;
+    outgoing.reserve(program.nodes.size());
+    std::unordered_set<uint64_t> seen_connections;
+    seen_connections.reserve(program.connections.size());
+    for (const SfmFlowConnectionRecord& connection : program.connections) {
+        const auto source = node_types.find(connection.source);
+        const auto destination = node_types.find(connection.destination);
+        if (source == node_types.end() || destination == node_types.end() ||
+            destination->second == SfmFlowNodeType::kInterval) {
+            return invalid_argument("SFM flow connection has an unavailable or invalid endpoint");
+        }
+        if (!seen_connections.insert(connection_key(connection.source, connection.destination)).second) {
+            return invalid_argument("SFM flow program has duplicate connections");
+        }
+        outgoing[connection.source].push_back(connection.destination);
+    }
+
+    // Transfer-only cycles never yield to an interval timer. Reject them at
+    // persistence/admission time instead of accepting a graph that can only
+    // become offline at its runtime compilation boundary.
+    std::unordered_map<SfmFlowNodeId, uint8_t> visit_state;
+    visit_state.reserve(program.nodes.size());
+    const auto visit = [&](const auto& self, SfmFlowNodeId id) -> bool {
+        visit_state[id] = 1;
+        const auto edges = outgoing.find(id);
+        if (edges != outgoing.end()) {
+            for (const SfmFlowNodeId destination : edges->second) {
+                if (node_types.at(destination) == SfmFlowNodeType::kInterval) continue;
+                const uint8_t state = visit_state[destination];
+                if (state == 1) return false;
+                if (state == 0 && !self(self, destination)) return false;
+            }
+        }
+        visit_state[id] = 2;
+        return true;
+    };
+    for (const auto& [node_id, type] : node_types) {
+        if (type == SfmFlowNodeType::kInterval || visit_state[node_id] != 0) continue;
+        if (!visit(visit, node_id)) {
+            return invalid_argument("SFM flow program contains an immediate execution cycle");
+        }
+    }
+    return {};
+}
+
 snt::core::Expected<SfmCompiledFlowProgram> SfmFlowProgramCompiler::compile(
     const SfmFlowProgramRecord& record,
     const SfmEndpointRegistry& endpoint_registry,
@@ -50,10 +124,13 @@ snt::core::Expected<SfmCompiledFlowProgram> SfmFlowProgramCompiler::compile(
     if (!resource_resolver.key_context().is_valid()) {
         return invalid_argument("SFM flow compilation requires a valid resource snapshot");
     }
-    if (record.nodes.empty() || record.nodes.size() > limits.max_nodes ||
-        record.connections.size() > limits.max_connections ||
-        limits.max_node_dispatches_per_tick == 0) {
+    if (record.nodes.empty() || limits.max_node_dispatches_per_tick == 0) {
         return invalid_argument("SFM flow record exceeds its configured compile limits");
+    }
+    if (auto result = validate_sfm_flow_program(
+            record, {.max_nodes = limits.max_nodes, .max_connections = limits.max_connections});
+        !result) {
+        return result.error();
     }
 
     SfmCompiledFlowProgram result;
@@ -65,12 +142,6 @@ snt::core::Expected<SfmCompiledFlowProgram> SfmFlowProgramCompiler::compile(
     result.node_indices_.reserve(record.nodes.size());
 
     for (const SfmFlowNodeRecord& source : record.nodes) {
-        if (source.id == kInvalidSfmFlowNodeId || !is_known_node_type(source.type)) {
-            return invalid_argument("SFM flow record contains an invalid node identity or type");
-        }
-        if (result.node_indices_.contains(source.id)) {
-            return invalid_argument("SFM flow record contains duplicate node IDs");
-        }
         SfmCompiledFlowProgram::Node node{
             .id = source.id,
             .type = source.type,
@@ -93,46 +164,15 @@ snt::core::Expected<SfmCompiledFlowProgram> SfmFlowProgramCompiler::compile(
         result.nodes_.push_back(std::move(node));
     }
 
-    std::unordered_set<uint64_t> seen_connections;
-    seen_connections.reserve(record.connections.size());
     for (const SfmFlowConnectionRecord& connection : record.connections) {
         const auto source = result.node_indices_.find(connection.source);
         const auto destination = result.node_indices_.find(connection.destination);
         if (source == result.node_indices_.end() || destination == result.node_indices_.end()) {
             return invalid_argument("SFM flow connection refers to an unavailable node");
         }
-        if (result.nodes_[destination->second].type == SfmFlowNodeType::kInterval) {
-            return invalid_argument("SFM interval nodes may only be graph sources");
-        }
-        if (!seen_connections.insert(connection_key(source->second, destination->second)).second) {
-            return invalid_argument("SFM flow record contains duplicate connections");
-        }
         result.nodes_[source->second].outgoing.push_back(destination->second);
     }
 
-    // A cycle made only of immediate transfer nodes can never yield control to
-    // the timer.  Reject it at the durable boundary rather than relying on the
-    // runtime dispatch cap to repeatedly truncate a malformed program.
-    std::vector<uint8_t> visit_state(result.nodes_.size(), 0);
-    const auto visit = [&](const auto& self, uint32_t index) -> bool {
-        visit_state[index] = 1;
-        for (const uint32_t destination : result.nodes_[index].outgoing) {
-            if (result.nodes_[destination].type == SfmFlowNodeType::kInterval) continue;
-            if (visit_state[destination] == 1) return false;
-            if (visit_state[destination] == 0 && !self(self, destination)) return false;
-        }
-        visit_state[index] = 2;
-        return true;
-    };
-    for (uint32_t index = 0; index < result.nodes_.size(); ++index) {
-        if (result.nodes_[index].type == SfmFlowNodeType::kInterval ||
-            visit_state[index] != 0) {
-            continue;
-        }
-        if (!visit(visit, index)) {
-            return invalid_argument("SFM flow record contains an immediate execution cycle");
-        }
-    }
     return result;
 }
 

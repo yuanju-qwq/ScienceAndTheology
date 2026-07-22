@@ -4,6 +4,7 @@
 #include "game/simulation/ae_network_persistence.h"
 
 #include "core/error.h"
+#include "game/client/game_content_registry.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -330,6 +331,27 @@ snt::core::Expected<void> GameAeNetworkPersistence::validate_all(
             return invalid_state("AE automation controller has no matching topology node");
         }
     }
+    return {};
+}
+
+snt::core::Expected<void> GameAeNetworkPersistence::validate_content_references(
+    const GameChunkSidecarRegistry& sidecars,
+    const GameContentRegistry& content) {
+    std::optional<snt::core::Error> error;
+    sidecars.for_each([&](const ChunkKey&, const GameChunkSidecar& sidecar) {
+        if (error) return;
+        for (const AeNetworkNodePersistenceRecord& record : sidecar.ae_network_node_records) {
+            if (record.type == AeNetworkNodeType::kController) continue;
+            const AeNetworkNodePlacementDefinition* const placement =
+                content.find_ae_network_node_placement_by_node_key(record.node_key);
+            if (placement == nullptr || placement->type != record.type) {
+                error = invalid_state("Persisted AE node key '" + record.node_key +
+                                      "' has no matching current placement definition");
+                return;
+            }
+        }
+    });
+    if (error) return *error;
     return {};
 }
 

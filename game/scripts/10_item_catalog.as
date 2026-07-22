@@ -218,6 +218,12 @@ void snt_register() {
     register_catalog_item("sfm_manager", "sfm.block.manager", 64, kPlaceables,
                           "components/sfm_manager_icon_32.png");
     register_catalog_item("ae_controller", "ae.block.controller", 64, kPlaceables, "");
+    register_catalog_item("ae_cable", "ae.block.cable", 64, kPlaceables, "");
+    register_catalog_item("ae_channel_provider", "ae.block.channel_provider", 64, kPlaceables, "");
+    register_catalog_item("ae_drive_1k", "ae.block.drive_1k", 64, kPlaceables, "");
+    register_catalog_item("ae_storage_bus", "ae.block.storage_bus", 64, kPlaceables, "");
+    register_catalog_item("ae_interface", "ae.block.interface", 64, kPlaceables, "");
+    register_catalog_item("ae_terminal", "ae.block.terminal", 64, kPlaceables, "");
     register_catalog_item("sfm_cable", "sfm.block.cable", 64, kPlaceables,
                           "components/sfm_cable_icon_32.png");
     register_tinted_catalog_item("iron_ore", "item.iron_ore", 64, kResources,

@@ -307,6 +307,12 @@ void register_terrain_materials() {
     snt_register_worldgen_material("snt:runtime.machine.anvil", "terrain.runtime.machine.anvil", 11, 4.0f, "", 0, 0.3f, 5, "");
     snt_register_worldgen_material("snt:runtime.automation.sfm_manager", "terrain.runtime.automation.sfm_manager", 11, 2.0f, "", 0, 0.3f, 5, "");
     snt_register_worldgen_material("snt:runtime.automation.ae_controller", "terrain.runtime.automation.ae_controller", 11, 2.0f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_cable", "terrain.runtime.automation.ae_cable", 11, 0.5f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_channel_provider", "terrain.runtime.automation.ae_channel_provider", 11, 2.0f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_drive_1k", "terrain.runtime.automation.ae_drive_1k", 11, 2.0f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_storage_bus", "terrain.runtime.automation.ae_storage_bus", 11, 2.0f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_interface", "terrain.runtime.automation.ae_interface", 11, 2.0f, "", 0, 0.3f, 5, "");
+    snt_register_worldgen_material("snt:runtime.automation.ae_terminal", "terrain.runtime.automation.ae_terminal", 11, 2.0f, "", 0, 0.3f, 5, "");
 }
 
 void register_terrain_roles() {

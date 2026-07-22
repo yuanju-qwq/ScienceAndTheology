@@ -8,6 +8,7 @@
 #include "game/client/game_content_registry.h"
 #include "game/simulation/ae_network_node_placement_registry.h"
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -263,7 +264,12 @@ snt::core::Expected<void> AeDriveStorageRuntimeService::write_persisted_contents
     if (record == nullptr) {
         return invalid_state("AE drive storage persistence has no matching durable record");
     }
+    if (record->stored_resources == contents) return {};
+    if (record->revision == std::numeric_limits<uint64_t>::max()) {
+        return invalid_state("AE drive storage persistence revision is exhausted");
+    }
     record->stored_resources = std::move(contents);
+    ++record->revision;
     return {};
 }
 

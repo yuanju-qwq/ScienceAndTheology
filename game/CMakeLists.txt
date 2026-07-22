@@ -22,6 +22,7 @@ target_link_libraries(snt_game_resources PUBLIC
 # contract. It deliberately depends on game resources instead of the retired
 # src/Godot resource model.
 add_library(snt_game_automation STATIC
+    automation/ae_autocrafting.cpp
     automation/ae_network.cpp
     automation/ae_storage_cell.cpp
     automation/sfm_endpoint_registry.cpp
@@ -380,6 +381,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     # Keep their tests on the same small closure so script/content reload work
     # can be validated without the client, transport, or server test sources.
     add_executable(snt_game_content_tests
+        tests/test_ae_autocrafting.cpp
         tests/test_ae_network.cpp
         tests/test_ae_storage_cell.cpp
         tests/test_element_catalog.cpp
@@ -523,6 +525,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         client/gameplay_ui.cpp
         client/lan_server_browser.cpp
         client/quest_book_ui.cpp
+        server/game_server_ae_network_replication.cpp
         server/game_server_automation_controller_replication.cpp
         server/game_server_command_sink.cpp
         server/game_server_creature_interaction.cpp
@@ -559,6 +562,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_machine_placement_registry.cpp
         tests/test_machine_structure_validator.cpp
         tests/test_machine_runtime_persistence.cpp
+        tests/test_ae_drive_storage_runtime.cpp
         tests/test_automation_controller_persistence.cpp
         tests/test_offline_machine_simulation.cpp
         tests/test_mobile_structure.cpp

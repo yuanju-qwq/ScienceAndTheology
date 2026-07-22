@@ -123,6 +123,23 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
             pending.machine_input_slot_transfer = std::move(*parsed);
             break;
         }
+        case GameClientCommandType::kSfmProgramReplace: {
+            if (player_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no authoritative SFM editor service"};
+            }
+            auto parsed = parse_game_sfm_program_replace_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(SfmProgramReplace)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kSfmProgramReplace;
+            pending.sfm_program_replace = std::move(*parsed);
+            break;
+        }
         case GameClientCommandType::kCreatureAttack: {
             if (creature_interactions_ == nullptr) {
                 return snt::core::Error{
@@ -289,6 +306,19 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
                     record_gameplay_rejection(tick_index, command, result.error());
                 }
                 break;
+            case GameClientCommandType::kSfmProgramReplace:
+                if (player_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its SFM editor service"));
+                    break;
+                }
+                if (auto result = player_interactions_->submit_sfm_program_replace(
+                        command.peer, command.sfm_program_replace, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
             case GameClientCommandType::kCreatureAttack:
                 if (creature_interactions_ == nullptr) {
                     record_gameplay_rejection(
@@ -398,6 +428,9 @@ void GameServerCommandSink::record_gameplay_rejection(
             break;
         case GameClientCommandType::kMachineInputSlotTransfer:
             command_name = "machine_input_slot_transfer";
+            break;
+        case GameClientCommandType::kSfmProgramReplace:
+            command_name = "sfm_program_replace";
             break;
         case GameClientCommandType::kCreatureAttack:
             command_name = "creature_attack";

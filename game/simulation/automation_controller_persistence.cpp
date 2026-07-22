@@ -18,8 +18,6 @@ namespace {
 constexpr uint64_t kAutomationControllerAnchorIdFlag = uint64_t{1} << 61u;
 constexpr uint64_t kAutomationControllerAnchorSerialMask =
     kAutomationControllerAnchorIdFlag - 1u;
-constexpr size_t kMaxAutomationFlowNodes = 1024;
-constexpr size_t kMaxAutomationFlowConnections = 4096;
 constexpr size_t kMaxAutomationControllerKeyBytes = 256;
 
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
@@ -52,15 +50,6 @@ constexpr size_t kMaxAutomationControllerKeyBytes = 256;
         key.find('\0') == std::string_view::npos;
 }
 
-[[nodiscard]] bool is_known_flow_node_type(SfmFlowNodeType type) noexcept {
-    return type == SfmFlowNodeType::kInterval || type == SfmFlowNodeType::kTransfer;
-}
-
-[[nodiscard]] bool is_absent_transfer(const SfmResourceTransferRule& transfer) noexcept {
-    return transfer.source.value.empty() && transfer.destination.value.empty() &&
-        transfer.requested.is_absent();
-}
-
 [[nodiscard]] bool is_valid_ae_node_config(
     const AutomationAeControllerNodeConfig& config) noexcept {
     return config.provided_channels >= 0 &&
@@ -79,38 +68,7 @@ constexpr size_t kMaxAutomationControllerKeyBytes = 256;
 
 [[nodiscard]] snt::core::Expected<void> validate_program(
     const SfmFlowProgramRecord& program) {
-    if (program.nodes.size() > kMaxAutomationFlowNodes ||
-        program.connections.size() > kMaxAutomationFlowConnections) {
-        return invalid_argument("Automation controller flow program exceeds durable limits");
-    }
-    std::unordered_set<SfmFlowNodeId> node_ids;
-    node_ids.reserve(program.nodes.size());
-    for (const SfmFlowNodeRecord& node : program.nodes) {
-        if (node.id == kInvalidSfmFlowNodeId || !is_known_flow_node_type(node.type) ||
-            !node_ids.insert(node.id).second) {
-            return invalid_argument("Automation controller flow program has an invalid node identity");
-        }
-        if (node.type == SfmFlowNodeType::kInterval) {
-            if (node.interval_ticks == 0 || !is_absent_transfer(node.transfer)) {
-                return invalid_argument("Automation controller interval node is malformed");
-            }
-        } else if (node.interval_ticks != 0 || !node.transfer.is_valid()) {
-            return invalid_argument("Automation controller transfer node is malformed");
-        }
-    }
-    std::unordered_set<uint64_t> connections;
-    connections.reserve(program.connections.size());
-    for (const SfmFlowConnectionRecord& connection : program.connections) {
-        if (!node_ids.contains(connection.source) || !node_ids.contains(connection.destination)) {
-            return invalid_argument("Automation controller flow connection has an unavailable endpoint");
-        }
-        const uint64_t key = (static_cast<uint64_t>(connection.source) << 32u) |
-            connection.destination;
-        if (!connections.insert(key).second) {
-            return invalid_argument("Automation controller flow program has duplicate connections");
-        }
-    }
-    return {};
+    return validate_sfm_flow_program(program);
 }
 
 [[nodiscard]] const BlockEntityPlacement* find_anchor(
@@ -256,13 +214,20 @@ GameAutomationControllerPersistence::create_controller(
     return AutomationControllerAnchor{.anchor_entity_id = *anchor_id};
 }
 
-snt::core::Expected<void> GameAutomationControllerPersistence::replace_sfm_program(
+snt::core::Expected<AutomationControllerProgramReplaceResult>
+GameAutomationControllerPersistence::replace_sfm_program(
     GameChunkSidecarRegistry& sidecars,
     EntityId anchor_entity_id,
-    SfmFlowProgramRecord program) {
+    uint64_t expected_program_revision,
+    SfmFlowProgramEdit edit) {
     if (!anchor_entity_id.is_valid()) {
         return invalid_argument("Automation controller program replacement requires an anchor id");
     }
+    SfmFlowProgramRecord program{
+        .revision = expected_program_revision,
+        .nodes = std::move(edit.nodes),
+        .connections = std::move(edit.connections),
+    };
     if (auto result = validate_program(program); !result) return result.error();
 
     AutomationControllerPersistenceRecord* target = nullptr;
@@ -287,12 +252,23 @@ snt::core::Expected<void> GameAutomationControllerPersistence::replace_sfm_progr
     if (target->kind != AutomationControllerKind::kSfmManager) {
         return invalid_argument("Only SFM controllers accept flow-program replacement");
     }
+    if (target->sfm_program.revision != expected_program_revision) {
+        return invalid_state("Automation controller flow program revision is stale");
+    }
     if (target->revision == std::numeric_limits<uint64_t>::max()) {
         return invalid_state("Automation controller revision is exhausted");
     }
+    if (expected_program_revision == std::numeric_limits<uint64_t>::max()) {
+        return invalid_state("Automation controller flow program revision is exhausted");
+    }
+    program.revision = expected_program_revision + 1u;
     target->sfm_program = std::move(program);
     ++target->revision;
-    return {};
+    return AutomationControllerProgramReplaceResult{
+        .chunk_key = *target_key,
+        .controller_revision = target->revision,
+        .sfm_program = target->sfm_program,
+    };
 }
 
 snt::core::Expected<void> GameAutomationControllerPersistence::remove_controller(

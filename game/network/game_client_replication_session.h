@@ -112,6 +112,11 @@ public:
         uint64_t client_sequence, GameInventorySlotTransferCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_machine_input_slot_transfer(
         uint64_t client_sequence, GameMachineInputSlotTransferCommand command);
+    // SFM graph edits are revision-checked server mutations. The caller keeps
+    // its draft local until the normal automation-controller AOI value echoes
+    // the resulting authoritative graph.
+    [[nodiscard]] snt::core::Expected<void> enqueue_sfm_program_replace(
+        uint64_t client_sequence, GameSfmProgramReplaceCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_creature_attack(
         uint64_t client_sequence, GameCreatureAttackCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_creature_capture(

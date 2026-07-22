@@ -23,10 +23,11 @@ struct ModuleDescriptor {
     std::string_view file_name;
 };
 
-constexpr std::array<ModuleDescriptor, 6> kModules{{
+constexpr std::array<ModuleDescriptor, 7> kModules{{
     {Target::kMaterials, "materials", "Materials", "00_material_catalog.as"},
     {Target::kItems, "items", "Items", "10_item_catalog.as"},
     {Target::kMachines, "machines", "Machines", "20_machine_catalog.as"},
+    {Target::kAutomation, "automation", "Automation", "25_automation_catalog.as"},
     {Target::kRecipes, "recipes", "Recipes", "30_recipe_catalog.as"},
     {Target::kQuests, "quests", "Quests", "40_quest_catalog.as"},
     {Target::kWorldGeneration, "worldgen", "World Generation", "50_worldgen_catalog.as"},
@@ -58,12 +59,14 @@ void select_target_and_dependents(Target target, std::array<bool, kModuleCount>&
             break;
         case Target::kItems:
             select_target_and_dependents(Target::kMachines, selected);
+            select_target_and_dependents(Target::kAutomation, selected);
             select_target_and_dependents(Target::kRecipes, selected);
             select_target_and_dependents(Target::kQuests, selected);
             break;
         case Target::kMachines:
             select_target_and_dependents(Target::kRecipes, selected);
             break;
+        case Target::kAutomation:
         case Target::kRecipes:
         case Target::kQuests:
         case Target::kWorldGeneration:

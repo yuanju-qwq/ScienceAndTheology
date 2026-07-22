@@ -24,6 +24,7 @@ enum class GameContentReloadTarget : uint8_t {
     kMaterials,
     kItems,
     kMachines,
+    kAutomation,
     kRecipes,
     kQuests,
     kWorldGeneration,

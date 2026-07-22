@@ -39,6 +39,15 @@ struct AutomationControllerCreateRequest {
     AutomationAeControllerNodeConfig ae_node;
 };
 
+// Result of a revision-checked SFM graph replacement.  The server uses the
+// owning chunk to rebuild only the affected active executor, while clients
+// receive the stored program through the normal authoritative AOI stream.
+struct AutomationControllerProgramReplaceResult {
+    ChunkKey chunk_key;
+    uint64_t controller_revision = 0;
+    SfmFlowProgramRecord sfm_program;
+};
+
 class GameAutomationControllerPersistence final {
 public:
     // Creates one typed controller record and its AUTOMATION_CONTROLLER block
@@ -54,12 +63,17 @@ public:
         int32_t root_z,
         AutomationControllerCreateRequest request);
 
-    // Replaces only the durable graph.  Endpoint addresses and content stacks
-    // remain stable values here; the active chunk compiles them before use.
-    [[nodiscard]] static snt::core::Expected<void> replace_sfm_program(
+    // Conditionally replaces only the durable graph. Endpoint addresses and
+    // content stacks remain stable values here; the active chunk compiles
+    // them before use. `expected_program_revision` is the graph revision last
+    // observed by an editor, and the returned graph always carries the next
+    // server-assigned revision.
+    [[nodiscard]] static snt::core::Expected<AutomationControllerProgramReplaceResult>
+    replace_sfm_program(
         GameChunkSidecarRegistry& sidecars,
         EntityId anchor_entity_id,
-        SfmFlowProgramRecord program);
+        uint64_t expected_program_revision,
+        SfmFlowProgramEdit edit);
 
     // Removes both typed record and its matching block anchor.  It searches
     // sidecars only at a player/world mutation boundary, never in a tick loop.

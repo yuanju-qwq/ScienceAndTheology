@@ -424,6 +424,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
             .crop_growth_system = simulation_session_.crop_growth_system(),
             .automation_controller_runtime = automation_runtime,
             .ae_network_runtime = ae_network_runtime,
+            .ae_drive_storage_runtime = simulation_session_.ae_drive_storage_runtime(),
         });
     if (!player_interactions) {
         auto error = player_interactions.error();

@@ -56,6 +56,30 @@ struct SfmFlowProgramRecord {
     std::vector<SfmFlowConnectionRecord> connections;
 };
 
+// An unversioned client/editor proposal.  The server combines this durable
+// graph body with the caller's expected revision and assigns the next
+// authoritative revision atomically.  Keeping the revision out of this type
+// prevents a client from choosing a future durable version number.
+struct SfmFlowProgramEdit {
+    std::vector<SfmFlowNodeRecord> nodes;
+    std::vector<SfmFlowConnectionRecord> connections;
+};
+
+inline constexpr size_t kMaxSfmFlowProgramNodes = 1024;
+inline constexpr size_t kMaxSfmFlowProgramConnections = 4096;
+
+// Shared durable-graph limits used by sidecar persistence, client command
+// admission, and runtime compilation. Endpoint availability is intentionally
+// outside this validator because it is owned by the active topology.
+struct SfmFlowProgramValidationLimits {
+    size_t max_nodes = kMaxSfmFlowProgramNodes;
+    size_t max_connections = kMaxSfmFlowProgramConnections;
+};
+
+[[nodiscard]] snt::core::Expected<void> validate_sfm_flow_program(
+    const SfmFlowProgramRecord& program,
+    SfmFlowProgramValidationLimits limits = {});
+
 struct SfmFlowCompileLimits {
     size_t max_nodes = 1024;
     size_t max_connections = 4096;

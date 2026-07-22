@@ -23,6 +23,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -57,6 +58,7 @@ using snt::game::replication::GameInventorySlotTransferOutcome;
 using snt::game::replication::GameInventorySnapshot;
 using snt::game::replication::GameMachineInputSlotTransferCommand;
 using snt::game::replication::GameMachineInputSlotTransferDirection;
+using snt::game::replication::GameSfmProgramReplaceCommand;
 using snt::game::replication::GameServerCommandSink;
 using snt::game::replication::GameServerInventoryReplication;
 using snt::game::replication::GameServerPlayerBedService;
@@ -189,14 +191,29 @@ public:
         return {};
     }
 
+    snt::core::Expected<void> submit_sfm_program_replace(
+        const GameAuthenticatedPeer& peer,
+        const snt::game::replication::GameSfmProgramReplaceCommand& command,
+        uint64_t tick_index) override {
+        ++sfm_calls;
+        last_sfm_peer = peer;
+        last_sfm_command = command;
+        last_sfm_tick = tick_index;
+        return {};
+    }
+
     int calls = 0;
     int machine_input_calls = 0;
+    int sfm_calls = 0;
     GameAuthenticatedPeer last_peer;
     GameBlockInteractionCommand last_command;
     uint64_t last_tick = 0;
     GameAuthenticatedPeer last_machine_input_peer;
     GameMachineInputSlotTransferCommand last_machine_input_command;
     uint64_t last_machine_input_tick = 0;
+    GameAuthenticatedPeer last_sfm_peer;
+    snt::game::replication::GameSfmProgramReplaceCommand last_sfm_command;
+    uint64_t last_sfm_tick = 0;
 };
 
 MachineDefinition make_manual_machine() {
@@ -267,6 +284,44 @@ TEST(GameBlockInteractionProtocolTest, EncodesTrustedClientHintsWithoutTerrainMu
     auto invalid = original;
     invalid.client_hints = 0x80;
     EXPECT_FALSE(snt::game::replication::make_game_block_interaction_command(10, invalid));
+}
+
+TEST(GameSfmProgramReplaceProtocolTest, RoundTripsStableGraphAndRejectsInvalidEdits) {
+    GameSfmProgramReplaceCommand original{
+        .controller_anchor_entity_id = 0x2000000000000001ull,
+        .expected_program_revision = 4,
+        .edit = {
+            .nodes = {
+                {.id = 1, .type = snt::game::SfmFlowNodeType::kInterval, .interval_ticks = 20},
+                {
+                    .id = 2,
+                    .type = snt::game::SfmFlowNodeType::kTransfer,
+                    .transfer = {
+                        .source = {.value = "machine.source"},
+                        .destination = {.value = "machine.destination"},
+                        .requested = snt::game::ResourceContentStack::item("iron.ingot", 3),
+                    },
+                },
+            },
+            .connections = {{.source = 1, .destination = 2}},
+        },
+    };
+    auto encoded = snt::game::replication::make_game_sfm_program_replace_command(9, original);
+    ASSERT_TRUE(encoded) << encoded.error().format();
+    auto decoded = snt::game::replication::parse_game_sfm_program_replace_command(*encoded);
+    ASSERT_TRUE(decoded) << decoded.error().format();
+    EXPECT_EQ(decoded->controller_anchor_entity_id, original.controller_anchor_entity_id);
+    EXPECT_EQ(decoded->expected_program_revision, original.expected_program_revision);
+    ASSERT_EQ(decoded->edit.nodes.size(), 2u);
+    EXPECT_EQ(decoded->edit.nodes[1].transfer.requested.key.id, "iron.ingot");
+    EXPECT_EQ(decoded->edit.nodes[1].transfer.requested.amount, 3);
+
+    auto malformed = original;
+    malformed.edit.nodes[0].id = 0;
+    EXPECT_FALSE(snt::game::replication::make_game_sfm_program_replace_command(10, malformed));
+    malformed = original;
+    malformed.expected_program_revision = std::numeric_limits<uint64_t>::max();
+    EXPECT_FALSE(snt::game::replication::make_game_sfm_program_replace_command(10, malformed));
 }
 
 TEST(GameServerPlayerInteractionTest, CommitsBedInventoryAndRespawnThroughHostTransactions) {
@@ -1068,4 +1123,31 @@ TEST(GameServerCommandSinkTest, DispatchesMachineInputTransferInTheSharedCommand
     EXPECT_EQ(interactions.last_machine_input_peer.peer, peer.peer);
     EXPECT_EQ(interactions.last_machine_input_command.request_id, 11u);
     EXPECT_EQ(interactions.last_machine_input_tick, context.tick_index);
+}
+
+TEST(GameServerCommandSinkTest, DispatchesSfmProgramReplacementInTheSharedCommandOrder) {
+    GameContentRegistry content;
+    QuestRegistry quests(content);
+    RecordingInteractionService interactions;
+    GameServerCommandSink sink(quests, nullptr, &interactions);
+    const GameAuthenticatedPeer peer = make_peer(607, "SFM Editor Player");
+    const snt::network::ReplicationTickContext context{.tick_index = 33, .delta_seconds = 0.05f};
+    auto command = snt::game::replication::make_game_sfm_program_replace_command(
+        1,
+        {
+            .controller_anchor_entity_id = 0x2000000000000001ull,
+            .expected_program_revision = 2,
+            .edit = {
+                .nodes = {{.id = 1, .type = snt::game::SfmFlowNodeType::kInterval,
+                           .interval_ticks = 20}},
+            },
+        });
+    ASSERT_TRUE(command) << command.error().format();
+    ASSERT_TRUE(sink.enqueue_client_command(peer, std::move(*command), context));
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index));
+    EXPECT_EQ(interactions.sfm_calls, 1);
+    EXPECT_EQ(interactions.last_sfm_peer.peer, peer.peer);
+    EXPECT_EQ(interactions.last_sfm_command.controller_anchor_entity_id,
+              0x2000000000000001ull);
+    EXPECT_EQ(interactions.last_sfm_tick, context.tick_index);
 }

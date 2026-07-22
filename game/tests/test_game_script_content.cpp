@@ -292,16 +292,19 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs)
     const std::string material_source = read_packaged_game_script("00_material_catalog.as");
     const std::string item_source = read_packaged_game_script("10_item_catalog.as");
     const std::string machine_source = read_packaged_game_script("20_machine_catalog.as");
+    const std::string automation_source = read_packaged_game_script("25_automation_catalog.as");
     const std::string recipe_source = read_packaged_game_script("30_recipe_catalog.as");
     const std::string quest_source = read_packaged_game_script("40_quest_catalog.as");
     ASSERT_FALSE(material_source.empty());
     ASSERT_FALSE(item_source.empty());
     ASSERT_FALSE(machine_source.empty());
+    ASSERT_FALSE(automation_source.empty());
     ASSERT_FALSE(recipe_source.empty());
     ASSERT_FALSE(quest_source.empty());
     ASSERT_TRUE(scripts.load_source("00_material_catalog", material_source));
     ASSERT_TRUE(scripts.load_source("10_item_catalog", item_source));
     ASSERT_TRUE(scripts.load_source("20_machine_catalog", machine_source));
+    ASSERT_TRUE(scripts.load_source("25_automation_catalog", automation_source));
     ASSERT_TRUE(scripts.load_source("30_recipe_catalog", recipe_source));
     ASSERT_TRUE(scripts.load_source("40_quest_catalog", quest_source));
 
@@ -337,6 +340,23 @@ TEST(P7PackagedContentTest, RegistersPrimitiveMachineRecipesFromRuntimeCatalogs)
     assert_item("snt:glow_deer_antler", 64);
     assert_item("crop.wheat", 64);
     assert_item("meat.raw.glow_deer", 64);
+    assert_item("ae_cable", 64);
+    assert_item("ae_channel_provider", 64);
+    assert_item("ae_drive_1k", 64);
+    assert_item("ae_storage_bus", 64);
+    assert_item("ae_interface", 64);
+    assert_item("ae_terminal", 64);
+
+    const auto* ae_drive = content.find_ae_network_node_placement_by_item("ae_drive_1k");
+    ASSERT_NE(ae_drive, nullptr);
+    EXPECT_EQ(ae_drive->node_key, "automation.ae_drive.1k");
+    EXPECT_EQ(ae_drive->type, snt::game::AeNetworkNodeType::kDrive);
+    ASSERT_TRUE(ae_drive->drive_storage_cell.has_value());
+    EXPECT_EQ(ae_drive->drive_storage_cell->byte_capacity, 1024);
+    EXPECT_EQ(ae_drive->drive_storage_cell->max_distinct_resources, 63u);
+    EXPECT_EQ(content.find_ae_network_node_placement_by_node_key("automation.ae_drive.1k"),
+              ae_drive);
+    ASSERT_TRUE(content.validate_ae_network_node_placement_references());
 
     ASSERT_EQ(content.fluid_definitions().size(), 29u);
     const auto* water = content.find_fluid("water");
@@ -473,6 +493,7 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
         "void snt_register() {\n"
         "  snt_register_machine(\"reload.machine\", \"Machine A\", 1, 0, false);\n"
         "}\n");
+    directory.write("25_automation_catalog.as", "void snt_register() {}\n");
     directory.write(
         "30_recipe_catalog.as",
         "void snt_register() {\n"
@@ -501,6 +522,7 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
                   GameContentReloadTarget::kMaterials,
                   GameContentReloadTarget::kItems,
                   GameContentReloadTarget::kMachines,
+                  GameContentReloadTarget::kAutomation,
                   GameContentReloadTarget::kRecipes,
                   GameContentReloadTarget::kQuests,
               }));
@@ -509,6 +531,7 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
                   directory.root() / "00_material_catalog.as",
                   directory.root() / "10_item_catalog.as",
                   directory.root() / "20_machine_catalog.as",
+                  directory.root() / "25_automation_catalog.as",
                   directory.root() / "30_recipe_catalog.as",
                   directory.root() / "40_quest_catalog.as",
               }));
@@ -580,7 +603,7 @@ TEST(P7ContentReloadTest, ReloadsCategoryClosureAtomicallyAndPreservesUnselected
 
     const auto all_reload = reload_service.reload(scripts, GameContentReloadTarget::kAll);
     ASSERT_TRUE(all_reload);
-    EXPECT_EQ(all_reload->plan.expanded_targets.size(), 6u);
+    EXPECT_EQ(all_reload->plan.expanded_targets.size(), 7u);
     ASSERT_NE(content.find_item("reload.input"), nullptr);
     EXPECT_EQ(content.find_item("reload.input")->title_key, "item.reload_input_b");
     ASSERT_NE(content.find_quest("reload.quest"), nullptr);

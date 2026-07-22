@@ -52,6 +52,7 @@ class GameCropGrowthSystem;
 class GameEcosystemSystem;
 class GameWildCreatureSystem;
 class GameFluidSystem;
+class AeDriveStorageRuntimeService;
 class AeNetworkRuntimeService;
 class AutomationControllerRuntimeService;
 class GameTreeGrowthSystem;
@@ -228,6 +229,15 @@ public:
     [[nodiscard]] const AeNetworkRuntimeService* ae_network_runtime() const noexcept {
         return ae_network_runtime_.get();
     }
+    // Live drive cells are a distinct owner from physical topology. Server
+    // placement and save boundaries use this narrow service so they never
+    // retain an AeStorageCell outside its materialized chunk lifetime.
+    [[nodiscard]] AeDriveStorageRuntimeService* ae_drive_storage_runtime() noexcept {
+        return ae_drive_storage_runtime_.get();
+    }
+    [[nodiscard]] const AeDriveStorageRuntimeService* ae_drive_storage_runtime() const noexcept {
+        return ae_drive_storage_runtime_.get();
+    }
 
     // Chunk streaming calls these only at an authoritative fixed-tick barrier.
     // They transfer machine ownership before terrain is removed or restored.
@@ -291,6 +301,7 @@ private:
         offline_industrial_network_simulator_;
     std::unique_ptr<OfflineMachineSimulationService> offline_machine_simulation_;
     std::unique_ptr<AeNetworkRuntimeService> ae_network_runtime_;
+    std::unique_ptr<AeDriveStorageRuntimeService> ae_drive_storage_runtime_;
     std::unique_ptr<AutomationControllerRuntimeService> automation_controller_runtime_;
     IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;

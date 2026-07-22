@@ -36,16 +36,24 @@ TEST(AutomationControllerPersistenceTest, CreatesTypedAnchorAndReplacesOnlyProgr
               kSfmManagerControllerKey);
     EXPECT_EQ(sidecar->automation_controller_records.front().sfm_program.revision, 7u);
 
-    auto replacement = interval_program(8);
+    auto replacement = interval_program(0);
     replacement.nodes.front().interval_ticks = 40;
-    ASSERT_TRUE(GameAutomationControllerPersistence::replace_sfm_program(
-        sidecars, created->anchor_entity_id, std::move(replacement)));
+    auto replaced_program = GameAutomationControllerPersistence::replace_sfm_program(
+        sidecars, created->anchor_entity_id, 7,
+        {.nodes = std::move(replacement.nodes),
+         .connections = std::move(replacement.connections)});
+    ASSERT_TRUE(replaced_program);
+    EXPECT_EQ(replaced_program->chunk_key, key);
+    EXPECT_EQ(replaced_program->sfm_program.revision, 8u);
     const GameChunkSidecar* const replaced = sidecars.get(key);
     ASSERT_NE(replaced, nullptr);
     EXPECT_EQ(replaced->automation_controller_records.front().revision, 2u);
     EXPECT_EQ(replaced->automation_controller_records.front().sfm_program.revision, 8u);
     EXPECT_EQ(replaced->automation_controller_records.front().sfm_program.nodes.front().interval_ticks,
               40u);
+    EXPECT_FALSE(GameAutomationControllerPersistence::replace_sfm_program(
+        sidecars, created->anchor_entity_id, 7,
+        {.nodes = {{.id = 1, .type = SfmFlowNodeType::kInterval, .interval_ticks = 60}}}));
 
     ASSERT_TRUE(GameAutomationControllerPersistence::remove_controller(
         sidecars, created->anchor_entity_id));

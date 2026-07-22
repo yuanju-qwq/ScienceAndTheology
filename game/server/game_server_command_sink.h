@@ -73,6 +73,7 @@ private:
         GameBlockInteractionCommand block_interaction;
         GameInventorySlotTransferCommand inventory_slot_transfer;
         GameMachineInputSlotTransferCommand machine_input_slot_transfer;
+        GameSfmProgramReplaceCommand sfm_program_replace;
         GameCreatureAttackCommand creature_attack;
         GameCreatureCaptureCommand creature_capture;
         GameCaptiveCreatureFeedCommand captive_creature_feed;

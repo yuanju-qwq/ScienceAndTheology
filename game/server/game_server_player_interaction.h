@@ -30,6 +30,7 @@ namespace snt::game {
 class GameChunkSidecarRegistry;
 class GameContentRegistry;
 class GameCropGrowthSystem;
+class AeDriveStorageRuntimeService;
 class AeNetworkRuntimeService;
 class AutomationControllerRuntimeService;
 class IBlockPhysicsTrigger;
@@ -74,6 +75,9 @@ struct GameServerPlayerInteractionConfig {
     // visible to SFM/AE queries before the next ticket reconciliation.
     AutomationControllerRuntimeService* automation_controller_runtime = nullptr;
     AeNetworkRuntimeService* ae_network_runtime = nullptr;
+    // The live drive-cell owner follows physical topology materialization and
+    // keeps durable ResourceContentStack values in the chunk sidecar.
+    AeDriveStorageRuntimeService* ae_drive_storage_runtime = nullptr;
     // Item-key semantics are explicit here until farming content has its own
     // immutable registration snapshot. The host validates both content and
     // authoritative inventory before consuming this item.
@@ -127,6 +131,10 @@ public:
         const GameAuthenticatedPeer& peer,
         const GameMachineInputSlotTransferCommand& command,
         uint64_t tick_index) = 0;
+    virtual snt::core::Expected<void> submit_sfm_program_replace(
+        const GameAuthenticatedPeer& peer,
+        const GameSfmProgramReplaceCommand& command,
+        uint64_t tick_index) = 0;
 };
 
 class GameServerPlayerInteractionService final
@@ -153,6 +161,10 @@ public:
         const GameAuthenticatedPeer& peer,
         const GameMachineInputSlotTransferCommand& command,
         uint64_t tick_index) override;
+    [[nodiscard]] snt::core::Expected<void> submit_sfm_program_replace(
+        const GameAuthenticatedPeer& peer,
+        const GameSfmProgramReplaceCommand& command,
+        uint64_t tick_index) override;
 
     [[nodiscard]] static std::vector<GameServerBlockDefinition> default_block_definitions();
 
@@ -177,6 +189,9 @@ private:
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> apply_automation_controller_place(
+        const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
+        uint64_t tick_index);
+    [[nodiscard]] snt::core::Expected<void> apply_ae_network_node_place(
         const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
         uint64_t tick_index);
     [[nodiscard]] snt::core::Expected<void> apply_use(

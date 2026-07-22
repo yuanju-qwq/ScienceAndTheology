@@ -322,6 +322,175 @@ void append_i64(std::vector<std::byte>& bytes, int64_t value) {
     return stack;
 }
 
+[[nodiscard]] snt::core::Expected<void> validate_sfm_endpoint_address(
+    std::string_view value, const char* field_name) {
+    if (value.empty() || value.size() > kMaxGameSfmEndpointAddressBytes ||
+        has_embedded_nul(value)) {
+        return protocol_error(std::string(field_name) + " is invalid");
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> validate_sfm_content_stack(
+    const ResourceContentStack& stack, const char* field_name) {
+    if (!stack.is_valid() || stack.key.type.size() > kMaxGameResourceTypeBytes ||
+        stack.key.id.size() > kMaxGameResourceIdBytes ||
+        stack.key.variant.size() > kMaxGameResourceVariantBytes ||
+        has_embedded_nul(stack.key.type) || has_embedded_nul(stack.key.id) ||
+        has_embedded_nul(stack.key.variant)) {
+        return protocol_error(std::string(field_name) + " is invalid");
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<void> append_sfm_content_stack(
+    std::vector<std::byte>& bytes, const ResourceContentStack& stack, const char* field_name) {
+    if (auto result = validate_sfm_content_stack(stack, field_name); !result) return result.error();
+    if (auto result = append_short_string(bytes, stack.key.type, kMaxGameResourceTypeBytes,
+                                          "SFM resource type", true);
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_short_string(bytes, stack.key.id, kMaxGameResourceIdBytes,
+                                          "SFM resource id", true);
+        !result) {
+        return result.error();
+    }
+    if (auto result = append_short_string(bytes, stack.key.variant,
+                                          kMaxGameResourceVariantBytes,
+                                          "SFM resource variant", false);
+        !result) {
+        return result.error();
+    }
+    append_i64(bytes, stack.amount);
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<ResourceContentStack> read_sfm_content_stack(
+    std::span<const std::byte> bytes, size_t& offset, const char* field_name) {
+    auto type = read_short_string(bytes, offset, kMaxGameResourceTypeBytes,
+                                  "SFM resource type", true);
+    if (!type) return type.error();
+    auto id = read_short_string(bytes, offset, kMaxGameResourceIdBytes,
+                                "SFM resource id", true);
+    if (!id) return id.error();
+    auto variant = read_short_string(bytes, offset, kMaxGameResourceVariantBytes,
+                                     "SFM resource variant", false);
+    if (!variant) return variant.error();
+    if (bytes.size() - offset < sizeof(uint64_t)) {
+        return protocol_error(std::string(field_name) + " amount is truncated");
+    }
+    ResourceContentStack stack{
+        .key = {
+            .type = std::move(*type),
+            .id = std::move(*id),
+            .variant = std::move(*variant),
+        },
+        .amount = read_i64(bytes, offset),
+    };
+    offset += sizeof(uint64_t);
+    if (auto result = validate_sfm_content_stack(stack, field_name); !result) return result.error();
+    return stack;
+}
+
+[[nodiscard]] snt::core::Expected<void> append_sfm_program_edit(
+    std::vector<std::byte>& bytes, const SfmFlowProgramEdit& edit) {
+    if (edit.nodes.size() > std::numeric_limits<uint16_t>::max() ||
+        edit.connections.size() > std::numeric_limits<uint16_t>::max()) {
+        return protocol_error("SFM flow program edit count exceeds the wire range");
+    }
+    append_u16(bytes, static_cast<uint16_t>(edit.nodes.size()));
+    for (const SfmFlowNodeRecord& node : edit.nodes) {
+        append_u32(bytes, node.id);
+        bytes.push_back(static_cast<std::byte>(node.type));
+        append_u32(bytes, node.interval_ticks);
+        if (node.type != SfmFlowNodeType::kTransfer) continue;
+        if (auto result = append_short_string(bytes, node.transfer.source.value,
+                                              kMaxGameSfmEndpointAddressBytes,
+                                              "SFM source endpoint", true);
+            !result) {
+            return result.error();
+        }
+        if (auto result = append_short_string(bytes, node.transfer.destination.value,
+                                              kMaxGameSfmEndpointAddressBytes,
+                                              "SFM destination endpoint", true);
+            !result) {
+            return result.error();
+        }
+        if (auto result = append_sfm_content_stack(bytes, node.transfer.requested,
+                                                   "SFM requested resource");
+            !result) {
+            return result.error();
+        }
+    }
+    append_u16(bytes, static_cast<uint16_t>(edit.connections.size()));
+    for (const SfmFlowConnectionRecord& connection : edit.connections) {
+        append_u32(bytes, connection.source);
+        append_u32(bytes, connection.destination);
+    }
+    return {};
+}
+
+[[nodiscard]] snt::core::Expected<SfmFlowProgramEdit> read_sfm_program_edit(
+    std::span<const std::byte> bytes, size_t& offset) {
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("SFM flow program edit node count is truncated");
+    }
+    const size_t node_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (node_count > kMaxSfmFlowProgramNodes) {
+        return protocol_error("SFM flow program edit node count exceeds the configured limit");
+    }
+    SfmFlowProgramEdit edit;
+    edit.nodes.reserve(node_count);
+    for (size_t index = 0; index < node_count; ++index) {
+        constexpr size_t kNodeHeaderBytes = sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+        if (bytes.size() - offset < kNodeHeaderBytes) {
+            return protocol_error("SFM flow program edit node is truncated");
+        }
+        SfmFlowNodeRecord node{
+            .id = read_u32(bytes, offset),
+            .type = static_cast<SfmFlowNodeType>(std::to_integer<uint8_t>(bytes[offset + sizeof(uint32_t)])),
+            .interval_ticks = read_u32(bytes, offset + sizeof(uint32_t) + sizeof(uint8_t)),
+        };
+        offset += kNodeHeaderBytes;
+        if (node.type == SfmFlowNodeType::kTransfer) {
+            auto source = read_short_string(bytes, offset, kMaxGameSfmEndpointAddressBytes,
+                                            "SFM source endpoint", true);
+            if (!source) return source.error();
+            auto destination = read_short_string(bytes, offset, kMaxGameSfmEndpointAddressBytes,
+                                                 "SFM destination endpoint", true);
+            if (!destination) return destination.error();
+            auto requested = read_sfm_content_stack(bytes, offset, "SFM requested resource");
+            if (!requested) return requested.error();
+            node.transfer = {
+                .source = {.value = std::move(*source)},
+                .destination = {.value = std::move(*destination)},
+                .requested = std::move(*requested),
+            };
+        }
+        edit.nodes.push_back(std::move(node));
+    }
+    if (bytes.size() - offset < sizeof(uint16_t)) {
+        return protocol_error("SFM flow program edit connection count is truncated");
+    }
+    const size_t connection_count = read_u16(bytes, offset);
+    offset += sizeof(uint16_t);
+    if (connection_count > kMaxSfmFlowProgramConnections ||
+        connection_count > (bytes.size() - offset) / (sizeof(uint32_t) * 2)) {
+        return protocol_error("SFM flow program edit connection list is invalid");
+    }
+    edit.connections.reserve(connection_count);
+    for (size_t index = 0; index < connection_count; ++index) {
+        edit.connections.push_back({
+            .source = read_u32(bytes, offset),
+            .destination = read_u32(bytes, offset + sizeof(uint32_t)),
+        });
+        offset += sizeof(uint32_t) * 2;
+    }
+    return edit;
+}
+
 [[nodiscard]] snt::core::Expected<void> append_chunk_key(
     std::vector<std::byte>& bytes, const snt::voxel::ChunkKey& chunk) {
     if (auto result = validate_chunk_key(chunk); !result) return result.error();
@@ -1259,6 +1428,94 @@ parse_game_machine_input_slot_transfer_command(const GameClientCommand& command)
     decoded.expected_player_slot = std::move(*expected_player);
     decoded.expected_machine_input_slot = std::move(*expected_machine);
     if (auto result = validate_game_machine_input_slot_transfer_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
+}
+
+snt::core::Expected<void> validate_game_sfm_program_replace_command(
+    const GameSfmProgramReplaceCommand& command) {
+    if (command.controller_anchor_entity_id == 0 ||
+        command.expected_program_revision == std::numeric_limits<uint64_t>::max()) {
+        return protocol_error("Game SFM program replacement header is invalid");
+    }
+    const SfmFlowProgramRecord proposed{
+        .revision = command.expected_program_revision,
+        .nodes = command.edit.nodes,
+        .connections = command.edit.connections,
+    };
+    if (auto result = validate_sfm_flow_program(proposed); !result) {
+        return protocol_error("Game SFM program replacement graph is invalid: " +
+                              result.error().format());
+    }
+    for (const SfmFlowNodeRecord& node : command.edit.nodes) {
+        if (node.type != SfmFlowNodeType::kTransfer) continue;
+        if (auto result = validate_sfm_endpoint_address(
+                node.transfer.source.value, "Game SFM source endpoint");
+            !result) {
+            return result.error();
+        }
+        if (auto result = validate_sfm_endpoint_address(
+                node.transfer.destination.value, "Game SFM destination endpoint");
+            !result) {
+            return result.error();
+        }
+        if (auto result = validate_sfm_content_stack(
+                node.transfer.requested, "Game SFM requested resource");
+            !result) {
+            return result.error();
+        }
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_sfm_program_replace_command(
+    uint64_t client_sequence, const GameSfmProgramReplaceCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game SFM program replacement sequence must be non-zero");
+    }
+    if (auto result = validate_game_sfm_program_replace_command(command); !result) {
+        return result.error();
+    }
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kSfmProgramReplace);
+    encoded.payload.reserve(sizeof(uint64_t) * 2 + sizeof(uint16_t) * 2 +
+                            command.edit.nodes.size() * (sizeof(uint32_t) * 2 + sizeof(uint8_t)));
+    append_u64(encoded.payload, command.controller_anchor_entity_id);
+    append_u64(encoded.payload, command.expected_program_revision);
+    if (auto result = append_sfm_program_edit(encoded.payload, command.edit); !result) {
+        return result.error();
+    }
+    if (encoded.payload.size() > kMaxGameCommandPayloadBytes) {
+        return protocol_error("Game SFM program replacement payload exceeds the protocol limit");
+    }
+    return encoded;
+}
+
+snt::core::Expected<GameSfmProgramReplaceCommand>
+parse_game_sfm_program_replace_command(const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kSfmProgramReplace)) {
+        return protocol_error("Game client command type is not SfmProgramReplace");
+    }
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    constexpr size_t kHeaderBytes = sizeof(uint64_t) * 2;
+    if (bytes.size() < kHeaderBytes) {
+        return protocol_error("Game SFM program replacement command is incomplete");
+    }
+    size_t offset = 0;
+    GameSfmProgramReplaceCommand decoded{
+        .controller_anchor_entity_id = read_u64(bytes, offset),
+        .expected_program_revision = read_u64(bytes, offset + sizeof(uint64_t)),
+    };
+    offset += kHeaderBytes;
+    auto edit = read_sfm_program_edit(bytes, offset);
+    if (!edit) return edit.error();
+    if (offset != bytes.size()) {
+        return protocol_error("Game SFM program replacement command has trailing bytes");
+    }
+    decoded.edit = std::move(*edit);
+    if (auto result = validate_game_sfm_program_replace_command(decoded); !result) {
         return result.error();
     }
     return decoded;

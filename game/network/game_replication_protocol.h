@@ -9,6 +9,7 @@
 
 #include "core/expected.h"
 #include "ecs/entity_guid.h"
+#include "game/automation/sfm_flow_program.h"
 #include "game/player/player_identity.h"
 #include "game/player/player_state.h"
 #include "network/replication.h"
@@ -23,7 +24,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 17;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 18;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -39,6 +40,7 @@ inline constexpr size_t kMaxGameResourceIdBytes = 256;
 inline constexpr size_t kMaxGameResourceVariantBytes = 1024;
 inline constexpr size_t kMaxGameInventorySlots = 256;
 inline constexpr size_t kMaxGameMachineInputSlots = 64;
+inline constexpr size_t kMaxGameSfmEndpointAddressBytes = 512;
 inline constexpr int32_t kMaxGameInventoryStackSize = 65536;
 // Inventory replication must fit one bounded SNTG value even at maximum slot
 // count. Larger custom item data needs a future item-state blob protocol.
@@ -133,6 +135,7 @@ enum class GameClientCommandType : uint16_t {
     kCreatureAttack = 5,
     kCreatureCapture = 6,
     kCaptiveCreatureFeed = 7,
+    kSfmProgramReplace = 8,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -250,6 +253,16 @@ struct GameMachineInputSlotTransferCommand {
     int32_t count = 0;
     GamePlayerItemStack expected_player_slot;
     GamePlayerItemStack expected_machine_input_slot;
+};
+
+// A graph body contains only stable endpoint addresses and content stacks.
+// The expected revision is optimistic concurrency control; the server assigns
+// the next SfmFlowProgramRecord::revision after it validates and commits this
+// command. Runtime ResourceKey values never cross this protocol boundary.
+struct GameSfmProgramReplaceCommand {
+    uint64_t controller_anchor_entity_id = 0;
+    uint64_t expected_program_revision = 0;
+    SfmFlowProgramEdit edit;
 };
 
 // Creature commands never carry client-computed damage, coordinates, pen
@@ -403,6 +416,13 @@ make_game_machine_input_slot_transfer_command(
     uint64_t client_sequence, const GameMachineInputSlotTransferCommand& command);
 [[nodiscard]] snt::core::Expected<GameMachineInputSlotTransferCommand>
 parse_game_machine_input_slot_transfer_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_sfm_program_replace_command(
+    const GameSfmProgramReplaceCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_sfm_program_replace_command(
+    uint64_t client_sequence, const GameSfmProgramReplaceCommand& command);
+[[nodiscard]] snt::core::Expected<GameSfmProgramReplaceCommand>
+parse_game_sfm_program_replace_command(const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<void> validate_game_creature_attack_command(
     const GameCreatureAttackCommand& command);

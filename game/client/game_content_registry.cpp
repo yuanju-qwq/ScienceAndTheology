@@ -642,6 +642,14 @@ void api_register_ae_network_node_placement(
             "AE node placement script registration contains an out-of-range enum or connection mask"});
         return;
     }
+    if (type == static_cast<int>(AeNetworkNodeType::kDrive) &&
+        (drive_byte_capacity <= 0 || drive_max_distinct_resources <= 0 ||
+         drive_bytes_per_distinct_resource <= 0 || drive_units_per_byte <= 0)) {
+        report_binding_error(snt::core::Error{
+            snt::core::ErrorCode::kInvalidArgument,
+            "AE drive placement requires positive cell capacity and ratio values"});
+        return;
+    }
 
     AeNetworkNodePlacementDefinition definition{
         .item_id = item_id,

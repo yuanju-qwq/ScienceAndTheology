@@ -448,6 +448,13 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_machine_input_sl
     return enqueue_command(std::move(*encoded));
 }
 
+snt::core::Expected<void> GameClientReplicationSession::enqueue_sfm_program_replace(
+    uint64_t client_sequence, GameSfmProgramReplaceCommand command) {
+    auto encoded = make_game_sfm_program_replace_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
 snt::core::Expected<void> GameClientReplicationSession::enqueue_creature_attack(
     uint64_t client_sequence, GameCreatureAttackCommand command) {
     auto encoded = make_game_creature_attack_command(client_sequence, command);

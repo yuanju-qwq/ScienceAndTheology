@@ -12,6 +12,8 @@
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/ae_drive_storage_runtime.h"
+#include "game/simulation/ae_network_persistence.h"
 #include "game/simulation/ae_network_runtime.h"
 #include "game/simulation/block_physics_events.h"
 #include "game/simulation/automation_controller_persistence.h"
@@ -245,6 +247,44 @@ struct TargetCell {
     return {};
 }
 
+// Non-controller AE nodes are physical block owners, not generic terrain
+// blocks. Validate their material namespace beside machines/controllers so
+// one item cannot create two durable owners at the same voxel.
+[[nodiscard]] snt::core::Expected<void> validate_ae_network_node_placement_catalog(
+    const GameContentRegistry& content,
+    const GameServerPlayerInteractionConfig& config) {
+    if (auto result = content.validate_ae_network_node_placement_references(); !result) {
+        return result.error();
+    }
+    const WorldGenConfigSnapshot& worldgen = *config.worldgen_config;
+    std::set<std::string, std::less<>> claimed_materials;
+    for (const GameServerBlockDefinition& block : config.block_definitions) {
+        claimed_materials.insert(block.material_key);
+    }
+    for (const MachinePlacementDefinition& placement : content.machine_placement_definitions()) {
+        claimed_materials.insert(placement.material_key);
+    }
+    for (const AutomationControllerPlacementDefinition& placement :
+         content.automation_controller_placement_definitions()) {
+        claimed_materials.insert(placement.material_key);
+    }
+    for (const AeNetworkNodePlacementDefinition& placement :
+         content.ae_network_node_placement_definitions()) {
+        const TerrainMaterialDef* material = worldgen.find_material(placement.material_key);
+        if (material == nullptr || material->id == worldgen.roles.air ||
+            material->id == config.reserved_grave_material_id ||
+            !claimed_materials.insert(placement.material_key).second) {
+            return invalid_argument("AE node placement item '" + placement.item_id +
+                                    "' has a terrain material that conflicts with the "
+                                    "server interaction catalog");
+        }
+    }
+    if (config.ae_drive_storage_runtime != nullptr && config.ae_network_runtime == nullptr) {
+        return invalid_argument("AE drive storage runtime requires an AE physical topology runtime");
+    }
+    return {};
+}
+
 enum class MiningDropPolicy : uint8_t {
     kGrantDrops,
     kBreakWithoutDrops,
@@ -397,6 +437,9 @@ GameServerPlayerInteractionService::create(
     if (auto result = validate_automation_controller_placement_catalog(content, config); !result) {
         return result.error();
     }
+    if (auto result = validate_ae_network_node_placement_catalog(content, config); !result) {
+        return result.error();
+    }
     if (std::any_of(event_sinks.begin(), event_sinks.end(),
                     [](const IGameServerPlayerInteractionEventSink* sink) {
                         return sink == nullptr;
@@ -492,6 +535,42 @@ GameServerPlayerInteractionService::submit_machine_input_slot_transfer(
         command.request_id, GameInventorySlotTransferOutcome::kAccepted);
 }
 
+snt::core::Expected<void> GameServerPlayerInteractionService::submit_sfm_program_replace(
+    const GameAuthenticatedPeer& peer,
+    const GameSfmProgramReplaceCommand& command,
+    uint64_t tick_index) {
+    if (sidecars_ == nullptr) {
+        return invalid_state("Game server SFM editor service has no sidecar registry");
+    }
+    if (auto result = validate_game_sfm_program_replace_command(command); !result) {
+        return result.error();
+    }
+    const EntityId anchor_entity_id{command.controller_anchor_entity_id};
+    if (config_.automation_controller_runtime != nullptr &&
+        config_.automation_controller_runtime->find_controller(anchor_entity_id) == nullptr) {
+        return invalid_state("SFM editor target is not an active authoritative controller");
+    }
+
+    auto replaced = GameAutomationControllerPersistence::replace_sfm_program(
+        *sidecars_, anchor_entity_id, command.expected_program_revision,
+        SfmFlowProgramEdit{
+            .nodes = command.edit.nodes,
+            .connections = command.edit.connections,
+        });
+    if (!replaced) return replaced.error();
+    if (auto result = refresh_automation_runtime(replaced->chunk_key); !result) {
+        auto error = result.error();
+        error.with_context("GameServerPlayerInteractionService::submit_sfm_program_replace(refresh)");
+        return error;
+    }
+    SNT_LOG_INFO("Committed SFM graph revision=%llu controller=%llu player='%s' tick=%llu nodes=%zu edges=%zu",
+                 static_cast<unsigned long long>(replaced->sfm_program.revision),
+                 static_cast<unsigned long long>(command.controller_anchor_entity_id),
+                 peer.identity.account_id.c_str(), static_cast<unsigned long long>(tick_index),
+                 replaced->sfm_program.nodes.size(), replaced->sfm_program.connections.size());
+    return {};
+}
+
 snt::core::Expected<void> GameServerPlayerInteractionService::apply_mine(
     const GameAuthenticatedPeer& peer, const GameBlockInteractionCommand& command,
     uint64_t tick_index) {
@@ -583,6 +662,9 @@ snt::core::Expected<void> GameServerPlayerInteractionService::apply_place(
     uint64_t tick_index) {
     if (content_->find_automation_controller_placement_by_item(command.selected_item_id) != nullptr) {
         return apply_automation_controller_place(peer, command, tick_index);
+    }
+    if (content_->find_ae_network_node_placement_by_item(command.selected_item_id) != nullptr) {
+        return apply_ae_network_node_place(peer, command, tick_index);
     }
     if (content_->find_machine_placement_by_item(command.selected_item_id) != nullptr) {
         return apply_machine_place(peer, command, tick_index);
@@ -787,6 +869,151 @@ GameServerPlayerInteractionService::apply_automation_controller_place(
         placement->controller_key.c_str(), peer.identity.account_id.c_str(),
         target->position.position.x, target->position.position.y, target->position.position.z,
         static_cast<unsigned long long>(anchor->anchor_entity_id.id));
+    emit_event({
+        .kind = GameServerPlayerInteractionEventKind::kBlockPlaced,
+        .account_id = peer.identity.account_id,
+        .tick_index = tick_index,
+        .command = command,
+        .item_id = placement->item_id,
+        .previous_material = worldgen.roles.air,
+        .current_material = terrain_material->id,
+    });
+    return {};
+}
+
+snt::core::Expected<void>
+GameServerPlayerInteractionService::apply_ae_network_node_place(
+    const GameAuthenticatedPeer& peer,
+    const GameBlockInteractionCommand& command,
+    uint64_t tick_index) {
+    if (config_.worldgen_config == nullptr) {
+        return invalid_state("Game server interaction has no worldgen snapshot");
+    }
+    const WorldGenConfigSnapshot& worldgen = *config_.worldgen_config;
+    auto target = resolve_target(*player_state_, *chunks_, peer, command);
+    if (!target) return target.error();
+    if (static_cast<uint32_t>(target->cell->material) != worldgen.roles.air ||
+        target->cell->has_fluid()) {
+        return invalid_state("Client AE node placement target is not an empty host terrain cell");
+    }
+    const AeNetworkNodePlacementDefinition* placement =
+        content_->find_ae_network_node_placement_by_item(command.selected_item_id);
+    if (placement == nullptr) {
+        return invalid_state("Client AE node item is not in the host placement registry");
+    }
+    const TerrainMaterialDef* terrain_material = find_terrain_material(placement->material_key);
+    if (terrain_material == nullptr || terrain_material->id == worldgen.roles.air ||
+        terrain_material->id == config_.reserved_grave_material_id ||
+        find_block_by_material(terrain_material->id) != nullptr ||
+        content_->find_machine_placement_by_material_key(placement->material_key) != nullptr ||
+        content_->find_automation_controller_placement_by_material_key(placement->material_key) !=
+            nullptr) {
+        return invalid_state("AE node placement material conflicts with a host terrain owner");
+    }
+
+    GameChunkSidecar* sidecar = sidecars_->get(target->chunk_key);
+    if (sidecar != nullptr && has_non_bed_sidecar_claim(*sidecar, target->position)) {
+        return invalid_state("Client AE node placement target owns a protected game sidecar anchor");
+    }
+    auto bed_present = beds_->has_bed_at(target->position);
+    if (!bed_present) return bed_present.error();
+    if (*bed_present) {
+        return invalid_state("Client AE node placement target already owns a player bed anchor");
+    }
+
+    const GamePlayerInventoryTransaction transaction{
+        .removals = {GamePlayerItemStack::item(placement->item_id, 1)},
+    };
+    auto can_apply = player_state_->can_apply_inventory_transaction(peer, transaction);
+    if (!can_apply) return can_apply.error();
+    if (!*can_apply) {
+        return invalid_state("Client AE node placement item is absent from the host inventory");
+    }
+    if (auto result = mark_player_state_dirty(peer); !result) return result.error();
+
+    const bool created_sidecar = sidecar == nullptr;
+    if (created_sidecar) sidecars_->set(target->chunk_key, {});
+    auto anchor = GameAeNetworkPersistence::create_node(
+        *sidecars_, target->chunk_key,
+        target->position.position.x, target->position.position.y, target->position.position.z,
+        {
+            .node_key = placement->node_key,
+            .type = placement->type,
+            .enabled = placement->enabled,
+            .provided_channels = placement->provided_channels,
+            .connection_mask = placement->connection_mask,
+        });
+    if (!anchor) {
+        if (created_sidecar) sidecars_->remove(target->chunk_key);
+        return anchor.error();
+    }
+
+    // A newly placed drive receives its mutable cell from the sidecar record
+    // before the item transaction commits.  If any later step fails, detach
+    // it while that record still exists, then remove the typed owner.
+    const auto rollback_node = [&]() noexcept {
+        if (placement->type == AeNetworkNodeType::kDrive &&
+            config_.ae_drive_storage_runtime != nullptr) {
+            GameChunkSidecar* const rollback_sidecar = sidecars_->get(target->chunk_key);
+            if (rollback_sidecar != nullptr) {
+                if (auto detached = config_.ae_drive_storage_runtime->dematerialize_chunk(
+                        target->chunk_key, *rollback_sidecar);
+                    !detached) {
+                    SNT_LOG_ERROR(
+                        "AE drive placement rollback could not detach sidecar cell key='%s' anchor=%llu: %s",
+                        placement->node_key.c_str(),
+                        static_cast<unsigned long long>(anchor->anchor_entity_id.id),
+                        detached.error().format().c_str());
+                }
+            }
+        }
+        if (auto removed = GameAeNetworkPersistence::remove_node(
+                *sidecars_, anchor->anchor_entity_id);
+            !removed) {
+            SNT_LOG_ERROR(
+                "AE node placement rollback left node key='%s' anchor=%llu: %s",
+                placement->node_key.c_str(),
+                static_cast<unsigned long long>(anchor->anchor_entity_id.id),
+                removed.error().format().c_str());
+            return;
+        }
+        if (created_sidecar) sidecars_->remove(target->chunk_key);
+        if (auto restored = refresh_automation_runtime(target->chunk_key); !restored) {
+            SNT_LOG_ERROR(
+                "AE node placement rollback refresh failed for key='%s' at (%d,%d,%d): %s",
+                placement->node_key.c_str(), target->position.position.x,
+                target->position.position.y, target->position.position.z,
+                restored.error().format().c_str());
+        }
+    };
+
+    if (auto result = refresh_automation_runtime(target->chunk_key); !result) {
+        const auto refresh_error = result.error();
+        rollback_node();
+        auto error = refresh_error;
+        error.with_context("GameServerPlayerInteractionService::apply_ae_network_node_place(runtime refresh)");
+        return error;
+    }
+
+    const snt::voxel::TerrainCell previous = *target->cell;
+    *target->cell = {
+        .material = static_cast<snt::voxel::TerrainMaterial>(terrain_material->id),
+        .flags = terrain_material->flags,
+    };
+    if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+        *target->cell = previous;
+        rollback_node();
+        auto error = result.error();
+        error.with_context("GameServerPlayerInteractionService::apply_ae_network_node_place(inventory commit)");
+        return error;
+    }
+
+    schedule_terrain_simulation_after_commit(command, tick_index);
+    SNT_LOG_INFO("Placed AE node '%s' for account '%s' at (%d,%d,%d) anchor=%llu",
+                 placement->node_key.c_str(), peer.identity.account_id.c_str(),
+                 target->position.position.x, target->position.position.y,
+                 target->position.position.z,
+                 static_cast<unsigned long long>(anchor->anchor_entity_id.id));
     emit_event({
         .kind = GameServerPlayerInteractionEventKind::kBlockPlaced,
         .account_id = peer.identity.account_id,
@@ -1502,6 +1729,15 @@ GameServerPlayerInteractionService::refresh_automation_runtime(const ChunkKey& c
                    !result) {
             auto error = result.error();
             error.with_context("GameServerPlayerInteractionService::refresh_automation_runtime(AE)");
+            return error;
+        }
+    }
+    if (config_.ae_drive_storage_runtime != nullptr && sidecar != nullptr) {
+        if (auto result = config_.ae_drive_storage_runtime->materialize_chunk(chunk_key, *sidecar);
+            !result) {
+            auto error = result.error();
+            error.with_context(
+                "GameServerPlayerInteractionService::refresh_automation_runtime(AE drive)");
             return error;
         }
     }
