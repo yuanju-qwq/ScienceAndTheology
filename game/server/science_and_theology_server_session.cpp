@@ -4,6 +4,7 @@
 #include "game/server/science_and_theology_server_session.h"
 
 #include "game/network/game_account_peer_authenticator.h"
+#include "game/server/game_server_automation_controller_replication.h"
 #include "game/server/game_server_command_sink.h"
 #include "game/server/game_server_creature_interaction.h"
 #include "game/server/game_server_creature_replication.h"
@@ -263,6 +264,21 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     quest_book_replication_ = std::move(*quest_book_replication);
+    const AutomationControllerRuntimeService* const automation_runtime =
+        simulation_session_.automation_controller_runtime();
+    if (automation_runtime == nullptr) {
+        return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                "Dedicated server simulation has no automation controller runtime"};
+    }
+    auto automation_controller_replication =
+        replication::GameServerAutomationControllerReplication::create(*automation_runtime);
+    if (!automation_controller_replication) {
+        auto error = automation_controller_replication.error();
+        error.with_context(
+            "ScienceAndTheologyServerSession::create_world(automation controller replication)");
+        return error;
+    }
+    automation_controller_replication_ = std::move(*automation_controller_replication);
     auto creature_replication = replication::GameServerCreaturePresentationReplication::create(
         {
             .max_visible_creatures = config_.server_replication.max_visible_creatures,
@@ -294,7 +310,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
             .max_visible_creature_chunks =
                 config_.server_replication.max_visible_creature_chunks,
         },
-        {quest_book_replication_.get(), inventory_replication_.get(), creature_replication_.get()});
+        {quest_book_replication_.get(), inventory_replication_.get(), creature_replication_.get(),
+         automation_controller_replication_.get()});
     if (!player_replication) {
         auto error = player_replication.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(player AOI)");
@@ -443,6 +460,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                  config_.server_replication.max_entity_snapshots_per_tick);
     SNT_LOG_INFO("Task-book value replication enabled (value_budget=%u)",
                  config_.server_replication.max_value_snapshots_per_tick);
+    SNT_LOG_INFO("Automation controller graph replication enabled through chunk AOI values");
     SNT_LOG_INFO("Native creature AOI replication enabled (horizontal=%u vertical=%u chunks=%u values=%u); far visuals remain presentation-only",
                  config_.server_replication.creature_horizontal_aoi_radius_blocks,
                  config_.server_replication.creature_vertical_aoi_radius_blocks,
@@ -581,6 +599,7 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     simulation_session_.set_crop_growth_mutation_sink(nullptr);
     simulation_session_.set_block_physics_mutation_sink(nullptr);
     player_replication_.reset();
+    automation_controller_replication_.reset();
     simulation_session_.set_creature_presentation_sink(nullptr);
     creature_replication_.reset();
     inventory_replication_.reset();

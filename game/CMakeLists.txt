@@ -154,6 +154,7 @@ add_library(snt_game_source_law STATIC
     source_law/source_law_types.cpp
     source_law/source_law_definition.cpp
     source_law/source_law_evaluator.cpp
+    source_law/source_law_spell_compiler.cpp
     source_law/source_law_transaction_service.cpp
     source_law/source_law_persistence_codec.cpp
     source_law/builtin_source_law_content.cpp
@@ -171,6 +172,7 @@ target_link_libraries(snt_game_source_law PUBLIC
 # versions, authenticated command admission, and AOI/snapshot value contracts.
 add_library(snt_game_network STATIC
     network/game_account_peer_authenticator.cpp
+    network/game_automation_controller_replication.cpp
     network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
     network/game_creature_replication.cpp
@@ -214,6 +216,7 @@ add_library(snt_game_simulation STATIC
     simulation/fluid_lattice_boltzmann.cpp
     simulation/game_content_reload_service.cpp
     simulation/automation_controller_persistence.cpp
+    simulation/automation_controller_runtime.cpp
     simulation/game_fluid_system.cpp
     simulation/machine_interaction_service.cpp
     simulation/machine_placement_registry.cpp
@@ -289,6 +292,7 @@ set_target_properties(snt_game_client PROPERTIES OUTPUT_NAME science_and_theolog
 # intentionally excludes client presentation modules and transport choices.
 add_executable(snt_game_server
     server/main.cpp
+    server/game_server_automation_controller_replication.cpp
     server/game_server_command_sink.cpp
     server/game_server_creature_interaction.cpp
     server/game_server_creature_replication.cpp
@@ -447,6 +451,38 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         GTest::gtest_main
     )
 
+    # Controller graph replication stays independent from the simulation
+    # executable so protocol/cache coverage remains available while gameplay
+    # systems evolve.
+    add_executable(snt_game_automation_replication_tests
+        tests/test_game_automation_controller_replication.cpp
+    )
+    target_include_directories(snt_game_automation_replication_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(snt_game_automation_replication_tests PRIVATE
+        snt_game_network
+        snt_engine_settings
+        GTest::gtest_main
+    )
+
+    # Keep controller execution coverage independent from the full simulation
+    # host. The same runtime source is linked into snt_game_simulation.
+    add_executable(snt_game_automation_runtime_tests
+        simulation/automation_controller_runtime.cpp
+        tests/test_automation_controller_runtime.cpp
+    )
+    target_include_directories(snt_game_automation_runtime_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    )
+    target_link_libraries(snt_game_automation_runtime_tests PRIVATE
+        snt_game_automation
+        snt_game_resources
+        snt_game_world_data
+        snt_engine_settings
+        GTest::gtest_main
+    )
+
     add_executable(snt_game_tests
         client/client_block_interaction.cpp
         client/creature_interaction.cpp
@@ -456,6 +492,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         client/gameplay_ui.cpp
         client/lan_server_browser.cpp
         client/quest_book_ui.cpp
+        server/game_server_automation_controller_replication.cpp
         server/game_server_command_sink.cpp
         server/game_server_creature_interaction.cpp
         server/game_server_creature_replication.cpp
@@ -547,6 +584,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     gtest_discover_tests(snt_game_source_law_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_source_law_server_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_creature_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(snt_game_automation_replication_tests DISCOVERY_MODE PRE_TEST)
+    gtest_discover_tests(snt_game_automation_runtime_tests DISCOVERY_MODE PRE_TEST)
     gtest_discover_tests(snt_game_tests DISCOVERY_MODE PRE_TEST)
 
     add_custom_command(TARGET snt_game_tests POST_BUILD

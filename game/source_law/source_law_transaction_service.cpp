@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <string>
 #include <utility>
@@ -85,8 +86,19 @@ void append_transition_events(const SourceLawEvaluation& before,
         .evaluation = evaluation,
     };
     append_transition_events(previous, evaluation, subject_id, result.events);
+    for (SourceLawTransactionEvent& event : result.events) {
+        event.body_revision = result.body.body_revision;
+    }
     SourceLawBodyTransitionLogger::log_if_changed(subject_id, previous, evaluation);
     return result;
+}
+
+[[nodiscard]] snt::core::Expected<void> advance_body_revision(SourceLawBodyState& body) {
+    if (body.body_revision == std::numeric_limits<uint64_t>::max()) {
+        return invalid_state("Source-law body revision is exhausted");
+    }
+    ++body.body_revision;
+    return {};
 }
 
 }  // namespace
@@ -122,6 +134,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::imp
         .integrity = 1.0F,
         .tuning_tags = request.tuning_tags,
     };
+    if (auto result = advance_body_revision(candidate); !result) return result.error();
     const SourceLawEvaluation after = SourceLawBodyEvaluator::evaluate(content, candidate, context);
     SourceLawTransactionResult result = make_result(candidate, before, after,
                                                      request.diagnostic_subject_id);
@@ -130,6 +143,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::imp
         .subject_id = std::string{request.diagnostic_subject_id},
         .definition_id = definition->id,
         .slot = request.slot,
+        .body_revision = result.body.body_revision,
     });
     return result;
 }
@@ -150,6 +164,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::rem
     const SourceLawEvaluation before = SourceLawBodyEvaluator::evaluate(content, body, context);
     SourceLawBodyState candidate = body;
     candidate.organs[slot_index].reset();
+    if (auto result = advance_body_revision(candidate); !result) return result.error();
     const SourceLawEvaluation after = SourceLawBodyEvaluator::evaluate(content, candidate, context);
     SourceLawTransactionResult result = make_result(candidate, before, after,
                                                      request.diagnostic_subject_id);
@@ -158,6 +173,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::rem
         .subject_id = std::string{request.diagnostic_subject_id},
         .definition_id = removed_definition_id,
         .slot = request.slot,
+        .body_revision = result.body.body_revision,
     });
     return result;
 }
@@ -173,6 +189,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::anc
     const SourceLawEvaluation before = SourceLawBodyEvaluator::evaluate(content, body, context);
     SourceLawBodyState candidate = body;
     candidate.active_path_id = request.path_id;
+    if (auto result = advance_body_revision(candidate); !result) return result.error();
     const SourceLawEvaluation after = SourceLawBodyEvaluator::evaluate(content, candidate, context);
     SourceLawTransactionResult result = make_result(candidate, before, after,
                                                      request.diagnostic_subject_id);
@@ -180,6 +197,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::anc
         .kind = SourceLawTransactionEventKind::kPathAnchored,
         .subject_id = std::string{request.diagnostic_subject_id},
         .definition_id = request.path_id,
+        .body_revision = result.body.body_revision,
     });
     return result;
 }
@@ -206,6 +224,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::sch
         .coordinating_circuit_system_ids = request.coordinating_system_ids,
         .primary_circuit_reallocation_cooldown_seconds = request.reallocation_cooldown_seconds,
     };
+    if (auto result = advance_body_revision(candidate); !result) return result.error();
     const SourceLawEvaluation after = SourceLawBodyEvaluator::evaluate(content, candidate, context);
     if (!after.circuit_schedule.primary_circuit_is_valid ||
         !after.circuit_schedule.rejected_circuit_system_ids.empty() ||
@@ -221,6 +240,7 @@ snt::core::Expected<SourceLawTransactionResult> SourceLawTransactionService::sch
         .kind = SourceLawTransactionEventKind::kCircuitScheduled,
         .subject_id = std::string{request.diagnostic_subject_id},
         .definition_id = request.primary_system_id.value_or(""),
+        .body_revision = result.body.body_revision,
     });
     return result;
 }

@@ -931,6 +931,86 @@ SourceLawEvaluation SourceLawBodyEvaluator::evaluate(
         integration.stage = SourceBodyStage::kAwakened;
     }
     evaluation.integration = std::move(integration);
+
+    // The evaluator establishes body capabilities once. The compiler consumes
+    // this value snapshot and never re-evaluates organs or reaches into ECS.
+    SourceLawBodyCapabilitySnapshot capabilities{
+        .body_revision = body.body_revision,
+        .active_path_id = body.active_path_id,
+        .active_path_is_resonant = evaluation.path.is_resonant,
+        .circuit_schedule = evaluation.circuit_schedule.effective_schedule,
+        .integration = evaluation.integration,
+        .source_throughput = evaluation.derived_source_throughput,
+        .stability = std::isfinite(body.stability)
+            ? std::clamp(body.stability, 0.0F, 100.0F)
+            : 0.0F,
+    };
+    std::set<SourceBodySystem> closed_body_systems;
+    std::set<ElementalReactionStage> available_stages;
+    std::set<ElementalPhysiologyAction> available_actions;
+    std::vector<SourceLawId> exposed_intrinsic_ids;
+    for (const SourceLawSystemReport& system : evaluation.systems) {
+        if (system.state != SourceLawSystemState::kClosed &&
+            system.state != SourceLawSystemState::kGrowing) {
+            continue;
+        }
+        append_unique(capabilities.active_system_ids, system.system_id);
+        closed_body_systems.insert(system.body_system);
+        const OrganSystemDefinition* definition = content.find_system(system.system_id);
+        if (definition == nullptr) continue;
+        for (const SourceLawId& intrinsic_id : definition->intrinsic_operation_ids) {
+            append_unique(exposed_intrinsic_ids, intrinsic_id);
+        }
+        const ElementalReactionDefinition* reaction = content.find_reaction(
+            definition->elemental_reaction_id);
+        if (reaction != nullptr) {
+            append_unique(capabilities.available_product_ids, reaction->product_definition_id);
+        }
+        const auto collect_actions = [&available_stages, &available_actions](const auto& steps) {
+            for (const ElementalReactionStepReport& step : steps) {
+                if (!step.is_satisfied) continue;
+                for (const SourceLawContributionReference& contributor : step.contributors) {
+                    available_stages.insert(contributor.stage);
+                    available_actions.insert(contributor.action);
+                }
+            }
+        };
+        collect_actions(system.reaction.closure_steps);
+        collect_actions(system.reaction.growth_steps);
+    }
+    const auto primary_supports = [&capabilities, &closed_body_systems, &content](
+                                      const SourceLawIntrinsicDefinition& intrinsic) {
+        if (!intrinsic.requires_primary_circuit) return true;
+        if (!capabilities.circuit_schedule.current_primary_circuit_system_id) return false;
+        const OrganSystemDefinition* primary = content.find_system(
+            *capabilities.circuit_schedule.current_primary_circuit_system_id);
+        return primary != nullptr && closed_body_systems.contains(primary->body_system) &&
+               contains(intrinsic.required_closed_systems, primary->body_system);
+    };
+    for (const auto& [intrinsic_id, intrinsic] : content.intrinsics()) {
+        if (!contains(exposed_intrinsic_ids, intrinsic_id) ||
+            !std::all_of(intrinsic.required_closed_systems.begin(),
+                         intrinsic.required_closed_systems.end(),
+                         [&closed_body_systems](const SourceBodySystem system) {
+                             return closed_body_systems.contains(system);
+                         }) ||
+            !std::all_of(intrinsic.required_stages.begin(), intrinsic.required_stages.end(),
+                         [&available_stages](const ElementalReactionStage stage) {
+                             return available_stages.contains(stage);
+                         }) ||
+            !std::all_of(intrinsic.required_actions.begin(), intrinsic.required_actions.end(),
+                         [&available_actions](const ElementalPhysiologyAction action) {
+                             return available_actions.contains(action);
+                         }) ||
+            !has_all(intrinsic.required_product_tags, capabilities.available_product_ids) ||
+            !primary_supports(intrinsic) ||
+            (intrinsic.requires_unification_circuit &&
+             !capabilities.integration.unification_circuit_online)) {
+            continue;
+        }
+        append_unique(capabilities.available_intrinsic_ids, intrinsic_id);
+    }
+    evaluation.capability_snapshot = std::move(capabilities);
     return evaluation;
 }
 

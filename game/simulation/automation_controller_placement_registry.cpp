@@ -54,12 +54,11 @@ AutomationControllerPlacementRegistry::find_by_item(std::string_view item_id) co
 
 const AutomationControllerPlacementDefinition*
 AutomationControllerPlacementRegistry::find_by_material_key(
-    std::string_view material_key) const noexcept {
-    for (const auto& [item_id, entry] : live_definitions_) {
-        static_cast<void>(item_id);
-        if (entry.definition.material_key == material_key) return &entry.definition;
-    }
-    return nullptr;
+    std::string_view material_key) const {
+    const auto indexed = material_to_item_.find(std::string(material_key));
+    if (indexed == material_to_item_.end()) return nullptr;
+    const auto found = live_definitions_.find(indexed->second);
+    return found == live_definitions_.end() ? nullptr : &found->second.definition;
 }
 
 std::vector<AutomationControllerPlacementDefinition>
@@ -196,6 +195,7 @@ snt::core::Expected<void> AutomationControllerPlacementRegistry::unload_script(
 void AutomationControllerPlacementRegistry::reset() noexcept {
     backup_definitions_.clear();
     live_definitions_.clear();
+    material_to_item_.clear();
     reloads_.clear();
 }
 
@@ -260,6 +260,7 @@ snt::core::Expected<void> AutomationControllerPlacementRegistry::register_defini
     OwnedDefinition entry{owner, std::move(definition)};
     if (builtin) backup_definitions_[item_id] = entry;
     live_definitions_[item_id] = std::move(entry);
+    rebuild_material_index();
     return {};
 }
 
@@ -305,11 +306,21 @@ void AutomationControllerPlacementRegistry::erase_script_definitions(
             ++it;
         }
     }
+    rebuild_material_index();
 }
 
 void AutomationControllerPlacementRegistry::restore_script_definitions(
     const DefinitionMap& snapshot) {
     for (const auto& [item_id, entry] : snapshot) live_definitions_[item_id] = entry;
+    rebuild_material_index();
+}
+
+void AutomationControllerPlacementRegistry::rebuild_material_index() {
+    material_to_item_.clear();
+    material_to_item_.reserve(live_definitions_.size());
+    for (const auto& [item_id, entry] : live_definitions_) {
+        material_to_item_.emplace(entry.definition.material_key, item_id);
+    }
 }
 
 }  // namespace snt::game

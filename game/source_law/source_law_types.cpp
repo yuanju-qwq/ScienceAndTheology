@@ -138,4 +138,45 @@ std::string_view source_law_system_state_name(SourceLawSystemState value) noexce
     return "invalid";
 }
 
+std::string_view source_law_spell_node_kind_name(SourceLawSpellNodeKind value) noexcept {
+    switch (value) {
+    case SourceLawSpellNodeKind::kInput: return "input";
+    case SourceLawSpellNodeKind::kBodyIntrinsic: return "body_intrinsic";
+    case SourceLawSpellNodeKind::kPathCore: return "path_core";
+    case SourceLawSpellNodeKind::kControlFlow: return "control_flow";
+    case SourceLawSpellNodeKind::kCoordinatingService: return "coordinating_service";
+    case SourceLawSpellNodeKind::kOutput: return "output";
+    case SourceLawSpellNodeKind::kCount: break;
+    }
+    return "invalid";
+}
+
+std::string_view source_law_spell_port_type_name(SourceLawSpellPortType value) noexcept {
+    switch (value) {
+    case SourceLawSpellPortType::kMana: return "mana";
+    case SourceLawSpellPortType::kReactionProduct: return "reaction_product";
+    case SourceLawSpellPortType::kEnvironmentCarrier: return "environment_carrier";
+    case SourceLawSpellPortType::kTargetInformation: return "target_information";
+    case SourceLawSpellPortType::kControlSignal: return "control_signal";
+    case SourceLawSpellPortType::kLoadOrBoundary: return "load_or_boundary";
+    case SourceLawSpellPortType::kByproduct: return "byproduct";
+    case SourceLawSpellPortType::kEffect: return "effect";
+    case SourceLawSpellPortType::kCount: break;
+    }
+    return "invalid";
+}
+
+std::string_view source_law_spell_graph_kind_name(SourceLawSpellGraphKind value) noexcept {
+    switch (value) {
+    case SourceLawSpellGraphKind::kPathAwakening: return "path_awakening";
+    case SourceLawSpellGraphKind::kPathSystem: return "path_system";
+    case SourceLawSpellGraphKind::kPathSignature: return "path_signature";
+    case SourceLawSpellGraphKind::kPathCompletion: return "path_completion";
+    case SourceLawSpellGraphKind::kCreatureInnate: return "creature_innate";
+    case SourceLawSpellGraphKind::kPlayerAuthored: return "player_authored";
+    case SourceLawSpellGraphKind::kCount: break;
+    }
+    return "invalid";
+}
+
 }  // namespace snt::game::source_law

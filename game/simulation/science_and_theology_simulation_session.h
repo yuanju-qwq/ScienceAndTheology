@@ -52,6 +52,7 @@ class GameCropGrowthSystem;
 class GameEcosystemSystem;
 class GameWildCreatureSystem;
 class GameFluidSystem;
+class AutomationControllerRuntimeService;
 class GameTreeGrowthSystem;
 class IGameEcosystemEnvironmentProvider;
 class IGameEcosystemInterestProvider;
@@ -207,6 +208,16 @@ public:
     // past this session's shutdown.
     GameChunkSidecarRegistry& world_sidecars() noexcept { return chunk_sidecars_; }
     const GameChunkSidecarRegistry& world_sidecars() const noexcept { return chunk_sidecars_; }
+    // Active controller executors are a separate block-owner subsystem. Server
+    // interaction and replication composition may use this narrow accessor;
+    // they never receive a machine ECS component or mutable sidecar container.
+    [[nodiscard]] AutomationControllerRuntimeService* automation_controller_runtime() noexcept {
+        return automation_controller_runtime_.get();
+    }
+    [[nodiscard]] const AutomationControllerRuntimeService*
+    automation_controller_runtime() const noexcept {
+        return automation_controller_runtime_.get();
+    }
 
     // Chunk streaming calls these only at an authoritative fixed-tick barrier.
     // They transfer machine ownership before terrain is removed or restored.
@@ -269,6 +280,7 @@ private:
     std::unique_ptr<OfflineIndustrialNetworkIslandSimulator>
         offline_industrial_network_simulator_;
     std::unique_ptr<OfflineMachineSimulationService> offline_machine_simulation_;
+    std::unique_ptr<AutomationControllerRuntimeService> automation_controller_runtime_;
     IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;
     snt::voxel::ChunkRegistry* chunks_ = nullptr;

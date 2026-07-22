@@ -30,6 +30,7 @@ class TcpUdpReplicationTransport;
 
 namespace snt::game::replication {
 class GameServerCommandSink;
+class GameServerAutomationControllerReplication;
 class GameServerCreatureInteractionService;
 class GameServerCreaturePresentationReplication;
 class GameServerPlayerBedService;
@@ -92,6 +93,8 @@ private:
     std::unique_ptr<replication::GameServerQuestEventService> quest_events_;
     std::unique_ptr<replication::GameServerQuestBookReplication> quest_book_replication_;
     std::unique_ptr<replication::GameServerInventoryReplication> inventory_replication_;
+    std::unique_ptr<replication::GameServerAutomationControllerReplication>
+        automation_controller_replication_;
     std::unique_ptr<replication::GameServerCreaturePresentationReplication>
         creature_replication_;
     std::unique_ptr<replication::GameServerPlayerReplication> player_replication_;

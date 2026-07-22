@@ -535,6 +535,7 @@ bool is_known_game_replication_value_kind(GameReplicationValueKind kind) noexcep
         case GameReplicationValueKind::kQuestBook:
         case GameReplicationValueKind::kPlayerInventory:
         case GameReplicationValueKind::kCreaturePresentation:
+        case GameReplicationValueKind::kAutomationControllers:
             return true;
     }
     return false;

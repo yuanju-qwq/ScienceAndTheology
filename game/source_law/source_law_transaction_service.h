@@ -39,6 +39,8 @@ enum class SourceLawTransactionEventKind : uint8_t {
     kOrganRemoved,
     kPathAnchored,
     kCircuitScheduled,
+    kSpellGraphChanged,
+    kSpellCompilationChanged,
     kSystemStateChanged,
     kBodyIntegrationStateChanged,
 };
@@ -52,6 +54,11 @@ struct SourceLawTransactionEvent {
     SourceLawSystemState current_system_state = SourceLawSystemState::kUnavailable;
     SourceBodyStage previous_body_stage = SourceBodyStage::kDormant;
     SourceBodyStage current_body_stage = SourceBodyStage::kDormant;
+    SourceLawSpellProgramId spell_program_id;
+    uint32_t source_revision = 0;
+    uint64_t body_revision = 0;
+    bool is_compilable = false;
+    std::vector<SourceLawId> blocking_reason_ids;
 };
 
 class ISourceLawEventSink {

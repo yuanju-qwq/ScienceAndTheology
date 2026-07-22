@@ -16,7 +16,7 @@ namespace snt::game::source_law {
 
 inline constexpr std::string_view kSourceLawPlayerOrganSchemaId =
     "snt:source_law_body";
-inline constexpr uint16_t kSourceLawPlayerOrganSchemaVersion = 1;
+inline constexpr uint16_t kSourceLawPlayerOrganSchemaVersion = 2;
 
 class SourceLawPersistenceCodec final : public IGamePlayerOrganStateCodec {
 public:

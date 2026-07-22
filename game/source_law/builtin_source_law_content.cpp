@@ -59,6 +59,28 @@ namespace {
     };
 }
 
+[[nodiscard]] SourceLawSpellNode spell_node(uint32_t stable_node_id,
+                                             SourceLawSpellNodeKind kind,
+                                             SourceLawId definition_id) {
+    return {
+        .stable_node_id = stable_node_id,
+        .kind = kind,
+        .definition_id = std::move(definition_id),
+    };
+}
+
+[[nodiscard]] SourceLawSpellLink spell_link(uint32_t from_node_id,
+                                             SourceLawId from_port_id,
+                                             uint32_t to_node_id,
+                                             SourceLawId to_port_id) {
+    return {
+        .from_node_id = from_node_id,
+        .from_port_id = std::move(from_port_id),
+        .to_node_id = to_node_id,
+        .to_port_id = std::move(to_port_id),
+    };
+}
+
 }  // namespace
 
 snt::core::Expected<SourceLawContentSnapshot>
@@ -365,6 +387,220 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
         return result.error();
     }
 
+    if (auto result = builder.add_intrinsic({
+            .id = "snt:intrinsic.sand_armor.pressure_shell",
+            .required_closed_systems = {SourceBodySystem::kCirculatory},
+            .required_stages = {ElementalReactionStage::kGenerationOrIntake,
+                                ElementalReactionStage::kTransport,
+                                ElementalReactionStage::kEffectOrRelease},
+            .required_actions = {ElementalPhysiologyAction::kAnchorShapeDeposit,
+                                 ElementalPhysiologyAction::kDissolveCarryRecover},
+            .required_product_tags = {"snt:product.sand_armor.pressure"},
+            .input_port_types = {SourceLawSpellPortType::kMana},
+            .output_port_types = {SourceLawSpellPortType::kEffect},
+            .requires_primary_circuit = true,
+            .required_throughput = 14.0F,
+            .mana_cost = 6,
+            .risk_tags = {"snt:risk.sand_armor.pressure"},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_intrinsic({
+            .id = "snt:intrinsic.sand_armor.structural_charge",
+            .required_closed_systems = {SourceBodySystem::kMusculoskeletal},
+            .required_stages = {ElementalReactionStage::kGenerationOrIntake,
+                                ElementalReactionStage::kTransformation,
+                                ElementalReactionStage::kEffectOrRelease},
+            .required_actions = {ElementalPhysiologyAction::kAnchorShapeDeposit},
+            .required_product_tags = {"snt:product.sand_armor.frame"},
+            .input_port_types = {SourceLawSpellPortType::kMana},
+            .output_port_types = {SourceLawSpellPortType::kEffect},
+            .required_throughput = 12.0F,
+            .mana_cost = 5,
+            .risk_tags = {"snt:risk.sand_armor.structural_load"},
+        }); !result) {
+        return result.error();
+    }
+
+    if (auto result = builder.add_spell_node_definition({
+            .id = "snt:spell.input.source_mana",
+            .kind = SourceLawSpellNodeKind::kInput,
+            .output_ports = {{.id = "mana", .type = SourceLawSpellPortType::kMana}},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_node_definition({
+            .id = "snt:spell.output.shield_effect",
+            .kind = SourceLawSpellNodeKind::kOutput,
+            .input_ports = {{.id = "effect", .type = SourceLawSpellPortType::kEffect}},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_node_definition({
+            .id = "snt:path_core.sand_armor.deposit_shape",
+            .kind = SourceLawSpellNodeKind::kPathCore,
+            .input_ports = {{.id = "effect_in", .type = SourceLawSpellPortType::kEffect}},
+            .output_ports = {{.id = "effect_out", .type = SourceLawSpellPortType::kEffect}},
+            .semantic_id = "snt:semantic.sand_armor.deposit_shape",
+            .required_throughput = 1.0F,
+            .risk_tags = {"snt:risk.sand_armor.rigid_shape"},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_node_definition({
+            .id = "snt:service.sand_armor.merge_pressure",
+            .kind = SourceLawSpellNodeKind::kCoordinatingService,
+            .input_ports = {{.id = "effect_in", .type = SourceLawSpellPortType::kEffect,
+                             .allows_multiple_links = true}},
+            .output_ports = {{.id = "effect_out", .type = SourceLawSpellPortType::kEffect}},
+            .required_throughput = 2.0F,
+        }); !result) {
+        return result.error();
+    }
+
+    if (auto result = builder.add_hybrid_link({
+            .id = "snt:hybrid.sand_armor.mantle_charge",
+            .required_distinct_systems = {SourceBodySystem::kCirculatory,
+                                          SourceBodySystem::kMusculoskeletal},
+            .required_intrinsic_ids = {"snt:intrinsic.sand_armor.pressure_shell",
+                                       "snt:intrinsic.sand_armor.structural_charge"},
+            .required_product_ids = {"snt:product.sand_armor.pressure",
+                                     "snt:product.sand_armor.frame"},
+            .composite_semantic_id = "snt:semantic.sand_armor.mantle_charge",
+        }); !result) {
+        return result.error();
+    }
+
+    if (auto result = builder.add_spell_graph({
+            .id = "snt:spell_graph.sand_armor.awakening_shell",
+            .graph = {
+                .kind = SourceLawSpellGraphKind::kPathAwakening,
+                .nodes = {
+                    spell_node(1, SourceLawSpellNodeKind::kInput,
+                               "snt:spell.input.source_mana"),
+                    spell_node(2, SourceLawSpellNodeKind::kBodyIntrinsic,
+                               "snt:intrinsic.sand_armor.pressure_shell"),
+                    spell_node(3, SourceLawSpellNodeKind::kOutput,
+                               "snt:spell.output.shield_effect"),
+                },
+                .links = {
+                    spell_link(1, "mana", 2, "input.0"),
+                    spell_link(2, "output.0", 3, "effect"),
+                },
+                .declared_primary_system_ids = {"snt:system.sand_armor.circulatory"},
+            },
+            .compatible_path_ids = {"snt:path.sand_armor"},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_graph({
+            .id = "snt:spell_graph.sand_armor.system_charge",
+            .graph = {
+                .kind = SourceLawSpellGraphKind::kPathSystem,
+                .nodes = {
+                    spell_node(1, SourceLawSpellNodeKind::kInput,
+                               "snt:spell.input.source_mana"),
+                    spell_node(2, SourceLawSpellNodeKind::kBodyIntrinsic,
+                               "snt:intrinsic.sand_armor.structural_charge"),
+                    spell_node(3, SourceLawSpellNodeKind::kOutput,
+                               "snt:spell.output.shield_effect"),
+                },
+                .links = {
+                    spell_link(1, "mana", 2, "input.0"),
+                    spell_link(2, "output.0", 3, "effect"),
+                },
+            },
+            .compatible_path_ids = {"snt:path.sand_armor"},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_graph({
+            .id = "snt:spell_graph.sand_armor.signature_mantle_charge",
+            .graph = {
+                .kind = SourceLawSpellGraphKind::kPathSignature,
+                .nodes = {
+                    spell_node(1, SourceLawSpellNodeKind::kInput,
+                               "snt:spell.input.source_mana"),
+                    spell_node(2, SourceLawSpellNodeKind::kBodyIntrinsic,
+                               "snt:intrinsic.sand_armor.pressure_shell"),
+                    spell_node(3, SourceLawSpellNodeKind::kBodyIntrinsic,
+                               "snt:intrinsic.sand_armor.structural_charge"),
+                    spell_node(4, SourceLawSpellNodeKind::kCoordinatingService,
+                               "snt:service.sand_armor.merge_pressure"),
+                    spell_node(5, SourceLawSpellNodeKind::kPathCore,
+                               "snt:path_core.sand_armor.deposit_shape"),
+                    spell_node(6, SourceLawSpellNodeKind::kOutput,
+                               "snt:spell.output.shield_effect"),
+                },
+                .links = {
+                    spell_link(1, "mana", 2, "input.0"),
+                    spell_link(1, "mana", 3, "input.0"),
+                    spell_link(2, "output.0", 4, "effect_in"),
+                    spell_link(3, "output.0", 4, "effect_in"),
+                    spell_link(4, "effect_out", 5, "effect_in"),
+                    spell_link(5, "effect_out", 6, "effect"),
+                },
+                .required_path_core_ids = {"snt:path_core.sand_armor.deposit_shape"},
+                .requested_hybrid_link_ids = {"snt:hybrid.sand_armor.mantle_charge"},
+                .declared_primary_system_ids = {"snt:system.sand_armor.circulatory"},
+                .declared_coordinating_system_ids = {
+                    "snt:system.sand_armor.musculoskeletal"},
+            },
+            .compatible_path_ids = {"snt:path.sand_armor"},
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_graph({
+            .id = "snt:spell_graph.sand_armor.completion_geode_body",
+            .graph = {
+                .kind = SourceLawSpellGraphKind::kPathCompletion,
+                .nodes = {
+                    spell_node(1, SourceLawSpellNodeKind::kInput,
+                               "snt:spell.input.source_mana"),
+                    spell_node(2, SourceLawSpellNodeKind::kBodyIntrinsic,
+                               "snt:intrinsic.sand_armor.pressure_shell"),
+                    spell_node(3, SourceLawSpellNodeKind::kPathCore,
+                               "snt:path_core.sand_armor.deposit_shape"),
+                    spell_node(4, SourceLawSpellNodeKind::kOutput,
+                               "snt:spell.output.shield_effect"),
+                },
+                .links = {
+                    spell_link(1, "mana", 2, "input.0"),
+                    spell_link(2, "output.0", 3, "effect_in"),
+                    spell_link(3, "effect_out", 4, "effect"),
+                },
+                .required_path_core_ids = {"snt:path_core.sand_armor.deposit_shape"},
+                .declared_primary_system_ids = {"snt:system.sand_armor.circulatory"},
+            },
+            .compatible_path_ids = {"snt:path.sand_armor"},
+            .requires_unification_circuit = true,
+        }); !result) {
+        return result.error();
+    }
+    if (auto result = builder.add_spell_graph({
+            .id = "snt:spell_graph.rock_lizard.innate_shell",
+            .graph = {
+                .kind = SourceLawSpellGraphKind::kCreatureInnate,
+                .nodes = {
+                    spell_node(1, SourceLawSpellNodeKind::kInput,
+                               "snt:spell.input.source_mana"),
+                    spell_node(2, SourceLawSpellNodeKind::kBodyIntrinsic,
+                               "snt:intrinsic.sand_armor.pressure_shell"),
+                    spell_node(3, SourceLawSpellNodeKind::kOutput,
+                               "snt:spell.output.shield_effect"),
+                },
+                .links = {
+                    spell_link(1, "mana", 2, "input.0"),
+                    spell_link(2, "output.0", 3, "effect"),
+                },
+                .declared_primary_system_ids = {"snt:system.sand_armor.circulatory"},
+            },
+            .compatible_path_ids = {"snt:path.sand_armor"},
+            .is_copyable_to_player_library = false,
+        }); !result) {
+        return result.error();
+    }
+
     if (auto result = builder.add_system({
             .id = "snt:system.sand_armor.circulatory",
             .body_system = SourceBodySystem::kCirculatory,
@@ -381,7 +617,7 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
                             {"snt:source_law.relief.stone_deposit"}),
             },
             .elemental_reaction_id = "snt:reaction.sand_armor.circulatory",
-            .base_active_ability_id = "snt:ability.rock_shield",
+            .intrinsic_operation_ids = {"snt:intrinsic.sand_armor.pressure_shell"},
             .pressure_tags = {"snt:source_law.byproduct.stone_dust"},
         }); !result) {
         return result.error();
@@ -406,7 +642,7 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
                             {"snt:system.sand_armor"}),
             },
             .elemental_reaction_id = "snt:reaction.sand_armor.musculoskeletal",
-            .base_active_ability_id = "snt:ability.crystal_charge",
+            .intrinsic_operation_ids = {"snt:intrinsic.sand_armor.structural_charge"},
             .pressure_tags = {"snt:source_law.byproduct.structural_strain"},
         }); !result) {
         return result.error();
@@ -510,9 +746,25 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
             },
             .core_organ_tags = {"snt:system.sand_armor"},
             .resonance_rules = {"snt:resonance.sand_armor"},
-            .signature_ability_id = "snt:ability.rock_shield",
-            .completion_body_ability_id = "snt:ability.geode_body",
-            .domain_ability_id = "snt:ability.sand_armor_domain",
+            .path_core_operation_ids = {"snt:path_core.sand_armor.deposit_shape"},
+            .awakening_spell_graph_ids = {"snt:spell_graph.sand_armor.awakening_shell"},
+            .system_spell_graph_ids = {"snt:spell_graph.sand_armor.system_charge"},
+            .signature_spell_graph_ids = {
+                "snt:spell_graph.sand_armor.signature_mantle_charge"},
+            .completion_spell_graph_ids = {
+                "snt:spell_graph.sand_armor.completion_geode_body"},
+        }); !result) {
+        return result.error();
+    }
+
+    if (auto result = builder.add_tool_spell_assembly({
+            .tool_definition_id = "snt:tool.rock_lizard_excavator",
+            .maximum_rune_slots = 3,
+            .maximum_magic_charm_slots = 2,
+            .allowed_rune_tags = {"snt:rune.earth", "snt:rune.support"},
+            .allowed_magic_charm_tags = {"snt:magic_charm.excavation"},
+            .required_product_tags = {"snt:product.sand_armor.frame"},
+            .required_tool_interface_tags = {"snt:tool_interface.excavation"},
         }); !result) {
         return result.error();
     }
@@ -534,6 +786,7 @@ make_builtin_source_law_content_v0_1(uint64_t revision) {
                                "snt:system.sand_armor.musculoskeletal"},
         .initial_reaction_ids = {"snt:reaction.sand_armor.circulatory",
                                  "snt:reaction.sand_armor.musculoskeletal"},
+        .innate_spell_graph_ids = {"snt:spell_graph.rock_lizard.innate_shell"},
         .integration_condition_ids = {"snt:ecology.arid"},
     };
     rock_lizard_template.organ_candidates[static_cast<size_t>(SourceOrganSlot::kHeart)] =

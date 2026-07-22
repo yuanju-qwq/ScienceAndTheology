@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace snt::game {
@@ -46,7 +47,7 @@ public:
     [[nodiscard]] const AutomationControllerPlacementDefinition* find_by_item(
         std::string_view item_id) const noexcept;
     [[nodiscard]] const AutomationControllerPlacementDefinition* find_by_material_key(
-        std::string_view material_key) const noexcept;
+        std::string_view material_key) const;
     [[nodiscard]] std::vector<AutomationControllerPlacementDefinition> definitions() const;
 
     [[nodiscard]] snt::core::Expected<void> begin_reload(snt::script::ScriptId script_id);
@@ -79,9 +80,14 @@ private:
         snt::script::ScriptId script_id) const;
     void erase_script_definitions(snt::script::ScriptId script_id);
     void restore_script_definitions(const DefinitionMap& snapshot);
+    void rebuild_material_index();
 
     DefinitionMap backup_definitions_;
     DefinitionMap live_definitions_;
+    // Item lookup is ordered for deterministic catalog enumeration; this
+    // secondary index keeps material-to-placement resolution expected O(1)
+    // for server placement and block-owner lookup boundaries.
+    std::unordered_map<std::string, std::string> material_to_item_;
     std::map<snt::script::ScriptId, DefinitionMap> reloads_;
 };
 

@@ -25,6 +25,7 @@
 #include <string_view>
 
 namespace snt::game::replication {
+class GameRemoteAutomationControllerWorld;
 class GameClientInventoryState;
 class GameClientQuestBookState;
 class GameRemoteCreatureWorld;
@@ -99,7 +100,9 @@ private:
     current_network_interaction_target() const;
     [[nodiscard]] std::optional<GameClientCreatureInteractionTarget>
     current_network_creature_interaction_target() const;
+    [[nodiscard]] bool try_open_network_automation_controller_panel();
     [[nodiscard]] bool try_open_network_machine_panel();
+    void refresh_open_automation_controller_panel();
     void refresh_open_machine_panel();
     [[nodiscard]] bool handle_network_creature_interaction_input(
         snt::engine::ClientFrameContext& context);
@@ -122,6 +125,8 @@ private:
     std::unique_ptr<LanServerBrowserModel> lan_server_browser_;
     std::unique_ptr<replication::GameClientRemoteChunkWorld> remote_chunk_world_;
     std::unique_ptr<replication::GameRemoteMachineWorld> remote_machine_world_;
+    std::unique_ptr<replication::GameRemoteAutomationControllerWorld>
+        remote_automation_controller_world_;
     std::unique_ptr<replication::GameRemoteCreatureWorld> remote_creature_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;

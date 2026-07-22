@@ -120,6 +120,48 @@ enum class SourceLawSystemState : uint8_t {
     kCount,
 };
 
+// Stable player-owned identity for a source graph. It is intentionally not a
+// content id: a program may be copied, renamed, and edited without changing
+// the path or creature graph it originally came from.
+struct SourceLawSpellProgramId {
+    uint64_t value = 0;
+
+    friend constexpr bool operator==(const SourceLawSpellProgramId&,
+                                     const SourceLawSpellProgramId&) = default;
+};
+
+enum class SourceLawSpellNodeKind : uint8_t {
+    kInput = 0,
+    kBodyIntrinsic,
+    kPathCore,
+    kControlFlow,
+    kCoordinatingService,
+    kOutput,
+    kCount,
+};
+
+enum class SourceLawSpellPortType : uint8_t {
+    kMana = 0,
+    kReactionProduct,
+    kEnvironmentCarrier,
+    kTargetInformation,
+    kControlSignal,
+    kLoadOrBoundary,
+    kByproduct,
+    kEffect,
+    kCount,
+};
+
+enum class SourceLawSpellGraphKind : uint8_t {
+    kPathAwakening = 0,
+    kPathSystem,
+    kPathSignature,
+    kPathCompletion,
+    kCreatureInnate,
+    kPlayerAuthored,
+    kCount,
+};
+
 [[nodiscard]] constexpr bool is_valid_source_organ_slot(SourceOrganSlot value) noexcept {
     return static_cast<uint8_t>(value) < static_cast<uint8_t>(SourceOrganSlot::kCount);
 }
@@ -162,6 +204,24 @@ enum class SourceLawSystemState : uint8_t {
     return static_cast<uint8_t>(value) < static_cast<uint8_t>(SourceLawSystemState::kCount);
 }
 
+[[nodiscard]] constexpr bool is_valid_source_law_spell_node_kind(
+    SourceLawSpellNodeKind value) noexcept {
+    return static_cast<uint8_t>(value) <
+           static_cast<uint8_t>(SourceLawSpellNodeKind::kCount);
+}
+
+[[nodiscard]] constexpr bool is_valid_source_law_spell_port_type(
+    SourceLawSpellPortType value) noexcept {
+    return static_cast<uint8_t>(value) <
+           static_cast<uint8_t>(SourceLawSpellPortType::kCount);
+}
+
+[[nodiscard]] constexpr bool is_valid_source_law_spell_graph_kind(
+    SourceLawSpellGraphKind value) noexcept {
+    return static_cast<uint8_t>(value) <
+           static_cast<uint8_t>(SourceLawSpellGraphKind::kCount);
+}
+
 [[nodiscard]] std::string_view source_organ_slot_name(SourceOrganSlot value) noexcept;
 [[nodiscard]] std::string_view source_body_system_name(SourceBodySystem value) noexcept;
 [[nodiscard]] std::string_view organ_system_role_name(OrganSystemRole value) noexcept;
@@ -175,5 +235,11 @@ enum class SourceLawSystemState : uint8_t {
     SourceBodyIntegrationBridge value) noexcept;
 [[nodiscard]] std::string_view source_law_system_state_name(
     SourceLawSystemState value) noexcept;
+[[nodiscard]] std::string_view source_law_spell_node_kind_name(
+    SourceLawSpellNodeKind value) noexcept;
+[[nodiscard]] std::string_view source_law_spell_port_type_name(
+    SourceLawSpellPortType value) noexcept;
+[[nodiscard]] std::string_view source_law_spell_graph_kind_name(
+    SourceLawSpellGraphKind value) noexcept;
 
 }  // namespace snt::game::source_law

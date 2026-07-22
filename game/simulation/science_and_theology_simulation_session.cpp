@@ -5,6 +5,8 @@
 
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
+#include "game/simulation/automation_controller_persistence.h"
+#include "game/simulation/automation_controller_runtime.h"
 #include "game/simulation/block_physics_system.h"
 #include "game/simulation/crop_growth_system.h"
 #include "game/simulation/ecosystem_system.h"
@@ -366,6 +368,24 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     } else {
         SNT_LOG_INFO("Game world sidecars indexed from current-format persistence; terrain is ticketed");
     }
+    if (auto result = GameAutomationControllerPersistence::validate_all(chunk_sidecars_);
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(automation controller sidecars)");
+        return error;
+    }
+    automation_controller_runtime_ = std::make_unique<AutomationControllerRuntimeService>(
+        content_registry_.resource_runtime_index());
+    if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
+            *automation_controller_runtime_);
+        !result) {
+        automation_controller_runtime_.reset();
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(automation resource snapshot)");
+        return error;
+    }
     offline_industrial_network_provider_ =
         std::make_unique<OfflineIndustrialNetworkIslandProvider>(
         content_registry_, chunk_sidecars_);
@@ -491,6 +511,15 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
         }
         context.services().scripts().update(context.delta_seconds());
     }
+    if (automation_controller_runtime_) {
+        auto automation = automation_controller_runtime_->fixed_tick(context.tick_index());
+        if (!automation) {
+            auto error = automation.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::fixed_tick(automation controllers)");
+            return error;
+        }
+    }
     if (auto result = quest_registry_.tick(context.tick_index()); !result) {
         auto error = result.error();
         error.with_context("ScienceAndTheologySimulationSession::fixed_tick(quests)");
@@ -511,7 +540,13 @@ ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Offline machine simulation is unavailable"};
     }
-    return offline_machine_simulation_->dematerialize_chunk(*world_, chunk_key, current_tick);
+    auto transition = offline_machine_simulation_->dematerialize_chunk(
+        *world_, chunk_key, current_tick);
+    if (!transition) return transition.error();
+    if (automation_controller_runtime_) {
+        automation_controller_runtime_->dematerialize_chunk(chunk_key);
+    }
+    return *transition;
 }
 
 snt::core::Expected<OfflineChunkMachineTransition>
@@ -522,7 +557,15 @@ ScienceAndTheologySimulationSession::dematerialize_chunks_machines(
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Offline machine simulation is unavailable"};
     }
-    return offline_machine_simulation_->dematerialize_chunks(*world_, chunk_keys, current_tick);
+    auto transition = offline_machine_simulation_->dematerialize_chunks(
+        *world_, chunk_keys, current_tick);
+    if (!transition) return transition.error();
+    if (automation_controller_runtime_) {
+        for (const ChunkKey& chunk_key : chunk_keys) {
+            automation_controller_runtime_->dematerialize_chunk(chunk_key);
+        }
+    }
+    return *transition;
 }
 
 snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk_machines(
@@ -531,7 +574,25 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Offline machine simulation is unavailable"};
     }
-    return offline_machine_simulation_->materialize_chunk(*world_, chunk_key, current_tick);
+    if (auto result = offline_machine_simulation_->materialize_chunk(
+            *world_, chunk_key, current_tick);
+        !result) {
+        return result.error();
+    }
+    if (automation_controller_runtime_) {
+        const GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
+        if (sidecar == nullptr) {
+            automation_controller_runtime_->dematerialize_chunk(chunk_key);
+        } else if (auto result = automation_controller_runtime_->materialize_chunk(
+                       chunk_key, *sidecar);
+                   !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::materialize_chunk_machines(automation)");
+            return error;
+        }
+    }
+    return {};
 }
 
 snt::core::Expected<GameChunkTicketReconciliation>
@@ -739,6 +800,11 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
         machine_tick_system_->set_event_sink(nullptr);
     }
     machine_tick_system_.reset();
+    if (automation_controller_runtime_) {
+        content_registry_.remove_resource_runtime_snapshot_participant(
+            *automation_controller_runtime_);
+        automation_controller_runtime_.reset();
+    }
     if (offline_machine_simulation_) {
         if (auto result = offline_machine_simulation_->flush(
                 offline_machine_simulation_->last_tick()); !result) {

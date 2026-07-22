@@ -15,6 +15,7 @@
 #include "ecs/world.h"
 #include "engine/client_services.h"
 #include "engine/simulation_services.h"
+#include "game/network/game_automation_controller_replication.h"
 #include "game/network/game_creature_replication.h"
 #include "game/network/game_inventory_replication.h"
 #include "game/network/game_quest_book_replication.h"
@@ -179,6 +180,42 @@ struct LocalTerrainCell {
     for (const ResourceContentStack& stack : machine.output_slots) {
         state.output_slots.push_back({.item_key = stack.key.id,
                                       .count = static_cast<int32_t>(stack.amount)});
+    }
+    return state;
+}
+
+[[nodiscard]] AutomationControllerPanelState make_automation_controller_panel_state(
+    const replication::GameAutomationControllerReplicationState& controller) {
+    AutomationControllerPanelState state{
+        .dimension_id = controller.anchor_chunk.dimension_id,
+        .root_x = controller.root_x,
+        .root_y = controller.root_y,
+        .root_z = controller.root_z,
+        .anchor_entity_id = controller.anchor_entity_id,
+        .controller_key = controller.controller_key,
+        .authoritative_revision = controller.authoritative_revision,
+        .online = controller.online,
+    };
+    state.nodes.reserve(controller.sfm_program.nodes.size());
+    for (const SfmFlowNodeRecord& node : controller.sfm_program.nodes) {
+        AutomationFlowNodePresentation presentation{
+            .id = node.id,
+            .type = node.type,
+            .interval_ticks = node.interval_ticks,
+        };
+        if (node.type == SfmFlowNodeType::kTransfer) {
+            presentation.source_endpoint = node.transfer.source.value;
+            presentation.destination_endpoint = node.transfer.destination.value;
+            presentation.requested = node.transfer.requested;
+        }
+        state.nodes.push_back(std::move(presentation));
+    }
+    state.connections.reserve(controller.sfm_program.connections.size());
+    for (const SfmFlowConnectionRecord& connection : controller.sfm_program.connections) {
+        state.connections.push_back({
+            .source = connection.source,
+            .destination = connection.destination,
+        });
     }
     return state;
 }
@@ -673,6 +710,10 @@ void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
     if (!remote_creature_world_) {
         remote_creature_world_ = std::make_unique<replication::GameRemoteCreatureWorld>();
     }
+    if (!remote_automation_controller_world_) {
+        remote_automation_controller_world_ =
+            std::make_unique<replication::GameRemoteAutomationControllerWorld>();
+    }
     if (!quest_book_state_) {
         quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(account_id);
     }
@@ -688,9 +729,13 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
         }
     }
     if (remote_machine_world_) remote_machine_world_->clear();
+    if (remote_automation_controller_world_) remote_automation_controller_world_->clear();
     if (remote_creature_world_) remote_creature_world_->clear();
     if (creature_presentation_world_) creature_presentation_world_->clear();
-    if (gameplay_ui_) gameplay_ui_->clear_machine_authority();
+    if (gameplay_ui_) {
+        gameplay_ui_->clear_machine_authority();
+        gameplay_ui_->clear_automation_controller_authority();
+    }
     if (remote_player_world_) remote_player_world_->clear();
     if (remote_inventory_state_) {
         remote_inventory_state_->clear();
@@ -1097,6 +1142,9 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                     remote_chunk_world_ && remote_chunk_world_->active_snapshot_id() == 0;
                 const bool first_machine_snapshot =
                     remote_machine_world_ && remote_machine_world_->active_snapshot_id() == 0;
+                const bool first_automation_controller_snapshot =
+                    remote_automation_controller_world_ &&
+                    remote_automation_controller_world_->active_snapshot_id() == 0;
                 const bool first_creature_snapshot =
                     remote_creature_world_ && remote_creature_world_->active_snapshot_id() == 0;
                 const bool creature_value_changed = std::visit(
@@ -1138,6 +1186,19 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                         auto error = applied.error();
                         error.with_context(
                             "ScienceAndTheologyClientSession::fixed_tick(remote machine replication)");
+                        return error;
+                    }
+                }
+                if (remote_automation_controller_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) {
+                            return remote_automation_controller_world_->apply(value);
+                        },
+                        update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(automation controller replication)");
                         return error;
                     }
                 }
@@ -1236,6 +1297,15 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                                      remote_machine_world_->active_snapshot_id()),
                                  remote_machine_world_->machine_count());
                 }
+                if (first_automation_controller_snapshot &&
+                    remote_automation_controller_world_ &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO(
+                        "Applied authoritative automation controller snapshot %llu with %zu controller value(s)",
+                        static_cast<unsigned long long>(
+                            remote_automation_controller_world_->active_snapshot_id()),
+                        remote_automation_controller_world_->controller_count());
+                }
                 if (first_creature_snapshot && remote_creature_world_ &&
                     std::holds_alternative<replication::GameSnapshot>(update)) {
                     SNT_LOG_INFO("Applied authoritative creature snapshot %llu with %zu visible creature value(s)",
@@ -1245,6 +1315,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                 }
             }
             refresh_open_machine_panel();
+            refresh_open_automation_controller_panel();
             if (remote_player_world_) apply_authoritative_local_player();
         }
         if (replication_session_->status().state ==
@@ -1350,6 +1421,7 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     clear_remote_replication_state();
     remote_chunk_world_.reset();
     remote_machine_world_.reset();
+    remote_automation_controller_world_.reset();
     remote_creature_world_.reset();
     chunk_render_system_ = nullptr;
     remote_player_world_.reset();
@@ -1532,6 +1604,45 @@ bool ScienceAndTheologyClientSession::try_open_network_machine_panel() {
                  machine->machine.machine_id.c_str(), target->dimension_id.c_str(),
                  target->hit_x, target->hit_y, target->hit_z);
     return true;
+}
+
+bool ScienceAndTheologyClientSession::try_open_network_automation_controller_panel() {
+    if (!gameplay_ui_ || !remote_automation_controller_world_ || !replication_session_ ||
+        replication_session_->status().state !=
+            replication::GameClientConnectionState::kAuthenticated) {
+        return false;
+    }
+    const auto target = current_network_interaction_target();
+    if (!target) return false;
+    const auto controller = remote_automation_controller_world_->find_controller_at(
+        target->dimension_id, target->hit_x, target->hit_y, target->hit_z);
+    if (!controller) return false;
+    gameplay_ui_->open_automation_controller(make_automation_controller_panel_state(*controller));
+    if (!gameplay_ui_->automation_controller_open()) return false;
+    SNT_LOG_INFO("Automation controller UI opened for '%s' at %s (%d, %d, %d)",
+                 controller->controller_key.c_str(), target->dimension_id.c_str(),
+                 target->hit_x, target->hit_y, target->hit_z);
+    return true;
+}
+
+void ScienceAndTheologyClientSession::refresh_open_automation_controller_panel() {
+    if (!gameplay_ui_ || !gameplay_ui_->automation_controller_open()) return;
+    const AutomationControllerPanelState* const opened =
+        gameplay_ui_->automation_controller_panel().state();
+    if (opened == nullptr || !remote_automation_controller_world_) {
+        gameplay_ui_->clear_automation_controller_authority();
+        return;
+    }
+    const auto controller = remote_automation_controller_world_->find_controller(
+        opened->anchor_entity_id);
+    if (!controller) {
+        gameplay_ui_->clear_automation_controller_authority();
+        return;
+    }
+    if (!gameplay_ui_->automation_controller_panel().apply_authoritative_state(
+            make_automation_controller_panel_state(*controller))) {
+        gameplay_ui_->clear_automation_controller_authority();
+    }
 }
 
 void ScienceAndTheologyClientSession::refresh_open_machine_panel() {
@@ -1729,10 +1840,15 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         quest_book_open = !quest_book_open;
     }
     if (!lan_browser_open && !quest_book_open && gameplay_ui_ && input.key_pressed[SDL_SCANCODE_E]) {
-        if (gameplay_ui_->machine_open()) {
+        if (gameplay_ui_->automation_controller_open()) {
+            gameplay_ui_->close();
+            SNT_LOG_INFO("Automation controller UI closed");
+        } else if (gameplay_ui_->machine_open()) {
             gameplay_ui_->close();
             SNT_LOG_INFO("Machine UI closed");
-        } else if (!uses_network_presentation() || !try_open_network_machine_panel()) {
+        } else if (!uses_network_presentation() ||
+                   (!try_open_network_automation_controller_panel() &&
+                    !try_open_network_machine_panel())) {
             gameplay_ui_->toggle_inventory();
             SNT_LOG_INFO("Inventory UI %s", gameplay_ui_->inventory_open() ? "opened" : "closed");
         }

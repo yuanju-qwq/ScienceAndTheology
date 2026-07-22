@@ -296,6 +296,9 @@ enum class GameReplicationValueKind : uint8_t {
     // far representatives are render-only, while nearby wild and captive
     // creatures expose the same stable ids for authoritative commands.
     kCreaturePresentation = 3,
+    // AOI-filtered graph/controller presentation. It is a sidecar-owned
+    // block-owner projection, never an ECS machine entity or editor command.
+    kAutomationControllers = 4,
 };
 
 enum class GameReplicationValueOperation : uint8_t {

@@ -83,6 +83,7 @@ struct SourceLawEvaluation {
     std::vector<SourceLawSystemReport> systems;
     SourceBodyIntegrationReport integration;
     SourceCircuitScheduleReport circuit_schedule;
+    SourceLawBodyCapabilitySnapshot capability_snapshot;
     SourceLawPathReport path;
     float derived_source_throughput = 0.0F;
     int32_t derived_mana_max = 0;

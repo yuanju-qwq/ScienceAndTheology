@@ -7,7 +7,7 @@
 #pragma once
 
 #include "core/expected.h"
-#include "game/source_law/source_law_types.h"
+#include "game/source_law/source_law_spell_graph.h"
 
 #include <array>
 #include <cstdint>
@@ -78,6 +78,80 @@ struct ElementalReactionDefinition {
     std::vector<SourceLawId> required_relief_tags;
 };
 
+struct SourceLawIntrinsicDefinition {
+    SourceLawId id;
+    std::vector<SourceBodySystem> required_closed_systems;
+    std::vector<ElementalReactionStage> required_stages;
+    std::vector<ElementalPhysiologyAction> required_actions;
+    std::vector<SourceLawId> required_product_tags;
+    std::vector<SourceLawSpellPortType> input_port_types;
+    std::vector<SourceLawSpellPortType> output_port_types;
+    std::vector<SourceLawId> emitted_byproduct_tags;
+    bool requires_primary_circuit = false;
+    bool requires_unification_circuit = false;
+    float required_throughput = 0.0F;
+    int32_t mana_cost = 0;
+    std::vector<SourceLawId> risk_tags;
+};
+
+struct SourceLawHybridLinkDefinition {
+    SourceLawId id;
+    std::vector<SourceBodySystem> required_distinct_systems;
+    std::vector<SourceLawId> required_intrinsic_ids;
+    std::vector<SourceLawId> required_product_ids;
+    SourceLawId composite_semantic_id;
+    std::vector<SourceLawId> emitted_byproduct_tags;
+    uint8_t minimum_distinct_systems = 2;
+};
+
+// Content-defined graph nodes provide the syntax that bodies do not own:
+// inputs, path semantics, bounded control flow, byproduct services and output.
+struct SourceLawSpellPortDefinition {
+    SourceLawId id;
+    SourceLawSpellPortType type = SourceLawSpellPortType::kCount;
+    bool allows_multiple_links = false;
+};
+
+struct SourceLawSpellNodeDefinition {
+    SourceLawId id;
+    SourceLawSpellNodeKind kind = SourceLawSpellNodeKind::kCount;
+    std::vector<SourceLawSpellPortDefinition> input_ports;
+    std::vector<SourceLawSpellPortDefinition> output_ports;
+    SourceLawId semantic_id;
+    std::vector<SourceLawId> emitted_byproduct_tags;
+    std::vector<SourceLawId> handled_byproduct_tags;
+    bool requires_primary_circuit = false;
+    bool requires_unification_circuit = false;
+    uint16_t maximum_control_steps = 0;
+    float required_throughput = 0.0F;
+    int32_t mana_cost = 0;
+    std::vector<SourceLawId> risk_tags;
+};
+
+struct SourceLawSpellGraphDefinition {
+    SourceLawId id;
+    SourceLawSpellGraph graph;
+    std::vector<SourceLawId> compatible_path_ids;
+    bool requires_unification_circuit = false;
+    bool is_copyable_to_player_library = true;
+};
+
+struct ToolSpellAssemblyDefinition {
+    SourceLawId tool_definition_id;
+    uint8_t maximum_rune_slots = 0;
+    uint8_t maximum_magic_charm_slots = 0;
+    std::vector<SourceLawId> allowed_rune_tags;
+    std::vector<SourceLawId> allowed_magic_charm_tags;
+    std::vector<SourceLawId> required_product_tags;
+    std::vector<SourceLawId> required_tool_interface_tags;
+};
+
+struct ToolSpellAssemblyInstance {
+    SourceLawId tool_definition_id;
+    std::vector<SourceLawId> installed_rune_ids;
+    std::vector<SourceLawId> installed_magic_charm_ids;
+};
+
 struct OrganSystemDefinition {
     SourceLawId id;
     SourceBodySystem body_system = SourceBodySystem::kCount;
@@ -88,7 +162,7 @@ struct OrganSystemDefinition {
 
     std::vector<SourceLawId> allowed_bloodline_relations;
     std::vector<SourceLawId> ecology_conditions;
-    SourceLawId base_active_ability_id;
+    std::vector<SourceLawId> intrinsic_operation_ids;
     std::vector<SourceLawId> pressure_tags;
 };
 
@@ -127,9 +201,11 @@ struct SourcePathDefinition {
     std::vector<SourcePathReactionPreference> reaction_preferences;
     std::vector<SourceLawId> core_organ_tags;
     std::vector<SourceLawId> resonance_rules;
-    SourceLawId signature_ability_id;
-    SourceLawId completion_body_ability_id;
-    SourceLawId domain_ability_id;
+    std::vector<SourceLawId> path_core_operation_ids;
+    std::vector<SourceLawId> awakening_spell_graph_ids;
+    std::vector<SourceLawId> system_spell_graph_ids;
+    std::vector<SourceLawId> signature_spell_graph_ids;
+    std::vector<SourceLawId> completion_spell_graph_ids;
     std::vector<SourceLawId> severe_conflict_tags;
 };
 
@@ -149,6 +225,7 @@ struct SourceBodyTemplate {
     std::array<std::vector<SourceLawId>, kSourceOrganSlotCount> organ_candidates;
     std::vector<SourceLawId> initial_system_ids;
     std::vector<SourceLawId> initial_reaction_ids;
+    std::vector<SourceLawId> innate_spell_graph_ids;
     std::vector<SourceLawId> integration_condition_ids;
 };
 
@@ -172,6 +249,16 @@ public:
     [[nodiscard]] const ElementalReactionDefinition* find_reaction(
         const SourceLawId& id) const;
     [[nodiscard]] const OrganSystemDefinition* find_system(const SourceLawId& id) const;
+    [[nodiscard]] const SourceLawIntrinsicDefinition* find_intrinsic(
+        const SourceLawId& id) const;
+    [[nodiscard]] const SourceLawHybridLinkDefinition* find_hybrid_link(
+        const SourceLawId& id) const;
+    [[nodiscard]] const SourceLawSpellNodeDefinition* find_spell_node_definition(
+        const SourceLawId& id) const;
+    [[nodiscard]] const SourceLawSpellGraphDefinition* find_spell_graph(
+        const SourceLawId& id) const;
+    [[nodiscard]] const ToolSpellAssemblyDefinition* find_tool_spell_assembly(
+        const SourceLawId& tool_definition_id) const;
     [[nodiscard]] const SourcePathDefinition* find_path(const SourceLawId& id) const;
     [[nodiscard]] const BloodlineProfile* find_bloodline(const SourceLawId& id) const;
     [[nodiscard]] const SourceBodyTemplate* find_body_template(const SourceLawId& id) const;
@@ -183,6 +270,9 @@ public:
     [[nodiscard]] const std::map<SourceLawId, OrganSystemDefinition>& systems() const noexcept {
         return systems_;
     }
+    [[nodiscard]] const std::map<SourceLawId, SourceLawIntrinsicDefinition>& intrinsics() const noexcept {
+        return intrinsics_;
+    }
 
 private:
     friend class SourceLawContentBuilder;
@@ -193,7 +283,12 @@ private:
     std::map<SourceLawId, OrganDefinition> organs_;
     std::map<SourceLawId, ElementalReactionDefinition> reactions_;
     std::map<SourceLawId, OrganSystemDefinition> systems_;
+    std::map<SourceLawId, SourceLawIntrinsicDefinition> intrinsics_;
+    std::map<SourceLawId, SourceLawHybridLinkDefinition> hybrid_links_;
+    std::map<SourceLawId, SourceLawSpellNodeDefinition> spell_node_definitions_;
+    std::map<SourceLawId, SourceLawSpellGraphDefinition> spell_graphs_;
     std::map<SourceLawId, SourcePathDefinition> paths_;
+    std::map<SourceLawId, ToolSpellAssemblyDefinition> tool_spell_assemblies_;
     std::map<SourceLawId, BloodlineProfile> bloodlines_;
     std::map<SourceLawId, SourceBodyTemplate> body_templates_;
     std::map<SourceLawId, CreatureSourceBodyDefinition> creature_bodies_;
@@ -208,7 +303,17 @@ public:
     [[nodiscard]] snt::core::Expected<void> add_organ(OrganDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_reaction(ElementalReactionDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_system(OrganSystemDefinition definition);
+    [[nodiscard]] snt::core::Expected<void> add_intrinsic(
+        SourceLawIntrinsicDefinition definition);
+    [[nodiscard]] snt::core::Expected<void> add_hybrid_link(
+        SourceLawHybridLinkDefinition definition);
+    [[nodiscard]] snt::core::Expected<void> add_spell_node_definition(
+        SourceLawSpellNodeDefinition definition);
+    [[nodiscard]] snt::core::Expected<void> add_spell_graph(
+        SourceLawSpellGraphDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_path(SourcePathDefinition definition);
+    [[nodiscard]] snt::core::Expected<void> add_tool_spell_assembly(
+        ToolSpellAssemblyDefinition definition);
     [[nodiscard]] snt::core::Expected<void> add_bloodline(BloodlineProfile definition);
     [[nodiscard]] snt::core::Expected<void> add_body_template(SourceBodyTemplate definition);
     [[nodiscard]] snt::core::Expected<void> add_creature_body(
