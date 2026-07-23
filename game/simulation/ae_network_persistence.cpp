@@ -4,7 +4,6 @@
 #include "game/simulation/ae_network_persistence.h"
 
 #include "core/error.h"
-#include "game/client/game_content_registry.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -250,6 +249,21 @@ snt::core::Expected<void> GameAeNetworkPersistence::remove_node(
     if (target.type == AeNetworkNodeType::kController) {
         return invalid_argument("AE controller nodes must be removed with their automation controller");
     }
+    if (target.type == AeNetworkNodeType::kInterface) {
+        bool has_provider_binding = false;
+        sidecars.for_each([&](const ChunkKey&, const GameChunkSidecar& sidecar) {
+            has_provider_binding = has_provider_binding || std::any_of(
+                sidecar.ae_machine_pattern_provider_records.begin(),
+                sidecar.ae_machine_pattern_provider_records.end(),
+                [anchor_entity_id](const AeMachinePatternProviderPersistenceRecord& binding) {
+                    return binding.interface_anchor_entity_id == anchor_entity_id;
+                });
+        });
+        if (has_provider_binding) {
+            return invalid_state(
+                "AE interface node still owns a machine pattern-provider binding");
+        }
+    }
     auto drive_storage = target_sidecar->ae_drive_storage_records.end();
     if (target.type == AeNetworkNodeType::kDrive) {
         drive_storage = std::find_if(
@@ -331,27 +345,6 @@ snt::core::Expected<void> GameAeNetworkPersistence::validate_all(
             return invalid_state("AE automation controller has no matching topology node");
         }
     }
-    return {};
-}
-
-snt::core::Expected<void> GameAeNetworkPersistence::validate_content_references(
-    const GameChunkSidecarRegistry& sidecars,
-    const GameContentRegistry& content) {
-    std::optional<snt::core::Error> error;
-    sidecars.for_each([&](const ChunkKey&, const GameChunkSidecar& sidecar) {
-        if (error) return;
-        for (const AeNetworkNodePersistenceRecord& record : sidecar.ae_network_node_records) {
-            if (record.type == AeNetworkNodeType::kController) continue;
-            const AeNetworkNodePlacementDefinition* const placement =
-                content.find_ae_network_node_placement_by_node_key(record.node_key);
-            if (placement == nullptr || placement->type != record.type) {
-                error = invalid_state("Persisted AE node key '" + record.node_key +
-                                      "' has no matching current placement definition");
-                return;
-            }
-        }
-    });
-    if (error) return *error;
     return {};
 }
 

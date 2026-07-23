@@ -24,6 +24,7 @@ target_link_libraries(snt_game_resources PUBLIC
 add_library(snt_game_automation STATIC
     automation/ae_autocrafting.cpp
     automation/ae_network.cpp
+    automation/ae_pattern_provider.cpp
     automation/ae_storage_cell.cpp
     automation/sfm_endpoint_registry.cpp
     automation/sfm_flow_program.cpp
@@ -212,6 +213,9 @@ add_library(snt_game_simulation STATIC
     simulation/day_night_cycle.cpp
     simulation/block_physics_system.cpp
     simulation/crop_growth_system.cpp
+    simulation/ae_network_content_validation.cpp
+    simulation/ae_machine_pattern_provider_persistence.cpp
+    simulation/ae_machine_pattern_provider_runtime.cpp
     simulation/ae_network_persistence.cpp
     simulation/ae_network_runtime.cpp
     simulation/ae_drive_storage_runtime.cpp

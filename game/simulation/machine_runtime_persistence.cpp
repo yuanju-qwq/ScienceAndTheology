@@ -27,7 +27,9 @@ constexpr size_t kMaxMachineOutputSlots = 64;
 constexpr size_t kMaxMachineFluidTanks = 16;
 constexpr size_t kMaxMachineRecipeInputs = 64;
 constexpr size_t kMaxMachineRecipeOutputs = 64;
+constexpr size_t kMaxMachineAutomationWorkOrderOutputs = 64;
 constexpr size_t kMaxMachineJobOwnerAccountBytes = 256;
+constexpr size_t kMaxMachineAutomationRecipeIdBytes = 256;
 constexpr int32_t kMaxMachineStackSize = 1'000'000;
 constexpr int64_t kMaxMachineFluidTankCapacity = 1'000'000'000'000LL;
 constexpr int32_t kMaxMachineRuntimeTicks = 1'000'000'000;
@@ -154,6 +156,33 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     return {};
 }
 
+[[nodiscard]] snt::core::Expected<void> validate_automation_work_order(
+    const MachineAutomationWorkOrderRecord& work_order,
+    const std::optional<MachineRuntimeRecipeSnapshot>& active_recipe) {
+    const uint8_t state = static_cast<uint8_t>(work_order.state);
+    if (!work_order.identity.is_valid() || work_order.recipe_id.empty() ||
+        work_order.recipe_id.size() > kMaxMachineAutomationRecipeIdBytes ||
+        work_order.recipe_id.find('\0') != std::string::npos ||
+        work_order.expected_outputs.empty() ||
+        work_order.expected_outputs.size() > kMaxMachineAutomationWorkOrderOutputs ||
+        state > static_cast<uint8_t>(MachineAutomationWorkOrderState::kFailed)) {
+        return invalid_argument("Machine automation work order is invalid");
+    }
+    for (const ResourceContentStack& output : work_order.expected_outputs) {
+        if (!is_valid_stack(output, false)) {
+            return invalid_argument("Machine automation work order output is invalid");
+        }
+    }
+    if (work_order.state == MachineAutomationWorkOrderState::kRunning &&
+        (!active_recipe || active_recipe->id != work_order.recipe_id)) {
+        return invalid_state("Running machine automation work order has no matching recipe");
+    }
+    if (work_order.state == MachineAutomationWorkOrderState::kOutputReady && active_recipe) {
+        return invalid_state("Completed machine automation work order still has an active recipe");
+    }
+    return {};
+}
+
 [[nodiscard]] snt::core::Expected<void> validate_record(
     const ChunkKey& chunk_key,
     const GameChunkSidecar& sidecar,
@@ -227,6 +256,13 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         if (auto result = validate_recipe(*record.active_recipe); !result) return result.error();
     } else if (record.progress_ticks != 0) {
         return invalid_argument("Machine persistence progress requires an active recipe snapshot");
+    }
+    if (record.automation_work_order) {
+        if (auto result = validate_automation_work_order(*record.automation_work_order,
+                                                         record.active_recipe);
+            !result) {
+            return result.error();
+        }
     }
     return {};
 }
@@ -347,6 +383,42 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
     return result;
 }
 
+[[nodiscard]] snt::core::Expected<MachineAutomationWorkOrderRecord>
+to_persisted_automation_work_order(
+    const MachineAutomationWorkOrder& work_order,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
+    MachineAutomationWorkOrderRecord result{
+        .identity = work_order.identity,
+        .recipe_id = work_order.recipe_id,
+        .state = work_order.state,
+    };
+    result.expected_outputs.reserve(work_order.expected_outputs.size());
+    for (const ResourceStack& output : work_order.expected_outputs) {
+        auto persisted = to_persisted_stack(output, resource_runtime_index);
+        if (!persisted) return persisted.error();
+        result.expected_outputs.push_back(std::move(*persisted));
+    }
+    return result;
+}
+
+[[nodiscard]] snt::core::Expected<MachineAutomationWorkOrder>
+to_runtime_automation_work_order(
+    const MachineAutomationWorkOrderRecord& work_order,
+    const ResourceRuntimeIndex::Snapshot& resource_runtime_index) {
+    MachineAutomationWorkOrder result{
+        .identity = work_order.identity,
+        .recipe_id = work_order.recipe_id,
+        .state = work_order.state,
+    };
+    result.expected_outputs.reserve(work_order.expected_outputs.size());
+    for (const ResourceContentStack& output : work_order.expected_outputs) {
+        auto runtime = to_runtime_stack(output, resource_runtime_index);
+        if (!runtime) return runtime.error();
+        result.expected_outputs.push_back(*runtime);
+    }
+    return result;
+}
+
 [[nodiscard]] snt::core::Expected<void> copy_runtime_fields(
     MachineRuntimePersistenceRecord& record,
     const MachineRuntimeComponent& runtime) {
@@ -388,6 +460,13 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
             *runtime.active_recipe, runtime.resource_runtime_index);
         if (!persisted_recipe) return persisted_recipe.error();
         updated.active_recipe = std::move(*persisted_recipe);
+    }
+    updated.automation_work_order.reset();
+    if (runtime.automation_work_order) {
+        auto persisted_work_order = to_persisted_automation_work_order(
+            *runtime.automation_work_order, runtime.resource_runtime_index);
+        if (!persisted_work_order) return persisted_work_order.error();
+        updated.automation_work_order = std::move(*persisted_work_order);
     }
     updated.activation_requested = runtime.activation_requested;
     updated.job_owner_account_id = runtime.job_owner_account_id;
@@ -443,6 +522,12 @@ constexpr uint64_t kMachineAnchorSerialMask = kMachineAnchorIdFlag - 1u;
         auto runtime_recipe = to_runtime_recipe(*record.active_recipe, resource_runtime_index);
         if (!runtime_recipe) return runtime_recipe.error();
         result.active_recipe = std::move(*runtime_recipe);
+    }
+    if (record.automation_work_order) {
+        auto runtime_work_order = to_runtime_automation_work_order(
+            *record.automation_work_order, resource_runtime_index);
+        if (!runtime_work_order) return runtime_work_order.error();
+        result.automation_work_order = std::move(*runtime_work_order);
     }
     result.activation_requested = record.activation_requested;
     result.job_owner_account_id = record.job_owner_account_id;
@@ -555,6 +640,19 @@ snt::core::Expected<void> GameMachineRuntimePersistence::remove_anchored_machine
 
     const EntityId anchor_entity_id =
         located.sidecar->machine_runtime_records[located.record_index].anchor_entity_id;
+    bool has_provider_binding = false;
+    sidecars.for_each([&](const ChunkKey&, const GameChunkSidecar& sidecar) {
+        has_provider_binding = has_provider_binding || std::any_of(
+            sidecar.ae_machine_pattern_provider_records.begin(),
+            sidecar.ae_machine_pattern_provider_records.end(),
+            [anchor_entity_id](const AeMachinePatternProviderPersistenceRecord& binding) {
+                return binding.machine_anchor_entity_id == anchor_entity_id;
+            });
+    });
+    if (has_provider_binding) {
+        return invalid_state(
+            "Cannot remove a machine while an AE interface owns its pattern-provider binding");
+    }
     if (auto result = validate_anchor(*located.chunk_key, *located.sidecar, anchor_entity_id); !result) {
         return result.error();
     }

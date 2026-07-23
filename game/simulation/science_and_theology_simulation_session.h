@@ -53,6 +53,7 @@ class GameEcosystemSystem;
 class GameWildCreatureSystem;
 class GameFluidSystem;
 class AeDriveStorageRuntimeService;
+class AeMachinePatternProviderRuntimeService;
 class AeNetworkRuntimeService;
 class AutomationControllerRuntimeService;
 class GameTreeGrowthSystem;
@@ -238,6 +239,17 @@ public:
     [[nodiscard]] const AeDriveStorageRuntimeService* ae_drive_storage_runtime() const noexcept {
         return ae_drive_storage_runtime_.get();
     }
+    // Pattern-provider dispatch is separate from physical AE topology and
+    // drive storage. Server/UI callers submit stable resource requests at an
+    // interface anchor; this service owns machine work-order correlation.
+    [[nodiscard]] AeMachinePatternProviderRuntimeService*
+    ae_machine_pattern_provider_runtime() noexcept {
+        return ae_machine_pattern_provider_runtime_.get();
+    }
+    [[nodiscard]] const AeMachinePatternProviderRuntimeService*
+    ae_machine_pattern_provider_runtime() const noexcept {
+        return ae_machine_pattern_provider_runtime_.get();
+    }
 
     // Chunk streaming calls these only at an authoritative fixed-tick barrier.
     // They transfer machine ownership before terrain is removed or restored.
@@ -302,6 +314,8 @@ private:
     std::unique_ptr<OfflineMachineSimulationService> offline_machine_simulation_;
     std::unique_ptr<AeNetworkRuntimeService> ae_network_runtime_;
     std::unique_ptr<AeDriveStorageRuntimeService> ae_drive_storage_runtime_;
+    std::unique_ptr<AeMachinePatternProviderRuntimeService>
+        ae_machine_pattern_provider_runtime_;
     std::unique_ptr<AutomationControllerRuntimeService> automation_controller_runtime_;
     IMachineTickEventSink* machine_tick_event_sink_ = nullptr;
     snt::ecs::World* world_ = nullptr;

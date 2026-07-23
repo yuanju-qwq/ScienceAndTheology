@@ -87,6 +87,7 @@ struct AeAutocraftingService::CompiledPattern {
     std::string id;
     std::vector<ResourceStack> inputs;
     std::vector<ResourceStack> outputs;
+    int32_t provider_priority = 0;
     uint32_t ticks_per_operation = 1;
 };
 
@@ -498,6 +499,7 @@ AeAutocraftingService::compile_catalog(
         }
         CompiledPattern compiled{
             .id = definition.id,
+            .provider_priority = definition.provider_priority,
             .ticks_per_operation = definition.ticks_per_operation,
         };
         std::unordered_set<ResourceKey, ResourceKey::Hash> input_keys;
@@ -554,7 +556,18 @@ AeAutocraftingService::compile_catalog(
     }
     for (auto& [key, producers] : result.producers) {
         static_cast<void>(key);
-        std::sort(producers.begin(), producers.end());
+        std::sort(producers.begin(), producers.end(), [&result](const std::string& left,
+                                                                  const std::string& right) {
+            const auto left_pattern = result.patterns.find(left);
+            const auto right_pattern = result.patterns.find(right);
+            if (left_pattern == result.patterns.end() || right_pattern == result.patterns.end()) {
+                return left < right;
+            }
+            if (left_pattern->second.provider_priority != right_pattern->second.provider_priority) {
+                return left_pattern->second.provider_priority > right_pattern->second.provider_priority;
+            }
+            return left < right;
+        });
         producers.erase(std::unique(producers.begin(), producers.end()), producers.end());
     }
     return result;

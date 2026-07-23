@@ -348,13 +348,18 @@ snt::core::Expected<ResourceAggregateStorageHandle> AeNetworkStorageIndex::attac
     if (slot.occupied || slot.generation == 0 || !slot.amounts.empty()) {
         return invalid_state("AE network storage index encountered an unavailable handle slot");
     }
+    const ResourceAggregateStorageHandle handle{
+        .slot = slot_index,
+        .generation = slot.generation,
+    };
     slot.occupied = true;
     slot.amounts = std::move(validated);
     for (const auto& [key, amount] : slot.amounts) {
         aggregate_amounts_[key] += amount;
+        add_resource_holder(key, handle);
     }
     ++storage_count_;
-    return ResourceAggregateStorageHandle{.slot = slot_index, .generation = slot.generation};
+    return handle;
 }
 
 bool AeNetworkStorageIndex::detach_storage(ResourceAggregateStorageHandle handle) noexcept {
@@ -369,6 +374,7 @@ bool AeNetworkStorageIndex::detach_storage(ResourceAggregateStorageHandle handle
         }
         aggregate->second -= amount;
         if (aggregate->second == 0) aggregate_amounts_.erase(aggregate);
+        remove_resource_holder(key, handle);
     }
     slot->amounts.clear();
     slot->occupied = false;
@@ -392,6 +398,34 @@ int64_t AeNetworkStorageIndex::amount_of(const ResourceKeyContext& context,
     }
     const auto found = aggregate_amounts_.find(key);
     return found == aggregate_amounts_.end() ? 0 : found->second;
+}
+
+std::span<const ResourceAggregateStorageHandle> AeNetworkStorageIndex::storage_holders(
+    const ResourceKeyContext& context, const ResourceKey& key) const noexcept {
+    if (!context_.is_valid() || !context.is_valid() || !context_.matches(context) ||
+        !key.is_valid()) {
+        return {};
+    }
+    const auto found = resource_holders_.find(key);
+    return found == resource_holders_.end()
+        ? std::span<const ResourceAggregateStorageHandle>{}
+        : std::span<const ResourceAggregateStorageHandle>{found->second.handles};
+}
+
+std::vector<ResourceKey> AeNetworkStorageIndex::stored_keys(
+    const ResourceKeyContext& context) const {
+    if (!context_.is_valid() || !context.is_valid() || !context_.matches(context)) return {};
+    std::vector<ResourceKey> result;
+    result.reserve(aggregate_amounts_.size());
+    for (const auto& [key, amount] : aggregate_amounts_) {
+        if (amount > 0) result.push_back(key);
+    }
+    std::sort(result.begin(), result.end(), [](const ResourceKey& left, const ResourceKey& right) {
+        if (left.kind != right.kind) return left.kind < right.kind;
+        if (left.runtime_id != right.runtime_id) return left.runtime_id < right.runtime_id;
+        return left.variant < right.variant;
+    });
+    return result;
 }
 
 bool AeNetworkStorageIndex::can_apply_resource_aggregate_delta(
@@ -430,7 +464,7 @@ void AeNetworkStorageIndex::apply_resource_aggregate_delta(
                       static_cast<unsigned int>(handle.slot));
         return;
     }
-    apply_delta_unchecked(*slot, changed, delta);
+    apply_delta_unchecked(*slot, handle, changed, delta);
 }
 
 AeNetworkStorageIndex::StorageSlot* AeNetworkStorageIndex::find_slot(
@@ -455,14 +489,57 @@ bool AeNetworkStorageIndex::is_valid_delta(const ResourceStack& changed,
         (delta == changed.amount || delta == -changed.amount);
 }
 
+uint64_t AeNetworkStorageIndex::handle_token(
+    ResourceAggregateStorageHandle handle) noexcept {
+    return (static_cast<uint64_t>(handle.generation) << 32u) |
+        static_cast<uint64_t>(handle.slot);
+}
+
+void AeNetworkStorageIndex::add_resource_holder(
+    const ResourceKey& key, ResourceAggregateStorageHandle handle) noexcept {
+    if (!key.is_valid() || !handle.is_valid()) return;
+    ResourceHolderBucket& bucket = resource_holders_[key];
+    const uint64_t token = handle_token(handle);
+    if (bucket.positions.contains(token)) return;
+    bucket.positions.emplace(token, bucket.handles.size());
+    bucket.handles.push_back(handle);
+}
+
+void AeNetworkStorageIndex::remove_resource_holder(
+    const ResourceKey& key, ResourceAggregateStorageHandle handle) noexcept {
+    const auto found = resource_holders_.find(key);
+    if (found == resource_holders_.end()) return;
+    ResourceHolderBucket& bucket = found->second;
+    const uint64_t token = handle_token(handle);
+    const auto position = bucket.positions.find(token);
+    if (position == bucket.positions.end()) return;
+    const size_t removed_index = position->second;
+    const ResourceAggregateStorageHandle last = bucket.handles.back();
+    bucket.handles[removed_index] = last;
+    bucket.positions[handle_token(last)] = removed_index;
+    bucket.handles.pop_back();
+    bucket.positions.erase(position);
+    if (bucket.handles.empty()) resource_holders_.erase(found);
+}
+
 void AeNetworkStorageIndex::apply_delta_unchecked(StorageSlot& slot,
+                                                   ResourceAggregateStorageHandle handle,
                                                    const ResourceStack& changed,
                                                    int64_t delta) noexcept {
+    const auto previous = slot.amounts.find(changed.key);
+    const int64_t previous_amount = previous == slot.amounts.end() ? 0 : previous->second;
     int64_t& storage_amount = slot.amounts[changed.key];
     int64_t& aggregate_amount = aggregate_amounts_[changed.key];
     storage_amount += delta;
     aggregate_amount += delta;
-    if (storage_amount == 0) slot.amounts.erase(changed.key);
+    if (previous_amount == 0 && storage_amount > 0) {
+        add_resource_holder(changed.key, handle);
+    }
+    const bool storage_became_empty = storage_amount == 0;
+    if (storage_became_empty) slot.amounts.erase(changed.key);
+    if (previous_amount > 0 && storage_became_empty) {
+        remove_resource_holder(changed.key, handle);
+    }
     if (aggregate_amount == 0) aggregate_amounts_.erase(changed.key);
 }
 

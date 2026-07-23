@@ -6,6 +6,8 @@
 #include "game/client/demo_world_bootstrap.h"
 #include "game/client/machine_tick_system.h"
 #include "game/simulation/ae_drive_storage_runtime.h"
+#include "game/simulation/ae_machine_pattern_provider_persistence.h"
+#include "game/simulation/ae_machine_pattern_provider_runtime.h"
 #include "game/simulation/ae_network_persistence.h"
 #include "game/simulation/ae_network_runtime.h"
 #include "game/simulation/automation_controller_persistence.h"
@@ -398,6 +400,21 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
             "ScienceAndTheologySimulationSession::create_world(AE node content keys)");
         return error;
     }
+    if (auto result = GameAeMachinePatternProviderPersistence::validate_all(chunk_sidecars_);
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(AE machine provider sidecars)");
+        return error;
+    }
+    if (auto result = GameAeMachinePatternProviderPersistence::validate_content_references(
+            chunk_sidecars_, content_registry_);
+        !result) {
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(AE machine provider content)");
+        return error;
+    }
     ae_network_runtime_ = std::make_unique<AeNetworkRuntimeService>();
     ae_drive_storage_runtime_ = std::make_unique<AeDriveStorageRuntimeService>(
         *ae_network_runtime_, content_registry_);
@@ -424,6 +441,25 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
         auto error = result.error();
         error.with_context(
             "ScienceAndTheologySimulationSession::create_world(automation resource snapshot)");
+        return error;
+    }
+    ae_machine_pattern_provider_runtime_ =
+        std::make_unique<AeMachinePatternProviderRuntimeService>(
+            content_registry_, world_session.world(), chunk_sidecars_, *ae_network_runtime_);
+    if (auto result = content_registry_.add_resource_runtime_snapshot_participant(
+            *ae_machine_pattern_provider_runtime_);
+        !result) {
+        ae_machine_pattern_provider_runtime_.reset();
+        content_registry_.remove_resource_runtime_snapshot_participant(
+            *automation_controller_runtime_);
+        content_registry_.remove_resource_runtime_snapshot_participant(
+            *ae_drive_storage_runtime_);
+        automation_controller_runtime_.reset();
+        ae_drive_storage_runtime_.reset();
+        ae_network_runtime_.reset();
+        auto error = result.error();
+        error.with_context(
+            "ScienceAndTheologySimulationSession::create_world(AE machine provider resource snapshot)");
         return error;
     }
     offline_industrial_network_provider_ =
@@ -547,6 +583,15 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
             } else {
                 last_content_reload_failure_.reset();
                 last_content_reload_result_ = std::move(*reloaded);
+                if (ae_machine_pattern_provider_runtime_) {
+                    if (auto refreshed =
+                            ae_machine_pattern_provider_runtime_->refresh_content_definitions();
+                        !refreshed) {
+                        SNT_LOG_ERROR(
+                            "AE machine provider catalog refresh after content reload failed: %s",
+                            refreshed.error().format().c_str());
+                    }
+                }
             }
         }
         context.services().scripts().update(context.delta_seconds());
@@ -569,7 +614,15 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::fixed_tick(
 }
 
 snt::core::Expected<void> ScienceAndTheologySimulationSession::after_fixed_tick(
-    snt::engine::FixedTickContext&) {
+    snt::engine::FixedTickContext& context) {
+    if (ae_machine_pattern_provider_runtime_) {
+        if (auto result = ae_machine_pattern_provider_runtime_->tick(context.tick_index()); !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::after_fixed_tick(AE machine providers)");
+            return error;
+        }
+    }
     return {};
 }
 
@@ -579,6 +632,15 @@ ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
     if (world_ == nullptr || offline_machine_simulation_ == nullptr) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Offline machine simulation is unavailable"};
+    }
+    if (ae_machine_pattern_provider_runtime_) {
+        if (auto result = ae_machine_pattern_provider_runtime_->dematerialize_chunk(chunk_key);
+            !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::dematerialize_chunk_machines(AE machine provider)");
+            return error;
+        }
     }
     auto transition = offline_machine_simulation_->dematerialize_chunk(
         *world_, chunk_key, current_tick);
@@ -607,6 +669,14 @@ ScienceAndTheologySimulationSession::dematerialize_chunk_machines(
             return error;
         }
     }
+    if (ae_machine_pattern_provider_runtime_) {
+        if (auto result = ae_machine_pattern_provider_runtime_->refresh_topology(); !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::dematerialize_chunk_machines(AE provider topology)");
+            return error;
+        }
+    }
     return *transition;
 }
 
@@ -617,6 +687,17 @@ ScienceAndTheologySimulationSession::dematerialize_chunks_machines(
     if (world_ == nullptr || offline_machine_simulation_ == nullptr) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Offline machine simulation is unavailable"};
+    }
+    if (ae_machine_pattern_provider_runtime_) {
+        for (const ChunkKey& chunk_key : chunk_keys) {
+            if (auto result = ae_machine_pattern_provider_runtime_->dematerialize_chunk(chunk_key);
+                !result) {
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::dematerialize_chunks_machines(AE machine provider)");
+                return error;
+            }
+        }
     }
     auto transition = offline_machine_simulation_->dematerialize_chunks(
         *world_, chunk_keys, current_tick);
@@ -650,6 +731,14 @@ ScienceAndTheologySimulationSession::dematerialize_chunks_machines(
             }
         }
     }
+    if (ae_machine_pattern_provider_runtime_) {
+        if (auto result = ae_machine_pattern_provider_runtime_->refresh_topology(); !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologySimulationSession::dematerialize_chunks_machines(AE provider topology)");
+            return error;
+        }
+    }
     return *transition;
 }
 
@@ -665,7 +754,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
         return result.error();
     }
     if (automation_controller_runtime_) {
-        const GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
+        GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
         if (sidecar == nullptr) {
             automation_controller_runtime_->dematerialize_chunk(chunk_key);
         } else if (auto result = automation_controller_runtime_->materialize_chunk(
@@ -678,7 +767,7 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
         }
     }
     if (ae_network_runtime_) {
-        const GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
+        GameChunkSidecar* const sidecar = chunk_sidecars_.get(chunk_key);
         if (sidecar == nullptr) {
             auto result = ae_network_runtime_->dematerialize_chunk(chunk_key);
             if (!result) {
@@ -694,13 +783,28 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::materialize_chunk
                 "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE)");
             return error;
         }
-        if (ae_drive_storage_runtime_ != nullptr) {
+        if (ae_drive_storage_runtime_ != nullptr && sidecar != nullptr) {
             if (auto result = ae_drive_storage_runtime_->materialize_chunk(chunk_key, *sidecar);
                 !result) {
                 static_cast<void>(ae_network_runtime_->dematerialize_chunk(chunk_key));
                 auto error = result.error();
                 error.with_context(
                     "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE drive)");
+                return error;
+            }
+        }
+        if (ae_machine_pattern_provider_runtime_ != nullptr && sidecar != nullptr) {
+            if (auto result = ae_machine_pattern_provider_runtime_->materialize_chunk(
+                    chunk_key, *sidecar);
+                !result) {
+                if (ae_drive_storage_runtime_ != nullptr) {
+                    static_cast<void>(ae_drive_storage_runtime_->dematerialize_chunk(
+                        chunk_key, *sidecar));
+                }
+                static_cast<void>(ae_network_runtime_->dematerialize_chunk(chunk_key));
+                auto error = result.error();
+                error.with_context(
+                    "ScienceAndTheologySimulationSession::materialize_chunk_machines(AE machine provider)");
                 return error;
             }
         }
@@ -913,6 +1017,11 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
         machine_tick_system_->set_event_sink(nullptr);
     }
     machine_tick_system_.reset();
+    if (ae_machine_pattern_provider_runtime_) {
+        content_registry_.remove_resource_runtime_snapshot_participant(
+            *ae_machine_pattern_provider_runtime_);
+        ae_machine_pattern_provider_runtime_.reset();
+    }
     if (automation_controller_runtime_) {
         content_registry_.remove_resource_runtime_snapshot_participant(
             *automation_controller_runtime_);

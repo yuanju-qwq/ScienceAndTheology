@@ -12,6 +12,9 @@
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
+#include "game/simulation/ae_drive_storage_runtime.h"
+#include "game/simulation/ae_network_runtime.h"
+#include "game/simulation/automation_controller_persistence.h"
 #include "game/simulation/block_physics_events.h"
 #include "game/tests/test_player_resource_snapshot.h"
 #include "game/simulation/crop_growth_system.h"
@@ -23,6 +26,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -704,6 +708,146 @@ TEST(GameServerPlayerInteractionTest, PlacesAnchoredMachineThroughTheHostInvento
         .expected_material = bloomery_material,
     };
     EXPECT_FALSE((*interactions)->apply_block_interaction(peer, mine_machine, 31));
+    (*player_state)->shutdown();
+}
+
+TEST(GameServerPlayerInteractionTest,
+     PlacesDriveIntoItsSidecarOwnerAndImmediatelyAttachesTheAeAggregate) {
+    snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    GameChunkSidecarRegistry sidecars;
+    add_ground_chunk(chunks);
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item({
+        .id = "ae_drive_1k",
+        .title_key = "ae.block.drive_1k",
+        .max_stack = 64,
+    }));
+    ASSERT_TRUE(content.register_builtin_item({
+        .id = "iron.ingot",
+        .title_key = "item.iron_ingot",
+        .max_stack = 64,
+    }));
+    ASSERT_TRUE(content.register_builtin_ae_network_node_placement({
+        .item_id = "ae_drive_1k",
+        .node_key = "automation.ae_drive.1k",
+        .type = snt::game::AeNetworkNodeType::kDrive,
+        .material_key = "snt:runtime.automation.ae_drive_1k",
+        .drive_storage_cell = snt::game::AeDriveStorageCellDefinition{
+            .byte_capacity = 1024,
+            .max_distinct_resources = 63,
+            .bytes_per_distinct_resource = 8,
+            .units_per_byte = 1,
+        },
+    }));
+    auto player_state = GameServerPlayerState::create(
+        world,
+        {
+            .resource_runtime_index = content.resource_runtime_index(),
+            .spawn = position(2, 1, 2),
+            .inventory_slots = 4,
+            .inventory_max_stack_size = 8,
+            .interaction_reach_blocks = 5,
+        });
+    ASSERT_TRUE(player_state) << player_state.error().format();
+    const GameAuthenticatedPeer peer = make_peer(607, "AE Drive Placement Player");
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(
+        peer, (*player_state)->default_persistent_state()));
+    ASSERT_TRUE((*player_state)->apply_inventory_transaction(
+        peer, {.additions = {snt::game::GamePlayerItemStack::item("ae_drive_1k", 1)}}));
+
+    const snt::voxel::ChunkKey key{"overworld", 0, 0, 0};
+    sidecars.set(key, {});
+    const auto controller = snt::game::GameAutomationControllerPersistence::create_controller(
+        sidecars, key, 2, 1, 2,
+        {
+            .kind = snt::game::AutomationControllerKind::kAeController,
+            .controller_key = std::string(snt::game::kAeControllerKey),
+            .ae_node = {.connection_mask = snt::game::CONN_POS_X},
+        });
+    ASSERT_TRUE(controller) << controller.error().format();
+    GameChunkSidecar* initial_sidecar = sidecars.get(key);
+    ASSERT_NE(initial_sidecar, nullptr);
+
+    snt::game::AeNetworkRuntimeService ae_runtime;
+    ASSERT_TRUE(ae_runtime.materialize_chunk(key, *initial_sidecar));
+    snt::game::AeDriveStorageRuntimeService drives{ae_runtime, content};
+    ASSERT_TRUE(drives.materialize_chunk(key, *initial_sidecar));
+
+    MachineInteractionService machine_interactions(content);
+    CheckpointSink checkpoint;
+    auto beds = GameServerPlayerBedService::create(*(*player_state), chunks, sidecars, &checkpoint);
+    ASSERT_TRUE(beds) << beds.error().format();
+    auto config = interaction_config();
+    config.ae_network_runtime = &ae_runtime;
+    config.ae_drive_storage_runtime = &drives;
+    auto interactions = GameServerPlayerInteractionService::create(
+        world, chunks, sidecars, *(*player_state), *(*beds), content, machine_interactions,
+        nullptr, &checkpoint, {}, std::move(config));
+    ASSERT_TRUE(interactions) << interactions.error().format();
+
+    const GameBlockInteractionCommand place{
+        .action = GameBlockInteractionAction::kPlace,
+        .dimension_id = "overworld",
+        .block_x = 3,
+        .block_y = 1,
+        .block_z = 2,
+        .expected_material = 0,
+        .selected_item_id = "ae_drive_1k",
+    };
+    ASSERT_TRUE((*interactions)->apply_block_interaction(peer, place, 40));
+
+    const auto* terrain = chunks.get_chunk("overworld", 0, 0, 0);
+    ASSERT_NE(terrain, nullptr);
+    const uint16_t drive_material = interaction_material_id("snt:runtime.automation.ae_drive_1k");
+    ASSERT_NE(drive_material, 0u);
+    EXPECT_EQ(terrain->terrain.cell_at(3, 1, 2).material, drive_material);
+
+    GameChunkSidecar* sidecar = sidecars.get(key);
+    ASSERT_NE(sidecar, nullptr);
+    const auto drive_node = std::find_if(
+        sidecar->ae_network_node_records.begin(), sidecar->ae_network_node_records.end(),
+        [](const snt::game::AeNetworkNodePersistenceRecord& record) {
+            return record.type == snt::game::AeNetworkNodeType::kDrive;
+        });
+    ASSERT_NE(drive_node, sidecar->ae_network_node_records.end());
+    EXPECT_EQ(drive_node->node_key, "automation.ae_drive.1k");
+    const auto drive_record = std::find_if(
+        sidecar->ae_drive_storage_records.begin(), sidecar->ae_drive_storage_records.end(),
+        [&drive_node](const snt::game::AeDriveStoragePersistenceRecord& record) {
+            return record.anchor_entity_id == drive_node->anchor_entity_id;
+        });
+    ASSERT_NE(drive_record, sidecar->ae_drive_storage_records.end());
+    EXPECT_TRUE(drive_record->stored_resources.empty());
+
+    snt::game::AeStorageCell* const cell = drives.find_drive_cell(drive_node->anchor_entity_id);
+    ASSERT_NE(cell, nullptr);
+    const auto snapshot = content.resource_runtime_index();
+    const auto iron = snapshot.resolve_runtime(snt::game::ResourceContentKey::item("iron.ingot"));
+    ASSERT_TRUE(iron);
+    ASSERT_EQ(cell->insert(snapshot.key_context(), {.key = *iron, .amount = 6},
+                           snt::game::ResourceTransferMode::kExecute),
+              6);
+    EXPECT_EQ(ae_runtime.amount_at_node(controller->anchor_entity_id,
+                                        snapshot.key_context(), *iron),
+              6);
+
+    ASSERT_TRUE(drives.flush_chunk(key, *sidecar));
+    const auto persisted = std::find_if(
+        sidecar->ae_drive_storage_records.begin(), sidecar->ae_drive_storage_records.end(),
+        [&drive_node](const snt::game::AeDriveStoragePersistenceRecord& record) {
+            return record.anchor_entity_id == drive_node->anchor_entity_id;
+        });
+    ASSERT_NE(persisted, sidecar->ae_drive_storage_records.end());
+    EXPECT_EQ(persisted->stored_resources,
+              (std::vector<snt::game::ResourceContentStack>{
+                  snt::game::ResourceContentStack::item("iron.ingot", 6),
+              }));
+    EXPECT_EQ(persisted->revision, 2u);
+
+    const auto inventory = (*player_state)->inventory_for_peer(peer);
+    ASSERT_TRUE(inventory) << inventory.error().format();
+    EXPECT_TRUE(inventory->slots[0].is_empty());
     (*player_state)->shutdown();
 }
 

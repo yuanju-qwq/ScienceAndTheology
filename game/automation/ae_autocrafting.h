@@ -33,6 +33,10 @@ struct AeAutocraftingPatternDefinition {
     std::string id;
     std::vector<ResourceContentStack> inputs;
     std::vector<ResourceContentStack> outputs;
+    // A provider compiles its local scheduling preference into this field.
+    // Higher values win before lexical id ordering breaks ties, so a network
+    // can expose multiple physical producers for one output deterministically.
+    int32_t provider_priority = 0;
     uint32_t ticks_per_operation = 1;
 };
 

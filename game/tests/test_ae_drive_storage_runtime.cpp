@@ -7,8 +7,11 @@
 #include "game/simulation/ae_network_persistence.h"
 #include "game/simulation/ae_network_runtime.h"
 #include "game/simulation/automation_controller_persistence.h"
+#include "game/world/save/chunk_serializer.h"
 
 #include <gtest/gtest.h>
+
+#include <string>
 
 namespace snt::game {
 namespace {
@@ -109,10 +112,30 @@ TEST(AeDriveStorageRuntimeServiceTest,
     ASSERT_TRUE(first_network.dematerialize_chunk(chunk));
     EXPECT_EQ(first_drives.active_drive_count(), 0u);
 
+    // The sidecar, rather than the now-destroyed live cell, owns the stable
+    // value through the actual chunk persistence boundary.
+    GameChunk persisted_chunk;
+    persisted_chunk.chunk_x = chunk.chunk_x;
+    persisted_chunk.chunk_y = chunk.chunk_y;
+    persisted_chunk.chunk_z = chunk.chunk_z;
+    persisted_chunk.terrain.resize(1, 1, 1);
+    persisted_chunk.sidecar() = *sidecar;
+    const GameChunkSerializer serializer;
+    const std::vector<uint8_t> bytes = serializer.serialize(chunk.dimension_id, persisted_chunk);
+    GameChunk restored_chunk;
+    std::string restored_dimension;
+    ASSERT_TRUE(serializer.deserialize(bytes, restored_dimension, restored_chunk));
+    EXPECT_EQ(restored_dimension, chunk.dimension_id);
+    ASSERT_EQ(restored_chunk.sidecar().ae_drive_storage_records.size(), 1u);
+    EXPECT_EQ(restored_chunk.sidecar().ae_drive_storage_records.front().stored_resources,
+              (std::vector<ResourceContentStack>{
+                  ResourceContentStack::item("iron.ingot", 5),
+              }));
+
     AeNetworkRuntimeService restored_network;
-    ASSERT_TRUE(restored_network.materialize_chunk(chunk, *sidecar));
+    ASSERT_TRUE(restored_network.materialize_chunk(chunk, restored_chunk.sidecar()));
     AeDriveStorageRuntimeService restored_drives{restored_network, content};
-    ASSERT_TRUE(restored_drives.materialize_chunk(chunk, *sidecar));
+    ASSERT_TRUE(restored_drives.materialize_chunk(chunk, restored_chunk.sidecar()));
     const AeStorageCell* const restored_cell =
         restored_drives.find_drive_cell(drive->anchor_entity_id);
     ASSERT_NE(restored_cell, nullptr);

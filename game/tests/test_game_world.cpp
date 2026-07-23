@@ -145,11 +145,12 @@ TEST(WorldgenScriptContentTest, RegistersCompletePackagedTerrainContent) {
     ASSERT_TRUE(built) << built.error().format();
     const auto& config = *built;
 
-    EXPECT_EQ(config->materials.size(), 159u);
+    EXPECT_EQ(config->materials.size(), 167u);
     EXPECT_EQ(config->tree_species.size(), 8u);
     EXPECT_EQ(config->crop_species.size(), 6u);
     EXPECT_NE(config->find_material("snt:ore_uranium"), nullptr);
     EXPECT_NE(config->find_material("snt:runtime.machine.bloomery"), nullptr);
+    EXPECT_NE(config->find_material("snt:runtime.automation.ae_drive_1k"), nullptr);
     EXPECT_NE(config->find_tree_species("sequoia"), nullptr);
     EXPECT_NE(config->find_crop_species("pumpkin"), nullptr);
     EXPECT_EQ(config->roles.air, 0u);

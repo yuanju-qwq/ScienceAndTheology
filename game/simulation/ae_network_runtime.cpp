@@ -33,6 +33,11 @@ constexpr std::array<Direction, 6> kDirections{{
     {0, 0, -1, CONN_NEG_Z, CONN_POS_Z},
 }};
 
+struct PlannedComponentTransfer {
+    uint32_t attachment_slot = 0;
+    int64_t amount = 0;
+};
+
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
 }
@@ -310,6 +315,14 @@ bool AeNetworkRuntimeService::detach_storage(
         } else if (index->second->storage_count() == 0) {
             component_storage_indexes_.erase(index);
         }
+        const auto component_attachments =
+            component_storage_attachment_slots_.find(component_id);
+        if (component_attachments != component_storage_attachment_slots_.end()) {
+            component_attachments->second.erase(aggregate_handle_token(aggregate_handle));
+            if (component_attachments->second.empty()) {
+                component_storage_attachment_slots_.erase(component_attachments);
+            }
+        }
     }
 
     slot->storage = nullptr;
@@ -372,6 +385,44 @@ size_t AeNetworkRuntimeService::storage_count_in_component(uint32_t component_id
     return index == component_storage_indexes_.end() ? 0 : index->second->storage_count();
 }
 
+ResourceKeyContext AeNetworkRuntimeService::resource_key_context_at_node(
+    EntityId node_anchor) const noexcept {
+    if (!node_anchor.is_valid()) return {};
+    const auto node = runtimes_.find(node_anchor.id);
+    if (node == runtimes_.end() || !node->second.presentation.online ||
+        node->second.presentation.component_id == 0) {
+        return {};
+    }
+    const auto index = component_storage_indexes_.find(node->second.presentation.component_id);
+    return index == component_storage_indexes_.end() ? ResourceKeyContext{}
+                                                     : index->second->key_context();
+}
+
+int64_t AeNetworkRuntimeService::insert_at_node(
+    EntityId node_anchor, const ResourceKeyContext& context,
+    const ResourceStack& stack, ResourceTransferMode mode) {
+    return transfer_at_node(node_anchor, context, stack, mode, true);
+}
+
+int64_t AeNetworkRuntimeService::extract_at_node(
+    EntityId node_anchor, const ResourceKeyContext& context,
+    const ResourceStack& requested, ResourceTransferMode mode) {
+    return transfer_at_node(node_anchor, context, requested, mode, false);
+}
+
+std::vector<ResourceKey> AeNetworkRuntimeService::stored_keys_at_node(
+    EntityId node_anchor, const ResourceKeyContext& context) const {
+    if (!node_anchor.is_valid()) return {};
+    const auto node = runtimes_.find(node_anchor.id);
+    if (node == runtimes_.end() || !node->second.presentation.online ||
+        node->second.presentation.component_id == 0) {
+        return {};
+    }
+    const auto index = component_storage_indexes_.find(node->second.presentation.component_id);
+    return index == component_storage_indexes_.end() ? std::vector<ResourceKey>{}
+                                                     : index->second->stored_keys(context);
+}
+
 void AeNetworkRuntimeService::detach_storage_aggregates_for_resource_reload() noexcept {
     clear_storage_observers();
     for (StorageAttachmentSlot& slot : storage_attachments_) {
@@ -380,6 +431,7 @@ void AeNetworkRuntimeService::detach_storage_aggregates_for_resource_reload() no
         slot.aggregate_handle = {};
     }
     component_storage_indexes_.clear();
+    component_storage_attachment_slots_.clear();
     SNT_LOG_DEBUG("Detached AE storage aggregates for resource snapshot reload; attachments=%zu",
                   attached_storage_count_);
 }
@@ -553,6 +605,8 @@ void AeNetworkRuntimeService::commit_storage_indexes(
         slot.aggregate_handle = {};
     }
 
+    ComponentStorageAttachmentIndex next_attachment_slots;
+    next_attachment_slots.reserve(indexes.attachments.size());
     for (const PreparedStorageAttachment& prepared : indexes.attachments) {
         if (prepared.slot == 0 || prepared.slot >= storage_attachments_.size()) {
             SNT_LOG_ERROR("AE runtime prepared an invalid storage attachment slot=%u",
@@ -572,11 +626,14 @@ void AeNetworkRuntimeService::commit_storage_indexes(
         }
         slot.component_id = prepared.component_id;
         slot.aggregate_handle = prepared.aggregate_handle;
+        next_attachment_slots[prepared.component_id].emplace(
+            aggregate_handle_token(prepared.aggregate_handle), prepared.slot);
     }
 
     // Moving unique_ptr values preserves the observer addresses published
     // above. Old indexes are destroyed only after all cells have detached.
     component_storage_indexes_ = std::move(indexes.indexes);
+    component_storage_attachment_slots_ = std::move(next_attachment_slots);
 }
 
 void AeNetworkRuntimeService::clear_storage_observers() noexcept {
@@ -603,6 +660,160 @@ AeNetworkRuntimeService::find_storage_attachment(
     return &slot;
 }
 
+AeNetworkRuntimeService::StorageAttachmentSlot*
+AeNetworkRuntimeService::find_component_storage_attachment(
+    uint32_t component_id, ResourceAggregateStorageHandle handle) noexcept {
+    if (component_id == 0 || !handle.is_valid()) return nullptr;
+    const auto component = component_storage_attachment_slots_.find(component_id);
+    if (component == component_storage_attachment_slots_.end()) return nullptr;
+    const auto slot_index = component->second.find(aggregate_handle_token(handle));
+    if (slot_index == component->second.end() || slot_index->second == 0 ||
+        slot_index->second >= storage_attachments_.size()) {
+        return nullptr;
+    }
+    StorageAttachmentSlot& slot = storage_attachments_[slot_index->second];
+    return slot.storage != nullptr && slot.component_id == component_id &&
+            slot.aggregate_handle == handle
+        ? &slot
+        : nullptr;
+}
+
+const AeNetworkRuntimeService::StorageAttachmentSlot*
+AeNetworkRuntimeService::find_component_storage_attachment(
+    uint32_t component_id, ResourceAggregateStorageHandle handle) const noexcept {
+    if (component_id == 0 || !handle.is_valid()) return nullptr;
+    const auto component = component_storage_attachment_slots_.find(component_id);
+    if (component == component_storage_attachment_slots_.end()) return nullptr;
+    const auto slot_index = component->second.find(aggregate_handle_token(handle));
+    if (slot_index == component->second.end() || slot_index->second == 0 ||
+        slot_index->second >= storage_attachments_.size()) {
+        return nullptr;
+    }
+    const StorageAttachmentSlot& slot = storage_attachments_[slot_index->second];
+    return slot.storage != nullptr && slot.component_id == component_id &&
+            slot.aggregate_handle == handle
+        ? &slot
+        : nullptr;
+}
+
+uint64_t AeNetworkRuntimeService::aggregate_handle_token(
+    ResourceAggregateStorageHandle handle) noexcept {
+    return (static_cast<uint64_t>(handle.generation) << 32u) |
+        static_cast<uint64_t>(handle.slot);
+}
+
+int64_t AeNetworkRuntimeService::transfer_at_node(
+    EntityId node_anchor, const ResourceKeyContext& context,
+    const ResourceStack& stack, ResourceTransferMode mode, bool insert) {
+    if (!node_anchor.is_valid() || !context.is_valid() || !stack.is_valid()) return 0;
+    const auto node = runtimes_.find(node_anchor.id);
+    if (node == runtimes_.end() || !node->second.presentation.online ||
+        node->second.presentation.component_id == 0) {
+        return 0;
+    }
+    const uint32_t component_id = node->second.presentation.component_id;
+    const auto index = component_storage_indexes_.find(component_id);
+    if (index == component_storage_indexes_.end() ||
+        !index->second->key_context().matches(context)) {
+        return 0;
+    }
+
+    std::vector<uint32_t> candidates;
+    const std::span<const ResourceAggregateStorageHandle> holders =
+        index->second->storage_holders(context, stack.key);
+    candidates.reserve(holders.size());
+    for (const ResourceAggregateStorageHandle holder : holders) {
+        const auto component_slot = component_storage_attachment_slots_.find(component_id);
+        if (component_slot == component_storage_attachment_slots_.end()) continue;
+        const auto attachment_slot = component_slot->second.find(aggregate_handle_token(holder));
+        if (attachment_slot == component_slot->second.end()) continue;
+        candidates.push_back(attachment_slot->second);
+    }
+
+    std::vector<PlannedComponentTransfer> plan;
+    plan.reserve(candidates.size() + (insert ? attached_storage_count_ : 0));
+    int64_t remaining = stack.amount;
+    const auto probe_candidate = [this, component_id, &context, &stack, insert, &plan,
+                                  &remaining](uint32_t slot_index) {
+        if (remaining <= 0 || slot_index == 0 || slot_index >= storage_attachments_.size()) {
+            return;
+        }
+        StorageAttachmentSlot& slot = storage_attachments_[slot_index];
+        if (slot.storage == nullptr || slot.component_id != component_id) return;
+        const ResourceStack attempt{.key = stack.key, .amount = remaining};
+        const int64_t transferred = insert
+            ? slot.storage->insert(context, attempt, ResourceTransferMode::kSimulate)
+            : slot.storage->extract(context, attempt, ResourceTransferMode::kSimulate);
+        const int64_t accepted = std::clamp(transferred, int64_t{0}, remaining);
+        if (accepted <= 0) return;
+        plan.push_back({.attachment_slot = slot_index, .amount = accepted});
+        remaining -= accepted;
+    };
+    for (const uint32_t slot_index : candidates) {
+        probe_candidate(slot_index);
+    }
+    // A new key has no holder list. Likewise, a full holder must fall back to
+    // another cell before an insert can report its actual available capacity.
+    // That scan is deliberately deferred until the indexed owners could not
+    // satisfy the transfer, so normal existing-key traffic stays indexed.
+    if (insert && remaining > 0) {
+        for (uint32_t slot_index = 1; slot_index < storage_attachments_.size(); ++slot_index) {
+            if (std::find(candidates.begin(), candidates.end(), slot_index) != candidates.end()) {
+                continue;
+            }
+            probe_candidate(slot_index);
+            if (remaining == 0) break;
+        }
+    }
+    const int64_t planned_total = stack.amount - remaining;
+    if (mode == ResourceTransferMode::kSimulate || planned_total <= 0) return planned_total;
+
+    std::vector<PlannedComponentTransfer> completed;
+    completed.reserve(plan.size());
+    for (const PlannedComponentTransfer& transfer : plan) {
+        StorageAttachmentSlot& slot = storage_attachments_[transfer.attachment_slot];
+        const ResourceStack attempt{.key = stack.key, .amount = transfer.amount};
+        const int64_t actual = insert
+            ? slot.storage->insert(context, attempt, ResourceTransferMode::kExecute)
+            : slot.storage->extract(context, attempt, ResourceTransferMode::kExecute);
+        if (actual == transfer.amount) {
+            completed.push_back(transfer);
+            continue;
+        }
+
+        if (actual > 0) {
+            const ResourceStack partial{.key = stack.key, .amount = actual};
+            const int64_t undone = insert
+                ? slot.storage->extract(context, partial, ResourceTransferMode::kExecute)
+                : slot.storage->insert(context, partial, ResourceTransferMode::kExecute);
+            if (undone != actual) {
+                SNT_LOG_ERROR("AE component route could not undo a partial endpoint mutation slot=%u",
+                              static_cast<unsigned int>(transfer.attachment_slot));
+            }
+        }
+        for (auto completed_transfer = completed.rbegin();
+             completed_transfer != completed.rend(); ++completed_transfer) {
+            StorageAttachmentSlot& completed_slot =
+                storage_attachments_[completed_transfer->attachment_slot];
+            const ResourceStack rollback{
+                .key = stack.key,
+                .amount = completed_transfer->amount,
+            };
+            const int64_t undone = insert
+                ? completed_slot.storage->extract(context, rollback, ResourceTransferMode::kExecute)
+                : completed_slot.storage->insert(context, rollback, ResourceTransferMode::kExecute);
+            if (undone != completed_transfer->amount) {
+                SNT_LOG_ERROR("AE component route rollback failed for endpoint slot=%u",
+                              static_cast<unsigned int>(completed_transfer->attachment_slot));
+            }
+        }
+        SNT_LOG_WARN("AE component route aborted an execute transfer after endpoint shortfall component=%u",
+                     static_cast<unsigned int>(component_id));
+        return 0;
+    }
+    return planned_total;
+}
+
 bool AeNetworkRuntimeService::is_storage_node_type(AeNetworkNodeType type) noexcept {
     return type == AeNetworkNodeType::kDrive || type == AeNetworkNodeType::kStorageBus;
 }
@@ -618,6 +829,36 @@ void AeNetworkRuntimeService::rebuild_chunk_index(
         static_cast<void>(chunk_key);
         std::sort(anchors.begin(), anchors.end());
     }
+}
+
+ResourceKeyContext AeNetworkComponentStorage::key_context() const noexcept {
+    return runtime_ == nullptr ? ResourceKeyContext{}
+                             : runtime_->resource_key_context_at_node(node_anchor_);
+}
+
+int64_t AeNetworkComponentStorage::amount_of(
+    const ResourceKeyContext& context, const ResourceKey& key) const {
+    return runtime_ == nullptr ? 0 : runtime_->amount_at_node(node_anchor_, context, key);
+}
+
+int64_t AeNetworkComponentStorage::insert(
+    const ResourceKeyContext& context, const ResourceStack& stack,
+    ResourceTransferMode mode) {
+    return runtime_ == nullptr ? 0 : runtime_->insert_at_node(node_anchor_, context, stack, mode);
+}
+
+int64_t AeNetworkComponentStorage::extract(
+    const ResourceKeyContext& context, const ResourceStack& requested,
+    ResourceTransferMode mode) {
+    return runtime_ == nullptr
+        ? 0
+        : runtime_->extract_at_node(node_anchor_, context, requested, mode);
+}
+
+std::vector<ResourceKey> AeNetworkComponentStorage::stored_keys(
+    const ResourceKeyContext& context) const {
+    return runtime_ == nullptr ? std::vector<ResourceKey>{}
+                               : runtime_->stored_keys_at_node(node_anchor_, context);
 }
 
 }  // namespace snt::game

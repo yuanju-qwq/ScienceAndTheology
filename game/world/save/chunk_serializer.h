@@ -18,10 +18,10 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v27 adds durable AE drive cell contents
-    // beside typed physical node owners; compact ResourceKey IDs never cross
-    // the persistence boundary.
-    static constexpr uint8_t kCurrentVersion = 27;
+    // Current binary format version. v29 adds durable AE interface-to-machine
+    // provider bindings and their monotonic work-order serial owner; compact
+    // ResourceKey IDs never cross the persistence boundary.
+    static constexpr uint8_t kCurrentVersion = 29;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current
@@ -144,6 +144,13 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         AeDriveStoragePersistenceRecord& record);
+    static void write_ae_machine_pattern_provider_record(
+        std::vector<uint8_t>& buf,
+        const AeMachinePatternProviderPersistenceRecord& record);
+    static bool read_ae_machine_pattern_provider_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        AeMachinePatternProviderPersistenceRecord& record);
 
     // --- Tree-growth sidecar serialization ---
 
@@ -226,6 +233,13 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         MachineRuntimeRecipeSnapshot& recipe);
+    static void write_machine_automation_work_order(
+        std::vector<uint8_t>& buf,
+        const MachineAutomationWorkOrderRecord& work_order);
+    static bool read_machine_automation_work_order(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        MachineAutomationWorkOrderRecord& work_order);
 
     // --- Offline network-island sidecar serialization ---
 

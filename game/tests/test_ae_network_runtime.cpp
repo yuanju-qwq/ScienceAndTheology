@@ -227,6 +227,53 @@ TEST(AeNetworkRuntimeStorageTest,
     EXPECT_FALSE(ledger.has_resource_aggregate_observer());
 }
 
+TEST(AeNetworkComponentStorageTest,
+     ReadsTheComponentAggregateAndRoutesTransfersToIndexedPhysicalOwners) {
+    const ChunkKey chunk{"snt:overworld", 0, 0, 0};
+    const ResourceRuntimeIndex::Snapshot snapshot = make_resource_snapshot();
+    const ResourceKey iron = *snapshot.resolve_runtime(ResourceContentKey::item("iron.ingot"));
+    const ResourceKey copper = *snapshot.resolve_runtime(ResourceContentKey::item("copper.ingot"));
+    ResourceLedgerStorage ledger{snapshot.key_context()};
+    ASSERT_EQ(ledger.insert(snapshot.key_context(), {.key = iron, .amount = 7},
+                            ResourceTransferMode::kExecute),
+              7);
+
+    AeNetworkRuntimeService runtime;
+    ASSERT_TRUE(runtime.materialize_chunk(chunk, make_storage_sidecar()));
+    ASSERT_TRUE(runtime.attach_storage(kAeDriveAnchor, ledger));
+    AeNetworkComponentStorage component_storage{runtime, kAeControllerAnchor};
+    EXPECT_TRUE(component_storage.key_context().matches(snapshot.key_context()));
+    EXPECT_EQ(component_storage.amount_of(snapshot.key_context(), iron), 7);
+    EXPECT_EQ(component_storage.extract(snapshot.key_context(), {.key = iron, .amount = 3},
+                                        ResourceTransferMode::kSimulate),
+              3);
+    EXPECT_EQ(component_storage.extract(snapshot.key_context(), {.key = iron, .amount = 3},
+                                        ResourceTransferMode::kExecute),
+              3);
+    EXPECT_EQ(ledger.amount_of(snapshot.key_context(), iron), 4);
+    EXPECT_EQ(runtime.amount_at_node(kAeDriveAnchor, snapshot.key_context(), iron), 4);
+
+    // The direct endpoint mutation updates both the aggregate and its
+    // ResourceKey-to-owner route. Once empty, extraction finds no owner;
+    // inserting a new key allocates an endpoint only at that capacity boundary.
+    ASSERT_EQ(ledger.extract(snapshot.key_context(), {.key = iron, .amount = 4},
+                             ResourceTransferMode::kExecute),
+              4);
+    EXPECT_EQ(component_storage.extract(snapshot.key_context(), {.key = iron, .amount = 1},
+                                        ResourceTransferMode::kSimulate),
+              0);
+    EXPECT_EQ(component_storage.insert(snapshot.key_context(), {.key = copper, .amount = 5},
+                                       ResourceTransferMode::kExecute),
+              5);
+    EXPECT_EQ(runtime.amount_at_node(kAeControllerAnchor, snapshot.key_context(), copper), 5);
+    EXPECT_EQ(component_storage.extract(snapshot.key_context(), {.key = copper, .amount = 2},
+                                        ResourceTransferMode::kExecute),
+              2);
+    EXPECT_EQ(runtime.amount_at_node(kAeControllerAnchor, snapshot.key_context(), copper), 3);
+    EXPECT_EQ(component_storage.stored_keys(snapshot.key_context()),
+              (std::vector<ResourceKey>{copper}));
+}
+
 TEST(AeNetworkRuntimeStorageTest, RebindsAggregatesOnlyAfterCellsPublishNewSnapshot) {
     const ChunkKey chunk{"snt:overworld", 0, 0, 0};
     const ResourceRuntimeIndex::Snapshot first = make_resource_snapshot();

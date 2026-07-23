@@ -30,6 +30,7 @@
 #include "core/expected.h"
 #include "ecs/entity_guid.h"
 #include "ecs/system.h"
+#include "game/automation/machine_automation_work_order.h"
 #include "game/resources/resource_runtime_index.h"
 #include "game/simulation/machine_fluid_tank.h"
 
@@ -85,6 +86,10 @@ struct MachineRuntimeComponent {
 
     int32_t progress_ticks = 0;
     std::optional<MachineRecipeSnapshot> active_recipe;
+    // An AE provider queues an exact recipe and retains this correlation until
+    // it has transferred the completed outputs back into the network. While
+    // present, ordinary recipe selection must not start another operation.
+    std::optional<MachineAutomationWorkOrder> automation_work_order;
     // MachineInteractionService sets this only on a manual machine after the
     // main-thread player-command boundary validates interaction, structure,
     // tools, cover, and ignition. The worker consumes it once when it

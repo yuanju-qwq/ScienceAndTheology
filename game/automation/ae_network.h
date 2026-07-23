@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -152,6 +153,17 @@ public:
     [[nodiscard]] size_t storage_count() const noexcept { return storage_count_; }
     [[nodiscard]] int64_t amount_of(const ResourceKeyContext& context,
                                     const ResourceKey& key) const noexcept;
+    // Resource owners are indexed by compact key as well as aggregated by
+    // compact key. Component transfer routers use this only to find the live
+    // owners that currently hold a resource; terminal amount reads still use
+    // amount_of() and never touch this list. The span is invalidated by the
+    // next execute-mode mutation, attach, or detach on this index.
+    [[nodiscard]] std::span<const ResourceAggregateStorageHandle> storage_holders(
+        const ResourceKeyContext& context, const ResourceKey& key) const noexcept;
+    // Aggregate key enumeration is an inspection/UI boundary. It visits the
+    // aggregate map once and intentionally does not enumerate every cell.
+    [[nodiscard]] std::vector<ResourceKey> stored_keys(
+        const ResourceKeyContext& context) const;
 
     [[nodiscard]] bool can_apply_resource_aggregate_delta(
         ResourceAggregateStorageHandle handle,
@@ -171,12 +183,26 @@ private:
         std::unordered_map<ResourceKey, int64_t, ResourceKey::Hash> amounts;
     };
 
+    // Swap-remove plus a position hash keeps holder additions and removals
+    // expected O(1), while retaining a compact list for a transfer that truly
+    // has to visit several physical owners.
+    struct ResourceHolderBucket {
+        std::vector<ResourceAggregateStorageHandle> handles;
+        std::unordered_map<uint64_t, size_t> positions;
+    };
+
     [[nodiscard]] StorageSlot* find_slot(ResourceAggregateStorageHandle handle) noexcept;
     [[nodiscard]] const StorageSlot* find_slot(
         ResourceAggregateStorageHandle handle) const noexcept;
     [[nodiscard]] static bool is_valid_delta(const ResourceStack& changed,
                                              int64_t delta) noexcept;
-    void apply_delta_unchecked(StorageSlot& slot,
+    [[nodiscard]] static uint64_t handle_token(
+        ResourceAggregateStorageHandle handle) noexcept;
+    void add_resource_holder(const ResourceKey& key,
+                             ResourceAggregateStorageHandle handle) noexcept;
+    void remove_resource_holder(const ResourceKey& key,
+                                ResourceAggregateStorageHandle handle) noexcept;
+    void apply_delta_unchecked(StorageSlot& slot, ResourceAggregateStorageHandle handle,
                                const ResourceStack& changed,
                                int64_t delta) noexcept;
 
@@ -184,6 +210,8 @@ private:
     std::vector<StorageSlot> slots_;
     std::vector<uint32_t> reusable_slots_;
     std::unordered_map<ResourceKey, int64_t, ResourceKey::Hash> aggregate_amounts_;
+    std::unordered_map<ResourceKey, ResourceHolderBucket, ResourceKey::Hash>
+        resource_holders_;
     size_t storage_count_ = 0;
 };
 

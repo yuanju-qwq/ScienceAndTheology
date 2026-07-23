@@ -12,6 +12,7 @@
 #include "game/world/defs/crop_species_def.h"
 #include "game/world/defs/entity_data.h"
 #include "game/world/defs/population_cell.h"
+#include "game/automation/machine_automation_work_order.h"
 #include "game/automation/ae_network_types.h"
 #include "game/automation/sfm_flow_program.h"
 #include "game/resources/resource_key.h"
@@ -109,6 +110,11 @@ struct MachineRuntimePersistenceRecord {
 
     int32_t progress_ticks = 0;
     std::optional<MachineRuntimeRecipeSnapshot> active_recipe;
+    // An AE pattern provider may own one explicit machine operation. The
+    // machine still owns all physical inputs, energy use, progress, and
+    // output slots; this value only correlates that normal work to a stable
+    // provider request until delivery is acknowledged.
+    std::optional<MachineAutomationWorkOrderRecord> automation_work_order;
     bool activation_requested = false;
     // Stable authenticated account that started the pending/manual job. This
     // survives a controlled restart so completion can emit a task event to
@@ -180,6 +186,22 @@ struct AeDriveStoragePersistenceRecord {
     EntityId anchor_entity_id;
     uint64_t revision = 1;
     std::vector<ResourceContentStack> stored_resources;
+};
+
+// One AE interface can expose one real machine as a pattern provider.  The
+// interface anchor owns the provider identity and serial allocator; the
+// machine anchor owns the actual input, energy, progress, and output state.
+// Keeping this relation in a typed sidecar record avoids embedding a runtime
+// ECS handle or a process-local job id in either save data or AE topology.
+struct AeMachinePatternProviderPersistenceRecord {
+    EntityId interface_anchor_entity_id;
+    EntityId machine_anchor_entity_id;
+    bool enabled = true;
+    int32_t priority = 0;
+    // Monotonic serial allocated to the next accepted machine work order.
+    // It starts at one and never reuses a value within this interface owner.
+    uint64_t next_job_serial = 1;
+    uint64_t revision = 1;
 };
 
 // A network island is anchored by its lexicographically first member chunk.
@@ -351,6 +373,8 @@ struct GameChunkSidecar {
     std::vector<AutomationControllerPersistenceRecord> automation_controller_records;
     std::vector<AeNetworkNodePersistenceRecord> ae_network_node_records;
     std::vector<AeDriveStoragePersistenceRecord> ae_drive_storage_records;
+    std::vector<AeMachinePatternProviderPersistenceRecord>
+        ae_machine_pattern_provider_records;
     // Only an island's anchor chunk contains a record here. The registry
     // validates this against member machine ownership during world startup.
     std::vector<OfflineNetworkIslandSnapshot> offline_network_islands;

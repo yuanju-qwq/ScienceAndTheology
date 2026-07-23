@@ -18,6 +18,7 @@ constexpr uint32_t kMaxMachineRecipeInputs = 64;
 constexpr uint32_t kMaxMachineRecipeOutputs = 64;
 constexpr uint8_t kMachineRunStateCount = 6;
 constexpr uint32_t kMaxMachineJobOwnerAccountBytes = 256;
+constexpr uint32_t kMaxMachineAutomationRecipeIdBytes = 256;
 constexpr uint32_t kMaxAutomationControllerRecords = 4096;
 constexpr uint32_t kMaxAutomationFlowNodes = 1024;
 constexpr uint32_t kMaxAutomationFlowConnections = 4096;
@@ -29,6 +30,7 @@ constexpr uint32_t kMaxAutomationResourceVariantBytes = 256;
 constexpr uint32_t kMaxAeNetworkNodeRecords = 16384;
 constexpr uint32_t kMaxAeDriveStorageRecords = 4096;
 constexpr uint32_t kMaxAeDriveStoredResources = 4096;
+constexpr uint32_t kMaxAeMachinePatternProviderRecords = 4096;
 constexpr uint32_t kMaxOfflineNetworkIslands = 1024;
 constexpr uint32_t kMaxOfflineNetworkMemberChunks = 4096;
 constexpr uint32_t kMaxOfflineNetworkMachineGuids = 16384;
@@ -173,6 +175,15 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     write_uint32(buf, static_cast<uint32_t>(chunk.ae_drive_storage_records.size()));
     for (const AeDriveStoragePersistenceRecord& record : chunk.ae_drive_storage_records) {
         write_ae_drive_storage_record(buf, record);
+    }
+
+    // An interface binding owns stable machine-provider policy and its next
+    // work-order serial. The target machine's physical state remains in its
+    // own MachineRuntimePersistenceRecord.
+    write_uint32(buf, static_cast<uint32_t>(chunk.ae_machine_pattern_provider_records.size()));
+    for (const AeMachinePatternProviderPersistenceRecord& record :
+         chunk.ae_machine_pattern_provider_records) {
+        write_ae_machine_pattern_provider_record(buf, record);
     }
 
     // Typed tree-growth state is kept separate from generic block anchors so
@@ -417,6 +428,19 @@ bool GameChunkSerializer::deserialize(
         AeDriveStoragePersistenceRecord record;
         if (!read_ae_drive_storage_record(data, offset, record)) return false;
         chunk.ae_drive_storage_records.push_back(std::move(record));
+    }
+
+    uint32_t ae_machine_pattern_provider_count;
+    if (!read_uint32(data, offset, ae_machine_pattern_provider_count) ||
+        ae_machine_pattern_provider_count > kMaxAeMachinePatternProviderRecords) {
+        return false;
+    }
+    chunk.ae_machine_pattern_provider_records.clear();
+    chunk.ae_machine_pattern_provider_records.reserve(ae_machine_pattern_provider_count);
+    for (uint32_t i = 0; i < ae_machine_pattern_provider_count; ++i) {
+        AeMachinePatternProviderPersistenceRecord record;
+        if (!read_ae_machine_pattern_provider_record(data, offset, record)) return false;
+        chunk.ae_machine_pattern_provider_records.push_back(std::move(record));
     }
 
     uint32_t tree_growth_record_count;
@@ -1039,6 +1063,41 @@ bool GameChunkSerializer::read_ae_drive_storage_record(
     return true;
 }
 
+void GameChunkSerializer::write_ae_machine_pattern_provider_record(
+    std::vector<uint8_t>& buf,
+    const AeMachinePatternProviderPersistenceRecord& record) {
+    write_uint64(buf, record.interface_anchor_entity_id.id);
+    write_uint64(buf, record.machine_anchor_entity_id.id);
+    write_uint8(buf, record.enabled ? 1 : 0);
+    write_int32(buf, record.priority);
+    write_uint64(buf, record.next_job_serial);
+    write_uint64(buf, record.revision);
+}
+
+bool GameChunkSerializer::read_ae_machine_pattern_provider_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    AeMachinePatternProviderPersistenceRecord& record) {
+    uint64_t interface_anchor_id = 0;
+    uint64_t machine_anchor_id = 0;
+    uint8_t enabled = 0;
+    if (!read_uint64(data, offset, interface_anchor_id) ||
+        !read_uint64(data, offset, machine_anchor_id) ||
+        !read_uint8(data, offset, enabled) || enabled > 1 ||
+        !read_int32(data, offset, record.priority) ||
+        !read_uint64(data, offset, record.next_job_serial) ||
+        !read_uint64(data, offset, record.revision)) {
+        return false;
+    }
+    record.interface_anchor_entity_id = EntityId{interface_anchor_id};
+    record.machine_anchor_entity_id = EntityId{machine_anchor_id};
+    record.enabled = enabled != 0;
+    return record.interface_anchor_entity_id.is_valid() &&
+           record.machine_anchor_entity_id.is_valid() &&
+           record.interface_anchor_entity_id != record.machine_anchor_entity_id &&
+           record.next_job_serial != 0 && record.revision != 0;
+}
+
 // --- Tree-growth sidecar helpers ---
 
 void GameChunkSerializer::write_tree_growth_record(
@@ -1431,6 +1490,10 @@ void GameChunkSerializer::write_machine_runtime_record(
     if (record.active_recipe) {
         write_machine_runtime_recipe_snapshot(buf, *record.active_recipe);
     }
+    write_uint8(buf, record.automation_work_order.has_value() ? 1 : 0);
+    if (record.automation_work_order) {
+        write_machine_automation_work_order(buf, *record.automation_work_order);
+    }
     write_uint8(buf, record.activation_requested ? 1 : 0);
     write_string(buf, record.job_owner_account_id);
     write_uint8(buf, record.run_state);
@@ -1511,6 +1574,18 @@ bool GameChunkSerializer::read_machine_runtime_record(
         record.active_recipe = std::move(recipe);
     }
 
+    uint8_t has_automation_work_order;
+    if (!read_uint8(data, offset, has_automation_work_order) ||
+        has_automation_work_order > 1) {
+        return false;
+    }
+    record.automation_work_order.reset();
+    if (has_automation_work_order != 0) {
+        MachineAutomationWorkOrderRecord work_order;
+        if (!read_machine_automation_work_order(data, offset, work_order)) return false;
+        record.automation_work_order = std::move(work_order);
+    }
+
     uint8_t activation_requested;
     if (!read_uint8(data, offset, activation_requested) || activation_requested > 1) {
         return false;
@@ -1537,6 +1612,54 @@ bool GameChunkSerializer::read_machine_runtime_record(
     }
     record.residency = static_cast<MachineRuntimeResidency>(residency);
     return true;
+}
+
+void GameChunkSerializer::write_machine_automation_work_order(
+    std::vector<uint8_t>& buf,
+    const MachineAutomationWorkOrderRecord& work_order) {
+    write_uint64(buf, work_order.identity.provider_anchor_entity_id.id);
+    write_uint64(buf, work_order.identity.provider_job_serial);
+    write_string(buf, work_order.recipe_id);
+    write_uint32(buf, static_cast<uint32_t>(work_order.expected_outputs.size()));
+    for (const ResourceContentStack& output : work_order.expected_outputs) {
+        write_machine_runtime_resource_stack(buf, output);
+    }
+    write_uint8(buf, static_cast<uint8_t>(work_order.state));
+}
+
+bool GameChunkSerializer::read_machine_automation_work_order(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    MachineAutomationWorkOrderRecord& work_order) {
+    uint64_t provider_anchor_id = 0;
+    if (!read_uint64(data, offset, provider_anchor_id) ||
+        !read_uint64(data, offset, work_order.identity.provider_job_serial) ||
+        !read_string(data, offset, work_order.recipe_id) ||
+        work_order.recipe_id.empty() ||
+        work_order.recipe_id.size() > kMaxMachineAutomationRecipeIdBytes ||
+        work_order.recipe_id.find('\0') != std::string::npos) {
+        return false;
+    }
+    work_order.identity.provider_anchor_entity_id = EntityId{provider_anchor_id};
+    uint32_t output_count = 0;
+    if (!read_uint32(data, offset, output_count) || output_count == 0 ||
+        output_count > kMaxMachineRecipeOutputs) {
+        return false;
+    }
+    work_order.expected_outputs.clear();
+    work_order.expected_outputs.reserve(output_count);
+    for (uint32_t index = 0; index < output_count; ++index) {
+        ResourceContentStack output;
+        if (!read_machine_runtime_resource_stack(data, offset, output)) return false;
+        work_order.expected_outputs.push_back(std::move(output));
+    }
+    uint8_t state = 0;
+    if (!read_uint8(data, offset, state) ||
+        state > static_cast<uint8_t>(MachineAutomationWorkOrderState::kFailed)) {
+        return false;
+    }
+    work_order.state = static_cast<MachineAutomationWorkOrderState>(state);
+    return work_order.identity.is_valid();
 }
 
 // --- Offline network-island sidecar helpers ---

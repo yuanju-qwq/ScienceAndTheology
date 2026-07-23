@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -73,6 +74,17 @@ bool rebind_fluid_tank(
     return content.has_value() && content->is_fluid();
 }
 
+bool rebind_automation_work_order(
+    MachineAutomationWorkOrder& work_order,
+    const ResourceRuntimeIndex::Snapshot& previous_resource_index,
+    const ResourceRuntimeIndex::Snapshot& next_resource_index) {
+    if (!work_order.identity.is_valid() || work_order.recipe_id.empty()) return false;
+    for (ResourceStack& output : work_order.expected_outputs) {
+        if (!rebind_stack(output, previous_resource_index, next_resource_index)) return false;
+    }
+    return !work_order.expected_outputs.empty();
+}
+
 [[nodiscard]] bool has_compact_fluid_resources(
     const std::vector<MachineFluidTank>& tanks) noexcept {
     return std::any_of(tanks.begin(), tanks.end(), [](const MachineFluidTank& tank) {
@@ -117,7 +129,8 @@ bool rebind_fluid_tank(
     const ResourceRuntimeIndex::Snapshot& next_resource_index) {
     const bool has_compact_resources =
         !machine.input_slots.empty() || !machine.output_slots.empty() ||
-        machine.active_recipe.has_value() || has_compact_fluid_resources(machine.fluid_tanks);
+        machine.active_recipe.has_value() || machine.automation_work_order.has_value() ||
+        has_compact_fluid_resources(machine.fluid_tanks);
     const ResourceRuntimeIndex::Snapshot previous_resource_index =
         machine.resource_runtime_index;
     if (!previous_resource_index.key_context().is_valid()) {
@@ -146,6 +159,9 @@ bool rebind_fluid_tank(
                          return rebind_fluid_tank(
                              tank, previous_resource_index, next_resource_index);
                      }) ||
+        (machine.automation_work_order &&
+         !rebind_automation_work_order(*machine.automation_work_order,
+                                       previous_resource_index, next_resource_index)) ||
         (machine.active_recipe &&
          (!rebind_stacks(machine.active_recipe->inputs) ||
           !rebind_stacks(machine.active_recipe->outputs)))) {
@@ -256,6 +272,39 @@ bool commit_outputs(MachineRuntimeComponent& machine,
     return true;
 }
 
+[[nodiscard]] bool outputs_match_work_order(
+    const MachineAutomationWorkOrder& work_order,
+    const MachineRecipeSnapshot& recipe) noexcept {
+    const auto canonicalize = [](const std::vector<ResourceStack>& source)
+        -> std::optional<std::vector<ResourceStack>> {
+        std::unordered_map<ResourceKey, int64_t, ResourceKey::Hash> amounts;
+        amounts.reserve(source.size());
+        for (const ResourceStack& stack : source) {
+            if (!stack.is_valid()) return std::nullopt;
+            int64_t& amount = amounts[stack.key];
+            if (stack.amount > std::numeric_limits<int64_t>::max() - amount) {
+                return std::nullopt;
+            }
+            amount += stack.amount;
+        }
+        std::vector<ResourceStack> result;
+        result.reserve(amounts.size());
+        for (const auto& [key, amount] : amounts) result.push_back({.key = key, .amount = amount});
+        std::sort(result.begin(), result.end(), [](const ResourceStack& left,
+                                                   const ResourceStack& right) {
+            if (left.key.kind != right.key.kind) return left.key.kind < right.key.kind;
+            if (left.key.runtime_id != right.key.runtime_id) {
+                return left.key.runtime_id < right.key.runtime_id;
+            }
+            return left.key.variant < right.key.variant;
+        });
+        return result;
+    };
+    const auto expected = canonicalize(work_order.expected_outputs);
+    const auto produced = canonicalize(recipe.outputs);
+    return expected.has_value() && produced.has_value() && *expected == *produced;
+}
+
 bool is_diagnostic_state(MachineRunState state) {
     return state == MachineRunState::NoMatchingRecipe ||
            state == MachineRunState::WaitingForEnergy ||
@@ -309,34 +358,66 @@ void tick_machine(MachineTickResult& result,
     normalize_output_slots(machine);
     machine.stored_energy = std::max(machine.stored_energy, 0);
 
+    if (machine.automation_work_order &&
+        machine.automation_work_order->state == MachineAutomationWorkOrderState::kOutputReady) {
+        // The output is physically in the machine's ordinary output slots.
+        // Keep the runtime idle for production purposes, but do not allow a
+        // new recipe to start until the provider acknowledges network delivery.
+        transition(result, MachineRunState::WaitingForOutput,
+                   machine.automation_work_order->recipe_id, tick_index);
+        return;
+    }
+    if (machine.automation_work_order &&
+        machine.automation_work_order->state == MachineAutomationWorkOrderState::kFailed) {
+        transition(result, MachineRunState::NoMatchingRecipe,
+                   machine.automation_work_order->recipe_id, tick_index);
+        return;
+    }
+
     if (!machine.active_recipe) {
-        if (machine.input_slots.empty()) {
+        MachineAutomationWorkOrder* const work_order = machine.automation_work_order
+            ? &*machine.automation_work_order
+            : nullptr;
+        const bool automated = work_order != nullptr;
+        if (!automated && machine.input_slots.empty()) {
             machine.activation_requested = false;
             machine.job_owner_account_id.clear();
             transition(result, MachineRunState::Idle, "", tick_index);
             return;
         }
 
-        const auto recipe = std::find_if(
-            recipes.begin(), recipes.end(), [&machine](const MachineRecipeSnapshot& value) {
-                return has_required_inputs(machine.input_slots, value.inputs);
-            });
+        const auto recipe = automated
+            ? std::find_if(recipes.begin(), recipes.end(), [work_order](
+                               const MachineRecipeSnapshot& value) {
+                  return value.id == work_order->recipe_id &&
+                      outputs_match_work_order(*work_order, value);
+              })
+            : std::find_if(recipes.begin(), recipes.end(), [&machine](
+                               const MachineRecipeSnapshot& value) {
+                  return has_required_inputs(machine.input_slots, value.inputs);
+              });
         if (recipe == recipes.end()) {
-            machine.activation_requested = false;
-            machine.job_owner_account_id.clear();
+            if (automated) {
+                work_order->state = MachineAutomationWorkOrderState::kFailed;
+            } else {
+                machine.activation_requested = false;
+                machine.job_owner_account_id.clear();
+            }
             transition(result, MachineRunState::NoMatchingRecipe, "", tick_index);
             return;
         }
 
         MachineRecipeSnapshot snapshot = *recipe;
-        if (requires_manual_activation && !machine.activation_requested) {
+        if (!automated && requires_manual_activation && !machine.activation_requested) {
             machine.job_owner_account_id.clear();
             transition(result, MachineRunState::WaitingForActivation, snapshot.id, tick_index);
             return;
         }
         if (!can_accept_outputs(machine, snapshot)) {
-            machine.activation_requested = false;
-            machine.job_owner_account_id.clear();
+            if (!automated) {
+                machine.activation_requested = false;
+                machine.job_owner_account_id.clear();
+            }
             transition(result, MachineRunState::WaitingForOutput, snapshot.id, tick_index);
             return;
         }
@@ -344,14 +425,19 @@ void tick_machine(MachineTickResult& result,
         // Reserve every recipe input at start. This copy is later applied as
         // one deterministic World command at the fixed-tick barrier.
         if (!reserve_inputs(machine, snapshot.inputs)) {
-            machine.job_owner_account_id.clear();
+            if (automated) {
+                work_order->state = MachineAutomationWorkOrderState::kFailed;
+            } else {
+                machine.job_owner_account_id.clear();
+            }
             transition(result, MachineRunState::NoMatchingRecipe, snapshot.id, tick_index);
             return;
         }
-        if (!requires_manual_activation) machine.job_owner_account_id.clear();
+        if (!automated && !requires_manual_activation) machine.job_owner_account_id.clear();
         machine.activation_requested = false;
         machine.progress_ticks = 0;
         machine.active_recipe = std::move(snapshot);
+        if (automated) work_order->state = MachineAutomationWorkOrderState::kRunning;
     }
 
     MachineRecipeSnapshot& active = *machine.active_recipe;
@@ -365,7 +451,13 @@ void tick_machine(MachineTickResult& result,
         machine.active_recipe.reset();
         machine.progress_ticks = 0;
         machine.job_owner_account_id.clear();
-        transition(result, MachineRunState::Idle, recipe_id, tick_index);
+        if (machine.automation_work_order) {
+            machine.automation_work_order->state =
+                MachineAutomationWorkOrderState::kOutputReady;
+            transition(result, MachineRunState::WaitingForOutput, recipe_id, tick_index);
+        } else {
+            transition(result, MachineRunState::Idle, recipe_id, tick_index);
+        }
         return;
     }
 
@@ -389,7 +481,13 @@ void tick_machine(MachineTickResult& result,
     machine.active_recipe.reset();
     machine.progress_ticks = 0;
     machine.job_owner_account_id.clear();
-    transition(result, MachineRunState::Idle, recipe_id, tick_index);
+    if (machine.automation_work_order) {
+        machine.automation_work_order->state =
+            MachineAutomationWorkOrderState::kOutputReady;
+        transition(result, MachineRunState::WaitingForOutput, recipe_id, tick_index);
+    } else {
+        transition(result, MachineRunState::Idle, recipe_id, tick_index);
+    }
 }
 
 MachineTickResult compute_tick_result(const MachineWorkItem& work_item, uint64_t tick_index) {
@@ -503,7 +601,8 @@ snt::core::Expected<MachineExecutionInput> make_machine_execution_input(
             "Machine execution resource snapshot does not match current content"};
     }
 
-    if (!input.machine.active_recipe && !input.machine.input_slots.empty()) {
+    if (!input.machine.active_recipe &&
+        (!input.machine.input_slots.empty() || input.machine.automation_work_order)) {
         auto recipes = compile_machine_recipe_snapshots(
             content_registry, input.machine.machine_id, resource_index);
         if (!recipes) return recipes.error();
@@ -546,7 +645,10 @@ MachineExecutionResult advance_machine_execution(
     for (uint64_t offset = 0; offset < tick_count; ++offset) {
         // A manual machine may finish an already-reserved job offline, but it
         // never starts another one without a new authoritative activation.
-        if (!allow_new_jobs && !result.machine.active_recipe) break;
+        if (!allow_new_jobs && !result.machine.active_recipe &&
+            !result.machine.automation_work_order) {
+            break;
+        }
         tick_machine(result, recipes, requires_manual_activation,
                      first_tick_index + offset);
         ++advanced_ticks;

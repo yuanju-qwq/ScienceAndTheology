@@ -114,6 +114,21 @@ public:
         return attached_storage_count_;
     }
 
+    // A component-facing resource owner resolves a live terminal/controller
+    // anchor to its current aggregate. Amount and key queries are direct
+    // component-index reads. Mutations route only to the indexed physical
+    // endpoint owners; they never expose the aggregate map as mutable state.
+    [[nodiscard]] ResourceKeyContext resource_key_context_at_node(
+        EntityId node_anchor) const noexcept;
+    [[nodiscard]] int64_t insert_at_node(
+        EntityId node_anchor, const ResourceKeyContext& context,
+        const ResourceStack& stack, ResourceTransferMode mode);
+    [[nodiscard]] int64_t extract_at_node(
+        EntityId node_anchor, const ResourceKeyContext& context,
+        const ResourceStack& requested, ResourceTransferMode mode);
+    [[nodiscard]] std::vector<ResourceKey> stored_keys_at_node(
+        EntityId node_anchor, const ResourceKeyContext& context) const;
+
     // Normal terminal/automation reads are two hash lookups at most: anchor
     // to component, then ResourceKey to aggregate amount.  No query walks the
     // attached cells or their contents.
@@ -157,6 +172,8 @@ private:
     using PositionRuntimeIndex = std::unordered_map<Position, uint64_t, PositionHash>;
     using ComponentStorageIndexMap =
         std::unordered_map<uint32_t, std::unique_ptr<AeNetworkStorageIndex>>;
+    using ComponentStorageAttachmentIndex =
+        std::unordered_map<uint32_t, std::unordered_map<uint64_t, uint32_t>>;
 
     struct StorageAttachmentSlot {
         IResourceAggregateStorage* storage = nullptr;
@@ -197,6 +214,15 @@ private:
         AeNetworkStorageAttachmentHandle handle) noexcept;
     [[nodiscard]] const StorageAttachmentSlot* find_storage_attachment(
         AeNetworkStorageAttachmentHandle handle) const noexcept;
+    [[nodiscard]] StorageAttachmentSlot* find_component_storage_attachment(
+        uint32_t component_id, ResourceAggregateStorageHandle handle) noexcept;
+    [[nodiscard]] const StorageAttachmentSlot* find_component_storage_attachment(
+        uint32_t component_id, ResourceAggregateStorageHandle handle) const noexcept;
+    [[nodiscard]] static uint64_t aggregate_handle_token(
+        ResourceAggregateStorageHandle handle) noexcept;
+    [[nodiscard]] int64_t transfer_at_node(
+        EntityId node_anchor, const ResourceKeyContext& context,
+        const ResourceStack& stack, ResourceTransferMode mode, bool insert);
     [[nodiscard]] static bool is_storage_node_type(AeNetworkNodeType type) noexcept;
     static void rebuild_chunk_index(const RuntimeMap& runtimes,
                                     ChunkRuntimeIndex& chunk_index);
@@ -208,7 +234,36 @@ private:
     std::vector<StorageAttachmentSlot> storage_attachments_;
     std::vector<uint32_t> reusable_storage_attachment_slots_;
     ComponentStorageIndexMap component_storage_indexes_;
+    ComponentStorageAttachmentIndex component_storage_attachment_slots_;
     size_t attached_storage_count_ = 0;
+};
+
+// Non-owning resource facade for one active AE terminal/controller node.
+// It intentionally holds no cached component id or endpoint pointer: a
+// topology rebuild, chunk unload, or resource snapshot reload is observed on
+// the next call. This lets AE autocrafting use the real network owner through
+// the generic IResourceStorage contract without giving it aggregate internals.
+class AeNetworkComponentStorage final : public IResourceStorage {
+public:
+    AeNetworkComponentStorage(AeNetworkRuntimeService& runtime,
+                              EntityId node_anchor) noexcept
+        : runtime_(&runtime), node_anchor_(node_anchor) {}
+
+    [[nodiscard]] ResourceKeyContext key_context() const noexcept override;
+    [[nodiscard]] int64_t amount_of(const ResourceKeyContext& context,
+                                    const ResourceKey& key) const override;
+    [[nodiscard]] int64_t insert(const ResourceKeyContext& context,
+                                 const ResourceStack& stack,
+                                 ResourceTransferMode mode) override;
+    [[nodiscard]] int64_t extract(const ResourceKeyContext& context,
+                                  const ResourceStack& requested,
+                                  ResourceTransferMode mode) override;
+    [[nodiscard]] std::vector<ResourceKey> stored_keys(
+        const ResourceKeyContext& context) const override;
+
+private:
+    AeNetworkRuntimeService* runtime_ = nullptr;
+    EntityId node_anchor_;
 };
 
 }  // namespace snt::game
