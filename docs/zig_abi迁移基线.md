@@ -9,6 +9,7 @@
 - `abi_common.h`：定宽状态码、字节 view 与低频日志 callback 类型；
 - `runtime_abi.h`：运行时 ABI 版本/能力查询；
 - `runtime_host_abi.h`：由 Zig 通用宿主核心实现的 value-only 宿主创建、确定性 tick、命令、snapshot lease 与关闭合同。
+- `runtime_key_index_abi.h`：由 Zig 实现的确定性 StringKey -> runtime ID 索引、不可变 snapshot 与显式 retain/release 合同。
 - `render_snapshot_abi.h`：不含 ECS、Vulkan、资产或玩法类型的不可变 snapshot value contract，以及显式 acquire/release lease。
 - `hash_abi.h`：由 `snt_engine/zig/hash.zig` 实现的无分配 FNV-1a 与组合哈希。
 
@@ -46,16 +47,21 @@
 4. 既有 C++ 模块的维护、热修和小范围功能扩展可以继续用 C++，但不得以短期开发速度为理由新建长期自研 C++ core。短期交付效率是迁移排序依据，不是长期所有权规则。
 5. 每次迁移以可独立测试的纵向切片完成：先定义 C ABI、值所有权、日志和关闭规则，再迁移实现；完成后删除旧实现，不保留长期双写或兼容 wrapper。
 
-当前的优先纵向切片已完成 Zig-owned 的确定性 command queue、snapshot buffer 和 headless
-`ISimulationSession` C++ adapter：adapter 通过 callback table 驱动既有 session、scheduler 和
-关闭顺序，同时不让 C++ runtime 对象跨越 ABI。下一步才是选定一个真实 game simulation 子系统，
-接入 command schema、snapshot 编码和外部 tick policy；这些基础设施稳定后再扩大到高频玩法域。
+当前的优先纵向切片已完成 Zig-owned 的确定性 command queue、snapshot buffer、headless
+`ISimulationSession` C++ adapter，以及 `RuntimeKeyIndex` 的 Zig-owned 存储：adapter 通过
+callback table 驱动既有 session、scheduler 和关闭顺序，同时不让 C++ runtime 对象跨越 ABI；
+key index 则由 Zig 复制、校验、排序和发布 immutable snapshot，C++ 只保留无算法重复的
+value facade。下一步才是选定一个真实 game simulation 子系统，接入 command schema、snapshot
+编码和外部 tick policy；这些基础设施稳定后再扩大到高频玩法域。
 
 ## 首个 Zig 模块
 
-`snt_engine/zig/hash.zig` 是第一个由 Zig 接管的自研引擎实现。`core/hash.h` 保留已有
-C++ 调用面，但不再保留第二份算法实现，而是通过 `hash_abi.h` 委托给 Zig 静态库。C、C++ 和
-Zig host 都只链接一个 `snt_abi` archive；`abi_consumer_smoke.zig` 覆盖该单库消费路径。
+`snt_engine/zig/hash.zig` 是第一个由 Zig 接管的自研引擎实现，
+`snt_engine/zig/runtime_key_index.zig` 是第一个拥有长期 immutable snapshot 的 Zig engine
+core。`core/hash.h` 和 `core/runtime_key_index.h` 保留 C++ 调用面，但不再保留第二份算法或
+容器存储实现：前者通过 `hash_abi.h` 委托给 Zig，后者通过 `runtime_key_index_abi.h` 持有
+opaque snapshot handle。C、C++ 和 Zig host 都只链接一个 `snt_abi` archive；
+`abi_consumer_smoke.zig` 覆盖该单库消费路径。
 
 构建需要精确的 Zig `0.16.0-dev.3142+5ccfeb926` 工具链；配置时通过
 `-DSNT_ZIG_EXECUTABLE=/absolute/path/to/zig` 指定。CMake 会拒绝其他版本，并将 Zig
@@ -84,5 +90,13 @@ descriptor 宣告 `SNT_RUNTIME_ABI_CAPABILITY_HOST_LIFECYCLE`、
 fake session 测试验证 session -> scheduler -> post-tick 顺序、stop、callback failure 和初始化失败
 清理。该 adapter
 暂时让 `RuntimeConfig` 保留在 C++ 所有权内，ABI config blob 保持 absent，直到稳定序列化 schema
-确定。下一步是选定真实 game session，定义 command schema registry、实际 snapshot 编码和外部
-tick policy；接入时沿用同一组 C、C++、Zig golden tests，完成一个模块迁移后删除对应旧实现。
+确定。
+
+`RuntimeKeyIndex` 现在由 `zig/runtime_key_index.zig` 真实拥有 key bytes、字节序排序、generation
+和 snapshot 引用计数。`rebuild` 在完成全部复制和校验后才替换发布指针，失败会保持旧 generation；
+已 acquire 的 snapshot 即使 index/C++ facade 销毁后仍可查询，直到显式 release。索引 owner
+串行化 rebuild/acquire/restore/destroy，snapshot 查询与 retain/release 可以在 worker work 中持有。
+这给后续 game content reload、协议表和存档类型表提供了不依赖 C++ STL 的稳定边界。
+
+下一步是选定真实 game session，定义 command schema registry、实际 snapshot 编码和外部 tick
+policy；接入时沿用同一组 C、C++、Zig golden tests，完成一个模块迁移后删除对应旧实现。
