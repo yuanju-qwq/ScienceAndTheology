@@ -54,12 +54,8 @@ namespace snt::game {
 //     uint32  accumulated_consumption_count
 //       for each: [uint32 item_key_len + chars] [double amount]
 //
-// Each region file groups 32×32×32 chunks to reduce file system
-// overhead and improve I/O locality during bulk loads.
-//
-// Usage (per-dimension):
-//   GameSaveManager::save_dimension("saves/my_world/planets/earth", 12345, "earth", world);
-//   int count = GameSaveManager::load_dimension("saves/my_world/planets/earth", "earth", world);
+// Each region file groups 32×32×32 chunks to reduce file system overhead and
+// improve I/O locality while chunk tickets load terrain on demand.
 
 // Struct representing a planet's production summary for binary serialization.
 struct GamePlanetSummaryData {
@@ -136,15 +132,6 @@ public:
                               const std::string& dimension_id,
                               const ChunkRegistry& voxel_chunks,
                               const GameChunkSidecarRegistry& sidecars);
-
-    // Loads only chunks belonging to a specific dimension from a planet
-    // subdirectory. Does NOT clear existing chunks in ChunkRegistry.
-    // Returns the number of chunks loaded, or -1 on error. Invalid, corrupt,
-    // or non-current files are rejected and reported as one aggregate warning.
-    static int load_dimension(const std::string& planet_dir,
-                              const std::string& dimension_id,
-                              ChunkRegistry& voxel_chunks,
-                              GameChunkSidecarRegistry& sidecars);
 
     // Reads the durable sidecar for every persisted chunk without retaining
     // terrain in ChunkRegistry. The implementation validates each complete

@@ -1,6 +1,7 @@
 // Offline machine and network-island simulation tests.
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -429,6 +430,16 @@ std::vector<uint8_t> normalized_machine_payload(MachineRuntimePersistenceRecord 
     chunk.terrain.resize(1, 1, 1);
     chunk.machine_runtime_records.push_back(std::move(record));
     return GameChunkSerializer{}.serialize("overworld", chunk);
+}
+
+[[nodiscard]] const MachineRuntimePersistenceRecord* find_machine_record(
+    const snt::game::GameChunkSidecar& sidecar, uint64_t entity_guid) {
+    const auto found = std::find_if(
+        sidecar.machine_runtime_records.begin(), sidecar.machine_runtime_records.end(),
+        [entity_guid](const MachineRuntimePersistenceRecord& record) {
+            return record.entity_guid == entity_guid;
+        });
+    return found == sidecar.machine_runtime_records.end() ? nullptr : &*found;
 }
 
 TEST(OfflineMachineSimulationTest, DematerializesAdvancesAndRestoresStandaloneMachine) {
@@ -1263,10 +1274,16 @@ TEST(OfflineMachineSimulationTest, FluidIslandsTransferLiquidAndGasThroughTypedP
         const auto* sidecar = sidecars.get(chunk_key);
         ASSERT_NE(sidecar, nullptr);
         ASSERT_EQ(sidecar->machine_runtime_records.size(), 2u);
-        const MachineFluidTankRecord& source_tank =
-            sidecar->machine_runtime_records[0].fluid_tanks.front();
-        const MachineFluidTankRecord& consumer_tank =
-            sidecar->machine_runtime_records[1].fluid_tanks.front();
+        const MachineRuntimePersistenceRecord* source_record =
+            find_machine_record(*sidecar, machines.source_guid);
+        const MachineRuntimePersistenceRecord* consumer_record =
+            find_machine_record(*sidecar, machines.consumer_guid);
+        ASSERT_NE(source_record, nullptr);
+        ASSERT_NE(consumer_record, nullptr);
+        ASSERT_EQ(source_record->fluid_tanks.size(), 1u);
+        ASSERT_EQ(consumer_record->fluid_tanks.size(), 1u);
+        const MachineFluidTankRecord& source_tank = source_record->fluid_tanks.front();
+        const MachineFluidTankRecord& consumer_tank = consumer_record->fluid_tanks.front();
         const int64_t transferred_per_tick = pipe_type == PipeType::LIQUID ? 100 : 150;
         EXPECT_EQ(source_tank.fluid.amount, 600 - transferred_per_tick * 3);
         EXPECT_EQ(consumer_tank.fluid.amount, transferred_per_tick * 3);
@@ -1486,6 +1503,136 @@ TEST(OfflineMachineSimulationTest, RandomItemIslandPerTickAndBatchedExecutionAre
                   OfflineNetworkResourceKind::kItem);
         EXPECT_EQ(batched_snapshot.transport_segments.front().kind,
                   OfflineNetworkResourceKind::kItem);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().capacity,
+                  batched_snapshot.transport_segments.front().capacity);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().max_transfer_per_tick,
+                  batched_snapshot.transport_segments.front().max_transfer_per_tick);
+        EXPECT_TRUE(per_tick_snapshot.ledgers.empty());
+        EXPECT_TRUE(batched_snapshot.ledgers.empty());
+    }
+}
+
+TEST(OfflineMachineSimulationTest, RandomFluidIslandPerTickAndBatchedExecutionAreEquivalent) {
+    uint32_t random_state = 0xc9a4d51bu;
+    const auto next_random = [&random_state]() {
+        random_state ^= random_state << 13u;
+        random_state ^= random_state >> 17u;
+        random_state ^= random_state << 5u;
+        return random_state;
+    };
+
+    for (size_t case_index = 0; case_index < 24; ++case_index) {
+        SCOPED_TRACE("fluid case " + std::to_string(case_index));
+        const uint32_t batch_ticks = 2u + next_random() % 6u;
+        const uint32_t total_ticks = 1u + next_random() % 31u;
+        const int32_t transfer_per_tick =
+            1 + static_cast<int32_t>(next_random() % 251u);
+        const MachineFluidTransport transport = next_random() % 2u == 0u
+            ? MachineFluidTransport::kLiquid
+            : MachineFluidTransport::kGas;
+        const PipeType pipe_type = transport == MachineFluidTransport::kLiquid
+            ? PipeType::LIQUID
+            : PipeType::GAS;
+        const std::string fluid_id = transport == MachineFluidTransport::kLiquid
+            ? "offline.coolant"
+            : "offline.steam";
+        const int64_t source_amount = 1 + static_cast<int64_t>(next_random() % 1'001u);
+        const int64_t source_capacity = source_amount +
+            static_cast<int64_t>(next_random() % 1'001u);
+        const int64_t consumer_capacity = 1 + static_cast<int64_t>(next_random() % 1'001u);
+
+        GameContentRegistry per_tick_content;
+        register_fluid_network_content(per_tick_content, 1, transfer_per_tick);
+        GameChunkSidecarRegistry per_tick_sidecars;
+        const ChunkKey chunk_key = make_chunk_key();
+        per_tick_sidecars.set(chunk_key, {});
+        snt::ecs::World per_tick_world;
+        const FluidMachinePair per_tick_machines = create_fluid_machine_pair(
+            per_tick_content, per_tick_world, per_tick_sidecars, chunk_key, 0, chunk_key, 2,
+            transport, fluid_id, source_amount, source_capacity, consumer_capacity);
+        ASSERT_NE(per_tick_machines.source_guid, 0u);
+        ASSERT_NE(per_tick_machines.consumer_guid, 0u);
+        add_pipe(per_tick_sidecars, chunk_key, 9500 + case_index, 1, 0, 0,
+                 static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                      snt::game::CONN_NEG_X),
+                 pipe_type);
+        OfflineIndustrialNetworkIslandProvider per_tick_provider(
+            per_tick_content, per_tick_sidecars);
+        OfflineIndustrialNetworkIslandSimulator per_tick_simulator;
+        OfflineMachineSimulationService per_tick_service(per_tick_content, per_tick_sidecars);
+        per_tick_service.set_network_island_provider(&per_tick_provider);
+        per_tick_service.set_network_island_simulator(&per_tick_simulator);
+        ASSERT_TRUE(per_tick_service.initialize(0));
+        const std::vector<ChunkKey> candidates{chunk_key};
+        ASSERT_TRUE(per_tick_service.dematerialize_chunks(per_tick_world, candidates, 0));
+        for (uint32_t tick = 1; tick <= total_ticks; ++tick) {
+            ASSERT_TRUE(per_tick_service.tick(tick));
+        }
+
+        GameContentRegistry batched_content;
+        register_fluid_network_content(batched_content, batch_ticks, transfer_per_tick);
+        GameChunkSidecarRegistry batched_sidecars;
+        batched_sidecars.set(chunk_key, {});
+        snt::ecs::World batched_world;
+        const FluidMachinePair batched_machines = create_fluid_machine_pair(
+            batched_content, batched_world, batched_sidecars, chunk_key, 0, chunk_key, 2,
+            transport, fluid_id, source_amount, source_capacity, consumer_capacity);
+        ASSERT_NE(batched_machines.source_guid, 0u);
+        ASSERT_NE(batched_machines.consumer_guid, 0u);
+        add_pipe(batched_sidecars, chunk_key, 9500 + case_index, 1, 0, 0,
+                 static_cast<uint8_t>(snt::game::CONN_POS_X |
+                                      snt::game::CONN_NEG_X),
+                 pipe_type);
+        OfflineIndustrialNetworkIslandProvider batched_provider(batched_content, batched_sidecars);
+        OfflineIndustrialNetworkIslandSimulator batched_simulator;
+        OfflineMachineSimulationService batched_service(batched_content, batched_sidecars);
+        batched_service.set_network_island_provider(&batched_provider);
+        batched_service.set_network_island_simulator(&batched_simulator);
+        ASSERT_TRUE(batched_service.initialize(0));
+        ASSERT_TRUE(batched_service.dematerialize_chunks(batched_world, candidates, 0));
+        for (uint32_t tick = batch_ticks; tick <= total_ticks; tick += batch_ticks) {
+            ASSERT_TRUE(batched_service.tick(tick));
+        }
+        if (total_ticks % batch_ticks != 0) {
+            ASSERT_TRUE(batched_service.flush(total_ticks));
+        }
+
+        const auto* per_tick_sidecar = per_tick_sidecars.get(chunk_key);
+        const auto* batched_sidecar = batched_sidecars.get(chunk_key);
+        ASSERT_NE(per_tick_sidecar, nullptr);
+        ASSERT_NE(batched_sidecar, nullptr);
+        const MachineRuntimePersistenceRecord* per_tick_source =
+            find_machine_record(*per_tick_sidecar, per_tick_machines.source_guid);
+        const MachineRuntimePersistenceRecord* per_tick_consumer =
+            find_machine_record(*per_tick_sidecar, per_tick_machines.consumer_guid);
+        const MachineRuntimePersistenceRecord* batched_source =
+            find_machine_record(*batched_sidecar, batched_machines.source_guid);
+        const MachineRuntimePersistenceRecord* batched_consumer =
+            find_machine_record(*batched_sidecar, batched_machines.consumer_guid);
+        ASSERT_NE(per_tick_source, nullptr);
+        ASSERT_NE(per_tick_consumer, nullptr);
+        ASSERT_NE(batched_source, nullptr);
+        ASSERT_NE(batched_consumer, nullptr);
+        EXPECT_EQ(normalized_machine_payload(*per_tick_source),
+                  normalized_machine_payload(*batched_source));
+        EXPECT_EQ(normalized_machine_payload(*per_tick_consumer),
+                  normalized_machine_payload(*batched_consumer));
+        ASSERT_EQ(per_tick_sidecar->offline_network_islands.size(), 1u);
+        ASSERT_EQ(batched_sidecar->offline_network_islands.size(), 1u);
+        const OfflineNetworkIslandSnapshot& per_tick_snapshot =
+            per_tick_sidecar->offline_network_islands.front();
+        const OfflineNetworkIslandSnapshot& batched_snapshot =
+            batched_sidecar->offline_network_islands.front();
+        ASSERT_EQ(per_tick_snapshot.transport_segments.size(), 1u);
+        ASSERT_EQ(batched_snapshot.transport_segments.size(), 1u);
+        EXPECT_EQ(per_tick_snapshot.last_simulated_tick, total_ticks);
+        EXPECT_EQ(batched_snapshot.last_simulated_tick, total_ticks);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().kind,
+                  OfflineNetworkResourceKind::kFluid);
+        EXPECT_EQ(batched_snapshot.transport_segments.front().kind,
+                  OfflineNetworkResourceKind::kFluid);
+        EXPECT_EQ(per_tick_snapshot.transport_segments.front().fluid_transport,
+                  batched_snapshot.transport_segments.front().fluid_transport);
         EXPECT_EQ(per_tick_snapshot.transport_segments.front().capacity,
                   batched_snapshot.transport_segments.front().capacity);
         EXPECT_EQ(per_tick_snapshot.transport_segments.front().max_transfer_per_tick,

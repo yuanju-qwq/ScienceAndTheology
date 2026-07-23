@@ -85,17 +85,6 @@ GameChunk assemble_game_chunk(const VoxelChunk& voxel,
     return result;
 }
 
-void publish_game_chunk(ChunkRegistry& voxel_chunks,
-                        GameChunkSidecarRegistry& sidecars,
-                        ChunkKey key,
-                        GameChunk chunk) {
-    VoxelChunk voxel = std::move(chunk.voxel_chunk());
-    GameChunkSidecar sidecar = std::move(chunk.sidecar());
-    voxel_chunks.set_chunk(key.dimension_id, key.chunk_x, key.chunk_y, key.chunk_z,
-                           std::move(voxel));
-    sidecars.set(std::move(key), std::move(sidecar));
-}
-
 constexpr char kQuestProgressMagic[] = {'S', 'N', 'T', 'Q'};
 constexpr char kPlayerStateMagic[] = {'S', 'N', 'T', 'P'};
 constexpr size_t kMaxQuestPlayerIdBytes = 256;
@@ -651,87 +640,6 @@ int GameSaveManager::save_dimension(const std::string& planet_dir,
         ++saved_count;
     }
     return saved_count;
-}
-
-int GameSaveManager::load_dimension(const std::string& planet_dir,
-                                    const std::string& dimension_id,
-                                    ChunkRegistry& voxel_chunks,
-                                    GameChunkSidecarRegistry& sidecars) {
-
-    // Read planet_data.bin to validate.
-    int64_t seed = 0;
-    std::string dim_id;
-    GamePlanetSummaryData summary;
-    bool has_summary = false;
-    if (!read_planet_data(planet_dir, seed, dim_id, summary, has_summary)) {
-        return -1;
-    }
-
-    std::string regions_dir = planet_dir + "/regions";
-    const fs::path regions_path = utf8_path(regions_dir);
-    if (!fs::exists(regions_path) || !fs::is_directory(regions_path)) {
-        return 0;
-    }
-
-    // Load each region file in this planet's directory.
-    int loaded_count = 0;
-    int rejected_region_count = 0;
-    int rejected_chunk_count = 0;
-    const GameChunkSerializer serializer;
-    for (const auto& entry : fs::directory_iterator(regions_path)) {
-        if (!entry.is_regular_file()) {
-            continue;
-        }
-
-        std::string file_path = path_to_utf8(entry.path());
-
-        std::string file_dimension_id;
-        int region_x, region_y, region_z;
-        std::vector<VoxelRegionEntry> entries;
-
-        if (!VoxelRegionFile::read(file_path, file_dimension_id,
-                              region_x, region_y, region_z, entries)) {
-            ++rejected_region_count;
-            continue;
-        }
-
-        if (file_dimension_id != dimension_id) {
-            continue;
-        }
-
-        for (auto& chunk_entry : entries) {
-            int chunk_x = region_x * VoxelRegionFile::kRegionSize
-                        + static_cast<int>(chunk_entry.local_x);
-            int chunk_y = region_y * VoxelRegionFile::kRegionSize
-                        + static_cast<int>(chunk_entry.local_y);
-            int chunk_z = region_z * VoxelRegionFile::kRegionSize
-                        + static_cast<int>(chunk_entry.local_z);
-
-            std::string unused_dimension_id;
-            GameChunk chunk;
-            if (!serializer.deserialize(chunk_entry.payload, unused_dimension_id, chunk)) {
-                ++rejected_chunk_count;
-                continue;
-            }
-
-            publish_game_chunk(voxel_chunks, sidecars,
-                               ChunkKey{dimension_id, chunk_x, chunk_y, chunk_z},
-                               std::move(chunk));
-            loaded_count++;
-        }
-    }
-
-    if (rejected_region_count != 0 || rejected_chunk_count != 0) {
-        SNT_LOG_WARN(
-            "load_dimension '%s': rejected %d region file(s) and %d chunk blob(s); "
-            "only region v%u and chunk v%u are accepted; refusing partial world load",
-            dimension_id.c_str(), rejected_region_count, rejected_chunk_count,
-            static_cast<unsigned>(VoxelRegionFile::kCurrentVersion),
-            static_cast<unsigned>(GameChunkSerializer::kCurrentVersion));
-        return -1;
-    }
-
-    return loaded_count;
 }
 
 snt::core::Expected<size_t> GameSaveManager::load_dimension_sidecar_index(

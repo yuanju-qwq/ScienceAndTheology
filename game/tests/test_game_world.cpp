@@ -355,9 +355,15 @@ TEST(GameSaveManagerTest, PersistsVoxelChunkAndGameplaySidecarSeparately) {
 
     snt::game::ChunkRegistry loaded_voxels;
     snt::game::GameChunkSidecarRegistry loaded_sidecars;
-    ASSERT_EQ(snt::game::GameSaveManager::load_dimension(
-                  save_dir.string(), "overworld", loaded_voxels, loaded_sidecars),
-              1);
+    const auto indexed = snt::game::GameSaveManager::load_dimension_sidecar_index(
+        save_dir.string(), "overworld", loaded_sidecars);
+    ASSERT_TRUE(indexed) << indexed.error().format();
+    EXPECT_EQ(*indexed, 1u);
+    EXPECT_EQ(loaded_voxels.chunk_count(), 0u);
+    const auto loaded = snt::game::GameSaveManager::load_chunk_terrain(
+        save_dir.string(), "overworld", loaded_voxels, 0, 0, 0);
+    ASSERT_TRUE(loaded) << loaded.error().format();
+    EXPECT_TRUE(*loaded);
 
     const auto* restored_voxel = loaded_voxels.get_chunk("overworld", 0, 0, 0);
     ASSERT_NE(restored_voxel, nullptr);
@@ -413,9 +419,19 @@ TEST(GameSaveManagerTest, BulkSavePreservesTerrainForStreamedOutRegionEntries) {
 
     snt::game::ChunkRegistry reloaded_voxels;
     snt::game::GameChunkSidecarRegistry reloaded_sidecars;
-    ASSERT_EQ(snt::game::GameSaveManager::load_dimension(
-                  save_dir.string(), "overworld", reloaded_voxels, reloaded_sidecars),
-              2);
+    const auto indexed = snt::game::GameSaveManager::load_dimension_sidecar_index(
+        save_dir.string(), "overworld", reloaded_sidecars);
+    ASSERT_TRUE(indexed) << indexed.error().format();
+    EXPECT_EQ(*indexed, 2u);
+    EXPECT_EQ(reloaded_voxels.chunk_count(), 0u);
+    const auto loaded_resident = snt::game::GameSaveManager::load_chunk_terrain(
+        save_dir.string(), "overworld", reloaded_voxels, 0, 0, 0);
+    ASSERT_TRUE(loaded_resident) << loaded_resident.error().format();
+    EXPECT_TRUE(*loaded_resident);
+    const auto loaded_unloaded = snt::game::GameSaveManager::load_chunk_terrain(
+        save_dir.string(), "overworld", reloaded_voxels, 1, 0, 0);
+    ASSERT_TRUE(loaded_unloaded) << loaded_unloaded.error().format();
+    EXPECT_TRUE(*loaded_unloaded);
     const auto* restored_resident = reloaded_voxels.get_chunk("overworld", 0, 0, 0);
     const auto* restored_unloaded = reloaded_voxels.get_chunk("overworld", 1, 0, 0);
     ASSERT_NE(restored_resident, nullptr);
@@ -457,9 +473,9 @@ TEST(GameSaveManagerTest, RejectsDimensionWhenAnyChunkPayloadIsInvalid) {
 
     snt::voxel::ChunkRegistry loaded_voxels;
     snt::game::GameChunkSidecarRegistry loaded_sidecars;
-    EXPECT_EQ(snt::game::GameSaveManager::load_dimension(
-                  save_dir.string(), "overworld", loaded_voxels, loaded_sidecars),
-              -1);
+    const auto indexed = snt::game::GameSaveManager::load_dimension_sidecar_index(
+        save_dir.string(), "overworld", loaded_sidecars);
+    EXPECT_FALSE(indexed);
     EXPECT_EQ(loaded_voxels.chunk_count(), 0u);
     EXPECT_EQ(loaded_sidecars.size(), 0u);
 
@@ -689,9 +705,15 @@ TEST(GameSaveManagerTest, PreservesNegativeCoordinatesFlagsAndBlockEntities) {
 
     ChunkRegistry restored_voxels;
     GameChunkSidecarRegistry restored_sidecars;
-    ASSERT_EQ(GameSaveManager::load_dimension(
-                  save_dir.string(), kDimension, restored_voxels, restored_sidecars),
-              1);
+    const auto indexed = GameSaveManager::load_dimension_sidecar_index(
+        save_dir.string(), kDimension, restored_sidecars);
+    ASSERT_TRUE(indexed) << indexed.error().format();
+    EXPECT_EQ(*indexed, 1u);
+    EXPECT_EQ(restored_voxels.chunk_count(), 0u);
+    const auto loaded = GameSaveManager::load_chunk_terrain(
+        save_dir.string(), kDimension, restored_voxels, -1, 0, 2);
+    ASSERT_TRUE(loaded) << loaded.error().format();
+    EXPECT_TRUE(*loaded);
 
     const VoxelChunk* restored = restored_voxels.get_chunk(kDimension, -1, 0, 2);
     ASSERT_NE(restored, nullptr);

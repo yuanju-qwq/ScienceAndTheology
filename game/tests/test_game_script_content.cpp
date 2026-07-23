@@ -169,6 +169,31 @@ TEST(P7ScriptApiTest, ScriptRegistersCopiedGameplayDefinition) {
     scripts.shutdown();
 }
 
+TEST(P7ScriptApiTest, ScriptConfiguresOfflineFluidTransfer) {
+    GameContentRegistry content;
+    ScriptManager scripts;
+    ASSERT_TRUE(scripts.set_content_host(content));
+    ASSERT_TRUE(scripts.init());
+    ASSERT_TRUE(scripts.load_source(
+        "p7_offline_fluid",
+        "void snt_register() {"
+        "  snt_register_machine(\"p7.fluid.machine\", \"Fluid Machine\", 1, 0, false);"
+        "  snt_set_machine_offline_simulation(\"p7.fluid.machine\", 2, 240, true);"
+        "  snt_set_machine_offline_fluid_transfer(\"p7.fluid.machine\", 75, 125);"
+        "}"));
+
+    const auto* machine = content.find_machine("p7.fluid.machine");
+    ASSERT_NE(machine, nullptr);
+    EXPECT_EQ(machine->offline_simulation.mode,
+              snt::game::MachineOfflineSimulationMode::kNetworkIsland);
+    EXPECT_EQ(machine->offline_simulation.max_batch_ticks, 240u);
+    EXPECT_TRUE(machine->offline_simulation.can_start_new_jobs);
+    EXPECT_EQ(machine->offline_simulation.max_fluid_import_per_tick, 75);
+    EXPECT_EQ(machine->offline_simulation.max_fluid_export_per_tick, 125);
+    EXPECT_TRUE(scripts.reload_all());
+    scripts.shutdown();
+}
+
 TEST(P7ScriptApiTest, RejectsLegacyMachineAndRecipeSignatures) {
     GameContentRegistry content;
     ScriptManager scripts;
