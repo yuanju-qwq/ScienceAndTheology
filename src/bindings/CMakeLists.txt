@@ -53,7 +53,6 @@ set(SOURCES
     multiblock/gd_multiblock_controller.cpp
     multiplayer/gd_network_server.cpp
     multiplayer/gd_network_client.cpp
-    multiplayer/gd_prediction_buffer.cpp
     gd_registry_bank.cpp
 )
 

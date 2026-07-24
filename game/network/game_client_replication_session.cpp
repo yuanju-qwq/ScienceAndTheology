@@ -184,7 +184,7 @@ public:
         }
         auto message = make_game_client_command(command);
         if (!message) return message.error();
-        return enqueue_sequenced_message(command.client_sequence, std::move(*message));
+        return enqueue_reliable_command_message(command.client_sequence, std::move(*message));
     }
 
     [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
@@ -194,7 +194,7 @@ public:
         }
         auto message = make_game_player_movement_input(input);
         if (!message) return message.error();
-        return enqueue_sequenced_message(input.client_sequence, std::move(*message));
+        return enqueue_movement_message(input.client_sequence, std::move(*message));
     }
 
     [[nodiscard]] GameClientReplicationStatus status() const { return status_; }
@@ -210,6 +210,10 @@ public:
         has_snapshot_ = false;
         active_snapshot_id_ = 0;
         last_delta_sequence_ = 0;
+        last_reliable_client_sequence_ = 0;
+        has_last_reliable_client_sequence_ = false;
+        last_movement_sequence_ = 0;
+        has_last_movement_sequence_ = false;
     }
 
     [[nodiscard]] std::vector<GameClientReplicationUpdate> drain_replication_updates() {
@@ -224,17 +228,32 @@ private:
         std::vector<std::byte> payload;
     };
 
-    [[nodiscard]] snt::core::Expected<void> enqueue_sequenced_message(
+    [[nodiscard]] snt::core::Expected<void> enqueue_reliable_command_message(
         uint64_t client_sequence, GameReplicationMessage message) {
         if (client_sequence == 0) {
             return invalid_argument("Game client command sequence must be non-zero");
         }
-        if (has_last_client_sequence_ && client_sequence <= last_client_sequence_) {
+        if (has_last_reliable_client_sequence_ &&
+            client_sequence <= last_reliable_client_sequence_) {
             return invalid_argument("Game client command sequence must increase strictly");
         }
         if (auto result = queue_message(server_peer_, std::move(message)); !result) return result.error();
-        has_last_client_sequence_ = true;
-        last_client_sequence_ = client_sequence;
+        has_last_reliable_client_sequence_ = true;
+        last_reliable_client_sequence_ = client_sequence;
+        return {};
+    }
+
+    [[nodiscard]] snt::core::Expected<void> enqueue_movement_message(
+        uint64_t movement_sequence, GameReplicationMessage message) {
+        if (movement_sequence == 0) {
+            return invalid_argument("Game client movement sequence must be non-zero");
+        }
+        if (has_last_movement_sequence_ && movement_sequence <= last_movement_sequence_) {
+            return invalid_argument("Game client movement sequence must increase strictly");
+        }
+        if (auto result = queue_message(server_peer_, std::move(message)); !result) return result.error();
+        has_last_movement_sequence_ = true;
+        last_movement_sequence_ = movement_sequence;
         return {};
     }
 
@@ -347,8 +366,10 @@ private:
     bool has_snapshot_ = false;
     uint64_t active_snapshot_id_ = 0;
     uint64_t last_delta_sequence_ = 0;
-    uint64_t last_client_sequence_ = 0;
-    bool has_last_client_sequence_ = false;
+    uint64_t last_reliable_client_sequence_ = 0;
+    bool has_last_reliable_client_sequence_ = false;
+    uint64_t last_movement_sequence_ = 0;
+    bool has_last_movement_sequence_ = false;
 };
 
 }  // namespace

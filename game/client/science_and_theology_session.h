@@ -48,6 +48,8 @@ namespace snt::game {
 
 class GameCreaturePresentationWorld;
 class GameGroundLootPresentationWorld;
+class GameClientPlayerPrediction;
+class GameRemotePlayerInterpolator;
 class IGameEcosystemInterestProvider;
 
 class ScienceAndTheologyClientSession final : public snt::engine::IClientSession,
@@ -96,7 +98,7 @@ private:
                                                              uint16_t tcp_port,
                                                              uint16_t udp_port,
                                                              std::string server_password);
-    void ensure_remote_replication_state();
+    [[nodiscard]] snt::core::Expected<void> ensure_remote_replication_state();
     void clear_remote_replication_state();
     [[nodiscard]] snt::core::Expected<void> apply_remote_inventory_to_ui(
         uint64_t previous_inventory_revision, uint64_t previous_response_revision);
@@ -124,7 +126,8 @@ private:
     [[nodiscard]] snt::core::Expected<void> submit_quest_reward_claim(
         std::string_view quest_id) override;
     void sample_network_movement_input(snt::engine::ClientFrameContext& context);
-    void apply_authoritative_local_player();
+    [[nodiscard]] snt::core::Expected<void> apply_authoritative_local_player();
+    void apply_predicted_local_player_presentation();
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
@@ -145,6 +148,8 @@ private:
     std::unique_ptr<replication::GameRemoteCreatureWorld> remote_creature_world_;
     std::unique_ptr<replication::GameRemoteGroundLootWorld> remote_ground_loot_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
+    std::unique_ptr<GameClientPlayerPrediction> local_player_prediction_;
+    std::unique_ptr<GameRemotePlayerInterpolator> remote_player_interpolator_;
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
     std::unique_ptr<QuestBookViewModel> quest_book_ui_;
@@ -155,10 +160,11 @@ private:
     snt::voxel::ChunkRegistry* presentation_chunks_ = nullptr;
     snt::voxel::ChunkRenderSystem* chunk_render_system_ = nullptr;
     replication::GamePlayerMovementInput sampled_movement_input_;
-    replication::GamePlayerMovementInput last_sent_movement_input_;
+    // Reliable gameplay commands and unordered movement intents intentionally
+    // have independent sequence spaces. A late UDP packet must never consume
+    // or invalidate a typed reliable command sequence.
     uint64_t next_outbound_sequence_ = 1;
-    uint64_t last_movement_send_tick_ = 0;
-    bool has_last_sent_movement_input_ = false;
+    uint64_t next_movement_sequence_ = 1;
     snt::engine::SimulationServices* services_ = nullptr;
     snt::ui::UiLayerStack* ui_layers_ = nullptr;
     size_t expected_ui_screen_count_ = 0;

@@ -128,8 +128,6 @@ target_sources(snt_core PRIVATE
     simulation/state_sync_server.cpp
     simulation/state_sync_client.hpp
     simulation/state_sync_client.cpp
-    simulation/prediction_buffer.hpp
-    simulation/prediction_buffer.cpp
 )
 
 # Future modules:

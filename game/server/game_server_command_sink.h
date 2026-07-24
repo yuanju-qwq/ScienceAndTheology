@@ -88,8 +88,10 @@ private:
         GamePlayerMovementInput input;
     };
 
-    [[nodiscard]] snt::core::Expected<void> validate_and_advance_sequence(
+    [[nodiscard]] snt::core::Expected<void> validate_and_advance_reliable_sequence(
         const GameAuthenticatedPeer& peer, uint64_t client_sequence);
+    [[nodiscard]] bool advance_movement_sequence(
+        const GameAuthenticatedPeer& peer, uint64_t movement_sequence) noexcept;
     void record_gameplay_rejection(uint64_t tick_index, const PendingCommand& command,
                                    const snt::core::Error& error) noexcept;
 
@@ -100,6 +102,7 @@ private:
     IGameServerCreatureInteractionService* creature_interactions_ = nullptr;
     IGameServerGroundLootInteractionService* ground_loot_interactions_ = nullptr;
     std::map<snt::network::PeerId, PeerSequenceState> sequences_;
+    std::map<snt::network::PeerId, PeerSequenceState> movement_sequences_;
     std::vector<PendingCommand> pending_;
     std::map<snt::network::PeerId, PendingMovementInput> pending_movement_;
     uint64_t last_rejection_log_tick_ = 0;

@@ -213,7 +213,7 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
             return protocol_error("Game client command type is not implemented by this server");
     }
 
-    if (auto result = validate_and_advance_sequence(peer, command.client_sequence); !result) {
+    if (auto result = validate_and_advance_reliable_sequence(peer, command.client_sequence); !result) {
         return result.error();
     }
     pending_.push_back(std::move(pending));
@@ -237,14 +237,16 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_player_movement_input(
     if (auto result = validate_game_player_movement_input(input); !result) {
         return result.error();
     }
+    if (!advance_movement_sequence(peer, input.client_sequence)) {
+        // UDP movement is latest-state data. A delayed or reordered packet is
+        // harmless and must not reject a healthy authenticated session.
+        return {};
+    }
     const bool replaces_pending_input = pending_movement_.contains(peer.peer);
     if (!replaces_pending_input &&
         pending_.size() + pending_movement_.size() >= kMaxPendingAuthoritativeCommands) {
         return snt::core::Error{snt::core::ErrorCode::kNetworkIoFailed,
                                 "Authoritative game command queue limit exceeded"};
-    }
-    if (auto result = validate_and_advance_sequence(peer, input.client_sequence); !result) {
-        return result.error();
     }
     pending_movement_.insert_or_assign(peer.peer, PendingMovementInput{
         .peer = peer,
@@ -258,6 +260,7 @@ void GameServerCommandSink::on_peer_disconnected(const GameAuthenticatedPeer& pe
                                                   std::string_view) noexcept {
     if (peer.peer == snt::network::kInvalidPeerId) return;
     sequences_.erase(peer.peer);
+    movement_sequences_.erase(peer.peer);
     std::erase_if(pending_, [&peer](const PendingCommand& command) {
         return command.peer.peer == peer.peer;
     });
@@ -426,7 +429,7 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
     return {};
 }
 
-snt::core::Expected<void> GameServerCommandSink::validate_and_advance_sequence(
+snt::core::Expected<void> GameServerCommandSink::validate_and_advance_reliable_sequence(
     const GameAuthenticatedPeer& peer, uint64_t client_sequence) {
     if (client_sequence == 0) {
         return protocol_error("Game client command sequence must be non-zero");
@@ -438,6 +441,16 @@ snt::core::Expected<void> GameServerCommandSink::validate_and_advance_sequence(
     sequence.last_sequence = client_sequence;
     sequence.has_sequence = true;
     return {};
+}
+
+bool GameServerCommandSink::advance_movement_sequence(
+    const GameAuthenticatedPeer& peer, uint64_t movement_sequence) noexcept {
+    if (movement_sequence == 0 || peer.peer == snt::network::kInvalidPeerId) return false;
+    PeerSequenceState& sequence = movement_sequences_[peer.peer];
+    if (sequence.has_sequence && movement_sequence <= sequence.last_sequence) return false;
+    sequence.last_sequence = movement_sequence;
+    sequence.has_sequence = true;
+    return true;
 }
 
 void GameServerCommandSink::record_gameplay_rejection(

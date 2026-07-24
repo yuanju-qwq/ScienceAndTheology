@@ -6,6 +6,7 @@
 #include "core/error.h"
 
 #include <bit>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <utility>
@@ -31,6 +32,20 @@ void append_u32(std::vector<std::byte>& bytes, uint32_t value) {
     }
 }
 
+void append_u64(std::vector<std::byte>& bytes, uint64_t value) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        bytes.push_back(static_cast<std::byte>((value >> shift) & 0xffu));
+    }
+}
+
+void append_i16(std::vector<std::byte>& bytes, int16_t value) {
+    append_u16(bytes, std::bit_cast<uint16_t>(value));
+}
+
+void append_f32(std::vector<std::byte>& bytes, float value) {
+    append_u32(bytes, std::bit_cast<uint32_t>(value));
+}
+
 void append_i32(std::vector<std::byte>& bytes, int32_t value) {
     append_u32(bytes, std::bit_cast<uint32_t>(value));
 }
@@ -46,6 +61,22 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         value = (value << 8u) | std::to_integer<uint8_t>(bytes[offset + index]);
     }
     return value;
+}
+
+[[nodiscard]] uint64_t read_u64(std::span<const std::byte> bytes, size_t offset) {
+    uint64_t value = 0;
+    for (size_t index = 0; index < sizeof(uint64_t); ++index) {
+        value = (value << 8u) | std::to_integer<uint8_t>(bytes[offset + index]);
+    }
+    return value;
+}
+
+[[nodiscard]] int16_t read_i16(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<int16_t>(read_u16(bytes, offset));
+}
+
+[[nodiscard]] float read_f32(std::span<const std::byte> bytes, size_t offset) {
+    return std::bit_cast<float>(read_u32(bytes, offset));
 }
 
 [[nodiscard]] int32_t read_i32(std::span<const std::byte> bytes, size_t offset) {
@@ -103,6 +134,17 @@ void append_i32(std::vector<std::byte>& bytes, int32_t value) {
         state.position.dimension_id.size() > kMaxGameDimensionIdBytes ||
         has_embedded_nul(state.position.dimension_id)) {
         return protocol_error("Player replication dimension id is invalid");
+    }
+    constexpr float kMaximumCoordinateMagnitude = 16'000'000.0f;
+    const auto valid_coordinate = [](float value) {
+        return std::isfinite(value) && std::fabs(value) <= kMaximumCoordinateMagnitude;
+    };
+    if (!valid_coordinate(state.motion.feet_x) || !valid_coordinate(state.motion.feet_y) ||
+        !valid_coordinate(state.motion.feet_z) || !std::isfinite(state.motion.velocity_x) ||
+        !std::isfinite(state.motion.velocity_y) || !std::isfinite(state.motion.velocity_z) ||
+        state.motion.yaw_centidegrees < -18000 || state.motion.yaw_centidegrees >= 18000 ||
+        state.motion.pitch_centidegrees < -8900 || state.motion.pitch_centidegrees > 8900) {
+        return protocol_error("Player replication motion state is invalid");
     }
     for (const std::string& item_id : state.equipment_item_ids) {
         if (item_id.size() > kMaxEquipmentItemIdBytes || has_embedded_nul(item_id)) {
@@ -184,6 +226,20 @@ snt::core::Expected<std::vector<std::byte>> encode_game_player_replication_entit
     append_i32(bytes, entity.player->position.position.x);
     append_i32(bytes, entity.player->position.position.y);
     append_i32(bytes, entity.player->position.position.z);
+    append_u64(bytes, entity.player->motion.source_tick);
+    append_u64(bytes, entity.player->motion.last_processed_input_sequence);
+    append_f32(bytes, entity.player->motion.feet_x);
+    append_f32(bytes, entity.player->motion.feet_y);
+    append_f32(bytes, entity.player->motion.feet_z);
+    append_f32(bytes, entity.player->motion.velocity_x);
+    append_f32(bytes, entity.player->motion.velocity_y);
+    append_f32(bytes, entity.player->motion.velocity_z);
+    append_i16(bytes, entity.player->motion.yaw_centidegrees);
+    append_i16(bytes, entity.player->motion.pitch_centidegrees);
+    bytes.push_back(static_cast<std::byte>(entity.player->motion.grounded ? 1 : 0));
+    bytes.push_back(std::byte{0});
+    bytes.push_back(std::byte{0});
+    bytes.push_back(std::byte{0});
     for (const std::string& item_id : entity.player->equipment_item_ids) {
         if (auto result = append_short_string(bytes, item_id, kMaxEquipmentItemIdBytes,
                                               "equipment item id", false);
@@ -217,6 +273,8 @@ decode_game_player_replication_entity(std::span<const std::byte> payload) {
 
     constexpr size_t kUpsertPrefixBytes = 4;
     constexpr size_t kPositionBytes = sizeof(uint32_t) * 3;
+    constexpr size_t kMotionBytes = sizeof(uint64_t) * 2 + sizeof(uint32_t) * 6 +
+                                    sizeof(uint16_t) * 2 + 4;
     size_t offset = kPlayerEntityHeaderBytes;
     if (payload.size() - offset < kUpsertPrefixBytes) {
         return protocol_error("Player replication upsert is truncated");
@@ -240,7 +298,7 @@ decode_game_player_replication_entity(std::span<const std::byte> payload) {
     auto dimension_id = read_short_string(payload, offset, kMaxGameDimensionIdBytes,
                                           "dimension id", true);
     if (!dimension_id) return dimension_id.error();
-    if (payload.size() - offset < kPositionBytes) {
+    if (payload.size() - offset < kPositionBytes + kMotionBytes) {
         return protocol_error("Player replication position is truncated");
     }
     GameReplicatedPlayerState state{
@@ -259,6 +317,36 @@ decode_game_player_replication_entity(std::span<const std::byte> payload) {
         },
     };
     offset += kPositionBytes;
+    const uint64_t source_tick = read_u64(payload, offset);
+    offset += sizeof(uint64_t);
+    const uint64_t last_processed_input_sequence = read_u64(payload, offset);
+    offset += sizeof(uint64_t);
+    state.motion.feet_x = read_f32(payload, offset);
+    offset += sizeof(uint32_t);
+    state.motion.feet_y = read_f32(payload, offset);
+    offset += sizeof(uint32_t);
+    state.motion.feet_z = read_f32(payload, offset);
+    offset += sizeof(uint32_t);
+    state.motion.velocity_x = read_f32(payload, offset);
+    offset += sizeof(uint32_t);
+    state.motion.velocity_y = read_f32(payload, offset);
+    offset += sizeof(uint32_t);
+    state.motion.velocity_z = read_f32(payload, offset);
+    offset += sizeof(uint32_t);
+    state.motion.yaw_centidegrees = read_i16(payload, offset);
+    offset += sizeof(uint16_t);
+    state.motion.pitch_centidegrees = read_i16(payload, offset);
+    offset += sizeof(uint16_t);
+    const uint8_t grounded = std::to_integer<uint8_t>(payload[offset]);
+    if (grounded > 1 || std::to_integer<uint8_t>(payload[offset + 1]) != 0 ||
+        std::to_integer<uint8_t>(payload[offset + 2]) != 0 ||
+        std::to_integer<uint8_t>(payload[offset + 3]) != 0) {
+        return protocol_error("Player replication motion state is invalid");
+    }
+    state.motion.grounded = grounded != 0;
+    state.motion.last_processed_input_sequence = last_processed_input_sequence;
+    state.motion.source_tick = source_tick;
+    offset += 4;
     for (std::string& item_id : state.equipment_item_ids) {
         auto parsed_item_id = read_short_string(payload, offset, kMaxEquipmentItemIdBytes,
                                                 "equipment item id", false);

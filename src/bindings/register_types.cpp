@@ -50,7 +50,6 @@
 #include "multiblock/gd_multiblock_controller.h"
 #include "multiplayer/gd_network_server.hpp"
 #include "multiplayer/gd_network_client.hpp"
-#include "multiplayer/gd_prediction_buffer.hpp"
 #include "magic/gd_ritual_recipe_registry.hpp"
 #include "source_law/gd_elixir_registry.hpp"
 #include "source_law/gd_sublimation_path_registry.hpp"
@@ -156,7 +155,6 @@ void initialize_snt_extension(ModuleInitializationLevel p_level) {
     ClassDB::register_class<GDMultiblockController>();
     ClassDB::register_class<GDNetworkServer>();
     ClassDB::register_class<GDNetworkClient>();
-    ClassDB::register_class<GDPredictionBuffer>();
 }
 
 void uninitialize_snt_extension(ModuleInitializationLevel p_level) {

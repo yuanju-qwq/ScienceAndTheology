@@ -23,11 +23,28 @@
 namespace snt::game::replication {
 
 inline constexpr uint8_t kGamePlayerReplicationEntityKind = 1;
-inline constexpr uint8_t kGamePlayerReplicationEntityVersion = 1;
+inline constexpr uint8_t kGamePlayerReplicationEntityVersion = 2;
 
 enum class GamePlayerReplicationOperation : uint8_t {
     kUpsert = 1,
     kRemove = 2,
+};
+
+// A presentation-safe continuous motion snapshot. The server is still the
+// only physics authority; clients use this value to confirm predicted input,
+// smooth reconciliation, and interpolate remote players.
+struct GameReplicatedPlayerMotion {
+    float feet_x = 0.0f;
+    float feet_y = 0.0f;
+    float feet_z = 0.0f;
+    float velocity_x = 0.0f;
+    float velocity_y = 0.0f;
+    float velocity_z = 0.0f;
+    int16_t yaw_centidegrees = 0;
+    int16_t pitch_centidegrees = 0;
+    uint64_t last_processed_input_sequence = 0;
+    uint64_t source_tick = 0;
+    bool grounded = false;
 };
 
 // This is the only player state exposed to other clients. Equipment instance
@@ -35,6 +52,7 @@ enum class GamePlayerReplicationOperation : uint8_t {
 struct GameReplicatedPlayerState {
     PlayerIdentity identity;
     GamePlayerWorldPosition position;
+    GameReplicatedPlayerMotion motion;
     std::array<std::string, kGamePlayerEquipmentSlotCount> equipment_item_ids;
 };
 

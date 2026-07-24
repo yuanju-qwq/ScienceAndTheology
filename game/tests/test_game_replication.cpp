@@ -530,7 +530,7 @@ TEST(GameReplicationProtocolTest, RoundTripsTypedLoginAndCommandMessages) {
 }
 
 TEST(GameReplicationProtocolTest, RoundTripsBoundedSnapshotAndDeltaValues) {
-    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 19u);
+    EXPECT_EQ(snt::game::replication::kCurrentGameReplicationProtocolVersion, 20u);
 
     const GameSnapshot snapshot = make_test_snapshot(73);
     auto snapshot_message = snt::game::replication::make_game_snapshot(snapshot);
@@ -1066,6 +1066,35 @@ TEST(GameServerCommandSinkTest, CoalescesLatestMovementIntentPerPeer) {
     ASSERT_TRUE(sink.apply_pending_commands(context.tick_index + 1));
     EXPECT_EQ(movement.call_count, 1);
     EXPECT_EQ(movement.disconnected_call_count, 1);
+}
+
+TEST(GameServerCommandSinkTest, KeepsReliableAndMovementSequencesIndependent) {
+    GameContentRegistry content;
+    QuestRegistry quests(content);
+    RecordingMovementInputSink movement;
+    snt::game::replication::GameServerCommandSink sink(quests, &movement);
+    const snt::network::ReplicationTickContext context{.tick_index = 24, .delta_seconds = 0.05f};
+    const GameAuthenticatedPeer peer{
+        .peer = 73,
+        .identity = make_local_identity("IndependentSequences"),
+    };
+
+    auto command = snt::game::replication::make_game_quest_claim_reward_command(
+        1, {.quest_id = "network.quest.missing"});
+    ASSERT_TRUE(command) << command.error().format();
+    ASSERT_TRUE(sink.enqueue_client_command(peer, std::move(*command), context));
+    ASSERT_TRUE(sink.enqueue_player_movement_input(
+        peer, {.client_sequence = 1, .forward_axis = 1, .yaw_centidegrees = 0}, context));
+    ASSERT_TRUE(sink.enqueue_player_movement_input(
+        peer, {.client_sequence = 2, .forward_axis = -1, .yaw_centidegrees = 0}, context));
+
+    // A delayed UDP movement packet is latest-state data. It must be ignored
+    // without rejecting the session or consuming the reliable command lane.
+    EXPECT_TRUE(sink.enqueue_player_movement_input(
+        peer, {.client_sequence = 1, .forward_axis = 1, .yaw_centidegrees = 0}, context));
+    ASSERT_TRUE(sink.apply_pending_commands(context.tick_index));
+    EXPECT_EQ(movement.call_count, 1);
+    EXPECT_EQ(movement.last_input.client_sequence, 2u);
 }
 
 TEST(GameServerPlayerLifecycleTest, TransfersTakeoverStateAndPersistsItAcrossRestart) {

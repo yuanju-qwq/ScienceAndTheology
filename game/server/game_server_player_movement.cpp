@@ -18,8 +18,6 @@
 namespace snt::game::replication {
 namespace {
 
-constexpr float kPi = 3.14159265358979323846f;
-
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
 }
@@ -28,33 +26,9 @@ constexpr float kPi = 3.14159265358979323846f;
     return {snt::core::ErrorCode::kInvalidState, std::move(message)};
 }
 
-[[nodiscard]] bool is_finite_positive(float value) noexcept {
-    return std::isfinite(value) && value > 0.0f;
-}
-
 [[nodiscard]] bool same_position(const snt::ecs::Position& left,
                                   const snt::ecs::Position& right) noexcept {
     return left.x == right.x && left.y == right.y && left.z == right.z;
-}
-
-[[nodiscard]] snt::ecs::Position block_grid_position(
-    float feet_x, float feet_y, float feet_z) {
-    return {
-        .x = snt::player::floor_to_i32(feet_x),
-        .y = snt::player::floor_to_i32(feet_y),
-        .z = snt::player::floor_to_i32(feet_z),
-    };
-}
-
-[[nodiscard]] snt::player::Aabb player_body_aabb(
-    float feet_x, float feet_y, float feet_z,
-    const GameServerPlayerMovementConfig& config) {
-    const float half_width = config.body_width_blocks * 0.5f;
-    return {
-        .min = {feet_x - half_width, feet_y, feet_z - half_width},
-        .max = {feet_x + half_width, feet_y + config.body_height_blocks,
-                feet_z + half_width},
-    };
 }
 
 [[nodiscard]] GameAuthenticatedPeer peer_for_snapshot(
@@ -74,20 +48,7 @@ constexpr float kPi = 3.14159265358979323846f;
 snt::core::Expected<std::unique_ptr<GameServerPlayerMovement>> GameServerPlayerMovement::create(
     GameServerPlayerState& player_state, const snt::voxel::ChunkRegistry& chunks,
     GameServerPlayerMovementConfig config) {
-    if (!is_finite_positive(config.walk_speed_blocks_per_second) ||
-        config.walk_speed_blocks_per_second > 128.0f ||
-        !is_finite_positive(config.sprint_multiplier) || config.sprint_multiplier > 4.0f ||
-        !is_finite_positive(config.jump_speed_blocks_per_second) ||
-        config.jump_speed_blocks_per_second > 128.0f ||
-        !is_finite_positive(config.gravity_blocks_per_second_squared) ||
-        config.gravity_blocks_per_second_squared > 256.0f ||
-        !is_finite_positive(config.terminal_velocity_blocks_per_second) ||
-        config.terminal_velocity_blocks_per_second > 512.0f ||
-        !is_finite_positive(config.body_width_blocks) || config.body_width_blocks > 4.0f ||
-        !is_finite_positive(config.body_height_blocks) || config.body_height_blocks > 8.0f ||
-        config.input_timeout_ticks == 0 || config.input_timeout_ticks > 600) {
-        return invalid_argument("Dedicated server player movement configuration is invalid");
-    }
+    if (auto result = validate_game_player_motion_config(config.motion); !result) return result.error();
     return std::unique_ptr<GameServerPlayerMovement>(
         new GameServerPlayerMovement(player_state, chunks, std::move(config)));
 }
@@ -127,6 +88,7 @@ snt::core::Expected<void> GameServerPlayerMovement::reset_player_motion(
     auto snapshot = player_state_->snapshot_for_peer(peer);
     if (!snapshot) return snapshot.error();
     motions_.erase(snapshot->entity_guid.value);
+    motion_peers_.erase(snapshot->entity_guid.value);
     inputs_.erase(peer.peer);
     return {};
 }
@@ -151,89 +113,54 @@ snt::core::Expected<void> GameServerPlayerMovement::tick(
         }
         active_entities.insert(snapshot.entity_guid.value);
 
-        MotionState& state = motions_[snapshot.entity_guid.value];
+        GamePlayerMotionState& state = motions_[snapshot.entity_guid.value];
+        const auto known_motion_peer = motion_peers_.find(snapshot.entity_guid.value);
+        const bool peer_changed = known_motion_peer == motion_peers_.end() ||
+            known_motion_peer->second != snapshot.peer;
         const bool needs_reset = state.dimension_id != snapshot.position.dimension_id ||
-            !same_position(block_grid_position(state.feet_x, state.feet_y, state.feet_z),
+            !same_position(game_player_motion_world_position(state).position,
                            snapshot.position.position);
         if (needs_reset) {
-            state = {
-                .dimension_id = snapshot.position.dimension_id,
-                .feet_x = static_cast<float>(snapshot.position.position.x),
-                .feet_y = static_cast<float>(snapshot.position.position.y),
-                .feet_z = static_cast<float>(snapshot.position.position.z),
-            };
+            state = make_game_player_motion_state(snapshot.position);
+        } else if (peer_changed) {
+            // Preserve physical state across a takeover, while moving ACK and
+            // one-shot jump tracking into the replacement peer's sequence space.
+            state.last_processed_input_sequence = 0;
+            state.last_consumed_jump_sequence = 0;
+            SNT_LOG_INFO("Reset movement acknowledgement for entity %llu after peer change %llu -> %llu",
+                         static_cast<unsigned long long>(snapshot.entity_guid.value),
+                         static_cast<unsigned long long>(
+                             known_motion_peer == motion_peers_.end()
+                                 ? snt::network::kInvalidPeerId
+                                 : known_motion_peer->second),
+                         static_cast<unsigned long long>(snapshot.peer));
         }
+        if (peer_changed && known_motion_peer != motion_peers_.end()) {
+            inputs_.erase(known_motion_peer->second);
+        }
+        motion_peers_.insert_or_assign(snapshot.entity_guid.value, snapshot.peer);
 
         const auto input = inputs_.find(snapshot.peer);
         const bool has_fresh_input = input != inputs_.end() &&
             context.tick_index >= input->second.received_tick &&
-            context.tick_index - input->second.received_tick <= config_.input_timeout_ticks;
-        if (has_fresh_input) {
-            state.yaw_centidegrees = input->second.input.yaw_centidegrees;
-            state.pitch_centidegrees = input->second.input.pitch_centidegrees;
-        }
-
-        float forward_axis = has_fresh_input
-            ? static_cast<float>(input->second.input.forward_axis) : 0.0f;
-        float strafe_axis = has_fresh_input
-            ? static_cast<float>(input->second.input.strafe_axis) : 0.0f;
-        const float input_length = std::sqrt(forward_axis * forward_axis +
-                                             strafe_axis * strafe_axis);
-        if (input_length > 1.0f) {
-            forward_axis /= input_length;
-            strafe_axis /= input_length;
-        }
-
-        const float yaw_radians = static_cast<float>(state.yaw_centidegrees) *
-                                  (kPi / 18000.0f);
-        const float forward_x = std::cos(yaw_radians);
-        const float forward_z = std::sin(yaw_radians);
-        const float right_x = -forward_z;
-        const float right_z = forward_x;
-        float speed = config_.walk_speed_blocks_per_second;
-        if (has_fresh_input &&
-            (input->second.input.flags & kGamePlayerMovementFlagSprint) != 0) {
-            speed *= config_.sprint_multiplier;
-        }
-        state.velocity_x = (forward_x * forward_axis + right_x * strafe_axis) * speed;
-        state.velocity_z = (forward_z * forward_axis + right_z * strafe_axis) * speed;
-
-        if (has_fresh_input && state.grounded &&
-            (input->second.input.flags & kGamePlayerMovementFlagJump) != 0 &&
-            state.last_consumed_jump_sequence != input->second.input.client_sequence) {
-            state.velocity_y = config_.jump_speed_blocks_per_second;
-            state.grounded = false;
-            state.last_consumed_jump_sequence = input->second.input.client_sequence;
-        }
-        state.velocity_y = std::max(
-            state.velocity_y - config_.gravity_blocks_per_second_squared * context.delta_seconds,
-            -config_.terminal_velocity_blocks_per_second);
-
+            context.tick_index - input->second.received_tick <= config_.motion.input_timeout_ticks;
         const snt::player::CollisionWorldView collision_world(
             chunks_, snapshot.position.dimension_id, config_.missing_chunks_are_solid);
-        const snt::player::CollisionMoveResult move = snt::player::move_aabb_collide_voxels(
-            collision_world, player_body_aabb(state.feet_x, state.feet_y, state.feet_z, config_),
-            {.x = state.velocity_x * context.delta_seconds,
-             .y = state.velocity_y * context.delta_seconds,
-             .z = state.velocity_z * context.delta_seconds});
-        state.feet_x += move.delta.x;
-        state.feet_y += move.delta.y;
-        state.feet_z += move.delta.z;
-        if (move.hit_x) state.velocity_x = 0.0f;
-        if (move.hit_z) state.velocity_z = 0.0f;
-        if (move.hit_y) {
-            state.velocity_y = 0.0f;
-            state.grounded = move.grounded;
-        } else {
-            state.grounded = false;
+        auto stepped = advance_game_player_motion(
+            state,
+            has_fresh_input ? std::optional<GamePlayerMovementInput>(input->second.input)
+                            : std::nullopt,
+            collision_world, config_.motion, context.delta_seconds);
+        if (!stepped) {
+            auto error = stepped.error();
+            error.with_context("GameServerPlayerMovement::tick(shared motion step)");
+            return error;
         }
 
-        const snt::ecs::Position next_grid_position =
-            block_grid_position(state.feet_x, state.feet_y, state.feet_z);
-        if (!same_position(next_grid_position, snapshot.position.position)) {
+        GamePlayerWorldPosition next_position = game_player_motion_world_position(state);
+        if (!same_position(next_position.position, snapshot.position.position)) {
             auto result = player_state_->set_authoritative_position(
-                peer_for_snapshot(snapshot),
-                {.dimension_id = snapshot.position.dimension_id, .position = next_grid_position});
+                peer_for_snapshot(snapshot), std::move(next_position));
             if (!result) {
                 auto error = result.error();
                 error.with_context("GameServerPlayerMovement::tick(update position)");
@@ -245,12 +172,23 @@ snt::core::Expected<void> GameServerPlayerMovement::tick(
     std::erase_if(motions_, [&active_entities](const auto& entry) {
         return !active_entities.contains(entry.first);
     });
+    std::erase_if(motion_peers_, [&active_entities](const auto& entry) {
+        return !active_entities.contains(entry.first);
+    });
     std::erase_if(inputs_, [&snapshots](const auto& entry) {
         return std::none_of(snapshots->begin(), snapshots->end(), [&entry](const auto& snapshot) {
             return snapshot.peer == entry.first;
         });
     });
     return {};
+}
+
+std::optional<GamePlayerMotionState> GameServerPlayerMovement::motion_snapshot_for_player(
+    snt::ecs::EntityGuid entity_guid) const {
+    if (!entity_guid.valid()) return std::nullopt;
+    const auto found = motions_.find(entity_guid.value);
+    if (found == motions_.end()) return std::nullopt;
+    return found->second;
 }
 
 }  // namespace snt::game::replication

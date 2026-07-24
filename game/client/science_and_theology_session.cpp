@@ -6,6 +6,7 @@
 #include "game/client/creature_presentation_world.h"
 #include "game/client/day_night_lighting.h"
 #include "game/client/ground_loot_presentation_world.h"
+#include "game/client/player_motion_presentation.h"
 #include "assets/asset_manager.h"
 #include "core/error.h"
 #include "core/events.h"
@@ -53,8 +54,39 @@
 namespace snt::game {
 namespace {
 
-constexpr uint64_t kMovementInputHeartbeatTicks = 4;
 constexpr float kPi = 3.14159265358979323846f;
+constexpr float kNetworkPlayerEyeHeightBlocks = 1.62f;
+
+[[nodiscard]] GameClientPlayerPredictionConfig make_client_player_prediction_config(
+    const GameSessionConfig& config) {
+    return {
+        .motion = {
+            .walk_speed_blocks_per_second =
+                config.server_player.movement_walk_speed_blocks_per_second,
+            .sprint_multiplier = config.server_player.movement_sprint_multiplier,
+            .jump_speed_blocks_per_second =
+                config.server_player.movement_jump_speed_blocks_per_second,
+            .gravity_blocks_per_second_squared =
+                config.server_player.movement_gravity_blocks_per_second_squared,
+            .terminal_velocity_blocks_per_second =
+                config.server_player.movement_terminal_velocity_blocks_per_second,
+            .body_width_blocks = config.server_player.movement_body_width_blocks,
+            .body_height_blocks = config.server_player.movement_body_height_blocks,
+            .input_timeout_ticks = config.server_player.movement_input_timeout_ticks,
+        },
+    };
+}
+
+void apply_network_player_presentation(
+    snt::render::Transform& transform,
+    const GameClientPlayerPresentationState& presentation) noexcept {
+    transform.position[0] = presentation.feet_x;
+    transform.position[1] = presentation.feet_y + kNetworkPlayerEyeHeightBlocks;
+    transform.position[2] = presentation.feet_z;
+    transform.rotation[0] = static_cast<float>(presentation.pitch_centidegrees) / 100.0f;
+    transform.rotation[1] = static_cast<float>(presentation.yaw_centidegrees) / 100.0f;
+    transform.rotation[2] = 0.0f;
+}
 
 [[nodiscard]] std::optional<int32_t> floor_to_block_coordinate(float value) noexcept {
     if (!std::isfinite(value) ||
@@ -602,16 +634,6 @@ private:
     uint64_t* next_sequence_ = nullptr;
 };
 
-[[nodiscard]] bool same_movement_intent(
-    const replication::GamePlayerMovementInput& left,
-    const replication::GamePlayerMovementInput& right) noexcept {
-    return left.forward_axis == right.forward_axis &&
-           left.strafe_axis == right.strafe_axis &&
-           left.flags == right.flags &&
-           left.yaw_centidegrees == right.yaw_centidegrees &&
-           left.pitch_centidegrees == right.pitch_centidegrees;
-}
-
 [[nodiscard]] float normalize_yaw(float yaw) noexcept {
     while (yaw < -180.0f) yaw += 360.0f;
     while (yaw >= 180.0f) yaw -= 360.0f;
@@ -746,17 +768,34 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::connect_tcp_udp(
 
     replication_session_ = std::move(*connection);
     replication_disconnect_reported_ = false;
-    ensure_remote_replication_state();
+    if (auto result = ensure_remote_replication_state(); !result) {
+        replication_session_->shutdown();
+        replication_session_.reset();
+        auto error = result.error();
+        error.with_context("ScienceAndTheologyClientSession::connect_tcp_udp(player presentation)");
+        return error;
+    }
+    next_outbound_sequence_ = 1;
+    next_movement_sequence_ = 1;
     SNT_LOG_INFO("Client replication connection requested (host=%s tcp=%u udp=%u)",
                  host.c_str(), tcp_port, udp_port);
     SNT_LOG_INFO("Client is awaiting authoritative player, creature, inventory, and task-book snapshots");
     return {};
 }
 
-void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
+snt::core::Expected<void> ScienceAndTheologyClientSession::ensure_remote_replication_state() {
     const std::string account_id = local_player_identity_ ? local_player_identity_->account_id : std::string{};
     if (!remote_player_world_) {
         remote_player_world_ = std::make_unique<replication::GameRemotePlayerWorld>(account_id);
+    }
+    if (!local_player_prediction_) {
+        auto prediction = GameClientPlayerPrediction::create(
+            make_client_player_prediction_config(config_));
+        if (!prediction) return prediction.error();
+        local_player_prediction_ = std::move(*prediction);
+    }
+    if (!remote_player_interpolator_) {
+        remote_player_interpolator_ = std::make_unique<GameRemotePlayerInterpolator>();
     }
     if (!remote_inventory_state_) {
         remote_inventory_state_ = std::make_unique<replication::GameClientInventoryState>(account_id);
@@ -777,6 +816,7 @@ void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
     if (!quest_book_state_) {
         quest_book_state_ = std::make_unique<replication::GameClientQuestBookState>(account_id);
     }
+    return {};
 }
 
 void ScienceAndTheologyClientSession::clear_remote_replication_state() {
@@ -801,6 +841,8 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
         gameplay_ui_->clear_ae_network_authority();
     }
     if (remote_player_world_) remote_player_world_->clear();
+    if (local_player_prediction_) local_player_prediction_->clear();
+    if (remote_player_interpolator_) remote_player_interpolator_->clear();
     if (remote_inventory_state_) {
         remote_inventory_state_->clear();
         if (gameplay_ui_) gameplay_ui_->clear_inventory_authority();
@@ -809,6 +851,7 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
     block_interaction_bindings_reported_ = false;
     block_interaction_submission_error_reported_ = false;
     network_crafting_unavailable_reported_ = false;
+    next_movement_sequence_ = 1;
 }
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::apply_remote_inventory_to_ui(
@@ -1020,7 +1063,12 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
             world_session.chunks());
         remote_machine_world_ = std::make_unique<replication::GameRemoteMachineWorld>();
-        ensure_remote_replication_state();
+        if (auto result = ensure_remote_replication_state(); !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologyClientSession::create_client_world(player presentation)");
+            return error;
+        }
         if (replication_session_) {
             SNT_LOG_INFO("Client movement uses server-authoritative input and position updates");
             SNT_LOG_INFO("Client terrain and machine presentation await authoritative replication");
@@ -1379,6 +1427,10 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                             "ScienceAndTheologyClientSession::fixed_tick(remote player replication)");
                         return error;
                     }
+                    if (remote_player_interpolator_) {
+                        remote_player_interpolator_->reconcile(
+                            remote_player_world_->remote_players(), context.tick_index());
+                    }
                 }
                 if (first_player_snapshot && remote_player_world_ &&
                     std::holds_alternative<replication::GameSnapshot>(update)) {
@@ -1451,7 +1503,14 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
             refresh_open_machine_panel();
             refresh_open_automation_controller_panel();
             refresh_open_ae_network_panel();
-            if (remote_player_world_) apply_authoritative_local_player();
+            if (remote_player_world_) {
+                if (auto result = apply_authoritative_local_player(); !result) {
+                    auto error = result.error();
+                    error.with_context(
+                        "ScienceAndTheologyClientSession::fixed_tick(local player reconciliation)");
+                    return error;
+                }
+            }
         }
         if (replication_session_->status().state ==
             replication::GameClientConnectionState::kAuthenticated) {
@@ -1460,24 +1519,37 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                 lan_server_browser_->report_connection_established();
                 set_lan_server_browser_visible(false);
             }
-            const bool input_changed = !has_last_sent_movement_input_ ||
-                !same_movement_intent(sampled_movement_input_, last_sent_movement_input_);
-            const bool heartbeat_due = !has_last_sent_movement_input_ ||
-                context.tick_index() - last_movement_send_tick_ >= kMovementInputHeartbeatTicks;
-            if (input_changed || heartbeat_due) {
-                auto input = sampled_movement_input_;
-                input.client_sequence = next_outbound_sequence_;
-                if (auto result = replication_session_->enqueue_player_movement_input(input); !result) {
-                    auto error = result.error();
-                    error.with_context("ScienceAndTheologyClientSession::fixed_tick(player movement input)");
-                    return error;
-                }
-                last_sent_movement_input_ = input;
-                last_sent_movement_input_.client_sequence = 0;
-                has_last_sent_movement_input_ = true;
-                last_movement_send_tick_ = context.tick_index();
-                ++next_outbound_sequence_;
+            if (next_movement_sequence_ == 0 ||
+                next_movement_sequence_ == std::numeric_limits<uint64_t>::max()) {
+                return snt::core::Error{snt::core::ErrorCode::kInvalidState,
+                                        "Client movement sequence is exhausted"};
             }
+            auto input = sampled_movement_input_;
+            input.client_sequence = next_movement_sequence_;
+            if (auto result = replication_session_->enqueue_player_movement_input(input); !result) {
+                auto error = result.error();
+                error.with_context("ScienceAndTheologyClientSession::fixed_tick(player movement input)");
+                return error;
+            }
+            if (local_player_prediction_ && presentation_chunks_ != nullptr &&
+                remote_player_world_) {
+                const auto local_player = remote_player_world_->authoritative_local_player();
+                if (local_player.has_value() &&
+                    !local_player->player.position.dimension_id.empty()) {
+                    const snt::player::CollisionWorldView collision_world(
+                        presentation_chunks_, local_player->player.position.dimension_id,
+                        config_.server_player.movement_missing_chunks_are_solid);
+                    if (auto result = local_player_prediction_->predict(
+                            input, collision_world, context.delta_seconds());
+                        !result) {
+                        auto error = result.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(local prediction)");
+                        return error;
+                    }
+                }
+            }
+            ++next_movement_sequence_;
         }
     }
     return simulation_session_.fixed_tick(context);
@@ -1503,6 +1575,10 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::after_fixed_tick(
 void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& context) {
     context.world().lighting().set_environment_lighting(
         make_environment_lighting(simulation_session_.day_night_state()));
+    if (local_player_prediction_) {
+        local_player_prediction_->advance_presentation(context.delta_seconds());
+        apply_predicted_local_player_presentation();
+    }
     if (gameplay_ui_ && local_inventory_authority_) {
         for (InventorySlotTransferConfirmation confirmation :
              local_inventory_authority_->drain_slot_transfer_confirmations()) {
@@ -1562,6 +1638,8 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     remote_creature_world_.reset();
     chunk_render_system_ = nullptr;
     remote_player_world_.reset();
+    local_player_prediction_.reset();
+    remote_player_interpolator_.reset();
     remote_inventory_state_.reset();
     quest_book_ui_.reset();
     quest_book_state_.reset();
@@ -2018,20 +2096,55 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
     }
 }
 
-void ScienceAndTheologyClientSession::apply_authoritative_local_player() {
-    if (presentation_world_ == nullptr || !remote_player_world_) return;
+snt::core::Expected<void> ScienceAndTheologyClientSession::apply_authoritative_local_player() {
+    if (presentation_world_ == nullptr || !remote_player_world_) return {};
     const auto player = remote_player_world_->authoritative_local_player();
-    if (!player.has_value()) return;
+    if (!player.has_value()) return {};
+    const entt::entity camera_entity =
+        presentation_world_->find_entity_by_guid(snt::ecs::EntityGuid{config_.scene.active_camera_guid});
+    if (camera_entity == entt::null ||
+        !presentation_world_->registry().all_of<snt::render::Transform>(camera_entity)) {
+        return {};
+    }
+    if (local_player_prediction_ && presentation_chunks_ != nullptr) {
+        const snt::player::CollisionWorldView collision_world(
+            presentation_chunks_, player->player.position.dimension_id,
+            config_.server_player.movement_missing_chunks_are_solid);
+        auto reconciliation = local_player_prediction_->apply_authoritative(
+            player->player, collision_world);
+        if (!reconciliation) return reconciliation.error();
+        if (reconciliation->history_overflowed) {
+            SNT_LOG_WARN("Local player prediction input history overflowed; authority reset its base state");
+        }
+        if (reconciliation->hard_snapped) {
+            SNT_LOG_INFO("Local player prediction applied a hard authoritative correction (ack=%llu)",
+                         static_cast<unsigned long long>(
+                             reconciliation->acknowledged_movement_sequence));
+        }
+        apply_predicted_local_player_presentation();
+        return {};
+    }
+
+    auto& transform = presentation_world_->registry().get<snt::render::Transform>(camera_entity);
+    transform.position[0] = player->player.motion.feet_x;
+    transform.position[1] = player->player.motion.feet_y + kNetworkPlayerEyeHeightBlocks;
+    transform.position[2] = player->player.motion.feet_z;
+    return {};
+}
+
+void ScienceAndTheologyClientSession::apply_predicted_local_player_presentation() {
+    if (presentation_world_ == nullptr || !local_player_prediction_) return;
+    const std::optional<GameClientPlayerPresentationState> presentation =
+        local_player_prediction_->presentation();
+    if (!presentation.has_value()) return;
     const entt::entity camera_entity =
         presentation_world_->find_entity_by_guid(snt::ecs::EntityGuid{config_.scene.active_camera_guid});
     if (camera_entity == entt::null ||
         !presentation_world_->registry().all_of<snt::render::Transform>(camera_entity)) {
         return;
     }
-    auto& transform = presentation_world_->registry().get<snt::render::Transform>(camera_entity);
-    transform.position[0] = static_cast<float>(player->player.position.position.x);
-    transform.position[1] = static_cast<float>(player->player.position.position.y) + 1.62f;
-    transform.position[2] = static_cast<float>(player->player.position.position.z);
+    apply_network_player_presentation(
+        presentation_world_->registry().get<snt::render::Transform>(camera_entity), *presentation);
 }
 
 void ScienceAndTheologyClientSession::set_quest_book_visible(bool visible) {

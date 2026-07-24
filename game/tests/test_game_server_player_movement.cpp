@@ -117,3 +117,53 @@ TEST(GameServerPlayerMovementTest, StopsAtSolidVoxelInsteadOfTrustingClientPosit
     EXPECT_EQ(stopped->position.position.x, 1);
     EXPECT_EQ(stopped->position.position.y, 1);
 }
+
+TEST(GameServerPlayerMovementTest, ResetsAcknowledgementWhenAccountPeerIsReplaced) {
+    snt::ecs::World world;
+    snt::voxel::ChunkRegistry chunks;
+    chunks.set_chunk("overworld", 0, 0, 0, make_collision_chunk(false));
+
+    auto player_state = snt::game::replication::GameServerPlayerState::create(
+        world,
+        {
+            .resource_runtime_index = snt::game::test_support::player_resource_snapshot(),
+            .spawn = {.dimension_id = "overworld", .position = {.x = 1, .y = 1, .z = 1}},
+        });
+    ASSERT_TRUE(player_state) << player_state.error().format();
+    const auto first_peer = make_peer(703, "Takeover Player");
+    ASSERT_TRUE((*player_state)->on_peer_authenticated(
+        first_peer, (*player_state)->default_persistent_state()));
+
+    auto movement = snt::game::replication::GameServerPlayerMovement::create(*(*player_state), chunks);
+    ASSERT_TRUE(movement) << movement.error().format();
+    ASSERT_TRUE((*movement)->enqueue_player_movement_input(
+        first_peer,
+        {.client_sequence = 41, .forward_axis = 1, .yaw_centidegrees = 0},
+        {.tick_index = 1, .delta_seconds = 0.05f}));
+    tick(**movement, 1);
+    const auto first_snapshot = (*player_state)->snapshot_for_peer(first_peer);
+    ASSERT_TRUE(first_snapshot) << first_snapshot.error().format();
+    const auto before_takeover = (*movement)->motion_snapshot_for_player(first_snapshot->entity_guid);
+    ASSERT_TRUE(before_takeover.has_value());
+    EXPECT_EQ(before_takeover->last_processed_input_sequence, 41u);
+
+    snt::game::replication::GameAuthenticatedPeer replacement_peer{
+        .peer = 704,
+        .identity = first_peer.identity,
+    };
+    (*movement)->on_peer_disconnected(first_peer, "test account takeover");
+    ASSERT_TRUE((*player_state)->on_peer_replaced(first_peer, replacement_peer));
+    ASSERT_TRUE((*movement)->enqueue_player_movement_input(
+        replacement_peer,
+        {.client_sequence = 1, .strafe_axis = 1, .yaw_centidegrees = 0},
+        {.tick_index = 2, .delta_seconds = 0.05f}));
+    tick(**movement, 2);
+
+    const auto replacement_snapshot = (*player_state)->snapshot_for_peer(replacement_peer);
+    ASSERT_TRUE(replacement_snapshot) << replacement_snapshot.error().format();
+    const auto after_takeover =
+        (*movement)->motion_snapshot_for_player(replacement_snapshot->entity_guid);
+    ASSERT_TRUE(after_takeover.has_value());
+    EXPECT_EQ(after_takeover->last_processed_input_sequence, 1u);
+    EXPECT_EQ(replacement_snapshot->entity_guid, first_snapshot->entity_guid);
+}

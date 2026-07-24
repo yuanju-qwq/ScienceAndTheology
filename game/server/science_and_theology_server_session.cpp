@@ -247,18 +247,20 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     auto player_movement = replication::GameServerPlayerMovement::create(
         *player_state_, world.chunks(),
         {
-            .walk_speed_blocks_per_second =
-                config_.server_player.movement_walk_speed_blocks_per_second,
-            .sprint_multiplier = config_.server_player.movement_sprint_multiplier,
-            .jump_speed_blocks_per_second =
-                config_.server_player.movement_jump_speed_blocks_per_second,
-            .gravity_blocks_per_second_squared =
-                config_.server_player.movement_gravity_blocks_per_second_squared,
-            .terminal_velocity_blocks_per_second =
-                config_.server_player.movement_terminal_velocity_blocks_per_second,
-            .body_width_blocks = config_.server_player.movement_body_width_blocks,
-            .body_height_blocks = config_.server_player.movement_body_height_blocks,
-            .input_timeout_ticks = config_.server_player.movement_input_timeout_ticks,
+            .motion = {
+                .walk_speed_blocks_per_second =
+                    config_.server_player.movement_walk_speed_blocks_per_second,
+                .sprint_multiplier = config_.server_player.movement_sprint_multiplier,
+                .jump_speed_blocks_per_second =
+                    config_.server_player.movement_jump_speed_blocks_per_second,
+                .gravity_blocks_per_second_squared =
+                    config_.server_player.movement_gravity_blocks_per_second_squared,
+                .terminal_velocity_blocks_per_second =
+                    config_.server_player.movement_terminal_velocity_blocks_per_second,
+                .body_width_blocks = config_.server_player.movement_body_width_blocks,
+                .body_height_blocks = config_.server_player.movement_body_height_blocks,
+                .input_timeout_ticks = config_.server_player.movement_input_timeout_ticks,
+            },
             .missing_chunks_are_solid = config_.server_player.movement_missing_chunks_are_solid,
         });
     if (!player_movement) {
@@ -380,7 +382,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         },
         {quest_book_replication_.get(), inventory_replication_.get(), creature_replication_.get(),
          ground_loot_replication_.get(), automation_controller_replication_.get(),
-         ae_network_replication_.get()});
+         ae_network_replication_.get()},
+        player_movement_.get());
     if (!player_replication) {
         auto error = player_replication.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(player AOI)");

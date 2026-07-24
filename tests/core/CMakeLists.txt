@@ -125,20 +125,6 @@ endif()
 
 add_test(NAME snt.m5.multi_planet COMMAND snt_m5_multi_planet)
 
-# M6: Client prediction + rollback tests
-# Legacy prediction test; client prediction has no current protocol contract.
-add_executable(snt_m6_prediction
-    m6_prediction.cpp
-)
-
-target_link_libraries(snt_m6_prediction PRIVATE snt_core)
-
-if(MSVC)
-    target_compile_options(snt_m6_prediction PRIVATE /utf-8)
-endif()
-
-add_test(NAME snt.m6.prediction COMMAND snt_m6_prediction)
-
 # U1: unified universe core tests
 # Design: docs/unified_universe_world_design.md section 21.2 (U1)
 add_executable(snt_u1_universe_core

@@ -119,6 +119,19 @@ TEST(GamePlayerReplicationCodecTest, RoundTripsPresentationOnlyPlayerValues) {
             .dimension_id = "overworld",
             .position = {.x = -13, .y = 67, .z = 22},
         },
+        .motion = {
+            .feet_x = -12.75f,
+            .feet_y = 67.25f,
+            .feet_z = 22.5f,
+            .velocity_x = 1.5f,
+            .velocity_y = -0.75f,
+            .velocity_z = 0.25f,
+            .yaw_centidegrees = -9000,
+            .pitch_centidegrees = 1200,
+            .last_processed_input_sequence = 73,
+            .source_tick = 901,
+            .grounded = true,
+        },
     };
     state.equipment_item_ids[0] = "iron_pickaxe";
     state.equipment_item_ids[2] = "iron_helmet";
@@ -137,8 +150,18 @@ TEST(GamePlayerReplicationCodecTest, RoundTripsPresentationOnlyPlayerValues) {
     EXPECT_EQ(decoded->player->identity.display_name, identity.display_name);
     EXPECT_EQ(decoded->player->position.dimension_id, "overworld");
     EXPECT_EQ(decoded->player->position.position.x, -13);
+    EXPECT_FLOAT_EQ(decoded->player->motion.feet_x, -12.75f);
+    EXPECT_FLOAT_EQ(decoded->player->motion.velocity_y, -0.75f);
+    EXPECT_EQ(decoded->player->motion.yaw_centidegrees, -9000);
+    EXPECT_EQ(decoded->player->motion.last_processed_input_sequence, 73u);
+    EXPECT_EQ(decoded->player->motion.source_tick, 901u);
+    EXPECT_TRUE(decoded->player->motion.grounded);
     EXPECT_EQ(decoded->player->equipment_item_ids[0], "iron_pickaxe");
     EXPECT_EQ(decoded->player->equipment_item_ids[2], "iron_helmet");
+
+    auto legacy_version = *encoded;
+    legacy_version[1] = std::byte{1};
+    EXPECT_FALSE(snt::game::replication::decode_game_player_replication_entity(legacy_version));
 
     auto remove = snt::game::replication::encode_game_player_replication_entity({
         .operation = GamePlayerReplicationOperation::kRemove,
@@ -216,6 +239,15 @@ TEST(GameServerPlayerReplicationTest, FiltersAoiAndAppliesAuthoritativeDeltasToR
     ASSERT_EQ(remote_world.remote_players().size(), 1u);
     EXPECT_EQ(remote_world.remote_players().front().player.identity.account_id,
               bob.identity.account_id);
+
+    const snt::network::ReplicationTickContext stationary_context{
+        .tick_index = context.tick_index + 1,
+        .delta_seconds = context.delta_seconds,
+    };
+    auto stationary_messages = (*replication)->build_deltas(
+        alice, *interest, budget, stationary_context);
+    ASSERT_TRUE(stationary_messages) << stationary_messages.error().format();
+    EXPECT_TRUE(stationary_messages->empty());
 
     ASSERT_TRUE((*players)->set_authoritative_position(
         bob, {.dimension_id = "overworld", .position = {.x = 9, .y = 64, .z = 1}}));

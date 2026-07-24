@@ -202,6 +202,21 @@ target_link_libraries(snt_game_network PUBLIC
     snt_game_world_data
 )
 
+# Shared continuous movement kernel. The dedicated server and graphical
+# client both consume this headless module so prediction replays the same
+# collision, jump, and gravity rules as authority.
+add_library(snt_game_player_motion STATIC
+    player/player_motion_simulation.cpp
+)
+target_include_directories(snt_game_player_motion PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(snt_game_player_motion PUBLIC
+    snt_engine_settings
+    snt_game_network
+    snt_voxel_collision
+)
+
 # Shared deterministic gameplay closure. Both the graphical client and the
 # dedicated server link this target; it has no SDL, Vulkan, renderer, player,
 # scene, or UI dependency.
@@ -277,6 +292,7 @@ add_executable(snt_game_client
     client/inventory_slot_transaction.cpp
     client/gameplay_ui.cpp
     client/lan_server_browser.cpp
+    client/player_motion_presentation.cpp
     client/quest_book_ui.cpp
     client/science_and_theology_session.cpp
 )
@@ -288,6 +304,7 @@ target_link_libraries(snt_game_client PRIVATE
     snt_game_identity
     snt_game_localization
     snt_game_network
+    snt_game_player_motion
     snt_game_simulation
     snt_engine_settings
     snt_core
@@ -337,6 +354,7 @@ target_link_libraries(snt_game_server PRIVATE
     snt_simulation_runtime
     snt_game_simulation
     snt_game_network
+    snt_game_player_motion
     snt_game_source_law
     snt_game_world_save
     snt_voxel_collision
@@ -537,6 +555,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         client/inventory_slot_transaction.cpp
         client/gameplay_ui.cpp
         client/lan_server_browser.cpp
+        client/player_motion_presentation.cpp
         client/quest_book_ui.cpp
         server/game_server_ae_network_replication.cpp
         server/game_server_automation_controller_replication.cpp
@@ -584,6 +603,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_mobile_structure.cpp
         tests/test_game_components.cpp
         tests/test_player_identity.cpp
+        tests/test_player_motion_prediction.cpp
         tests/test_player_state_persistence.cpp
         tests/test_player_replication.cpp
         tests/test_game_server_player_death.cpp
@@ -626,6 +646,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         snt_game_identity
         snt_game_localization
         snt_game_network
+        snt_game_player_motion
         snt_engine_settings
         snt_render_components
         snt_gpu_assets

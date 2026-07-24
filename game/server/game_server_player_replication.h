@@ -10,6 +10,7 @@
 #include "core/expected.h"
 #include "game/network/game_chunk_replication.h"
 #include "game/network/game_replication_services.h"
+#include "game/player/player_motion_simulation.h"
 #include "game/player/player_replication.h"
 #include "game/server/game_server_player_interaction.h"
 #include "game/server/game_server_player_state.h"
@@ -65,7 +66,8 @@ public:
         GameServerPlayerState& player_state, snt::ecs::World& world,
         snt::voxel::ChunkRegistry& chunks, GameChunkSidecarRegistry& sidecars,
         GameServerPlayerReplicationConfig config = {},
-        std::vector<IGameReplicationValueSource*> value_sources = {});
+        std::vector<IGameReplicationValueSource*> value_sources = {},
+        const IGameAuthoritativePlayerMotionSource* motion_source = nullptr);
 
     GameServerPlayerReplication(const GameServerPlayerReplication&) = delete;
     GameServerPlayerReplication& operator=(const GameServerPlayerReplication&) = delete;
@@ -129,10 +131,12 @@ private:
                                 snt::voxel::ChunkRegistry& chunks,
                                 GameChunkSidecarRegistry& sidecars,
                                 GameServerPlayerReplicationConfig config,
-                                std::vector<IGameReplicationValueSource*> value_sources);
+                                std::vector<IGameReplicationValueSource*> value_sources,
+                                const IGameAuthoritativePlayerMotionSource* motion_source);
 
     [[nodiscard]] snt::core::Expected<std::vector<VisiblePlayer>> visible_players(
-        const GameReplicationInterest& interest, const GameReplicationBudget& budget) const;
+        const GameReplicationInterest& interest, const GameReplicationBudget& budget,
+        uint64_t source_tick) const;
     [[nodiscard]] snt::core::Expected<std::vector<VisibleChunk>> visible_chunks(
         const GameReplicationInterest& interest) const;
     [[nodiscard]] snt::core::Expected<std::vector<VisibleMachine>> visible_machines(
@@ -145,8 +149,8 @@ private:
     void notify_values_committed(const GameAuthenticatedPeer& peer,
                                  GameReplicationValueCollectionPhase phase,
                                  std::span<const GameReplicationValue> values) noexcept;
-    [[nodiscard]] static snt::core::Expected<GameReplicatedPlayerState> make_player_state(
-        const GameServerPlayerSnapshot& snapshot);
+    [[nodiscard]] snt::core::Expected<GameReplicatedPlayerState> make_player_state(
+        const GameServerPlayerSnapshot& snapshot, uint64_t source_tick) const;
     [[nodiscard]] static bool same_player_state(const GameReplicatedPlayerState& left,
                                                 const GameReplicatedPlayerState& right) noexcept;
     [[nodiscard]] static bool same_machine_state(const GameReplicatedMachineState& left,
@@ -159,6 +163,7 @@ private:
     snt::ecs::World* world_ = nullptr;
     snt::voxel::ChunkRegistry* chunks_ = nullptr;
     GameChunkSidecarRegistry* sidecars_ = nullptr;
+    const IGameAuthoritativePlayerMotionSource* motion_source_ = nullptr;
     GameServerPlayerReplicationConfig config_;
     std::vector<IGameReplicationValueSource*> value_sources_;
     uint64_t next_snapshot_id_ = 1;

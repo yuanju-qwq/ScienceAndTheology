@@ -143,7 +143,8 @@ GameServerPlayerReplication::create(GameServerPlayerState& player_state, snt::ec
                                     snt::voxel::ChunkRegistry& chunks,
                                     GameChunkSidecarRegistry& sidecars,
                                     GameServerPlayerReplicationConfig config,
-                                    std::vector<IGameReplicationValueSource*> value_sources) {
+                                    std::vector<IGameReplicationValueSource*> value_sources,
+                                    const IGameAuthoritativePlayerMotionSource* motion_source) {
     if (config.horizontal_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
         config.vertical_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
         config.chunk_horizontal_aoi_radius_blocks > kMaxAoiRadiusBlocks ||
@@ -172,16 +173,18 @@ GameServerPlayerReplication::create(GameServerPlayerState& player_state, snt::ec
     }
     return std::unique_ptr<GameServerPlayerReplication>(
         new GameServerPlayerReplication(player_state, world, chunks, sidecars,
-                                        std::move(config), std::move(value_sources)));
+                                        std::move(config), std::move(value_sources),
+                                        motion_source));
 }
 
 GameServerPlayerReplication::GameServerPlayerReplication(
     GameServerPlayerState& player_state, snt::ecs::World& world,
     snt::voxel::ChunkRegistry& chunks, GameChunkSidecarRegistry& sidecars,
     GameServerPlayerReplicationConfig config,
-    std::vector<IGameReplicationValueSource*> value_sources)
+    std::vector<IGameReplicationValueSource*> value_sources,
+    const IGameAuthoritativePlayerMotionSource* motion_source)
     : player_state_(&player_state), world_(&world), chunks_(&chunks), sidecars_(&sidecars),
-      config_(std::move(config)),
+      motion_source_(motion_source), config_(std::move(config)),
       value_sources_(std::move(value_sources)) {}
 
 snt::core::Expected<GameReplicationInterest> GameServerPlayerReplication::compute_interest(
@@ -353,7 +356,7 @@ GameServerPlayerReplication::build_initial_snapshot(
         return invalid_state("Dedicated server player replication snapshot ids are exhausted");
     }
 
-    auto visible = visible_players(interest, budget);
+    auto visible = visible_players(interest, budget, context.tick_index);
     if (!visible) return visible.error();
     if (visible->empty()) {
         return invalid_state("Dedicated server player AOI has no observing player snapshot");
@@ -535,7 +538,7 @@ snt::core::Expected<std::vector<GameReplicationMessage>> GameServerPlayerReplica
         return invalid_state("Dedicated server player delta sequences are exhausted");
     }
 
-    auto visible = visible_players(interest, budget);
+    auto visible = visible_players(interest, budget, context.tick_index);
     if (!visible) return visible.error();
     auto visible_chunk_values = visible_chunks(interest);
     if (!visible_chunk_values) return visible_chunk_values.error();
@@ -982,7 +985,8 @@ void GameServerPlayerReplication::mark_block_dirty(std::string_view dimension_id
 
 snt::core::Expected<std::vector<GameServerPlayerReplication::VisiblePlayer>>
 GameServerPlayerReplication::visible_players(const GameReplicationInterest& interest,
-                                              const GameReplicationBudget& budget) const {
+                                              const GameReplicationBudget& budget,
+                                              uint64_t source_tick) const {
     if (player_state_ == nullptr) {
         return invalid_state("Dedicated server player replication has no player state");
     }
@@ -1010,7 +1014,7 @@ GameServerPlayerReplication::visible_players(const GameReplicationInterest& inte
         if (snapshot == snapshots.end()) {
             return invalid_state("Dedicated server player interest references an inactive player");
         }
-        auto state = make_player_state(*snapshot->second);
+        auto state = make_player_state(*snapshot->second, source_tick);
         if (!state) return state.error();
         visible.push_back({.entity_guid = entity_guid, .state = std::move(*state)});
     }
@@ -1203,7 +1207,7 @@ void GameServerPlayerReplication::notify_values_committed(
 }
 
 snt::core::Expected<GameReplicatedPlayerState> GameServerPlayerReplication::make_player_state(
-    const GameServerPlayerSnapshot& snapshot) {
+    const GameServerPlayerSnapshot& snapshot, uint64_t source_tick) const {
     GameReplicatedPlayerState state{
         .identity = {
             .provider = snapshot.identity_provider,
@@ -1211,6 +1215,33 @@ snt::core::Expected<GameReplicatedPlayerState> GameServerPlayerReplication::make
             .display_name = snapshot.display_name,
         },
         .position = snapshot.position,
+    };
+    GamePlayerMotionState motion = make_game_player_motion_state(snapshot.position);
+    if (motion_source_ != nullptr) {
+        const std::optional<GamePlayerMotionState> supplied =
+            motion_source_->motion_snapshot_for_player(snapshot.entity_guid);
+        if (supplied.has_value()) {
+            if (auto result = validate_game_player_motion_state(*supplied); !result) {
+                return invalid_state("Dedicated server player replication received invalid motion state");
+            }
+            if (supplied->dimension_id != snapshot.position.dimension_id) {
+                return invalid_state("Dedicated server player replication motion dimension disagrees with player state");
+            }
+            motion = *supplied;
+        }
+    }
+    state.motion = {
+        .feet_x = motion.feet_x,
+        .feet_y = motion.feet_y,
+        .feet_z = motion.feet_z,
+        .velocity_x = motion.velocity_x,
+        .velocity_y = motion.velocity_y,
+        .velocity_z = motion.velocity_z,
+        .yaw_centidegrees = motion.yaw_centidegrees,
+        .pitch_centidegrees = motion.pitch_centidegrees,
+        .last_processed_input_sequence = motion.last_processed_input_sequence,
+        .source_tick = source_tick,
+        .grounded = motion.grounded,
     };
     for (size_t index = 0; index < state.equipment_item_ids.size(); ++index) {
         state.equipment_item_ids[index] = snapshot.equipment.slots[index].resource.key.id;
@@ -1228,6 +1259,17 @@ bool GameServerPlayerReplication::same_player_state(const GameReplicatedPlayerSt
            left.position.position.x == right.position.position.x &&
            left.position.position.y == right.position.position.y &&
            left.position.position.z == right.position.position.z &&
+           left.motion.feet_x == right.motion.feet_x &&
+           left.motion.feet_y == right.motion.feet_y &&
+           left.motion.feet_z == right.motion.feet_z &&
+           left.motion.velocity_x == right.motion.velocity_x &&
+           left.motion.velocity_y == right.motion.velocity_y &&
+           left.motion.velocity_z == right.motion.velocity_z &&
+           left.motion.yaw_centidegrees == right.motion.yaw_centidegrees &&
+           left.motion.pitch_centidegrees == right.motion.pitch_centidegrees &&
+           left.motion.last_processed_input_sequence ==
+               right.motion.last_processed_input_sequence &&
+           left.motion.grounded == right.motion.grounded &&
            left.equipment_item_ids == right.equipment_item_ids;
 }
 
