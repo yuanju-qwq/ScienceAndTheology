@@ -13,6 +13,7 @@
 #include "game/server/game_server_ground_loot_persistence.h"
 #include "game/server/game_server_ground_loot_replication.h"
 #include "game/server/game_server_inventory_replication.h"
+#include "game/server/game_server_player_combat.h"
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_interaction.h"
 #include "game/server/game_server_player_lifecycle.h"
@@ -217,6 +218,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
             .inventory_slots = config_.server_player.inventory_slots,
             .inventory_max_stack_size = config_.server_player.inventory_max_stack_size,
             .interaction_reach_blocks = config_.server_player.interaction_reach_blocks,
+            .combat_max_health = config_.server_player.combat_max_health,
         });
     if (!player_state) {
         auto error = player_state.error();
@@ -446,6 +448,16 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_death_ = std::move(*player_death);
+    auto player_combat = replication::GameServerPlayerCombatService::create(
+        *player_state_, *player_death_);
+    if (!player_combat) {
+        auto error = player_combat.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(player combat)");
+        return error;
+    }
+    player_combat_ = std::move(*player_combat);
+    simulation_session_.set_wild_creature_player_target_provider(player_combat_.get());
+    simulation_session_.set_wild_creature_player_damage_sink(player_combat_.get());
     auto player_interactions = replication::GameServerPlayerInteractionService::create(
         world.world(), world.chunks(), simulation_session_.world_sidecars(), *player_state_,
         *player_beds_, simulation_session_.content(), simulation_session_.machine_interactions(),
@@ -567,6 +579,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                  config_.server_player.grave_material_id,
                  config_.server_player.grave_vertical_search_blocks,
                  config_.server_player.respawn_safe_search_radius_blocks);
+    SNT_LOG_INFO("Predator combat death producer enabled (player_health=%.1f)",
+                 config_.server_player.combat_max_health);
     SNT_LOG_INFO("Host block interactions enabled: client raycast and machine prerequisite hints are trusted; host commits shared world/inventory state");
     SNT_LOG_INFO("Committed gameplay events drive host quest progress; item rewards await explicit task-book claims");
     SNT_LOG_INFO("Steam login remains unavailable until a server ticket verifier is installed");
@@ -719,6 +733,9 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     inventory_replication_.reset();
     quest_book_replication_.reset();
     player_interactions_.reset();
+    simulation_session_.set_wild_creature_player_target_provider(nullptr);
+    simulation_session_.set_wild_creature_player_damage_sink(nullptr);
+    player_combat_.reset();
     simulation_session_.set_machine_tick_event_sink(nullptr);
     simulation_session_.set_quest_reward_sink(nullptr);
     if (quest_events_) quest_events_->unbind_player_state();

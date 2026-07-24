@@ -38,6 +38,7 @@ class GameServerGroundLootReplication;
 class GameServerGroundLootService;
 class GameServerGroundLootPickupPersistence;
 class GameServerPlayerBedService;
+class GameServerPlayerCombatService;
 class GameServerPlayerDeathService;
 class GameServerPlayerGraveStore;
 class GameServerPlayerInteractionService;
@@ -93,6 +94,7 @@ private:
     std::unique_ptr<replication::GameServerPlayerGraveStore> player_graves_;
     std::unique_ptr<replication::GameServerPlayerRespawnResolver> player_respawn_;
     std::unique_ptr<replication::GameServerPlayerDeathService> player_death_;
+    std::unique_ptr<replication::GameServerPlayerCombatService> player_combat_;
     std::unique_ptr<replication::GameServerPlayerInteractionService> player_interactions_;
     std::unique_ptr<replication::GameServerCreatureInteractionService>
         creature_interactions_;

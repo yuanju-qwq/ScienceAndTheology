@@ -166,6 +166,20 @@ public:
         const GamePlayerOrganState& state) const = 0;
 };
 
+// Online-only combat values owned by the authoritative player actor. Health
+// deliberately stays outside SNTP until the current product scope defines a
+// reconnect/replication contract for combat UI; death resets it immediately
+// through the server combat service. revision is reserved for that later
+// value-only presentation source and avoids exposing the ECS component.
+struct GamePlayerCombatState {
+    float health_current = 20.0f;
+    float health_max = 20.0f;
+    uint64_t revision = 0;
+
+    friend bool operator==(const GamePlayerCombatState&,
+                           const GamePlayerCombatState&) = default;
+};
+
 // A single inventory change is applied atomically: all removals must be
 // available and all additions must fit before the live inventory is replaced.
 // It is the future boundary for machine input/output and reward transactions.

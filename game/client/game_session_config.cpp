@@ -130,6 +130,7 @@ void from_json(const json& object, GameServerPlayerConfig& value) {
     read_optional(object, "inventory_slots", value.inventory_slots);
     read_optional(object, "inventory_max_stack_size", value.inventory_max_stack_size);
     read_optional(object, "interaction_reach_blocks", value.interaction_reach_blocks);
+    read_optional(object, "combat_max_health", value.combat_max_health);
     read_optional(object, "movement_walk_speed_blocks_per_second",
                   value.movement_walk_speed_blocks_per_second);
     read_optional(object, "movement_sprint_multiplier", value.movement_sprint_multiplier);

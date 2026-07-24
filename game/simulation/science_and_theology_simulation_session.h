@@ -61,6 +61,8 @@ class IGameEcosystemEnvironmentProvider;
 class IGameEcosystemInterestProvider;
 class IGameEcosystemMutationSink;
 class IGameCreaturePresentationSink;
+class IGameWildCreaturePlayerTargetProvider;
+class IGameWildCreaturePlayerDamageSink;
 class IFluidComputeBackend;
 class IMachineTickEventSink;
 class MachineTickSystem;
@@ -200,6 +202,12 @@ public:
     // proxy plan. The native wildlife system remains the sole owner of
     // interactive wild representatives and captive projection.
     void set_creature_presentation_sink(IGameCreaturePresentationSink* sink) noexcept;
+    // Dedicated-server composition may provide online player position values
+    // and receive predator damage events here. Client simulation deliberately
+    // leaves both null, so it never owns player health or death transactions.
+    void set_wild_creature_player_target_provider(
+        const IGameWildCreaturePlayerTargetProvider* provider) noexcept;
+    void set_wild_creature_player_damage_sink(IGameWildCreaturePlayerDamageSink* sink) noexcept;
     void schedule_block_physics_after_terrain_mutation(
         std::string_view dimension_id, int32_t block_x, int32_t block_y,
         int32_t block_z, uint64_t source_tick) override;
@@ -313,6 +321,8 @@ private:
     IGameEcosystemMutationSink* ecosystem_mutation_sink_ = nullptr;
     std::unique_ptr<GameWildCreatureSystem> wild_creature_system_;
     IGameCreaturePresentationSink* creature_presentation_sink_ = nullptr;
+    const IGameWildCreaturePlayerTargetProvider* wild_creature_player_target_provider_ = nullptr;
+    IGameWildCreaturePlayerDamageSink* wild_creature_player_damage_sink_ = nullptr;
     GameChunkSidecarRegistry chunk_sidecars_;
     std::unique_ptr<GameWorldPersistenceLifecycle> world_persistence_;
     std::shared_ptr<MachineTickSystem> machine_tick_system_;

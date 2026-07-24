@@ -17,6 +17,7 @@ namespace {
 constexpr uint64_t kFnvOffsetBasis = 14695981039346656037ull;
 constexpr uint64_t kFnvPrime = 1099511628211ull;
 constexpr float kCaptiveTargetReachedDistance = 0.075f;
+constexpr uint64_t kPlayerDamageErrorLogIntervalTicks = 100;
 
 void hash_byte(uint64_t& hash, uint8_t value) noexcept {
     hash ^= value;
@@ -220,10 +221,23 @@ void GameWildCreatureSystem::tick_interactive_wild_creatures(
         }
     }
 
+    // The ecosystem invokes this once per active chunk. Cache the transport-
+    // free player snapshot for the current source tick so a large interest
+    // ring does not repeatedly query server-owned player state.
+    if (!player_target_cache_tick_.has_value() ||
+        *player_target_cache_tick_ != request.source_tick) {
+        player_target_cache_.clear();
+        if (player_target_provider_ != nullptr) {
+            player_target_cache_ = player_target_provider_->active_wild_creature_player_targets();
+        }
+        player_target_cache_tick_ = request.source_tick;
+    }
+
     for (auto& [id, creature] : wild_creatures_) {
         static_cast<void>(id);
         if (!creature.state.is_interactive || creature.state.chunk != request.chunk) continue;
-        if (advance_wild_creature(creature, nearby_creatures, request.source_tick) &&
+        if (advance_wild_creature(creature, nearby_creatures, player_target_cache_,
+                                  request.source_tick) &&
             should_emit_wild_update(request.source_tick)) {
             emit(GameCreaturePresentationEventKind::kUpdated, request.source_tick,
                  creature.state);
@@ -234,7 +248,8 @@ void GameWildCreatureSystem::tick_interactive_wild_creatures(
 bool GameWildCreatureSystem::advance_wild_creature(
     WildCreature& creature,
     const std::vector<GameCreaturePresentationState>& nearby_creatures,
-    uint64_t source_tick) const {
+    const std::vector<GameWildCreaturePlayerTarget>& nearby_players,
+    uint64_t source_tick) {
     if (!creature.state.is_interactive || creature.spawn_tick == source_tick) return false;
     const CreatureSpeciesDef* const species = species_catalog_ == nullptr
         ? nullptr
@@ -299,6 +314,10 @@ bool GameWildCreatureSystem::advance_wild_creature(
     }
 
     if (creature.state.role == CreatureRole::PREDATOR) {
+        float closest_player_distance_squared = std::numeric_limits<float>::infinity();
+        const GameWildCreaturePlayerTarget* const closest_player =
+            closest_player_target(creature, nearby_players, species->player_detection_radius,
+                                  closest_player_distance_squared);
         const GameCreaturePresentationState* closest_herbivore = nullptr;
         float closest_distance_squared = std::numeric_limits<float>::infinity();
         for (const GameCreaturePresentationState& herbivore : nearby_creatures) {
@@ -317,6 +336,27 @@ bool GameWildCreatureSystem::advance_wild_creature(
                 closest_distance_squared = distance_squared;
             }
         }
+        const bool target_player = closest_player != nullptr &&
+            (closest_herbivore == nullptr ||
+             closest_player_distance_squared <= closest_distance_squared);
+        if (target_player) {
+            const float attack_range = species->player_attack_range;
+            const float attack_damage = species->player_attack_damage;
+            const uint64_t attack_cooldown = species->player_attack_cooldown_ticks;
+            if (valid_positive(attack_range) && valid_positive(attack_damage) &&
+                attack_cooldown != 0 &&
+                closest_player_distance_squared <= attack_range * attack_range) {
+                try_attack_player(creature, *closest_player, attack_damage,
+                                  attack_cooldown, source_tick);
+                return false;
+            }
+            // A target outside attack reach remains a pursuit target. Do not
+            // fall through to prey/wander, otherwise a predator oscillates at
+            // the player detection boundary.
+            return move_wild_toward(creature, closest_player->feet_x,
+                                    closest_player->feet_y,
+                                    closest_player->feet_z);
+        }
         if (closest_herbivore != nullptr) {
             // A blocked pursuit remains stationary until the next snapshot;
             // falling through to wander would move a predator away from prey.
@@ -334,6 +374,61 @@ bool GameWildCreatureSystem::advance_wild_creature(
     }
     return move_wild_toward(creature, creature.wander_target_x, creature.wander_target_y,
                              creature.wander_target_z);
+}
+
+const GameWildCreaturePlayerTarget* GameWildCreatureSystem::closest_player_target(
+    const WildCreature& creature,
+    const std::vector<GameWildCreaturePlayerTarget>& nearby_players,
+    float detection_radius, float& out_distance_squared) const noexcept {
+    out_distance_squared = std::numeric_limits<float>::infinity();
+    if (!valid_positive(detection_radius)) return nullptr;
+    const GameWildCreaturePlayerTarget* closest = nullptr;
+    const float maximum_distance_squared = detection_radius * detection_radius;
+    for (const GameWildCreaturePlayerTarget& player : nearby_players) {
+        if (player.account_id.empty() || player.dimension_id != creature.state.chunk.dimension_id ||
+            !std::isfinite(player.feet_x) || !std::isfinite(player.feet_y) ||
+            !std::isfinite(player.feet_z)) {
+            continue;
+        }
+        const float delta_x = player.feet_x - creature.state.position_x;
+        const float delta_z = player.feet_z - creature.state.position_z;
+        const float distance_squared = delta_x * delta_x + delta_z * delta_z;
+        if (!std::isfinite(distance_squared) || distance_squared > maximum_distance_squared) {
+            continue;
+        }
+        if (closest == nullptr || distance_squared < out_distance_squared ||
+            (distance_squared == out_distance_squared && player.account_id < closest->account_id)) {
+            closest = &player;
+            out_distance_squared = distance_squared;
+        }
+    }
+    return closest;
+}
+
+void GameWildCreatureSystem::try_attack_player(
+    WildCreature& creature, const GameWildCreaturePlayerTarget& target,
+    float attack_damage, uint64_t attack_cooldown_ticks, uint64_t source_tick) {
+    if (player_damage_sink_ == nullptr || source_tick < creature.next_player_attack_tick) return;
+    auto result = player_damage_sink_->apply_wild_creature_player_damage({
+        .wild_entity_id = creature.state.entity_id,
+        .species_id = creature.state.species_id,
+        .target_account_id = target.account_id,
+        .damage = attack_damage,
+        .source_tick = source_tick,
+    });
+    if (!result) {
+        const auto previous = player_damage_error_ticks_.find(target.account_id);
+        if (previous == player_damage_error_ticks_.end() ||
+            source_tick >= previous->second + kPlayerDamageErrorLogIntervalTicks) {
+            SNT_LOG_WARN("Wild creature %llu could not damage player '%s': %s",
+                         static_cast<unsigned long long>(creature.state.entity_id),
+                         target.account_id.c_str(), result.error().format().c_str());
+            player_damage_error_ticks_.insert_or_assign(target.account_id, source_tick);
+        }
+        return;
+    }
+    player_damage_error_ticks_.erase(target.account_id);
+    creature.next_player_attack_tick = saturation_add(source_tick, attack_cooldown_ticks);
 }
 
 bool GameWildCreatureSystem::choose_wild_wander_target(

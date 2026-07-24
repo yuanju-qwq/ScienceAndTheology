@@ -85,6 +85,9 @@ struct GameServerPlayerConfig {
     uint32_t inventory_slots = 36;
     int32_t inventory_max_stack_size = 64;
     int32_t interaction_reach_blocks = 5;
+    // Online player combat health. Death immediately restores this value after
+    // the server-owned grave/respawn transaction commits.
+    float combat_max_health = 20.0f;
     float movement_walk_speed_blocks_per_second = 4.3f;
     float movement_sprint_multiplier = 1.45f;
     float movement_jump_speed_blocks_per_second = 6.2f;

@@ -46,6 +46,10 @@ struct GameServerPlayerStateConfig {
     uint32_t inventory_slots = 36;
     int32_t inventory_max_stack_size = 64;
     int32_t interaction_reach_blocks = 5;
+    // Combat health is an online-only actor value. The server combat service
+    // resets it after a committed death transaction rather than serializing
+    // a legacy vitals payload into SNTP.
+    float combat_max_health = 20.0f;
 };
 
 // A copied, transport-safe view for future AOI and player replication code.
@@ -92,6 +96,15 @@ public:
         const GameAuthenticatedPeer& peer) const;
     [[nodiscard]] snt::core::Expected<void> set_authoritative_organ_state(
         const GameAuthenticatedPeer& peer, GamePlayerOrganState organs);
+    [[nodiscard]] snt::core::Expected<GamePlayerCombatState> combat_state_for_peer(
+        const GameAuthenticatedPeer& peer) const;
+    // Only the server combat service calls these mutations after it has
+    // accepted a trusted server-side damage event. They intentionally are not
+    // reachable from client command payloads.
+    [[nodiscard]] snt::core::Expected<void> apply_nonlethal_combat_damage(
+        const GameAuthenticatedPeer& peer, float damage);
+    [[nodiscard]] snt::core::Expected<void> restore_full_combat_health(
+        const GameAuthenticatedPeer& peer);
     // Rebinds every active player's compact inventory/equipment keys through
     // the stable content-key boundary. The operation is all-or-nothing: an
     // unresolved content definition leaves every active component and the

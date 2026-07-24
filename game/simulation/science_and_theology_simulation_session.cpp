@@ -199,6 +199,18 @@ void ScienceAndTheologySimulationSession::set_creature_presentation_sink(
     if (wild_creature_system_) wild_creature_system_->set_presentation_sink(sink);
 }
 
+void ScienceAndTheologySimulationSession::set_wild_creature_player_target_provider(
+    const IGameWildCreaturePlayerTargetProvider* provider) noexcept {
+    wild_creature_player_target_provider_ = provider;
+    if (wild_creature_system_) wild_creature_system_->set_player_target_provider(provider);
+}
+
+void ScienceAndTheologySimulationSession::set_wild_creature_player_damage_sink(
+    IGameWildCreaturePlayerDamageSink* sink) noexcept {
+    wild_creature_player_damage_sink_ = sink;
+    if (wild_creature_system_) wild_creature_system_->set_player_damage_sink(sink);
+}
+
 void ScienceAndTheologySimulationSession::set_region_topology_event_sink(
     IRegionTopologyEventSink* event_sink) noexcept {
     region_topology_.set_event_sink(event_sink);
@@ -512,6 +524,8 @@ snt::core::Expected<void> ScienceAndTheologySimulationSession::create_world(
     wild_creature_system_ = std::make_unique<GameWildCreatureSystem>(
         *ecosystem_system_, *chunks_, chunk_sidecars_, ecosystem_system_->species_catalog());
     wild_creature_system_->set_presentation_sink(creature_presentation_sink_);
+    wild_creature_system_->set_player_target_provider(wild_creature_player_target_provider_);
+    wild_creature_system_->set_player_damage_sink(wild_creature_player_damage_sink_);
     ecosystem_system_->set_wild_proxy_sink(wild_creature_system_.get());
     ecosystem_system_->set_far_visual_sink(wild_creature_system_.get());
     ecosystem_system_->set_captive_lifecycle_sink(wild_creature_system_.get());
@@ -985,13 +999,19 @@ void ScienceAndTheologySimulationSession::shutdown() noexcept {
         ecosystem_system_->set_far_visual_sink(nullptr);
         ecosystem_system_->set_captive_lifecycle_sink(nullptr);
     }
-    if (wild_creature_system_) wild_creature_system_->set_presentation_sink(nullptr);
+    if (wild_creature_system_) {
+        wild_creature_system_->set_presentation_sink(nullptr);
+        wild_creature_system_->set_player_target_provider(nullptr);
+        wild_creature_system_->set_player_damage_sink(nullptr);
+    }
     wild_creature_system_.reset();
     ecosystem_system_.reset();
     ecosystem_environment_provider_ = nullptr;
     ecosystem_interest_provider_ = nullptr;
     ecosystem_mutation_sink_ = nullptr;
     creature_presentation_sink_ = nullptr;
+    wild_creature_player_target_provider_ = nullptr;
+    wild_creature_player_damage_sink_ = nullptr;
     if (crop_growth_system_) crop_growth_system_->set_mutation_sink(nullptr);
     crop_growth_system_.reset();
     crop_growth_mutation_sink_ = nullptr;

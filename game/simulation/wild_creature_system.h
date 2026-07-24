@@ -16,6 +16,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <string>
 #include <vector>
 
 namespace snt::game {
@@ -58,6 +59,43 @@ struct GameWildCreatureAttackResult {
     float damage_dealt = 0.0f;
     float remaining_health = 0.0f;
     ChunkKey chunk;
+};
+
+// The wildlife simulation sees players only as immutable position values. It
+// never imports player ECS components, transport peers, or persistence state.
+struct GameWildCreaturePlayerTarget {
+    std::string account_id;
+    std::string dimension_id;
+    float feet_x = 0.0f;
+    float feet_y = 0.0f;
+    float feet_z = 0.0f;
+};
+
+class IGameWildCreaturePlayerTargetProvider {
+public:
+    virtual ~IGameWildCreaturePlayerTargetProvider() = default;
+
+    [[nodiscard]] virtual std::vector<GameWildCreaturePlayerTarget>
+    active_wild_creature_player_targets() const = 0;
+};
+
+// A predator attack becomes a value event at the simulation/server boundary.
+// The sink owns health, death, grave, and respawn transactions; wildlife only
+// owns deterministic target selection and cooldown timing.
+struct GameWildCreaturePlayerDamageRequest {
+    uint64_t wild_entity_id = 0;
+    uint16_t species_id = 0;
+    std::string target_account_id;
+    float damage = 0.0f;
+    uint64_t source_tick = 0;
+};
+
+class IGameWildCreaturePlayerDamageSink {
+public:
+    virtual ~IGameWildCreaturePlayerDamageSink() = default;
+
+    [[nodiscard]] virtual snt::core::Expected<void> apply_wild_creature_player_damage(
+        const GameWildCreaturePlayerDamageRequest& request) = 0;
 };
 
 struct GameCaptiveCreatureFeedResult {
@@ -118,6 +156,14 @@ public:
     void set_presentation_sink(IGameCreaturePresentationSink* sink) noexcept {
         presentation_sink_ = sink;
     }
+    void set_player_target_provider(
+        const IGameWildCreaturePlayerTargetProvider* provider) noexcept {
+        player_target_provider_ = provider;
+        player_target_cache_tick_.reset();
+    }
+    void set_player_damage_sink(IGameWildCreaturePlayerDamageSink* sink) noexcept {
+        player_damage_sink_ = sink;
+    }
 
     void request_wild_proxy_rebalance(
         const GameEcosystemWildProxyRebalanceRequest& request) override;
@@ -156,6 +202,7 @@ private:
         float wander_target_y = 0.0f;
         float wander_target_z = 0.0f;
         uint64_t next_wander_tick = 0;
+        uint64_t next_player_attack_tick = 0;
     };
 
     [[nodiscard]] GameCreaturePresentationState make_wild_state(
@@ -167,7 +214,16 @@ private:
     [[nodiscard]] bool advance_wild_creature(
         WildCreature& creature,
         const std::vector<GameCreaturePresentationState>& nearby_creatures,
-        uint64_t source_tick) const;
+        const std::vector<GameWildCreaturePlayerTarget>& nearby_players,
+        uint64_t source_tick);
+    [[nodiscard]] const GameWildCreaturePlayerTarget* closest_player_target(
+        const WildCreature& creature,
+        const std::vector<GameWildCreaturePlayerTarget>& nearby_players,
+        float detection_radius, float& out_distance_squared) const noexcept;
+    void try_attack_player(WildCreature& creature,
+                           const GameWildCreaturePlayerTarget& target,
+                           float attack_damage, uint64_t attack_cooldown_ticks,
+                           uint64_t source_tick);
     [[nodiscard]] bool choose_wild_wander_target(WildCreature& creature,
                                                   uint64_t source_tick) const;
     [[nodiscard]] bool move_wild_toward(WildCreature& creature,
@@ -209,10 +265,15 @@ private:
     const CreatureSpeciesRegistry* species_catalog_ = nullptr;
     GameWildCreatureConfig config_;
     IGameCreaturePresentationSink* presentation_sink_ = nullptr;
+    const IGameWildCreaturePlayerTargetProvider* player_target_provider_ = nullptr;
+    IGameWildCreaturePlayerDamageSink* player_damage_sink_ = nullptr;
+    std::optional<uint64_t> player_target_cache_tick_;
+    std::vector<GameWildCreaturePlayerTarget> player_target_cache_;
     std::map<uint64_t, WildCreature> wild_creatures_;
     std::map<uint64_t, WildCreature> far_visual_creatures_;
     std::map<uint64_t, uint64_t> suppressed_proxy_until_tick_;
     std::map<uint64_t, GameCreaturePresentationState> known_captive_creatures_;
+    std::map<std::string, uint64_t> player_damage_error_ticks_;
 };
 
 }  // namespace snt::game

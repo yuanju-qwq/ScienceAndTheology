@@ -86,6 +86,7 @@
     "inventory_slots": 36,
     "inventory_max_stack_size": 64,
     "interaction_reach_blocks": 5,
+    "combat_max_health": 20.0,
     "movement_walk_speed_blocks_per_second": 4.3,
     "movement_sprint_multiplier": 1.45,
     "movement_jump_speed_blocks_per_second": 6.2,

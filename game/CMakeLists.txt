@@ -333,6 +333,7 @@ add_executable(snt_game_server
     server/game_server_ground_loot_persistence.cpp
     server/game_server_ground_loot_replication.cpp
     server/game_server_inventory_replication.cpp
+    server/game_server_player_combat.cpp
     server/game_server_player_death.cpp
     server/game_server_player_interaction.cpp
     server/game_server_quest_book_replication.cpp
@@ -568,6 +569,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_ground_loot_persistence.cpp
         server/game_server_ground_loot_replication.cpp
         server/game_server_inventory_replication.cpp
+        server/game_server_player_combat.cpp
         server/game_server_player_death.cpp
         server/game_server_player_interaction.cpp
         server/game_server_quest_book_replication.cpp
@@ -609,6 +611,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_remote_player_presentation_world.cpp
         tests/test_player_state_persistence.cpp
         tests/test_player_replication.cpp
+        tests/test_game_server_player_combat.cpp
         tests/test_game_server_player_death.cpp
         tests/test_game_server_player_interaction.cpp
         tests/test_game_server_quest_events.cpp

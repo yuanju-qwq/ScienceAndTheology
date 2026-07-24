@@ -7,6 +7,7 @@
 
 #include <utility>
 #include <vector>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -57,6 +58,26 @@ struct RecordingPresentationSink final : snt::game::IGameCreaturePresentationSin
     void on_creature_presentation_event(
         const snt::game::GameCreaturePresentationEvent& event) override {
         events.push_back(event);
+    }
+};
+
+struct RecordingPlayerTargetProvider final
+    : snt::game::IGameWildCreaturePlayerTargetProvider {
+    std::vector<snt::game::GameWildCreaturePlayerTarget> targets;
+
+    std::vector<snt::game::GameWildCreaturePlayerTarget>
+    active_wild_creature_player_targets() const override {
+        return targets;
+    }
+};
+
+struct RecordingPlayerDamageSink final : snt::game::IGameWildCreaturePlayerDamageSink {
+    std::vector<snt::game::GameWildCreaturePlayerDamageRequest> requests;
+
+    snt::core::Expected<void> apply_wild_creature_player_damage(
+        const snt::game::GameWildCreaturePlayerDamageRequest& request) override {
+        requests.push_back(request);
+        return {};
     }
 };
 
@@ -410,6 +431,66 @@ TEST(GameWildCreatureSystemTest, MovesInteractivePredatorsTowardNearbyHerbivores
             snt::game::GameCreaturePresentationEventKind::kUpdated;
     }
     EXPECT_TRUE(saw_update);
+}
+
+TEST(GameWildCreatureSystemTest, EmitsCooldownBoundedDamageForNearbyPlayerTargets) {
+    const auto worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    const snt::voxel::ChunkKey chunk{"overworld", 0, 0, 0};
+    add_active_chunk(chunks, chunk, worldgen.roles.dirt);
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen);
+    snt::game::CreatureSpeciesRegistry species;
+    snt::game::CreatureSpeciesDef predator{
+        .species_id = 700,
+        .species_key = "test_predator",
+        .role = snt::game::CreatureRole::PREDATOR,
+        .move_speed = 0.1f,
+        .base_health = 1.0f,
+        .player_detection_radius = 8.0f,
+        .player_attack_range = 2.0f,
+        .player_attack_damage = 2.5f,
+        .player_attack_cooldown_ticks = 5,
+    };
+    ASSERT_TRUE(species.register_species(predator));
+    snt::game::GameWildCreatureConfig config;
+    config.wild_wander_interval_ticks = 0;
+    snt::game::GameWildCreatureSystem wildlife(ecosystem, chunks, sidecars, species, config);
+    RecordingPlayerTargetProvider targets;
+    RecordingPlayerDamageSink damage;
+    wildlife.set_player_target_provider(&targets);
+    wildlife.set_player_damage_sink(&damage);
+    wildlife.request_wild_proxy_rebalance({
+        .chunk = chunk,
+        .source_tick = 1,
+        .proxies = {{
+            .stable_id = 81,
+            .species_id = 700,
+            .role = snt::game::CreatureRole::PREDATOR,
+            .slot = 0,
+        }},
+    });
+    const auto spawned = wildlife.find_wild_creature(81);
+    ASSERT_TRUE(spawned.has_value());
+    targets.targets = {{
+        .account_id = "local-name:Wild Target",
+        .dimension_id = "overworld",
+        .feet_x = spawned->position_x,
+        .feet_y = spawned->position_y,
+        .feet_z = spawned->position_z,
+    }};
+
+    wildlife.tick_interactive_wild_creatures({.chunk = chunk, .source_tick = 2});
+    ASSERT_EQ(damage.requests.size(), 1u);
+    EXPECT_EQ(damage.requests.front().wild_entity_id, 81u);
+    EXPECT_EQ(damage.requests.front().species_id, 700u);
+    EXPECT_EQ(damage.requests.front().target_account_id, "local-name:Wild Target");
+    EXPECT_FLOAT_EQ(damage.requests.front().damage, 2.5f);
+
+    wildlife.tick_interactive_wild_creatures({.chunk = chunk, .source_tick = 3});
+    EXPECT_EQ(damage.requests.size(), 1u);
+    wildlife.tick_interactive_wild_creatures({.chunk = chunk, .source_tick = 7});
+    EXPECT_EQ(damage.requests.size(), 2u);
 }
 
 TEST(GameWildCreatureSystemTest, DoesNotAdvanceFarVisualWildCreatures) {

@@ -92,6 +92,14 @@ struct CreatureSpeciesDef {
     // 0.0 = use global default from EcosystemParams.
     float flee_detection_radius = 0.0f;
 
+    // Predators with a positive complete tuple may target active players in
+    // the same dimension. The simulation emits a value damage event through
+    // its server-owned sink; zero keeps a species non-hostile to players.
+    float player_detection_radius = 0.0f;
+    float player_attack_range = 0.0f;
+    float player_attack_damage = 0.0f;
+    uint64_t player_attack_cooldown_ticks = 0;
+
     // Wander radius in blocks.
     // 0.0 = use global default from EcosystemParams.
     float wander_radius = 0.0f;

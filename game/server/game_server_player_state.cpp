@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -26,6 +27,7 @@ constexpr size_t kMaxOrganPayloadBytes = 64u * 1024u;
 constexpr uint32_t kMaxInventorySlots = 256;
 constexpr int32_t kMaxInventoryStackSize = 65536;
 constexpr size_t kMaxInventoryTransactionEntries = 128;
+constexpr float kMaxCombatHealth = 1000000.0f;
 
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
@@ -125,6 +127,10 @@ snt::core::Expected<std::unique_ptr<GameServerPlayerState>> GameServerPlayerStat
     }
     if (config.interaction_reach_blocks <= 0 || config.interaction_reach_blocks > 256) {
         return invalid_argument("Dedicated server player interaction reach is invalid");
+    }
+    if (!std::isfinite(config.combat_max_health) || config.combat_max_health <= 0.0f ||
+        config.combat_max_health > kMaxCombatHealth) {
+        return invalid_argument("Dedicated server player combat health is invalid");
     }
     return std::unique_ptr<GameServerPlayerState>(
         new GameServerPlayerState(world, std::move(config)));
@@ -293,6 +299,68 @@ snt::core::Expected<void> GameServerPlayerState::set_authoritative_organ_state(
     auto entity = entity_for_record(**record);
     if (!entity) return entity.error();
     world_->get_component<GamePlayerOrganState>(*entity) = std::move(organs);
+    return {};
+}
+
+snt::core::Expected<GamePlayerCombatState> GameServerPlayerState::combat_state_for_peer(
+    const GameAuthenticatedPeer& peer) const {
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+    const GamePlayerCombatState& combat = world_->get_component<GamePlayerCombatState>(*entity);
+    if (!std::isfinite(combat.health_current) || !std::isfinite(combat.health_max) ||
+        combat.health_max <= 0.0f || combat.health_current <= 0.0f ||
+        combat.health_current > combat.health_max) {
+        return invalid_state("Authoritative player has invalid combat health state");
+    }
+    return combat;
+}
+
+snt::core::Expected<void> GameServerPlayerState::apply_nonlethal_combat_damage(
+    const GameAuthenticatedPeer& peer, float damage) {
+    if (!std::isfinite(damage) || damage <= 0.0f) {
+        return invalid_argument("Authoritative player combat damage is invalid");
+    }
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+    GamePlayerCombatState& combat = world_->get_component<GamePlayerCombatState>(*entity);
+    if (!std::isfinite(combat.health_current) || !std::isfinite(combat.health_max) ||
+        combat.health_max <= 0.0f || combat.health_current <= 0.0f ||
+        combat.health_current > combat.health_max) {
+        return invalid_state("Authoritative player has invalid combat health state");
+    }
+    if (damage >= combat.health_current) {
+        return invalid_argument("Nonlethal player combat damage would kill the actor");
+    }
+    if (combat.revision == std::numeric_limits<uint64_t>::max()) {
+        return invalid_state("Authoritative player combat health revision is exhausted");
+    }
+    combat.health_current -= damage;
+    ++combat.revision;
+    return {};
+}
+
+snt::core::Expected<void> GameServerPlayerState::restore_full_combat_health(
+    const GameAuthenticatedPeer& peer) {
+    auto record = find_active_record(peer);
+    if (!record) return record.error();
+    auto entity = entity_for_record(**record);
+    if (!entity) return entity.error();
+    GamePlayerCombatState& combat = world_->get_component<GamePlayerCombatState>(*entity);
+    if (!std::isfinite(combat.health_current) || !std::isfinite(combat.health_max) ||
+        combat.health_max <= 0.0f || combat.health_current <= 0.0f ||
+        combat.health_current > combat.health_max) {
+        return invalid_state("Authoritative player has invalid combat health state");
+    }
+    if (combat.health_current == combat.health_max) return {};
+    if (combat.revision == std::numeric_limits<uint64_t>::max()) {
+        return invalid_state("Authoritative player combat health revision is exhausted");
+    }
+    combat.health_current = combat.health_max;
+    ++combat.revision;
     return {};
 }
 
@@ -1075,7 +1143,8 @@ snt::core::Expected<entt::entity> GameServerPlayerState::entity_for_record(
                                    snt::ecs::Position,
                                    GamePlayerRuntimeInventory,
                                    GamePlayerRuntimeEquipment,
-                                   GamePlayerOrganState>(entity)) {
+                                   GamePlayerOrganState,
+                                   GamePlayerCombatState>(entity)) {
         return invalid_state("Authoritative player entity is absent or has invalid components");
     }
     return entity;
@@ -1134,6 +1203,11 @@ snt::core::Expected<snt::ecs::EntityGuid> GameServerPlayerState::create_player_e
     world_->add_component<GamePlayerRuntimeInventory>(entity, std::move(*inventory));
     world_->add_component<GamePlayerRuntimeEquipment>(entity, std::move(*equipment));
     world_->add_component<GamePlayerOrganState>(entity, state.organs);
+    world_->add_component<GamePlayerCombatState>(entity, GamePlayerCombatState{
+        .health_current = config_.combat_max_health,
+        .health_max = config_.combat_max_health,
+        .revision = 1,
+    });
     return world_->guid_of(entity);
 }
 
