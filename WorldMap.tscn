@@ -1,11 +1,10 @@
-[gd_scene load_steps=34 format=3 uid="uid://ddtupowwrw65p"]
+[gd_scene load_steps=33 format=3 uid="uid://ddtupowwrw65p"]
 
 [ext_resource type="Script" uid="uid://v87r31n74y3q" path="res://scripts/ConnectorManager.gd" id="1_connector_manager"]
 [ext_resource type="Script" uid="uid://ciia7ctt4dry6" path="res://scripts/MechanismManager.gd" id="2_mechanism_manager"]
 [ext_resource type="Script" uid="uid://m5323dosnwp5" path="res://scripts/simulation/GameCommandServer.gd" id="6_command_server"]
 [ext_resource type="Script" path="res://scripts/world/PlanetShellAsyncChunkRendererBridge.gd" id="7_chunk_bridge"]
 [ext_resource type="Script" path="res://scripts/world/WorldObjectRenderer.gd" id="8_object_renderer"]
-[ext_resource type="Script" path="res://scripts/world/CreatureRenderer.gd" id="20_creature_renderer"]
 [ext_resource type="Script" uid="uid://dk4f2qoffbe2e" path="res://scripts/PlayerController.gd" id="9_player_controller"]
 [ext_resource type="Script" uid="uid://cyfyygalo12ip" path="res://scripts/ui/HotbarUI.gd" id="10_hotbar_ui"]
 [ext_resource type="Script" uid="uid://ban7lg82c6wpe" path="res://scripts/ui/InventoryUI.gd" id="11_inventory_ui"]
@@ -140,9 +139,6 @@ script = ExtResource("33_machine_collision_bridge")
 
 [node name="WorldObjectRenderer" type="Node3D" parent="."]
 script = ExtResource("8_object_renderer")
-
-[node name="CreatureRenderer" type="Node3D" parent="."]
-script = ExtResource("20_creature_renderer")
 
 [node name="SelectionBox" type="MeshInstance3D" parent="."]
 visible = false

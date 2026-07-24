@@ -69,7 +69,6 @@ var _ws_window: Window
 var _ws_day_night: CheckBox
 var _ws_day_length: SpinBox
 var _ws_seasons: CheckBox
-var _ws_ecosystem: CheckBox
 var _ws_collapse: CheckBox
 var _ws_gravity: CheckBox
 var _ps_window: Window
@@ -683,14 +682,6 @@ func _build_world_settings_window() -> void:
 	sn_row.add_child(_make_label("", 0))
 	inner.add_child(sn_row)
 
-	# Ecosystem toggle.
-	var ec_row := HBoxContainer.new()
-	ec_row.add_theme_constant_override("separation", 8)
-	_ws_ecosystem = _make_checkbox("menu.ecosystem", true)
-	ec_row.add_child(_ws_ecosystem)
-	ec_row.add_child(_make_label("", 0))
-	inner.add_child(ec_row)
-
 	# Collapse toggle.
 	var cl_row := HBoxContainer.new()
 	cl_row.add_theme_constant_override("separation", 8)
@@ -732,7 +723,6 @@ func _open_world_settings() -> void:
 	_ws_day_night.button_pressed = _temp_gameplay_config.get("enable_day_night", true)
 	_ws_day_length.value = _temp_gameplay_config.get("day_length_seconds", 600.0)
 	_ws_seasons.button_pressed = _temp_gameplay_config.get("enable_season_colors", true)
-	_ws_ecosystem.button_pressed = _temp_gameplay_config.get("enable_ecosystem", true)
 	_ws_collapse.button_pressed = _temp_gameplay_config.get("enable_collapse", true)
 	_ws_gravity.button_pressed = _temp_gameplay_config.get("enable_gravity_fall", true)
 	add_child(_ws_window)
@@ -744,7 +734,6 @@ func _save_world_settings() -> void:
 		"enable_day_night": _ws_day_night.button_pressed,
 		"day_length_seconds": _ws_day_length.value,
 		"enable_season_colors": _ws_seasons.button_pressed,
-		"enable_ecosystem": _ws_ecosystem.button_pressed,
 		"enable_collapse": _ws_collapse.button_pressed,
 		"enable_gravity_fall": _ws_gravity.button_pressed,
 	}

@@ -509,11 +509,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and not input_locked:
 		var mouse_event: InputEventMouseButton = event
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
-			if not interaction.try_attack_creature():
-				if interaction.try_mine_target(target):
-					if hand:
-						hand.swing()
-			else:
+			if interaction.try_mine_target(target):
 				if hand:
 					hand.swing()
 		elif mouse_event.button_index == MOUSE_BUTTON_RIGHT:

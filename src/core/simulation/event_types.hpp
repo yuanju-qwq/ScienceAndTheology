@@ -71,22 +71,6 @@ enum class GameEventType : uint32_t {
     HUNGER_LEVEL_CHANGED    = 641,
     SOURCE_ESSENCE_CHANGED  = 642,
 
-    // Ecosystem events
-    ECOSYSTEM_POPULATION_CHANGED = 800,
-    CREATURE_SPAWNED             = 801,
-    CREATURE_DESPAWNED           = 802,
-    CREATURE_DAMAGED             = 803,
-    CREATURE_KILLED              = 804,
-    CREATURE_MOVED               = 805,
-    // Captive / husbandry events
-    CREATURE_CAPTURED            = 806,
-    CREATURE_TAMED               = 807,
-    CREATURE_BRED                = 808,
-    CREATURE_GROWN               = 809,
-    CAPTIVE_CREATURE_ADDED       = 810,
-    CAPTIVE_CREATURE_REMOVED     = 811,
-    CAPTIVE_CREATURE_MOVED       = 812,
-
     // Quest events
     QUEST_UNLOCKED          = 900,
     QUEST_COMPLETED         = 901,
@@ -187,105 +171,6 @@ struct GameEvent {
 
     static GameEvent source_essence_changed(
         uint64_t player_handle, float old_total, float new_total);
-
-    // --- Ecosystem event factories ---
-
-    static GameEvent ecosystem_population_changed(
-        const std::string& dimension,
-        int cx, int cy, int cz,
-        float old_veg, float new_veg,
-        float old_herb, float new_herb,
-        float old_pred, float new_pred);
-
-    static GameEvent creature_spawned(
-        uint64_t creature_id, const std::string& species_key,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    static GameEvent creature_despawned(
-        uint64_t creature_id, const std::string& species_key,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // Creature damaged by player attack.
-    // creature_id: the proxy entity that was hit.
-    // species_id: species definition ID for species-specific data.
-    // damage: amount of health reduced [0, 1].
-    // remaining_health: health after damage [0, 1].
-    static GameEvent creature_damaged(
-        uint64_t creature_id, uint16_t species_id,
-        float damage, float remaining_health,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // Creature killed by player attack.
-    // creature_id: the proxy entity that was killed.
-    // species_id: species definition ID for loot table lookup.
-    // dimension / cx, cy, cz: chunk location for density feedback.
-    static GameEvent creature_killed(
-        uint64_t creature_id, uint16_t species_id,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // Creature moved to a new position (proxy AI tick).
-    // creature_id: the proxy entity that moved.
-    // species_key: species key string for rendering lookup.
-    // pos_x/y/z: new world position in block coordinates.
-    // Emitted at most once per creature per tick, only when position changed.
-    static GameEvent creature_moved(
-        uint64_t creature_id, const std::string& species_key,
-        float pos_x, float pos_y, float pos_z);
-
-    // --- Captive / husbandry event factories ---
-
-    // A wild creature was captured into a pen (detached from wild population).
-    // creature_id: runtime id of the new captive creature.
-    // species_id: species definition ID.
-    // dimension / cx, cy, cz: chunk location where the creature is held.
-    static GameEvent creature_captured(
-        uint64_t creature_id, uint16_t species_id,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // A captive creature finished taming (is_tamed became true).
-    static GameEvent creature_tamed(
-        uint64_t creature_id, uint16_t species_id,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // A baby was born to two tamed parents (breeding completed).
-    // creature_id: runtime id of the newborn.
-    // species_id: species of the newborn.
-    static GameEvent creature_bred(
-        uint64_t creature_id, uint16_t species_id,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // A baby grew into an adult.
-    static GameEvent creature_grown(
-        uint64_t creature_id, uint16_t species_id,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // A captive creature became renderable (chunk activated / restored).
-    // Renders the same as a proxy but persistent. Carries age/tame flags.
-    // string_data["species_key"], int_data["age_stage"], int_data["is_tamed"].
-    static GameEvent captive_creature_added(
-        uint64_t creature_id, const std::string& species_key,
-        uint16_t species_id, uint8_t age_stage, bool is_tamed,
-        float pos_x, float pos_y, float pos_z,
-        const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // A captive creature became non-renderable (chunk deactivated).
-    static GameEvent captive_creature_removed(
-        uint64_t creature_id, const std::string& dimension,
-        int cx, int cy, int cz);
-
-    // A captive creature moved (wander AI tick).
-    static GameEvent captive_creature_moved(
-        uint64_t creature_id, const std::string& species_key,
-        float pos_x, float pos_y, float pos_z);
 
     // --- Region event factories ---
 

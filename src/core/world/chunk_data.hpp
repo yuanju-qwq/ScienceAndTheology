@@ -9,8 +9,6 @@
 #include "terrain_data.hpp"
 #include "entity_data.hpp"
 #include "block_entity.hpp"
-#include "simulation/population_cell.hpp"
-#include "simulation/captive_creature.hpp"
 
 namespace science_and_theology {
 
@@ -130,25 +128,6 @@ struct ChunkData {
     // Connector runtime IDs (set after ConnectorManager instantiation).
     std::vector<ConnectorId> connector_ids;
 
-    // --- Ecosystem population data ---
-
-    // If true, this chunk has persisted ecosystem population data.
-    // When false, EcosystemSystem will initialize defaults on first tick.
-    bool has_population_cell = false;
-
-    // Per-chunk ecosystem population density (vegetation, herbivore, predator, etc.).
-    // Written by EcosystemSystem before save, restored on load.
-    PopulationCell population_cell{};
-
-    // --- Captive creatures (pen / husbandry) ---
-
-    // If true, this chunk has persisted captive creature data.
-    bool has_captive_creatures = false;
-
-    // Captive creatures whose capture position is in this chunk.
-    // These are persistent individuals detached from the wild population.
-    // Written by EcosystemSystem before save, restored on load.
-    std::vector<CaptiveCreature> captive_creatures;
 };
 
 } // namespace science_and_theology

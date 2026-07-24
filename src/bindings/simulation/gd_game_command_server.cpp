@@ -684,7 +684,7 @@ Dictionary GDGameCommandServer::cmd_place_object(const Dictionary& command) {
         }
     } else if (object_type == object_fence()) {
         // Fences are placed as terrain cells (snt:fence material).
-        // Used to enclose areas for captive creature husbandry.
+        // Fences remain terrain cells until their current gameplay owner reads them.
         if (world_data_ == nullptr) {
             add_inventory_item(item_id, 1, kSecondaryNone, false);
             return reject(command_place_object(), "world data is not available");

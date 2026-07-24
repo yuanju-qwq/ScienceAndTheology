@@ -33,7 +33,6 @@ public:
 
         // Type-specific runtime state.
         // Only one variant is active at a time, determined by entity_type.
-        CreatureBlockEntityState creature_state;
         MachineBlockEntityState machine_state;
         PipeBlockEntityState pipe_state;
         CableBlockEntityState cable_state;
@@ -56,17 +55,6 @@ public:
     EntityId next_id();
 
     // --- Registration ---
-
-    // Register a tree block entity. Returns its assigned EntityId.
-    // Register a creature block entity. Returns its assigned EntityId.
-    // species_id: references CreatureSpeciesRegistry definition.
-    // role: cached behavioral role (HERBIVORE/PREDATOR), set from species def.
-    EntityId register_creature_entity(
-        const std::string& dimension_id,
-        int32_t root_x, int32_t root_y, int32_t root_z,
-        uint16_t species_id,
-        CreatureRole role,
-        int64_t spawn_tick);
 
     // Register a machine block entity. Returns its assigned EntityId.
     // machine_type: short key (e.g. "furnace", "coke_oven") used by bindings
@@ -156,11 +144,6 @@ public:
 
     // Returns the BlockEntityType for a given entity, or NONE if not found.
     BlockEntityType get_entity_type(EntityId id) const;
-
-    // Returns the tree state for a given entity, or nullptr if not a tree.
-    // Returns the creature state for a given entity, or nullptr if not a creature.
-    const CreatureBlockEntityState* get_creature_state(EntityId id) const;
-    CreatureBlockEntityState* get_creature_state_mut(EntityId id);
 
     // Returns the machine state for a given entity, or nullptr if not a machine.
     const MachineBlockEntityState* get_machine_state(EntityId id) const;

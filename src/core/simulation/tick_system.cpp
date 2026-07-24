@@ -1,5 +1,4 @@
 #include "tick_system.hpp"
-#include "ecosystem_system.hpp"
 #include "season_system.hpp"
 #include "../world/world_data.hpp"
 #include <algorithm>
@@ -494,9 +493,7 @@ TickContext TickSystem::build_tick_context() const {
     TickContext ctx;
     for (const auto& sys : subsystems_) {
         const char* n = sys->name();
-        if (std::strcmp(n, "EcosystemSystem") == 0) {
-            ctx.ecosystem = static_cast<EcosystemSystem*>(sys.get());
-        } else if (std::strcmp(n, "SeasonSystem") == 0) {
+        if (std::strcmp(n, "SeasonSystem") == 0) {
             ctx.season = static_cast<SeasonSystem*>(sys.get());
         }
     }

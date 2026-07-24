@@ -11,7 +11,6 @@
 
 #include "core/simulation/tick_system.hpp"
 #include "core/simulation/day_night_system.hpp"
-#include "core/simulation/ecosystem_system.hpp"
 
 namespace science_and_theology {
 
@@ -49,12 +48,6 @@ public:
     // first (before other subsystems) since it runs at priority 0.
     void register_day_night_system();
 
-    // Register the ecosystem simulation subsystem.
-    // Must be called after set_world_data(). Manages population
-    // dynamics (vegetation, herbivores, predators) and proxy
-    // creature entities. Should be registered after register_season_system().
-    void register_ecosystem_system();
-
     // --- Day/Night query ---
 
     // Returns the current day/night state as a Dictionary.
@@ -65,43 +58,6 @@ public:
 
     // Convenience: returns true if the sun is above the horizon.
     bool get_is_daytime() const;
-
-    // --- Ecosystem query ---
-
-    // Returns the population data for a chunk as a Dictionary.
-    // Keys: "vegetation", "herbivore", "predator", "fertility", "water", "dead_biomass".
-    godot::Dictionary get_population_data(
-        const godot::String& dimension, int cx, int cy, int cz) const;
-
-    // Returns the total vegetation density across all tracked chunks.
-    float get_total_vegetation() const;
-
-    // Returns the total herbivore density across all tracked chunks.
-    float get_total_herbivore() const;
-
-    // Returns the total predator density across all tracked chunks.
-    float get_total_predator() const;
-
-    // Returns the total number of active proxy creatures.
-    int64_t get_total_proxy_count() const;
-
-    // Returns proxy creature data for a chunk as an Array of Dictionaries.
-    // Each dict: { "id": int, "type": String, "state": String,
-    //              "pos_x": float, "pos_y": float, "pos_z": float }
-    godot::Array get_proxy_data(
-        const godot::String& dimension, int cx, int cy, int cz) const;
-
-    // Sync all ecosystem population data to ChunkData for persistence.
-    // Must be called before save_dimension() to ensure ecosystem state
-    // is included in the save. Low-frequency sync also happens
-    // automatically during tick_active() at diffusion cadence.
-    void sync_ecosystem_to_chunks();
-
-    // Restore ecosystem population data from ChunkData.
-    // Called automatically during initialize(), but can also be
-    // called manually after load_dimension() if the ecosystem system
-    // was already initialized before the load.
-    void restore_ecosystem_from_chunks();
 
     // Advance simulation by one frame.
     void tick(float delta);
@@ -207,73 +163,6 @@ public:
     godot::Dictionary create_snapshot(
         const godot::String& dimension, int cx, int cy, int cz);
 
-    // --- Player combat (hunting) ---
-
-    // Attempt to attack a creature near the player's look direction.
-    // dimension: the player's current dimension string.
-    // player_pos: Vector3 of the player's world position.
-    // look_dir: Vector3 of the player's normalized look direction.
-    // reach: maximum attack distance in blocks.
-    // damage: damage amount [0, 1] to apply.
-    // Returns a Dictionary with keys:
-    //   "hit": bool, "killed": bool, "creature_id": int,
-    //   "species_id": int, "damage_dealt": float, "remaining_health": float,
-    //   "chunk": Dictionary (dimension, cx, cy, cz)
-    godot::Dictionary attack_creature(
-        const godot::String& dimension,
-        const godot::Vector3& player_pos,
-        const godot::Vector3& look_dir,
-        float reach, float damage);
-
-    // --- Species drop table query ---
-
-    // Get the drop table for a species as an Array of Dictionaries.
-    // Each dict: { "item_key": String, "chance": float,
-    //              "min_count": int, "max_count": int }
-    // Returns empty array if species_id is invalid.
-    godot::Array get_species_drops(int64_t species_id) const;
-
-    // --- Player stewardship (feeding) ---
-
-    // Feed creatures in a chunk, increasing population density.
-    // dimension: the dimension string (e.g. "overworld").
-    // cx, cy, cz: chunk coordinates.
-    // role: 0 = HERBIVORE, 1 = PREDATOR.
-    // amount: positive density increment [0, 1].
-    // Returns true if the chunk had a population cell.
-    bool feed_creatures(
-        const godot::String& dimension,
-        int64_t cx, int64_t cy, int64_t cz,
-        int64_t role, float amount);
-
-    // --- Captive / husbandry ---
-
-    // Attempt to feed / interact with a creature the player is aiming at.
-    // If the target is a wild proxy inside a fence enclosure, it is
-    // captured (detached from the wild population). If the target is a
-    // captive creature, feeding boosts taming or triggers breeding.
-    // Returns a Dictionary with keys:
-    //   "hit": bool, "creature_id": int, "species_id": int,
-    //   "outcome": String ("miss"/"captured"/"taming"/"bred"/"fed"
-    //                       /"no_enclosure"/"pen_full"),
-    //   "chunk": Dictionary (dimension, cx, cy, cz)
-    godot::Dictionary feed_creature_at(
-        const godot::String& dimension,
-        const godot::Vector3& player_pos,
-        const godot::Vector3& look_dir,
-        float reach);
-
-    // Returns the total number of captive creatures across all chunks.
-    int64_t get_total_captive_count() const;
-
-    // Returns captive creature data for a chunk as an Array of Dictionaries.
-    // Each dict: { "runtime_id": int, "species_id": int, "age_stage": int,
-    //              "is_tamed": bool, "is_pregnant": bool,
-    //              "pos_x": float, "pos_y": float, "pos_z": float }
-    // age_stage: 0 = BABY, 1 = ADULT.
-    godot::Array get_captive_data(
-        const godot::String& dimension, int cx, int cy, int cz) const;
-
 protected:
     static void _bind_methods();
 
@@ -294,9 +183,6 @@ private:
 
     // Raw pointer to the DayNightSystem (owned by tick_system_).
     DayNightSystem* day_night_system_ = nullptr;
-
-    // Raw pointer to the EcosystemSystem (owned by tick_system_).
-    EcosystemSystem* ecosystem_system_ = nullptr;
 
     std::vector<EventBus::HandlerId> event_subscriptions_;
 };

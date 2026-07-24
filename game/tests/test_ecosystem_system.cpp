@@ -1,11 +1,14 @@
 // Game-owned ecosystem regression coverage.
 
 #include "game/simulation/ecosystem_system.h"
+#include "game/simulation/wild_creature_system.h"
 
 #include "voxel/data/chunk_registry.h"
 #include "voxel/data/voxel_chunk.h"
 
 #include <algorithm>
+#include <chrono>
+#include <iostream>
 #include <utility>
 #include <vector>
 
@@ -465,4 +468,62 @@ TEST(GameEcosystemSystemTest, CatchesUpOnlyWhenAPlayerReactivatesMacroCircle) {
                        snt::game::GameEcosystemPopulationMutationKind::kMacroCatchUp &&
                    mutation.source_tick == 11;
         }));
+}
+
+// Manual performance coverage for the default one-player ecology footprint.
+// It is disabled in normal CI because elapsed wall-clock time is machine
+// dependent. Run it explicitly with:
+//   snt_game_tests --gtest_filter=GameEcosystemSystemBenchmark.DISABLED_*
+//                  --gtest_also_run_disabled_tests
+TEST(GameEcosystemSystemBenchmark, DISABLED_MeasuresDefaultPlayerFootprint) {
+    constexpr int32_t kHorizontalRadius = 4;
+    constexpr int32_t kVerticalRadius = 1;
+    constexpr uint64_t kWarmupTicks = 20;
+    constexpr uint64_t kMeasuredTicks = 2000;
+
+    const snt::game::WorldGenConfigSnapshot worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    for (int32_t chunk_y = -kVerticalRadius; chunk_y <= kVerticalRadius; ++chunk_y) {
+        for (int32_t chunk_z = -kHorizontalRadius; chunk_z <= kHorizontalRadius; ++chunk_z) {
+            for (int32_t chunk_x = -kHorizontalRadius; chunk_x <= kHorizontalRadius; ++chunk_x) {
+                add_active_chunk(chunks, {"overworld", chunk_x, chunk_y, chunk_z},
+                                 worldgen.roles.dirt);
+            }
+        }
+    }
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemConfig config;
+    config.macro_horizontal_radius_chunks = kHorizontalRadius;
+    config.macro_vertical_radius_chunks = kVerticalRadius;
+    config.visual_horizontal_radius_chunks = kHorizontalRadius;
+    config.visual_vertical_radius_chunks = kVerticalRadius;
+    config.interactive_horizontal_radius_chunks = 1;
+    config.interactive_vertical_radius_chunks = 1;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen, config);
+    snt::game::GameWildCreatureSystem wildlife(
+        ecosystem, chunks, sidecars, snt::game::builtin_creature_species());
+    FixedInterestProvider interests;
+    interests.centers = {{{"overworld", 0, 0, 0}}};
+    ecosystem.set_interest_provider(&interests);
+    ecosystem.set_wild_proxy_sink(&wildlife);
+    ecosystem.set_far_visual_sink(&wildlife);
+    ecosystem.set_captive_lifecycle_sink(&wildlife);
+
+    for (uint64_t tick = 1; tick <= kWarmupTicks; ++tick) {
+        ecosystem.tick(tick, snt::game::Season::SPRING);
+    }
+    EXPECT_EQ(ecosystem.population_cell_count(), 147u);
+
+    const auto start = std::chrono::steady_clock::now();
+    for (uint64_t offset = 1; offset <= kMeasuredTicks; ++offset) {
+        ecosystem.tick(kWarmupTicks + offset, snt::game::Season::SPRING);
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const double elapsed_milliseconds = std::chrono::duration<double, std::milli>(elapsed).count();
+    const double average_microseconds = elapsed_milliseconds * 1000.0 /
+        static_cast<double>(kMeasuredTicks);
+    std::cout << "[ecosystem benchmark] loaded_chunks=243 active_population_cells=147 "
+              << "measured_ticks=" << kMeasuredTicks
+              << " total_ms=" << elapsed_milliseconds
+              << " average_us_per_tick=" << average_microseconds << '\n';
 }

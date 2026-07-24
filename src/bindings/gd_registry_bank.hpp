@@ -19,8 +19,7 @@ public:
 
     // 重置单个 registry（按名称）。
     // 支持的名称：material, item, fluid, fuel, rune, glyph,
-    // ritual_recipe, elixir, sublimation_path, dropped_organ,
-    // species, biome_override
+    // ritual_recipe, elixir, sublimation_path, dropped_organ
     static void reset_one(const godot::String& registry_name);
 
 protected:

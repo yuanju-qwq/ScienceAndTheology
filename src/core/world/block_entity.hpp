@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "entity_data.hpp"
-#include "simulation/creature_species.hpp"
 #include "../network/pipe_types.hpp"
 #include "../config/gt_values.hpp"
 #include "../world_gen/crop_species_def.hpp"
@@ -36,18 +35,17 @@ namespace science_and_theology {
 enum class BlockEntityType : uint8_t {
     NONE        = 0,
     MACHINE     = 1,
-    CREATURE    = 2,
-    PIPE        = 3,
-    CABLE       = 4,
-    FARMLAND    = 5,   // Tilled farmland (holds moisture/fertility)
-    CROP        = 6,   // Crop planted on farmland
-    SIGNAL_WIRE = 7,   // Signal wire segment (per-block signal network)
-    CUSTOM      = 8,   // Mod-registered block entity type
-    COUNT       = 9,
+    PIPE        = 2,
+    CABLE       = 3,
+    FARMLAND    = 4,   // Tilled farmland (holds moisture/fertility)
+    CROP        = 5,   // Crop planted on farmland
+    SIGNAL_WIRE = 6,   // Signal wire segment (per-block signal network)
+    CUSTOM      = 7,   // Mod-registered block entity type
+    COUNT       = 8,
 };
 
 constexpr const char* kBlockEntityTypeNames[] = {
-    "None", "Machine", "Creature", "Pipe", "Cable",
+    "None", "Machine", "Pipe", "Cable",
     "Farmland", "Crop", "SignalWire", "Custom",
 };
 
@@ -94,61 +92,6 @@ struct BlockEntityPlacement {
 
     // Number of owned cells (for serialization bounds checking).
     uint32_t owned_cell_count = 0;
-};
-
-// ============================================================
-// CreatureBlockEntityState — proxy creature entity for ecosystem
-// ============================================================
-//
-// Proxy creatures are visual representations of population density.
-// They are spawned in active chunks based on PopulationCell density
-// and despawned when the chunk goes to sleep.
-//
-// AI states:
-//   IDLE     — standing still, waiting for next action
-//   WANDERING — moving toward a random target within the chunk
-//   FLEEING   — running away from a nearby predator (herbivores only)
-
-enum class CreatureState : uint8_t {
-    IDLE      = 0,
-    WANDERING = 1,
-    FLEEING   = 2,
-    COUNT     = 3,
-};
-
-constexpr const char* kCreatureStateNames[] = {
-    "Idle", "Wandering", "Fleeing",
-};
-
-struct CreatureBlockEntityState {
-    // Species identifier (references CreatureSpeciesRegistry).
-    // 0 = invalid, must be set before first tick.
-    uint16_t species_id = 0;
-
-    // Cached behavioral role. Set at spawn time from species definition.
-    // Avoids per-tick registry lookups in the AI hot path.
-    CreatureRole creature_role = CreatureRole::HERBIVORE;
-
-    CreatureState ai_state = CreatureState::IDLE;
-    float health = 1.0f;
-    int64_t spawn_tick = 0;
-
-    // Current position (world block coordinates).
-    float pos_x = 0.0f;
-    float pos_y = 0.0f;
-    float pos_z = 0.0f;
-
-    // Wander target position.
-    float wander_target_x = 0.0f;
-    float wander_target_y = 0.0f;
-    float wander_target_z = 0.0f;
-    int64_t next_wander_tick = 0;
-
-    // Flee target: position to run away from.
-    float flee_from_x = 0.0f;
-    float flee_from_y = 0.0f;
-    float flee_from_z = 0.0f;
-    int64_t flee_end_tick = 0;
 };
 
 // ============================================================

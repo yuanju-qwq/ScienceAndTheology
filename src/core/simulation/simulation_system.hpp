@@ -7,7 +7,6 @@
 namespace science_and_theology {
 
 class WorldData;
-class EcosystemSystem;
 class SeasonSystem;
 
 // ============================================================
@@ -23,7 +22,6 @@ class SeasonSystem;
 // Do NOT store beyond the call.
 
 struct TickContext {
-    EcosystemSystem* ecosystem = nullptr;
     SeasonSystem* season = nullptr;
 };
 
@@ -66,7 +64,6 @@ public:
     //   4 - (reserved: Logistics)
     //   5 - Region
     //   6 - Season
-    //   7 - Ecosystem
     //   8 - TreeGrowth
     virtual int priority() const = 0;
 

@@ -209,18 +209,18 @@ func _test_event_bus_subscribe_and_disable() -> void:
 	var calls := 0
 	var cb := func(_a) -> void: calls += 1
 	# Subscribe succeeds for a non-disabled mod.
-	_expect(bus.subscribe("test_mod", "creature_killed", cb),
+	_expect(bus.subscribe("test_mod", "terrain_changed", cb),
 		"subscribe should succeed for a fresh mod")
 	# Disabled mod cannot subscribe.
 	ModCrashGuard.disable_mod("disabled_mod", "test")
-	_expect(not bus.subscribe("disabled_mod", "creature_killed", cb),
+	_expect(not bus.subscribe("disabled_mod", "terrain_changed", cb),
 		"subscribe should fail for a disabled mod")
 	# is_mod_disabled delegates to ModCrashGuard.
 	_expect(bus.is_mod_disabled("disabled_mod"), "is_mod_disabled should reflect ModCrashGuard")
 	# enable_mod re-enables and allows subscription again.
 	bus.enable_mod("disabled_mod")
 	_expect(not bus.is_mod_disabled("disabled_mod"), "enable_mod should clear disabled state")
-	_expect(bus.subscribe("disabled_mod", "creature_killed", cb),
+	_expect(bus.subscribe("disabled_mod", "terrain_changed", cb),
 		"subscribe should succeed after enable_mod")
 	ModCrashGuard.reset()
 
@@ -228,8 +228,8 @@ func _test_event_bus_unsubscribe_all() -> void:
 	ModCrashGuard.reset()
 	var bus := ModEventBus.new()
 	var cb := func(_a) -> void: pass
-	bus.subscribe("mod_a", "creature_killed", cb)
-	bus.subscribe("mod_a", "creature_spawned", cb)
+	bus.subscribe("mod_a", "terrain_changed", cb)
+	bus.subscribe("mod_a", "chunk_generated", cb)
 	bus.unsubscribe_all("mod_a")
 	# After unsubscribe_all, internal subscriber lists for those events
 	# should no longer contain mod_a entries. We verify via the

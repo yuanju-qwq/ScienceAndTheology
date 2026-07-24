@@ -1499,7 +1499,6 @@ func _initializetick_system() -> void:
 	# DayNight must be first (priority 0) so other systems can read is_daytime.
 	tick_system.register_day_night_system()
 	tick_system.register_season_system()
-	tick_system.register_ecosystem_system()
 
 	tick_system_initialized = true
 

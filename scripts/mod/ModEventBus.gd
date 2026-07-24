@@ -9,7 +9,7 @@
 # the session and a warning is logged, but the game continues.
 #
 # Registration:
-#   registrar.subscribe_event("creature_killed", _on_creature_killed)
+#   registrar.subscribe_event("terrain_changed", _on_terrain_changed)
 #
 # The event_name must match a signal on GDTickSystem. The callback
 # signature depends on the signal (see GDTickSystem signal list).
@@ -155,9 +155,6 @@ func _known_events() -> Array:
 		"chunk_generated",
 		"chunk_loaded",
 		"chunk_unloaded",
-		"creature_spawned",
-		"creature_killed",
-		"creature_moved",
 		"crop_harvested",
 		"tree_planted",
 		"tree_grown",

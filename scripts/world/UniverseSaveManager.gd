@@ -92,11 +92,7 @@ func save_universe(save_dir: String) -> bool:
 		_record_io("save_universe", started_usec, -1, false)
 		return false
 
-	# 2. Sync ecosystem population data to ChunkData before serialization.
-	if _tick_system != null:
-		_tick_system.sync_ecosystem_to_chunks()
-
-	# 3. Save all loaded planets' chunk data.
+	# 2. Save all loaded planets' chunk data.
 	for planet in _universe_manager.get_landable_planets():
 		var dim := planet.dimension_id
 		if _universe_manager.is_planet_loaded(dim):
@@ -106,13 +102,13 @@ func save_universe(save_dir: String) -> bool:
 			else:
 				planet_save_completed.emit(dim)
 
-	# 4. Save universe metadata (JSON, for debugging).
+	# 3. Save universe metadata (JSON, for debugging).
 	_save_universe_meta(save_dir)
 
-	# 5. Save quest progress.
+	# 4. Save quest progress.
 	_save_quest_progress(save_dir)
 
-	# 6. Save any planet summaries for unloaded planets (binary).
+	# 5. Save any planet summaries for unloaded planets (binary).
 	_save_all_summaries(save_dir)
 
 	save_completed.emit(save_dir)
@@ -166,10 +162,6 @@ func save_planet(save_dir: String, dimension_id: StringName) -> int:
 		_record_io("save_planet", started_usec, -1, false, dimension_id)
 		return -1
 
-	# Sync ecosystem population data to ChunkData before serialization.
-	if _tick_system != null:
-		_tick_system.sync_ecosystem_to_chunks()
-
 	var count := _world_data.save_dimension(save_dir, String(dimension_id))
 	if count >= 0:
 		_save_planet_summary(save_dir, dimension_id)
@@ -191,9 +183,6 @@ func load_planet(save_dir: String, dimension_id: StringName) -> int:
 
 	var count := _world_data.load_dimension(save_dir, String(dimension_id))
 	if count >= 0:
-		# Restore ecosystem population data from ChunkData after load.
-		if _tick_system != null:
-			_tick_system.restore_ecosystem_from_chunks()
 		planet_load_completed.emit(dimension_id)
 	_record_io("load_planet", started_usec, count, count >= 0, dimension_id)
 
