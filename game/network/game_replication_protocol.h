@@ -24,7 +24,7 @@
 namespace snt::game::replication {
 
 inline constexpr uint32_t kGameReplicationMagic = 0x534E5447u;  // "SNTG"
-inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 18;
+inline constexpr uint16_t kCurrentGameReplicationProtocolVersion = 19;
 inline constexpr size_t kGameReplicationHeaderBytes = 12;
 inline constexpr size_t kMaxGameReplicationPayloadBytes = 4u * 1024u * 1024u;
 inline constexpr size_t kMaxGamePlayerNameBytes = kMaxPlayerDisplayNameBytes;
@@ -136,6 +136,7 @@ enum class GameClientCommandType : uint16_t {
     kCreatureCapture = 6,
     kCaptiveCreatureFeed = 7,
     kSfmProgramReplace = 8,
+    kGroundLootPickup = 9,
 };
 
 // The network boundary preserves order and sequence information. Concrete
@@ -281,6 +282,13 @@ struct GameCaptiveCreatureFeedCommand {
     std::string feed_item_id;
 };
 
+// Ground loot stays authoritative in a chunk sidecar. Clients identify only
+// the durable loot id; the server derives its world position and inventory
+// transaction from current state.
+struct GameGroundLootPickupCommand {
+    uint64_t loot_id = 0;
+};
+
 // Snapshot and delta payloads deliberately keep world/actor semantics opaque.
 // Snapshot is snapshot_id plus chunk/entity blob lists; Delta is a snapshot
 // base id, monotonic sequence, block changes, and entity blobs. The game
@@ -316,6 +324,9 @@ enum class GameReplicationValueKind : uint8_t {
     // SFM flow programs so its compact node/component state can evolve without
     // carrying graph editor data or resource-storage implementation details.
     kAeNetworkNodes = 5,
+    // Complete AOI-filtered current set of chunk-owned physical item stacks.
+    // It is presentation-only; pickup always crosses the typed command path.
+    kGroundLootPresentation = 6,
 };
 
 enum class GameReplicationValueOperation : uint8_t {
@@ -444,6 +455,13 @@ parse_game_creature_capture_command(const GameClientCommand& command);
     uint64_t client_sequence, const GameCaptiveCreatureFeedCommand& command);
 [[nodiscard]] snt::core::Expected<GameCaptiveCreatureFeedCommand>
 parse_game_captive_creature_feed_command(const GameClientCommand& command);
+
+[[nodiscard]] snt::core::Expected<void> validate_game_ground_loot_pickup_command(
+    const GameGroundLootPickupCommand& command);
+[[nodiscard]] snt::core::Expected<GameClientCommand> make_game_ground_loot_pickup_command(
+    uint64_t client_sequence, const GameGroundLootPickupCommand& command);
+[[nodiscard]] snt::core::Expected<GameGroundLootPickupCommand>
+parse_game_ground_loot_pickup_command(const GameClientCommand& command);
 
 [[nodiscard]] snt::core::Expected<GameReplicationMessage> make_game_snapshot(
     const GameSnapshot& snapshot);

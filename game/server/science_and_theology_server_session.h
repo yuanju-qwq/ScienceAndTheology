@@ -34,6 +34,8 @@ class GameServerAeNetworkReplication;
 class GameServerAutomationControllerReplication;
 class GameServerCreatureInteractionService;
 class GameServerCreaturePresentationReplication;
+class GameServerGroundLootReplication;
+class GameServerGroundLootService;
 class GameServerPlayerBedService;
 class GameServerPlayerDeathService;
 class GameServerPlayerGraveStore;
@@ -93,6 +95,7 @@ private:
     std::unique_ptr<replication::GameServerPlayerInteractionService> player_interactions_;
     std::unique_ptr<replication::GameServerCreatureInteractionService>
         creature_interactions_;
+    std::unique_ptr<replication::GameServerGroundLootService> ground_loot_service_;
     std::unique_ptr<replication::GameServerQuestEventService> quest_events_;
     std::unique_ptr<replication::GameServerQuestBookReplication> quest_book_replication_;
     std::unique_ptr<replication::GameServerInventoryReplication> inventory_replication_;
@@ -101,6 +104,8 @@ private:
         automation_controller_replication_;
     std::unique_ptr<replication::GameServerCreaturePresentationReplication>
         creature_replication_;
+    std::unique_ptr<replication::GameServerGroundLootReplication>
+        ground_loot_replication_;
     std::unique_ptr<replication::GameServerPlayerReplication> player_replication_;
     std::unique_ptr<replication::GameServerPlayerLifecycle> player_lifecycle_;
     std::unique_ptr<replication::IGamePeerAuthenticator> peer_authenticator_;

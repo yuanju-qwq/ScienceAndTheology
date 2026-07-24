@@ -86,7 +86,7 @@ const CreatureSpeciesRegistry& builtin_creature_species() {
             .drops = {
                 {"snt:glow_deer_antler", 0.7f, 1, 2},
                 {"snt:purifying_pollen", 0.5f, 1, 1},
-                {"snt:raw_meat.glow_deer", 1.0f, 1, 2},
+                {"meat.raw.glow_deer", 1.0f, 1, 2},
             },
         });
         add({
@@ -104,7 +104,7 @@ const CreatureSpeciesRegistry& builtin_creature_species() {
             .drops = {
                 {"snt:rock_lizard_scale", 0.8f, 1, 3},
                 {"snt:crystallized_bone_powder", 0.4f, 1, 1},
-                {"snt:raw_meat.rock_lizard", 1.0f, 1, 2},
+                {"meat.raw.rock_lizard", 1.0f, 1, 2},
             },
         });
         add({
@@ -121,7 +121,7 @@ const CreatureSpeciesRegistry& builtin_creature_species() {
             .drops = {
                 {"snt:thunderbird_feather", 0.7f, 1, 2},
                 {"snt:magnetic_crystal_shard", 0.3f, 1, 1},
-                {"snt:raw_meat.thunderbird", 1.0f, 1, 1},
+                {"meat.raw.thunderbird", 1.0f, 1, 1},
             },
         });
         add({
@@ -138,7 +138,7 @@ const CreatureSpeciesRegistry& builtin_creature_species() {
             .drops = {
                 {"snt:sea_serpent_scale", 0.7f, 1, 2},
                 {"snt:tidal_gland", 0.3f, 1, 1},
-                {"snt:raw_meat.sea_serpent", 1.0f, 1, 3},
+                {"meat.raw.sea_serpent", 1.0f, 1, 3},
             },
         });
         add({
@@ -155,7 +155,7 @@ const CreatureSpeciesRegistry& builtin_creature_species() {
             .drops = {
                 {"snt:blazing_core", 0.5f, 1, 1},
                 {"snt:molten_blood_sample", 0.4f, 1, 1},
-                {"snt:raw_meat.blaze_beast", 1.0f, 1, 2},
+                {"meat.raw.blaze_beast", 1.0f, 1, 2},
             },
         });
         add({

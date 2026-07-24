@@ -53,6 +53,9 @@ constexpr uint32_t kMaxFarmlandCropKeyBytes = 256;
 constexpr uint32_t kMaxPlayerBedRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveRecords = 4096;
 constexpr uint32_t kMaxPlayerGraveItemStacks = 128;
+constexpr uint32_t kMaxGroundLootResourceTypeBytes = 64;
+constexpr uint32_t kMaxGroundLootResourceIdBytes = 256;
+constexpr uint32_t kMaxGroundLootResourceVariantBytes = 1024;
 
 [[nodiscard]] bool is_absent_transfer(const SfmResourceTransferRule& transfer) noexcept {
     return transfer.source.value.empty() && transfer.destination.value.empty() &&
@@ -213,6 +216,14 @@ std::vector<uint8_t> GameChunkSerializer::serialize(
     write_uint32(buf, static_cast<uint32_t>(chunk.player_graves.size()));
     for (const GamePlayerGraveRecord& record : chunk.player_graves) {
         write_player_grave_record(buf, record);
+    }
+    // Ground loot remains chunk-owned durable world state. The per-sidecar
+    // serial outlives collected records so stale ids cannot be reused after
+    // a world restart.
+    write_uint64(buf, chunk.next_ground_loot_serial);
+    write_uint32(buf, static_cast<uint32_t>(chunk.ground_loot.size()));
+    for (const GameGroundLootRecord& record : chunk.ground_loot) {
+        write_ground_loot_record(buf, record);
     }
 
     // Population cell (ecosystem data, version 6+).
@@ -505,6 +516,29 @@ bool GameChunkSerializer::deserialize(
         GamePlayerGraveRecord record;
         if (!read_player_grave_record(data, offset, record)) return false;
         chunk.player_graves.push_back(std::move(record));
+    }
+
+    uint32_t ground_loot_count;
+    if (!read_uint64(data, offset, chunk.next_ground_loot_serial) ||
+        chunk.next_ground_loot_serial == 0 ||
+        !read_uint32(data, offset, ground_loot_count) ||
+        ground_loot_count > kMaxGameGroundLootRecordsPerChunk) {
+        return false;
+    }
+    chunk.ground_loot.clear();
+    chunk.ground_loot.reserve(ground_loot_count);
+    uint64_t greatest_loot_id = 0;
+    for (uint32_t i = 0; i < ground_loot_count; ++i) {
+        GameGroundLootRecord record;
+        if (!read_ground_loot_record(data, offset, record) ||
+            record.loot_id <= greatest_loot_id) {
+            return false;
+        }
+        greatest_loot_id = record.loot_id;
+        chunk.ground_loot.push_back(std::move(record));
+    }
+    if (greatest_loot_id != 0 && chunk.next_ground_loot_serial <= greatest_loot_id) {
+        return false;
     }
 
     // Population cell.
@@ -1347,6 +1381,40 @@ bool GameChunkSerializer::read_player_grave_record(
         record.items.push_back(std::move(item));
     }
     return record.grave_id != 0 && !record.owner_account_id.empty();
+}
+
+void GameChunkSerializer::write_ground_loot_record(
+    std::vector<uint8_t>& buf,
+    const GameGroundLootRecord& record) {
+    write_uint64(buf, record.loot_id);
+    write_machine_runtime_resource_stack(buf, record.resource);
+    write_float(buf, record.position_x);
+    write_float(buf, record.position_y);
+    write_float(buf, record.position_z);
+    write_uint64(buf, record.spawned_tick);
+}
+
+bool GameChunkSerializer::read_ground_loot_record(
+    const std::vector<uint8_t>& data,
+    size_t& offset,
+    GameGroundLootRecord& record) {
+    if (!read_uint64(data, offset, record.loot_id) ||
+        !read_machine_runtime_resource_stack(data, offset, record.resource) ||
+        !read_float(data, offset, record.position_x) ||
+        !read_float(data, offset, record.position_y) ||
+        !read_float(data, offset, record.position_z) ||
+        !read_uint64(data, offset, record.spawned_tick)) {
+        return false;
+    }
+    return record.loot_id != 0 && record.resource.is_valid() && record.resource.is_item() &&
+           record.resource.key.type.size() <= kMaxGroundLootResourceTypeBytes &&
+           record.resource.key.id.size() <= kMaxGroundLootResourceIdBytes &&
+           record.resource.key.variant.size() <= kMaxGroundLootResourceVariantBytes &&
+           record.resource.key.type.find('\0') == std::string::npos &&
+           record.resource.key.id.find('\0') == std::string::npos &&
+           record.resource.key.variant.find('\0') == std::string::npos &&
+           std::isfinite(record.position_x) && std::isfinite(record.position_y) &&
+           std::isfinite(record.position_z);
 }
 
 // --- Machine runtime sidecar helpers ---

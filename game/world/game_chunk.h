@@ -365,6 +365,20 @@ struct GamePlayerGraveRecord {
     std::vector<GamePlayerGraveItemStack> items;
 };
 
+// Durable, chunk-owned physical item stack. Runtime inventories use compact
+// ResourceKey values, while this record stays at the content-key persistence
+// boundary so a saved world never depends on a process-local resource index.
+struct GameGroundLootRecord {
+    uint64_t loot_id = 0;
+    ResourceContentStack resource;
+    float position_x = 0.0f;
+    float position_y = 0.0f;
+    float position_z = 0.0f;
+    uint64_t spawned_tick = 0;
+};
+
+inline constexpr uint32_t kMaxGameGroundLootRecordsPerChunk = 4096;
+
 struct GameChunkSidecar {
     std::vector<ConnectorPlacement> connectors;
     std::vector<MechanismPlacement> mechanisms;
@@ -384,6 +398,11 @@ struct GameChunkSidecar {
     std::vector<CropGrowthPersistenceRecord> crop_growth_records;
     std::vector<GamePlayerBedRecord> player_beds;
     std::vector<GamePlayerGraveRecord> player_graves;
+    // This value advances even after the chunk's loot is collected. Server
+    // startup scans every sidecar to recover one world-wide non-reusing loot
+    // serial allocator without introducing a second global save file.
+    uint64_t next_ground_loot_serial = 1;
+    std::vector<GameGroundLootRecord> ground_loot;
     std::vector<ConnectorId> connector_ids;
     bool has_population_cell = false;
     PopulationCell population_cell{};

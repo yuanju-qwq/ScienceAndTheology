@@ -8,6 +8,7 @@
 
 #include "client_block_interaction.h"
 #include "creature_interaction.h"
+#include "ground_loot_interaction.h"
 #include "engine/client_session.h"
 #include "game/network/game_chunk_replication.h"
 #include "game/network/game_client_replication_session.h"
@@ -30,6 +31,7 @@ class GameRemoteAutomationControllerWorld;
 class GameClientInventoryState;
 class GameClientQuestBookState;
 class GameRemoteCreatureWorld;
+class GameRemoteGroundLootWorld;
 class GameRemotePlayerWorld;
 }
 
@@ -45,6 +47,7 @@ class ChunkRenderSystem;
 namespace snt::game {
 
 class GameCreaturePresentationWorld;
+class GameGroundLootPresentationWorld;
 class IGameEcosystemInterestProvider;
 
 class ScienceAndTheologyClientSession final : public snt::engine::IClientSession,
@@ -70,6 +73,9 @@ public:
     }
     [[nodiscard]] const replication::GameClientQuestBookState* quest_book_state() const noexcept {
         return quest_book_state_.get();
+    }
+    [[nodiscard]] const replication::GameRemoteGroundLootWorld* remote_ground_loot_world() const noexcept {
+        return remote_ground_loot_world_.get();
     }
     void request_content_reload(GameContentReloadTarget target) noexcept {
         simulation_session_.request_content_reload(target);
@@ -101,6 +107,8 @@ private:
     current_network_interaction_target() const;
     [[nodiscard]] std::optional<GameClientCreatureInteractionTarget>
     current_network_creature_interaction_target() const;
+    [[nodiscard]] std::optional<GameClientGroundLootInteractionTarget>
+    current_network_ground_loot_interaction_target() const;
     [[nodiscard]] bool try_open_network_ae_network_panel();
     [[nodiscard]] bool try_open_network_automation_controller_panel();
     [[nodiscard]] bool try_open_network_machine_panel();
@@ -108,6 +116,8 @@ private:
     void refresh_open_ae_network_panel();
     void refresh_open_machine_panel();
     [[nodiscard]] bool handle_network_creature_interaction_input(
+        snt::engine::ClientFrameContext& context);
+    [[nodiscard]] bool handle_network_ground_loot_interaction_input(
         snt::engine::ClientFrameContext& context);
     void handle_network_block_interaction_input(snt::engine::ClientFrameContext& context);
     void set_quest_book_visible(bool visible);
@@ -120,6 +130,7 @@ private:
     GameSessionConfig config_;
     GameClientBlockInteractionController block_interaction_controller_;
     GameClientCreatureInteractionController creature_interaction_controller_;
+    GameClientGroundLootInteractionController ground_loot_interaction_controller_;
     std::shared_ptr<localization::LocalizationService> localization_;
     ScienceAndTheologySimulationSession simulation_session_;
     std::optional<PlayerIdentity> local_player_identity_;
@@ -132,18 +143,20 @@ private:
         remote_automation_controller_world_;
     std::unique_ptr<replication::GameRemoteAeNetworkWorld> remote_ae_network_world_;
     std::unique_ptr<replication::GameRemoteCreatureWorld> remote_creature_world_;
+    std::unique_ptr<replication::GameRemoteGroundLootWorld> remote_ground_loot_world_;
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
     std::unique_ptr<QuestBookViewModel> quest_book_ui_;
     std::unique_ptr<GameCreaturePresentationWorld> creature_presentation_world_;
+    std::unique_ptr<GameGroundLootPresentationWorld> ground_loot_presentation_world_;
     std::unique_ptr<IGameEcosystemInterestProvider> local_ecosystem_interest_provider_;
     snt::ecs::World* presentation_world_ = nullptr;
     snt::voxel::ChunkRegistry* presentation_chunks_ = nullptr;
     snt::voxel::ChunkRenderSystem* chunk_render_system_ = nullptr;
     replication::GamePlayerMovementInput sampled_movement_input_;
     replication::GamePlayerMovementInput last_sent_movement_input_;
-    uint64_t next_movement_sequence_ = 1;
+    uint64_t next_outbound_sequence_ = 1;
     uint64_t last_movement_send_tick_ = 0;
     bool has_last_sent_movement_input_ = false;
     snt::engine::SimulationServices* services_ = nullptr;
@@ -154,6 +167,8 @@ private:
     bool block_interaction_submission_error_reported_ = false;
     bool creature_interaction_bindings_reported_ = false;
     bool creature_interaction_submission_error_reported_ = false;
+    bool ground_loot_interaction_bindings_reported_ = false;
+    bool ground_loot_interaction_submission_error_reported_ = false;
     bool network_crafting_unavailable_reported_ = false;
     std::shared_ptr<LocalInventorySlotTransferAuthority> local_inventory_authority_;
     std::unique_ptr<GameplayUiController> gameplay_ui_;

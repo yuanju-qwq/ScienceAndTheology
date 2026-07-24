@@ -13,9 +13,10 @@
 - `uuid_abi.h`：由 Zig 实现的 value-owned UUID seed mixer、generator state 与打包合同；宿主只提供初始化熵。
 - `render_snapshot_abi.h`：不含 ECS、Vulkan、资产或玩法类型的不可变 snapshot value contract，以及显式 acquire/release lease。
 - `hash_abi.h`：由 `snt_engine/zig/hash.zig` 实现的无分配 FNV-1a 与组合哈希。
+- `json_abi.h`：由 `snt_engine/zig/json.zig` 实现的只读 JSON document、不透明 value handle、对象/数组查询与标量读取合同；解析后的字符串和值由 document 持有。
 
 `snt_runtime_abi_query_descriptor()` 只在启动时使用。`snt_abi.lib` 是一个由锁定 Zig
-工具链生成的单一静态 archive，内含 C 描述符、哈希、UUID state machine 和通用 deterministic host core，避免 Zig host 因 ABI 查询、队列、UUID 或 snapshot 而链接 C++ runtime；宿主只在创建、关闭或 callback failure 时通过 `SntRuntimeHostCallbacks` 输出低频日志，禁止在 frame/tick 路径记录日志。
+工具链生成的单一静态 archive，内含 C 描述符、哈希、UUID state machine、JSON document adapter 和通用 deterministic host core，避免 Zig host 因 ABI 查询、队列、UUID、JSON 或 snapshot 而链接 C++ runtime；宿主只在创建、关闭或 callback failure 时通过 `SntRuntimeHostCallbacks` 输出低频日志，禁止在 frame/tick 路径记录日志。
 
 ## 规则
 
@@ -60,12 +61,15 @@ key index 则由 Zig 复制、校验、排序和发布 immutable snapshot，UUID
 
 `snt_engine/zig/hash.zig` 是第一个由 Zig 接管的自研引擎实现，
 `snt_engine/zig/runtime_key_index.zig` 是第一个拥有长期 immutable snapshot 的 Zig engine
-core，`snt_engine/zig/uuid.zig` 则拥有 UUID 的 seed mixing、state transition 与 packing。
+core，`snt_engine/zig/uuid.zig` 则拥有 UUID 的 seed mixing、state transition 与 packing，
+`snt_engine/zig/json.zig` 则拥有通用 JSON document 的解析与存储。
 `core/hash.h`、`core/runtime_key_index.h` 和 `core/uuid.h` 保留 C++ 调用面，但不再保留第二份
 算法或容器存储实现：前者通过 `hash_abi.h` 委托给 Zig，key index 通过
 `runtime_key_index_abi.h` 持有 opaque snapshot handle，UUID 通过 `uuid_abi.h` 持有 value-owned
 state；其 C++ facade 仅采集 `steady_clock` / `random_device` 熵并处理不可能的 ABI failure 日志。
 C、C++ 和 Zig host 都只链接一个 `snt_abi` archive；
+`core/json.h` 提供不泄漏 `std.json`、nlohmann 或 allocator 的 C++ facade，
+`core/runtime_config.cpp` 已通过该 facade 读取 runtime-owned 配置；
 `abi_consumer_smoke.zig` 覆盖该单库消费路径。
 
 构建需要精确的 Zig `0.16.0-dev.3142+5ccfeb926` 工具链；配置时通过
@@ -94,8 +98,8 @@ descriptor 宣告 `SNT_RUNTIME_ABI_CAPABILITY_HOST_LIFECYCLE`、
 `engine/zig_simulation_runtime_host.h` 现提供 headless C++ `ISimulationSession` adapter，并由
 fake session 测试验证 session -> scheduler -> post-tick 顺序、stop、callback failure 和初始化失败
 清理。该 adapter
-暂时让 `RuntimeConfig` 保留在 C++ 所有权内，ABI config blob 保持 absent，直到稳定序列化 schema
-确定。
+暂时让 `RuntimeConfig` 保留 C++ value model，解析通过 Zig-owned JSON document adapter 完成；ABI
+config blob 保持 absent，直到稳定序列化 schema 确定。
 
 `RuntimeKeyIndex` 现在由 `zig/runtime_key_index.zig` 真实拥有 key bytes、字节序排序、generation
 和 snapshot 引用计数。`rebuild` 在完成全部复制和校验后才替换发布指针，失败会保持旧 generation；
@@ -108,6 +112,12 @@ fake session 测试验证 session -> scheduler -> post-tick 顺序、stop、call
 UUID 高频发放路径记录日志，也不再保留 C++ seed mixer 或 generator 算法。状态使用 versioned
 value struct 而非 opaque heap handle，以保留既有 `UuidGenerator` 的值语义，同时不向 ABI 引入
 allocator、C++ 对象或 Zig allocator 所有权。
+
+`JsonDocument` 由 `zig/json.zig` 使用私有 `std.json` 解析，并以 opaque document/value handle
+发布只读查询。输入字节在 parse 时复制；C++ `string_view` 与 value handle 都是 document 的
+借用视图，必须在 document 销毁前使用。重复对象 key 被拒绝，避免 runtime config 出现歧义。
+`RuntimeConfig` 本身仍是 C++ value model，负责文件 I/O、字段范围校验和低频错误日志；它不再链接
+或暴露 nlohmann JSON。
 
 下一步是选定真实 game session，定义 command schema registry、实际 snapshot 编码和外部 tick
 policy；接入时沿用同一组 C、C++、Zig golden tests，完成一个模块迁移后删除对应旧实现。

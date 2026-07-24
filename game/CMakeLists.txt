@@ -179,6 +179,7 @@ add_library(snt_game_network STATIC
     network/game_chunk_replication.cpp
     network/game_client_replication_session.cpp
     network/game_creature_replication.cpp
+    network/game_ground_loot_replication.cpp
     network/game_inventory_replication.cpp
     network/game_lan_discovery.cpp
     network/game_quest_book_replication.cpp
@@ -268,6 +269,8 @@ add_executable(snt_game_client
     runtime/runtime_package.cpp
     client/client_block_interaction.cpp
     client/creature_interaction.cpp
+    client/ground_loot_interaction.cpp
+    client/ground_loot_presentation_world.cpp
     client/creature_presentation_world.cpp
     client/day_night_lighting.cpp
     client/inventory_slot_transaction.cpp
@@ -307,6 +310,8 @@ add_executable(snt_game_server
     server/game_server_command_sink.cpp
     server/game_server_creature_interaction.cpp
     server/game_server_creature_replication.cpp
+    server/game_server_ground_loot.cpp
+    server/game_server_ground_loot_replication.cpp
     server/game_server_inventory_replication.cpp
     server/game_server_player_death.cpp
     server/game_server_player_interaction.cpp
@@ -523,6 +528,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
     add_executable(snt_game_tests
         client/client_block_interaction.cpp
         client/creature_interaction.cpp
+        client/ground_loot_interaction.cpp
+        client/ground_loot_presentation_world.cpp
         client/creature_presentation_world.cpp
         client/day_night_lighting.cpp
         client/inventory_slot_transaction.cpp
@@ -534,6 +541,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_command_sink.cpp
         server/game_server_creature_interaction.cpp
         server/game_server_creature_replication.cpp
+        server/game_server_ground_loot.cpp
+        server/game_server_ground_loot_replication.cpp
         server/game_server_inventory_replication.cpp
         server/game_server_player_death.cpp
         server/game_server_player_interaction.cpp
@@ -582,6 +591,8 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_quest_book_replication.cpp
         tests/test_game_inventory_replication.cpp
         tests/test_game_creature_replication.cpp
+        tests/test_game_ground_loot.cpp
+        tests/test_ground_loot_presentation_world.cpp
         tests/test_quest_registry.cpp
         tests/test_game_replication.cpp
         tests/test_simulation_session.cpp
@@ -654,6 +665,12 @@ function(snt_assemble_game_content target)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/../test_assets
             $<TARGET_FILE_DIR:${target}>/game/assets/dev
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets/creatures
+            $<TARGET_FILE_DIR:${target}>/game/assets/creatures
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets/loot
+            $<TARGET_FILE_DIR:${target}>/game/assets/loot
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/../resource/terrain
             $<TARGET_FILE_DIR:${target}>/game/assets/terrain

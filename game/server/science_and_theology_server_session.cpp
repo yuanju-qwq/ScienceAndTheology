@@ -9,6 +9,8 @@
 #include "game/server/game_server_command_sink.h"
 #include "game/server/game_server_creature_interaction.h"
 #include "game/server/game_server_creature_replication.h"
+#include "game/server/game_server_ground_loot.h"
+#include "game/server/game_server_ground_loot_replication.h"
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_death.h"
 #include "game/server/game_server_player_interaction.h"
@@ -326,6 +328,14 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     }
     creature_replication_ = std::move(*creature_replication);
     simulation_session_.set_creature_presentation_sink(creature_replication_.get());
+    auto ground_loot_replication = replication::GameServerGroundLootReplication::create(
+        simulation_session_.world_sidecars());
+    if (!ground_loot_replication) {
+        auto error = ground_loot_replication.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(ground loot replication)");
+        return error;
+    }
+    ground_loot_replication_ = std::move(*ground_loot_replication);
     auto player_replication = replication::GameServerPlayerReplication::create(
         *player_state_, world.world(), world.chunks(), simulation_session_.world_sidecars(),
         {
@@ -347,7 +357,8 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
                 config_.server_replication.max_visible_creature_chunks,
         },
         {quest_book_replication_.get(), inventory_replication_.get(), creature_replication_.get(),
-         automation_controller_replication_.get(), ae_network_replication_.get()});
+         ground_loot_replication_.get(), automation_controller_replication_.get(),
+         ae_network_replication_.get()});
     if (!player_replication) {
         auto error = player_replication.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(player AOI)");
@@ -432,13 +443,23 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
         return error;
     }
     player_interactions_ = std::move(*player_interactions);
+    auto ground_loot = replication::GameServerGroundLootService::create(
+        *player_state_, world.chunks(), simulation_session_.world_sidecars(),
+        simulation_session_.content(), player_lifecycle_.get(), ground_loot_replication_.get());
+    if (!ground_loot) {
+        auto error = ground_loot.error();
+        error.with_context("ScienceAndTheologyServerSession::create_world(ground loot service)");
+        return error;
+    }
+    ground_loot_service_ = std::move(*ground_loot);
     GameWildCreatureSystem* const wildlife = simulation_session_.wild_creature_system();
     if (wildlife == nullptr) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Dedicated server simulation has no wildlife interaction system"};
     }
     auto creature_interactions = replication::GameServerCreatureInteractionService::create(
-        *player_state_, world.chunks(), simulation_session_.content(), *wildlife);
+        *player_state_, world.chunks(), simulation_session_.content(), *wildlife,
+        *ground_loot_service_);
     if (!creature_interactions) {
         auto error = creature_interactions.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(creature interactions)");
@@ -447,7 +468,7 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     creature_interactions_ = std::move(*creature_interactions);
     command_sink_ = std::make_unique<replication::GameServerCommandSink>(
         simulation_session_.quests(), player_movement_.get(), player_interactions_.get(),
-        inventory_replication_.get(), creature_interactions_.get());
+        inventory_replication_.get(), creature_interactions_.get(), ground_loot_service_.get());
     const replication::GameReplicationBudget replication_budget{
         .max_reliable_bytes_per_tick = config_.server_replication.max_reliable_bytes_per_tick,
         .max_chunk_snapshots_per_tick = config_.server_replication.max_chunk_snapshots_per_tick,
@@ -632,12 +653,14 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     replication_handler_.reset();
     command_sink_.reset();
     creature_interactions_.reset();
+    ground_loot_service_.reset();
     simulation_session_.set_ecosystem_interest_provider(nullptr);
     ecosystem_interest_provider_.reset();
     simulation_session_.set_tree_growth_mutation_sink(nullptr);
     simulation_session_.set_crop_growth_mutation_sink(nullptr);
     simulation_session_.set_block_physics_mutation_sink(nullptr);
     player_replication_.reset();
+    ground_loot_replication_.reset();
     ae_network_replication_.reset();
     automation_controller_replication_.reset();
     simulation_session_.set_creature_presentation_sink(nullptr);

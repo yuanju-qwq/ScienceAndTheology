@@ -706,6 +706,7 @@ bool is_known_game_replication_value_kind(GameReplicationValueKind kind) noexcep
         case GameReplicationValueKind::kCreaturePresentation:
         case GameReplicationValueKind::kAutomationControllers:
         case GameReplicationValueKind::kAeNetworkNodes:
+        case GameReplicationValueKind::kGroundLootPresentation:
             return true;
     }
     return false;
@@ -1653,6 +1654,45 @@ parse_game_captive_creature_feed_command(const GameClientCommand& command) {
     }
     decoded.feed_item_id = std::move(*feed_item_id);
     if (auto result = validate_game_captive_creature_feed_command(decoded); !result) {
+        return result.error();
+    }
+    return decoded;
+}
+
+snt::core::Expected<void> validate_game_ground_loot_pickup_command(
+    const GameGroundLootPickupCommand& command) {
+    if (command.loot_id == 0) {
+        return protocol_error("Game ground loot pickup target is invalid");
+    }
+    return {};
+}
+
+snt::core::Expected<GameClientCommand> make_game_ground_loot_pickup_command(
+    uint64_t client_sequence, const GameGroundLootPickupCommand& command) {
+    if (client_sequence == 0) {
+        return protocol_error("Game ground loot pickup command sequence must be non-zero");
+    }
+    if (auto result = validate_game_ground_loot_pickup_command(command); !result) {
+        return result.error();
+    }
+    GameClientCommand encoded;
+    encoded.client_sequence = client_sequence;
+    encoded.command_type = static_cast<uint16_t>(GameClientCommandType::kGroundLootPickup);
+    append_u64(encoded.payload, command.loot_id);
+    return encoded;
+}
+
+snt::core::Expected<GameGroundLootPickupCommand>
+parse_game_ground_loot_pickup_command(const GameClientCommand& command) {
+    if (command.command_type != static_cast<uint16_t>(GameClientCommandType::kGroundLootPickup)) {
+        return protocol_error("Game client command type is not GroundLootPickup");
+    }
+    if (command.payload.size() != sizeof(uint64_t)) {
+        return protocol_error("Game ground loot pickup command payload is invalid");
+    }
+    const std::span<const std::byte> bytes(command.payload.data(), command.payload.size());
+    GameGroundLootPickupCommand decoded{.loot_id = read_u64(bytes, 0)};
+    if (auto result = validate_game_ground_loot_pickup_command(decoded); !result) {
         return result.error();
     }
     return decoded;

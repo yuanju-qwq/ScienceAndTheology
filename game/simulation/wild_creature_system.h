@@ -106,6 +106,9 @@ public:
     [[nodiscard]] size_t far_visual_creature_count() const noexcept {
         return far_visual_creatures_.size();
     }
+    [[nodiscard]] const CreatureSpeciesRegistry& species_catalog() const noexcept {
+        return *species_catalog_;
+    }
 
     // Lower-level authority operations. Player-interaction systems perform
     // target selection/reach/enclosure checks before calling these methods.

@@ -18,10 +18,10 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v29 adds durable AE interface-to-machine
-    // provider bindings and their monotonic work-order serial owner; compact
-    // ResourceKey IDs never cross the persistence boundary.
-    static constexpr uint8_t kCurrentVersion = 29;
+    // Current binary format version. v30 adds durable chunk-owned ground
+    // loot plus its non-reusing serial allocator; compact ResourceKey IDs
+    // never cross the persistence boundary.
+    static constexpr uint8_t kCurrentVersion = 30;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current
@@ -202,6 +202,13 @@ private:
         const std::vector<uint8_t>& data,
         size_t& offset,
         GamePlayerGraveItemStack& stack);
+    static void write_ground_loot_record(
+        std::vector<uint8_t>& buf,
+        const GameGroundLootRecord& record);
+    static bool read_ground_loot_record(
+        const std::vector<uint8_t>& data,
+        size_t& offset,
+        GameGroundLootRecord& record);
 
     // --- Machine runtime sidecar serialization ---
 

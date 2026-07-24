@@ -123,6 +123,8 @@ public:
         uint64_t client_sequence, GameCreatureCaptureCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_captive_creature_feed(
         uint64_t client_sequence, GameCaptiveCreatureFeedCommand command);
+    [[nodiscard]] snt::core::Expected<void> enqueue_ground_loot_pickup(
+        uint64_t client_sequence, GameGroundLootPickupCommand command);
     [[nodiscard]] snt::core::Expected<void> enqueue_player_movement_input(
         GamePlayerMovementInput input);
 

@@ -22,6 +22,7 @@ namespace snt::game::replication {
 class IGameServerPlayerMovementInputSink;
 class IGameServerPlayerInteractionService;
 class IGameServerCreatureInteractionService;
+class IGameServerGroundLootInteractionService;
 class GameServerInventoryReplication;
 
 class GameServerCommandSink final : public IGameReplicationCommandSink {
@@ -31,7 +32,8 @@ public:
         IGameServerPlayerMovementInputSink* player_movement = nullptr,
         IGameServerPlayerInteractionService* player_interactions = nullptr,
         GameServerInventoryReplication* inventory_replication = nullptr,
-        IGameServerCreatureInteractionService* creature_interactions = nullptr);
+        IGameServerCreatureInteractionService* creature_interactions = nullptr,
+        IGameServerGroundLootInteractionService* ground_loot_interactions = nullptr);
 
     GameServerCommandSink(const GameServerCommandSink&) = delete;
     GameServerCommandSink& operator=(const GameServerCommandSink&) = delete;
@@ -77,6 +79,7 @@ private:
         GameCreatureAttackCommand creature_attack;
         GameCreatureCaptureCommand creature_capture;
         GameCaptiveCreatureFeedCommand captive_creature_feed;
+        GameGroundLootPickupCommand ground_loot_pickup;
     };
 
     struct PendingMovementInput {
@@ -95,6 +98,7 @@ private:
     IGameServerPlayerInteractionService* player_interactions_ = nullptr;
     GameServerInventoryReplication* inventory_replication_ = nullptr;
     IGameServerCreatureInteractionService* creature_interactions_ = nullptr;
+    IGameServerGroundLootInteractionService* ground_loot_interactions_ = nullptr;
     std::map<snt::network::PeerId, PeerSequenceState> sequences_;
     std::vector<PendingCommand> pending_;
     std::map<snt::network::PeerId, PendingMovementInput> pending_movement_;

@@ -5,6 +5,7 @@
 
 #include "game/client/creature_presentation_world.h"
 #include "game/client/day_night_lighting.h"
+#include "game/client/ground_loot_presentation_world.h"
 #include "assets/asset_manager.h"
 #include "core/error.h"
 #include "core/events.h"
@@ -18,6 +19,7 @@
 #include "game/network/game_ae_network_replication.h"
 #include "game/network/game_automation_controller_replication.h"
 #include "game/network/game_creature_replication.h"
+#include "game/network/game_ground_loot_replication.h"
 #include "game/network/game_inventory_replication.h"
 #include "game/network/game_quest_book_replication.h"
 #include "game/player/player_replication.h"
@@ -425,6 +427,34 @@ private:
     uint64_t* next_sequence_ = nullptr;
 };
 
+class ReplicationGroundLootInteractionCommandSink final
+    : public IGameClientGroundLootInteractionCommandSink {
+public:
+    ReplicationGroundLootInteractionCommandSink(replication::GameClientReplicationSession& session,
+                                                uint64_t& next_sequence) noexcept
+        : session_(&session), next_sequence_(&next_sequence) {}
+
+    [[nodiscard]] snt::core::Expected<void> submit_ground_loot_pickup(
+        replication::GameGroundLootPickupCommand command) override {
+        if (session_ == nullptr || next_sequence_ == nullptr || *next_sequence_ == 0 ||
+            *next_sequence_ == std::numeric_limits<uint64_t>::max()) {
+            return snt::core::Error{
+                snt::core::ErrorCode::kInvalidState,
+                "Client ground loot pickup command sequence is unavailable"};
+        }
+        if (auto result = session_->enqueue_ground_loot_pickup(
+                *next_sequence_, std::move(command)); !result) {
+            return result.error();
+        }
+        ++*next_sequence_;
+        return {};
+    }
+
+private:
+    replication::GameClientReplicationSession* session_ = nullptr;
+    uint64_t* next_sequence_ = nullptr;
+};
+
 [[nodiscard]] GamePlayerItemStack to_replication_inventory_stack(
     const ItemStackState& stack) {
     return {
@@ -734,6 +764,9 @@ void ScienceAndTheologyClientSession::ensure_remote_replication_state() {
     if (!remote_creature_world_) {
         remote_creature_world_ = std::make_unique<replication::GameRemoteCreatureWorld>();
     }
+    if (!remote_ground_loot_world_) {
+        remote_ground_loot_world_ = std::make_unique<replication::GameRemoteGroundLootWorld>();
+    }
     if (!remote_automation_controller_world_) {
         remote_automation_controller_world_ =
             std::make_unique<replication::GameRemoteAutomationControllerWorld>();
@@ -759,7 +792,9 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
     if (remote_automation_controller_world_) remote_automation_controller_world_->clear();
     if (remote_ae_network_world_) remote_ae_network_world_->clear();
     if (remote_creature_world_) remote_creature_world_->clear();
+    if (remote_ground_loot_world_) remote_ground_loot_world_->clear();
     if (creature_presentation_world_) creature_presentation_world_->clear();
+    if (ground_loot_presentation_world_) ground_loot_presentation_world_->clear();
     if (gameplay_ui_) {
         gameplay_ui_->clear_machine_authority();
         gameplay_ui_->clear_automation_controller_authority();
@@ -972,6 +1007,16 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
     } else {
         simulation_session_.set_ecosystem_interest_provider(nullptr);
         simulation_session_.set_creature_presentation_sink(nullptr);
+        auto ground_loot_visuals = make_default_ground_loot_presentation_visual_catalog(
+            world_session.assets());
+        if (!ground_loot_visuals) {
+            auto error = ground_loot_visuals.error();
+            error.with_context(
+                "ScienceAndTheologyClientSession::create_client_world(ground loot visuals)");
+            return error;
+        }
+        ground_loot_presentation_world_ = std::make_unique<GameGroundLootPresentationWorld>(
+            world, std::move(*ground_loot_visuals));
         remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
             world_session.chunks());
         remote_machine_world_ = std::make_unique<replication::GameRemoteMachineWorld>();
@@ -1024,10 +1069,10 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         SNT_LOG_INFO("Inventory UI uses the offline authoritative slot-transaction simulator");
     } else {
         slot_transfer_sink = std::make_shared<ReplicationInventorySlotTransferCommandSink>(
-            replication_session_, next_movement_sequence_);
+            replication_session_, next_outbound_sequence_);
         machine_input_slot_transfer_sink =
             std::make_shared<ReplicationMachineInputSlotTransferCommandSink>(
-                replication_session_, next_movement_sequence_);
+                replication_session_, next_outbound_sequence_);
         SNT_LOG_INFO("Inventory UI uses authoritative full snapshots and changed-slot network deltas");
     }
     gameplay_ui_ = std::make_unique<GameplayUiController>(
@@ -1179,6 +1224,9 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                     remote_ae_network_world_->active_snapshot_id() == 0;
                 const bool first_creature_snapshot =
                     remote_creature_world_ && remote_creature_world_->active_snapshot_id() == 0;
+                const bool first_ground_loot_snapshot =
+                    remote_ground_loot_world_ &&
+                    remote_ground_loot_world_->active_snapshot_id() == 0;
                 const bool creature_value_changed = std::visit(
                     [](const auto& value) {
                         return std::any_of(
@@ -1186,6 +1234,16 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                             [](const replication::GameReplicationValue& record) {
                                 return record.kind ==
                                     replication::GameReplicationValueKind::kCreaturePresentation;
+                            });
+                    },
+                    update);
+                const bool ground_loot_value_changed = std::visit(
+                    [](const auto& value) {
+                        return std::any_of(
+                            value.values.begin(), value.values.end(),
+                            [](const replication::GameReplicationValue& record) {
+                                return record.kind ==
+                                    replication::GameReplicationValueKind::kGroundLootPresentation;
                             });
                     },
                     update);
@@ -1262,6 +1320,25 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                             remote_creature_world_->creatures();
                         creature_presentation_world_->reconcile(
                             creatures, remote_creature_world_->latest_source_tick());
+                    }
+                }
+                if (remote_ground_loot_world_) {
+                    auto applied = std::visit(
+                        [this](const auto& value) { return remote_ground_loot_world_->apply(value); },
+                        update);
+                    if (!applied) {
+                        auto error = applied.error();
+                        error.with_context(
+                            "ScienceAndTheologyClientSession::fixed_tick(remote ground loot replication)");
+                        return error;
+                    }
+                    if ((ground_loot_value_changed ||
+                         std::holds_alternative<replication::GameSnapshot>(update)) &&
+                        ground_loot_presentation_world_) {
+                        const std::vector<replication::GameGroundLootPresentationState> loot =
+                            remote_ground_loot_world_->loot();
+                        ground_loot_presentation_world_->reconcile(
+                            loot, remote_ground_loot_world_->latest_source_tick());
                     }
                 }
                 if (quest_book_state_) {
@@ -1363,6 +1440,13 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                                      remote_creature_world_->active_snapshot_id()),
                                  remote_creature_world_->creature_count());
                 }
+                if (first_ground_loot_snapshot && remote_ground_loot_world_ &&
+                    std::holds_alternative<replication::GameSnapshot>(update)) {
+                    SNT_LOG_INFO("Applied authoritative ground loot snapshot %llu with %zu visible loot value(s)",
+                                 static_cast<unsigned long long>(
+                                     remote_ground_loot_world_->active_snapshot_id()),
+                                 remote_ground_loot_world_->loot_count());
+                }
             }
             refresh_open_machine_panel();
             refresh_open_automation_controller_panel();
@@ -1382,7 +1466,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                 context.tick_index() - last_movement_send_tick_ >= kMovementInputHeartbeatTicks;
             if (input_changed || heartbeat_due) {
                 auto input = sampled_movement_input_;
-                input.client_sequence = next_movement_sequence_;
+                input.client_sequence = next_outbound_sequence_;
                 if (auto result = replication_session_->enqueue_player_movement_input(input); !result) {
                     auto error = result.error();
                     error.with_context("ScienceAndTheologyClientSession::fixed_tick(player movement input)");
@@ -1392,7 +1476,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
                 last_sent_movement_input_.client_sequence = 0;
                 has_last_sent_movement_input_ = true;
                 last_movement_send_tick_ = context.tick_index();
-                ++next_movement_sequence_;
+                ++next_outbound_sequence_;
             }
         }
     }
@@ -1467,6 +1551,8 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     local_ecosystem_interest_provider_.reset();
     if (creature_presentation_world_) creature_presentation_world_->clear();
     creature_presentation_world_.reset();
+    if (ground_loot_presentation_world_) ground_loot_presentation_world_->clear();
+    ground_loot_presentation_world_.reset();
     presentation_world_ = nullptr;
     presentation_chunks_ = nullptr;
     clear_remote_replication_state();
@@ -1638,6 +1724,48 @@ ScienceAndTheologyClientSession::current_network_creature_interaction_target() c
     return pick_game_client_creature_interaction_target(creatures, dimension_id, raycast);
 }
 
+std::optional<GameClientGroundLootInteractionTarget>
+ScienceAndTheologyClientSession::current_network_ground_loot_interaction_target() const {
+    if (presentation_world_ == nullptr || presentation_chunks_ == nullptr ||
+        !remote_player_world_ || !remote_ground_loot_world_) {
+        return std::nullopt;
+    }
+    const auto local_player = remote_player_world_->authoritative_local_player();
+    if (!local_player.has_value() || local_player->player.position.dimension_id.empty()) {
+        return std::nullopt;
+    }
+    const entt::entity camera_entity = presentation_world_->find_entity_by_guid(
+        snt::ecs::EntityGuid{config_.scene.active_camera_guid});
+    if (camera_entity == entt::null ||
+        !presentation_world_->registry().all_of<snt::render::Transform>(camera_entity)) {
+        return std::nullopt;
+    }
+
+    const snt::render::Transform& transform =
+        presentation_world_->registry().get<snt::render::Transform>(camera_entity);
+    const std::string& dimension_id = local_player->player.position.dimension_id;
+    const snt::player::Vec3 look_direction = camera_look_direction(transform);
+    const snt::player::CollisionWorldView collision_world(
+        presentation_chunks_, dimension_id, true);
+    const snt::player::RayCastResult terrain_hit = snt::player::ray_cast_voxels_dda(
+        collision_world,
+        {.x = transform.position[0], .y = transform.position[1], .z = transform.position[2]},
+        look_direction, config_.client_interaction.raycast_reach_blocks);
+    GameClientGroundLootRaycast raycast{
+        .origin_x = transform.position[0],
+        .origin_y = transform.position[1],
+        .origin_z = transform.position[2],
+        .direction_x = look_direction.x,
+        .direction_y = look_direction.y,
+        .direction_z = look_direction.z,
+        .max_distance_blocks = config_.client_interaction.raycast_reach_blocks,
+    };
+    if (terrain_hit.hit) raycast.terrain_hit_distance_blocks = terrain_hit.distance;
+    const std::vector<replication::GameGroundLootPresentationState> loot =
+        remote_ground_loot_world_->loot();
+    return pick_game_client_ground_loot_interaction_target(loot, dimension_id, raycast);
+}
+
 bool ScienceAndTheologyClientSession::try_open_network_machine_panel() {
     if (!gameplay_ui_ || !remote_machine_world_ || !replication_session_ ||
         replication_session_->status().state !=
@@ -1770,7 +1898,7 @@ bool ScienceAndTheologyClientSession::handle_network_creature_interaction_input(
 
     const auto target = current_network_creature_interaction_target();
     if (!target.has_value()) return false;
-    ReplicationCreatureInteractionCommandSink sink(*replication_session_, next_movement_sequence_);
+    ReplicationCreatureInteractionCommandSink sink(*replication_session_, next_outbound_sequence_);
     auto handled = creature_interaction_controller_.handle_input(
         interaction_input, target, selected_hotbar_item_id(gameplay_ui_.get()), sink);
     if (!handled) {
@@ -1785,6 +1913,43 @@ bool ScienceAndTheologyClientSession::handle_network_creature_interaction_input(
     if (*handled && !creature_interaction_bindings_reported_) {
         SNT_LOG_INFO("Graphical client creature interactions use terrain-occluded ray selection and host-authoritative commits");
         creature_interaction_bindings_reported_ = true;
+    }
+    return *handled;
+}
+
+bool ScienceAndTheologyClientSession::handle_network_ground_loot_interaction_input(
+    snt::engine::ClientFrameContext& context) {
+    if (!replication_session_ || presentation_world_ == nullptr || presentation_chunks_ == nullptr ||
+        !remote_player_world_ || !remote_ground_loot_world_ ||
+        replication_session_->status().state !=
+            replication::GameClientConnectionState::kAuthenticated) {
+        return false;
+    }
+
+    const auto& input = context.input();
+    const GameClientGroundLootInteractionInput interaction_input{
+        .pickup_pressed = input.mouse_pressed[0] || input.mouse_pressed[2],
+    };
+    if (!interaction_input.pickup_pressed) return false;
+
+    const auto target = current_network_ground_loot_interaction_target();
+    if (!target.has_value()) return false;
+    ReplicationGroundLootInteractionCommandSink sink(
+        *replication_session_, next_outbound_sequence_);
+    auto handled = ground_loot_interaction_controller_.handle_input(
+        interaction_input, target, sink);
+    if (!handled) {
+        if (!ground_loot_interaction_submission_error_reported_) {
+            SNT_LOG_WARN("Client ground loot pickup command was not queued: %s",
+                         handled.error().format().c_str());
+            ground_loot_interaction_submission_error_reported_ = true;
+        }
+        return true;
+    }
+    ground_loot_interaction_submission_error_reported_ = false;
+    if (*handled && !ground_loot_interaction_bindings_reported_) {
+        SNT_LOG_INFO("Graphical client ground loot uses terrain-occluded ray selection and host-authoritative pickup");
+        ground_loot_interaction_bindings_reported_ = true;
     }
     return *handled;
 }
@@ -1835,7 +2000,7 @@ void ScienceAndTheologyClientSession::handle_network_block_interaction_input(
         }
     }
 
-    ReplicationBlockInteractionCommandSink sink(*replication_session_, next_movement_sequence_);
+    ReplicationBlockInteractionCommandSink sink(*replication_session_, next_outbound_sequence_);
     if (auto result = block_interaction_controller_.handle_input(
             interaction_input, target, std::move(selected_item_id), machine_target, sink);
         !result) {
@@ -1892,18 +2057,18 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::submit_quest_reward_c
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Task-book reward claim requires an authenticated server session"};
     }
-    if (next_movement_sequence_ == 0 ||
-        next_movement_sequence_ == std::numeric_limits<uint64_t>::max()) {
+    if (next_outbound_sequence_ == 0 ||
+        next_outbound_sequence_ == std::numeric_limits<uint64_t>::max()) {
         return snt::core::Error{snt::core::ErrorCode::kInvalidState,
                                 "Client command sequence is exhausted"};
     }
     auto submitted = replication_session_->enqueue_quest_claim_reward(
-        next_movement_sequence_, {.quest_id = std::string(quest_id)});
+        next_outbound_sequence_, {.quest_id = std::string(quest_id)});
     if (!submitted) return submitted.error();
     SNT_LOG_INFO("Queued task-book reward claim sequence=%llu quest='%.*s'",
-                 static_cast<unsigned long long>(next_movement_sequence_),
+                 static_cast<unsigned long long>(next_outbound_sequence_),
                  static_cast<int>(quest_id.size()), quest_id.data());
-    ++next_movement_sequence_;
+    ++next_outbound_sequence_;
     return {};
 }
 
@@ -2006,7 +2171,8 @@ void ScienceAndTheologyClientSession::handle_gameplay_input(snt::engine::ClientF
         context.set_mouse_locked(true);
     }
     if (mouse_was_locked && !ui_open) {
-        if (!handle_network_creature_interaction_input(context)) {
+        if (!handle_network_creature_interaction_input(context) &&
+            !handle_network_ground_loot_interaction_input(context)) {
             handle_network_block_interaction_input(context);
         }
     }

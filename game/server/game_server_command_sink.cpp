@@ -5,6 +5,7 @@
 
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_creature_interaction.h"
+#include "game/server/game_server_ground_loot.h"
 #include "game/server/game_server_player_movement.h"
 #include "game/server/game_server_player_interaction.h"
 
@@ -35,10 +36,12 @@ GameServerCommandSink::GameServerCommandSink(
     QuestRegistry& quests, IGameServerPlayerMovementInputSink* player_movement,
     IGameServerPlayerInteractionService* player_interactions,
     GameServerInventoryReplication* inventory_replication,
-    IGameServerCreatureInteractionService* creature_interactions)
+    IGameServerCreatureInteractionService* creature_interactions,
+    IGameServerGroundLootInteractionService* ground_loot_interactions)
     : quests_(&quests), player_movement_(player_movement),
       player_interactions_(player_interactions), inventory_replication_(inventory_replication),
-      creature_interactions_(creature_interactions) {}
+      creature_interactions_(creature_interactions),
+      ground_loot_interactions_(ground_loot_interactions) {}
 
 snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
     const GameAuthenticatedPeer& peer, GameClientCommand command,
@@ -187,6 +190,23 @@ snt::core::Expected<void> GameServerCommandSink::enqueue_client_command(
             }
             pending.type = GameClientCommandType::kCaptiveCreatureFeed;
             pending.captive_creature_feed = std::move(*parsed);
+            break;
+        }
+        case GameClientCommandType::kGroundLootPickup: {
+            if (ground_loot_interactions_ == nullptr) {
+                return snt::core::Error{
+                    snt::core::ErrorCode::kNotImplemented,
+                    "Dedicated server has no authoritative ground loot interaction service"};
+            }
+            auto parsed = parse_game_ground_loot_pickup_command(command);
+            if (!parsed) {
+                auto error = parsed.error();
+                error.with_context(
+                    "GameServerCommandSink::enqueue_client_command(GroundLootPickup)");
+                return error;
+            }
+            pending.type = GameClientCommandType::kGroundLootPickup;
+            pending.ground_loot_pickup = std::move(*parsed);
             break;
         }
         default:
@@ -358,6 +378,19 @@ snt::core::Expected<void> GameServerCommandSink::apply_pending_commands(uint64_t
                     record_gameplay_rejection(tick_index, command, result.error());
                 }
                 break;
+            case GameClientCommandType::kGroundLootPickup:
+                if (ground_loot_interactions_ == nullptr) {
+                    record_gameplay_rejection(
+                        tick_index, command,
+                        invalid_state("Game server command sink lost its ground loot interaction service"));
+                    break;
+                }
+                if (auto result = ground_loot_interactions_->pickup_ground_loot(
+                        command.peer, command.ground_loot_pickup, tick_index);
+                    !result) {
+                    record_gameplay_rejection(tick_index, command, result.error());
+                }
+                break;
         }
     }
     pending_.clear();
@@ -440,6 +473,9 @@ void GameServerCommandSink::record_gameplay_rejection(
             break;
         case GameClientCommandType::kCaptiveCreatureFeed:
             command_name = "captive_creature_feed";
+            break;
+        case GameClientCommandType::kGroundLootPickup:
+            command_name = "ground_loot_pickup";
             break;
     }
     SNT_LOG_WARN("Rejected %u host game command(s); latest peer=%llu player='%s' command=%s: %s",

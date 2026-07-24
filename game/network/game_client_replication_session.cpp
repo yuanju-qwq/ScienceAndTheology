@@ -476,6 +476,13 @@ snt::core::Expected<void> GameClientReplicationSession::enqueue_captive_creature
     return enqueue_command(std::move(*encoded));
 }
 
+snt::core::Expected<void> GameClientReplicationSession::enqueue_ground_loot_pickup(
+    uint64_t client_sequence, GameGroundLootPickupCommand command) {
+    auto encoded = make_game_ground_loot_pickup_command(client_sequence, command);
+    if (!encoded) return encoded.error();
+    return enqueue_command(std::move(*encoded));
+}
+
 snt::core::Expected<void> GameClientReplicationSession::enqueue_player_movement_input(
     GamePlayerMovementInput input) {
     if (!impl_ || !impl_->handler) {

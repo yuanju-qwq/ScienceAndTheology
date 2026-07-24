@@ -8,6 +8,7 @@
 
 #include "core/expected.h"
 #include "game/network/game_replication_services.h"
+#include "game/server/game_server_ground_loot.h"
 #include "game/simulation/wild_creature_system.h"
 
 #include <cstdint>
@@ -67,6 +68,7 @@ public:
         std::unique_ptr<GameServerCreatureInteractionService>>
     create(GameServerPlayerState& player_state, snt::voxel::ChunkRegistry& chunks,
            const GameContentRegistry& content, GameWildCreatureSystem& wildlife,
+           IGameServerGroundLootSpawner& ground_loot,
            GameServerCreatureInteractionConfig config = {},
            const IGameServerCreaturePenValidator* pen_validator = nullptr);
 
@@ -88,6 +90,7 @@ private:
     GameServerCreatureInteractionService(
         GameServerPlayerState& player_state, snt::voxel::ChunkRegistry& chunks,
         const GameContentRegistry& content, GameWildCreatureSystem& wildlife,
+        IGameServerGroundLootSpawner& ground_loot,
         GameServerCreatureInteractionConfig config,
         const IGameServerCreaturePenValidator* pen_validator) noexcept;
 
@@ -99,11 +102,15 @@ private:
     [[nodiscard]] snt::core::Expected<GameCreaturePenBounds> validate_terrain_pen(
         const GameCreaturePresentationState& creature) const;
     [[nodiscard]] float attack_damage_for(const GameAuthenticatedPeer& peer) const;
+    [[nodiscard]] snt::core::Expected<std::vector<GameGroundLootSpawnRequest>>
+    resolve_kill_loot(const GameCreaturePresentationState& creature,
+                      uint64_t source_tick) const;
 
     GameServerPlayerState* player_state_ = nullptr;
     snt::voxel::ChunkRegistry* chunks_ = nullptr;
     const GameContentRegistry* content_ = nullptr;
     GameWildCreatureSystem* wildlife_ = nullptr;
+    IGameServerGroundLootSpawner* ground_loot_ = nullptr;
     GameServerCreatureInteractionConfig config_;
     const IGameServerCreaturePenValidator* pen_validator_ = nullptr;
 };

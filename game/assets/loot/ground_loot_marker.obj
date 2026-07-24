@@ -1,0 +1,25 @@
+# Compact low-poly marker for replicated ground item stacks.
+# The mesh is centered above the terrain and intentionally has no item-specific
+# meaning; the presentation catalog can replace it with authored item visuals.
+v 0.0 0.55 0.0
+v 0.38 0.0 0.0
+v 0.0 0.0 0.38
+v -0.38 0.0 0.0
+v 0.0 0.0 -0.38
+v 0.0 -0.20 0.0
+vn 0.0 0.7 0.7
+vn 0.7 0.7 0.0
+vn 0.0 0.7 -0.7
+vn -0.7 0.7 0.0
+vn 0.0 -0.7 0.7
+vn 0.7 -0.7 0.0
+vn 0.0 -0.7 -0.7
+vn -0.7 -0.7 0.0
+f 1//1 2//1 3//1
+f 1//2 3//2 4//2
+f 1//3 4//3 5//3
+f 1//4 5//4 2//4
+f 6//5 3//5 2//5
+f 6//6 4//6 3//6
+f 6//7 5//7 4//7
+f 6//8 2//8 5//8

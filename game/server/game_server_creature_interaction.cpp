@@ -19,12 +19,14 @@
 #include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace snt::game::replication {
 namespace {
 
 constexpr uint32_t kMaxTerrainPenSearchRadiusBlocks = 64;
 constexpr uint32_t kMaxTerrainPenCells = 16384;
+constexpr size_t kMaxCreatureDropDefinitions = 64;
 
 [[nodiscard]] snt::core::Error invalid_argument(std::string message) {
     return {snt::core::ErrorCode::kInvalidArgument, std::move(message)};
@@ -74,12 +76,32 @@ constexpr uint32_t kMaxTerrainPenCells = 16384;
     return &chunk->terrain.cell_at(local_x, local_y, local_z);
 }
 
+[[nodiscard]] uint64_t splitmix64(uint64_t value) noexcept {
+    value += 0x9e3779b97f4a7c15ull;
+    value = (value ^ (value >> 30u)) * 0xbf58476d1ce4e5b9ull;
+    value = (value ^ (value >> 27u)) * 0x94d049bb133111ebull;
+    return value ^ (value >> 31u);
+}
+
+[[nodiscard]] uint64_t deterministic_drop_roll(
+    uint64_t creature_id, uint16_t species_id, size_t drop_index, uint64_t salt) noexcept {
+    const uint64_t index = static_cast<uint64_t>(drop_index);
+    return splitmix64(creature_id ^ (static_cast<uint64_t>(species_id) << 48u) ^
+                      (index * 0xd6e8feb86659fd93ull) ^ salt);
+}
+
+[[nodiscard]] double normalized_drop_roll(uint64_t value) noexcept {
+    constexpr double kInverseTwoTo53 = 1.0 / 9007199254740992.0;
+    return static_cast<double>(value >> 11u) * kInverseTwoTo53;
+}
+
 }  // namespace
 
 snt::core::Expected<std::unique_ptr<GameServerCreatureInteractionService>>
 GameServerCreatureInteractionService::create(
     GameServerPlayerState& player_state, snt::voxel::ChunkRegistry& chunks,
     const GameContentRegistry& content, GameWildCreatureSystem& wildlife,
+    IGameServerGroundLootSpawner& ground_loot,
     GameServerCreatureInteractionConfig config,
     const IGameServerCreaturePenValidator* pen_validator) {
     if (!std::isfinite(config.unarmed_damage) || config.unarmed_damage <= 0.0f ||
@@ -92,16 +114,18 @@ GameServerCreatureInteractionService::create(
     }
     return std::unique_ptr<GameServerCreatureInteractionService>(
         new GameServerCreatureInteractionService(
-            player_state, chunks, content, wildlife, std::move(config), pen_validator));
+            player_state, chunks, content, wildlife, ground_loot,
+            std::move(config), pen_validator));
 }
 
 GameServerCreatureInteractionService::GameServerCreatureInteractionService(
     GameServerPlayerState& player_state, snt::voxel::ChunkRegistry& chunks,
     const GameContentRegistry& content, GameWildCreatureSystem& wildlife,
+    IGameServerGroundLootSpawner& ground_loot,
     GameServerCreatureInteractionConfig config,
     const IGameServerCreaturePenValidator* pen_validator) noexcept
     : player_state_(&player_state), chunks_(&chunks), content_(&content), wildlife_(&wildlife),
-      config_(std::move(config)), pen_validator_(pen_validator) {}
+      ground_loot_(&ground_loot), config_(std::move(config)), pen_validator_(pen_validator) {}
 
 snt::core::Expected<void> GameServerCreatureInteractionService::attack_creature(
     const GameAuthenticatedPeer& peer, const GameCreatureAttackCommand& command,
@@ -109,19 +133,41 @@ snt::core::Expected<void> GameServerCreatureInteractionService::attack_creature(
     if (auto result = validate_game_creature_attack_command(command); !result) {
         return result.error();
     }
-    if (wildlife_ == nullptr) return invalid_state("Creature attack service has no wildlife system");
+    if (wildlife_ == nullptr || ground_loot_ == nullptr) {
+        return invalid_state("Creature attack service has no wildlife or ground loot authority");
+    }
     const auto creature = wildlife_->find_wild_creature(command.creature_entity_id);
     if (!creature) return invalid_state("Creature attack target is no longer interactable");
     if (auto result = validate_reach(peer, *creature); !result) return result.error();
 
+    const float damage = attack_damage_for(peer);
+    std::vector<GameGroundLootSpawnRequest> planned_loot;
+    if (!std::isfinite(creature->health) || creature->health <= 0.0f) {
+        return invalid_state("Creature attack target has an invalid authoritative health value");
+    }
+    if (damage >= creature->health) {
+        auto resolved = resolve_kill_loot(*creature, source_tick);
+        if (!resolved) return resolved.error();
+        planned_loot = std::move(*resolved);
+        if (auto result = ground_loot_->can_spawn_ground_loot(planned_loot); !result) {
+            return result.error();
+        }
+    }
+
     const GameWildCreatureAttackResult result = wildlife_->apply_damage(
-        command.creature_entity_id, attack_damage_for(peer), source_tick);
+        command.creature_entity_id, damage, source_tick);
     if (!result.hit) return invalid_state("Creature attack target changed before host commit");
     if (result.killed) {
-        SNT_LOG_INFO("Authoritative creature kill: player='%s' creature=%llu species=%u",
+        auto spawned = ground_loot_->spawn_ground_loot(planned_loot);
+        if (!spawned) {
+            auto error = spawned.error();
+            error.with_context("GameServerCreatureInteractionService::attack_creature(spawn loot)");
+            return error;
+        }
+        SNT_LOG_INFO("Authoritative creature kill: player='%s' creature=%llu species=%u loot=%zu",
                      peer.identity.account_id.c_str(),
                      static_cast<unsigned long long>(result.wild_entity_id),
-                     static_cast<unsigned>(result.species_id));
+                     static_cast<unsigned>(result.species_id), spawned->size());
     }
     return {};
 }
@@ -319,6 +365,47 @@ float GameServerCreatureInteractionService::attack_damage_for(
         return config_.unarmed_damage;
     }
     return item->tool->attack_damage;
+}
+
+snt::core::Expected<std::vector<GameGroundLootSpawnRequest>>
+GameServerCreatureInteractionService::resolve_kill_loot(
+    const GameCreaturePresentationState& creature, uint64_t source_tick) const {
+    if (content_ == nullptr || wildlife_ == nullptr) {
+        return invalid_state("Creature kill loot resolver has no content or wildlife system");
+    }
+    const CreatureSpeciesDef* const species = wildlife_->species_catalog().get_species(
+        creature.species_id);
+    if (species == nullptr || species->drops.size() > kMaxCreatureDropDefinitions) {
+        return invalid_state("Creature kill target has no valid species drop definition");
+    }
+
+    std::vector<GameGroundLootSpawnRequest> requests;
+    requests.reserve(species->drops.size());
+    for (size_t index = 0; index < species->drops.size(); ++index) {
+        const CreatureDropDef& drop = species->drops[index];
+        if (drop.item_key.empty() || !std::isfinite(drop.chance) || drop.chance < 0.0f ||
+            drop.chance > 1.0f || drop.min_count <= 0 || drop.max_count < drop.min_count ||
+            content_->find_item(drop.item_key) == nullptr) {
+            return invalid_state("Creature species drop definition is invalid in the active content catalog");
+        }
+        const uint64_t chance_roll = deterministic_drop_roll(
+            creature.entity_id, creature.species_id, index, 0x6a09e667f3bcc909ull);
+        if (normalized_drop_roll(chance_roll) >= static_cast<double>(drop.chance)) continue;
+        const int64_t count_range = static_cast<int64_t>(drop.max_count) - drop.min_count + 1;
+        const uint64_t count_roll = deterministic_drop_roll(
+            creature.entity_id, creature.species_id, index, 0xbb67ae8584caa73bull);
+        const int64_t count = static_cast<int64_t>(drop.min_count) +
+            static_cast<int64_t>(count_roll % static_cast<uint64_t>(count_range));
+        requests.push_back({
+            .chunk = creature.chunk,
+            .resource = ResourceContentStack::item(drop.item_key, count),
+            .position_x = creature.position_x,
+            .position_y = creature.position_y,
+            .position_z = creature.position_z,
+            .spawned_tick = source_tick,
+        });
+    }
+    return requests;
 }
 
 }  // namespace snt::game::replication
