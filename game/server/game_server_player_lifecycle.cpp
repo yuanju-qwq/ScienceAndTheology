@@ -196,6 +196,38 @@ snt::core::Expected<void> GameServerPlayerLifecycle::mark_player_state_dirty(
     return {};
 }
 
+snt::core::Expected<void> GameServerPlayerLifecycle::checkpoint_ground_loot_claim(
+    const GameAuthenticatedPeer& peer, uint64_t claim_id) {
+    if (stopped_) return invalid_state("Game server player lifecycle is stopped");
+    if (claim_id == 0) return invalid_argument("Ground loot claim receipt must be non-zero");
+    if (auto result = validate_peer(peer); !result) return result.error();
+    const auto active = active_peers_.find(peer.peer);
+    if (active == active_peers_.end() || active->second != peer.identity.account_id) {
+        return invalid_state("Ground loot claim receipt requires an active authenticated peer");
+    }
+
+    ground_loot_claim_receipts_[active->second].insert(claim_id);
+    if (auto result = save_player_state(peer); !result) {
+        auto error = result.error();
+        error.with_context("GameServerPlayerLifecycle::checkpoint_ground_loot_claim");
+        return error;
+    }
+    dirty_player_accounts_.erase(active->second);
+    return {};
+}
+
+void GameServerPlayerLifecycle::acknowledge_ground_loot_claim(
+    std::string_view account_id, uint64_t claim_id) noexcept {
+    if (account_id.empty() || claim_id == 0) return;
+    const auto claims = ground_loot_claim_receipts_.find(account_id);
+    if (claims == ground_loot_claim_receipts_.end()) return;
+    claims->second.erase(claim_id);
+    if (claims->second.empty()) ground_loot_claim_receipts_.erase(claims);
+    if (active_accounts_.contains(std::string(account_id))) {
+        dirty_player_accounts_.insert(std::string(account_id));
+    }
+}
+
 snt::core::Expected<void> GameServerPlayerLifecycle::flush_all() {
     if (stopped_) return invalid_state("Game server player lifecycle is stopped");
     if (quests_ == nullptr) return invalid_state("Game server player lifecycle has no QuestRegistry");
@@ -334,6 +366,7 @@ void GameServerPlayerLifecycle::shutdown() noexcept {
     saved_progress_revisions_.clear();
     dirty_player_accounts_.clear();
     pending_player_states_.clear();
+    ground_loot_claim_receipts_.clear();
 }
 
 snt::core::Expected<void> GameServerPlayerLifecycle::validate_peer(
@@ -367,7 +400,11 @@ snt::core::Expected<GamePlayerPersistentState> GameServerPlayerLifecycle::load_p
         return invalid_state("Game server player lifecycle has no authoritative player state");
     }
     const auto pending = pending_player_states_.find(account_id);
-    if (pending != pending_player_states_.end()) return pending->second;
+    if (pending != pending_player_states_.end()) {
+        GamePlayerPersistentState state = pending->second;
+        state.ground_loot_claim_receipts.clear();
+        return state;
+    }
 
     auto loaded = player_state_persistence_.load_player_state(account_id);
     if (!loaded) {
@@ -375,8 +412,16 @@ snt::core::Expected<GamePlayerPersistentState> GameServerPlayerLifecycle::load_p
         error.with_context("GameServerPlayerLifecycle::load_player_state");
         return error;
     }
-    if (loaded->has_value()) return std::move(**loaded);
-    return player_state_->default_persistent_state();
+    GamePlayerPersistentState state = loaded->has_value()
+        ? std::move(**loaded)
+        : player_state_->default_persistent_state();
+    // Startup recovery consumes every durable receipt before accounts become
+    // active. A receipt found here is therefore stale completion evidence;
+    // do not resurrect it into the live map or it would survive forever once
+    // its journal entry has already been removed.
+    state.ground_loot_claim_receipts.clear();
+    ground_loot_claim_receipts_.erase(std::string(account_id));
+    return state;
 }
 
 snt::core::Expected<void> GameServerPlayerLifecycle::save_player_state(
@@ -389,6 +434,11 @@ snt::core::Expected<void> GameServerPlayerLifecycle::save_player_state(
         auto error = captured.error();
         error.with_context("GameServerPlayerLifecycle::save_player_state(capture)");
         return error;
+    }
+    const auto claims = ground_loot_claim_receipts_.find(peer.identity.account_id);
+    if (claims != ground_loot_claim_receipts_.end()) {
+        captured->ground_loot_claim_receipts.assign(
+            claims->second.begin(), claims->second.end());
     }
     if (auto result = player_state_persistence_.save_player_state(
             peer.identity.account_id, *captured);

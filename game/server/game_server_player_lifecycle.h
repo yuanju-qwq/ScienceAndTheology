@@ -74,6 +74,17 @@ public:
     [[nodiscard]] snt::core::Expected<void> mark_player_state_dirty(
         const GameAuthenticatedPeer& peer) override;
 
+    // Ground-loot pickup uses a temporary receipt to make one transfer
+    // observable across the independently persisted player and world files.
+    // This method writes the receipt with the current authoritative player
+    // snapshot before the world-side removal can be finalized.
+    [[nodiscard]] snt::core::Expected<void> checkpoint_ground_loot_claim(
+        const GameAuthenticatedPeer& peer, uint64_t claim_id);
+    // Once the world journal is durably cleared, this removes the in-memory
+    // receipt. The next ordinary player checkpoint compacts the player file.
+    void acknowledge_ground_loot_claim(std::string_view account_id,
+                                       uint64_t claim_id) noexcept;
+
     // A controlled server shutdown persists active SNTP player values plus
     // every resident SNTQ task state, including cached values whose previous
     // disconnect save failed. This remains a lifecycle operation, never a
@@ -111,6 +122,7 @@ private:
     std::map<std::string, uint64_t, std::less<>> saved_progress_revisions_;
     std::set<std::string, std::less<>> dirty_player_accounts_;
     std::map<std::string, GamePlayerPersistentState, std::less<>> pending_player_states_;
+    std::map<std::string, std::set<uint64_t>, std::less<>> ground_loot_claim_receipts_;
     std::vector<IGameServerPlayerLifecycleParticipant*> participants_;
     uint64_t autosave_interval_ticks_ = 0;
     uint64_t last_autosave_tick_ = 0;

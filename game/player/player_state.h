@@ -220,6 +220,13 @@ struct GamePlayerPersistentState {
     GamePlayerInventory inventory;
     GamePlayerEquipment equipment;
     GamePlayerOrganState organs;
+    // A short-lived durability receipt for an in-flight ground-loot pickup.
+    // It is never replicated or interpreted as gameplay inventory; the
+    // server-owned pickup journal consumes it during crash recovery before a
+    // player can reconnect. Keeping the receipt in the player payload makes
+    // the player/world cross-file commit observable without persisting a
+    // process-local inventory handle.
+    std::vector<uint64_t> ground_loot_claim_receipts;
 };
 
 // Persistence is declared before gameplay starts depending on player state,

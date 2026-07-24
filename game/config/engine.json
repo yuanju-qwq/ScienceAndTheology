@@ -65,7 +65,9 @@
     "world_save_enabled": true,
     "world_dimension_id": "overworld",
     "universe_mode": "default",
-    "player_progress_autosave_interval_ticks": 1200
+    "player_progress_autosave_interval_ticks": 1200,
+    "ground_loot_despawn_after_ticks": 6000,
+    "ground_loot_lifecycle_sweep_interval_ticks": 20
   },
   "server_network": {
     "enabled": false,

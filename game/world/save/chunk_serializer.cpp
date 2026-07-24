@@ -1392,6 +1392,7 @@ void GameChunkSerializer::write_ground_loot_record(
     write_float(buf, record.position_y);
     write_float(buf, record.position_z);
     write_uint64(buf, record.spawned_tick);
+    write_uint64(buf, record.lifetime_ticks);
 }
 
 bool GameChunkSerializer::read_ground_loot_record(
@@ -1403,7 +1404,8 @@ bool GameChunkSerializer::read_ground_loot_record(
         !read_float(data, offset, record.position_x) ||
         !read_float(data, offset, record.position_y) ||
         !read_float(data, offset, record.position_z) ||
-        !read_uint64(data, offset, record.spawned_tick)) {
+        !read_uint64(data, offset, record.spawned_tick) ||
+        !read_uint64(data, offset, record.lifetime_ticks)) {
         return false;
     }
     return record.loot_id != 0 && record.resource.is_valid() && record.resource.is_item() &&

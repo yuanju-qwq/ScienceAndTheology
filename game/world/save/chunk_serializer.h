@@ -18,10 +18,10 @@ namespace snt::game {
 // Thread-safe: all methods are stateless and reentrant.
 class GameChunkSerializer final : public IGameChunkSidecarSerializer {
 public:
-    // Current binary format version. v30 adds durable chunk-owned ground
-    // loot plus its non-reusing serial allocator; compact ResourceKey IDs
-    // never cross the persistence boundary.
-    static constexpr uint8_t kCurrentVersion = 30;
+    // Current binary format version. v31 adds persisted active lifetime to
+    // durable chunk-owned ground loot; compact ResourceKey IDs never cross
+    // the persistence boundary.
+    static constexpr uint8_t kCurrentVersion = 31;
 
     // The caller retains a custom catalog for this serializer's lifetime.
     // nullptr selects the immutable built-in catalog used by the current

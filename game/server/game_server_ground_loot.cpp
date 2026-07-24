@@ -6,6 +6,7 @@
 #include "core/error.h"
 #include "core/log.h"
 #include "game/client/game_content_registry.h"
+#include "game/server/game_server_ground_loot_persistence.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "voxel/data/chunk_registry.h"
@@ -66,6 +67,12 @@ namespace {
            content.find_item(resource.key.id) != nullptr;
 }
 
+[[nodiscard]] uint64_t saturating_add(uint64_t value, uint64_t amount) noexcept {
+    return amount > std::numeric_limits<uint64_t>::max() - value
+        ? std::numeric_limits<uint64_t>::max()
+        : value + amount;
+}
+
 }  // namespace
 
 snt::core::Expected<std::unique_ptr<GameServerGroundLootService>>
@@ -73,16 +80,18 @@ GameServerGroundLootService::create(
     GameServerPlayerState& player_state, snt::voxel::ChunkRegistry& chunks,
     GameChunkSidecarRegistry& sidecars, const GameContentRegistry& content,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
-    IGameServerGroundLootStateSink* state_sink, GameServerGroundLootConfig config) {
+    IGameServerGroundLootStateSink* state_sink, GameServerGroundLootConfig config,
+    GameServerGroundLootPickupPersistence* pickup_persistence) {
     if (config.max_loot_per_chunk == 0 ||
-        config.max_loot_per_chunk > kMaxGameGroundLootRecordsPerChunk) {
+        config.max_loot_per_chunk > kMaxGameGroundLootRecordsPerChunk ||
+        (config.despawn_after_ticks != 0 && config.lifecycle_sweep_interval_ticks == 0)) {
         return invalid_argument("Dedicated server ground loot configuration is invalid");
     }
     auto next_serial = initial_ground_loot_serial(sidecars, content);
     if (!next_serial) return next_serial.error();
     return std::unique_ptr<GameServerGroundLootService>(new GameServerGroundLootService(
         player_state, chunks, sidecars, content, checkpoint_sink, state_sink,
-        std::move(config), *next_serial));
+        std::move(config), pickup_persistence, *next_serial));
 }
 
 GameServerGroundLootService::GameServerGroundLootService(
@@ -90,9 +99,11 @@ GameServerGroundLootService::GameServerGroundLootService(
     GameChunkSidecarRegistry& sidecars, const GameContentRegistry& content,
     IGameServerPlayerStateCheckpointSink* checkpoint_sink,
     IGameServerGroundLootStateSink* state_sink, GameServerGroundLootConfig config,
+    GameServerGroundLootPickupPersistence* pickup_persistence,
     uint64_t next_ground_loot_serial) noexcept
     : player_state_(&player_state), chunks_(&chunks), sidecars_(&sidecars), content_(&content),
-      checkpoint_sink_(checkpoint_sink), state_sink_(state_sink), config_(std::move(config)),
+      checkpoint_sink_(checkpoint_sink), state_sink_(state_sink),
+      pickup_persistence_(pickup_persistence), config_(std::move(config)),
       next_ground_loot_serial_(next_ground_loot_serial) {}
 
 snt::core::Expected<uint64_t> GameServerGroundLootService::initial_ground_loot_serial(
@@ -239,6 +250,7 @@ snt::core::Expected<std::vector<uint64_t>> GameServerGroundLootService::spawn_gr
             .spawned_tick = request.spawned_tick,
         });
         sidecar->next_ground_loot_serial = next_ground_loot_serial_;
+        lifetime_last_observed_tick_.emplace(loot_id, request.spawned_tick);
         latest_spawn_tick = std::max(latest_spawn_tick, request.spawned_tick);
         ids.push_back(loot_id);
     }
@@ -304,18 +316,62 @@ snt::core::Expected<void> GameServerGroundLootService::pickup_ground_loot(
     if (!*applicable) {
         return invalid_state("Player inventory cannot accept the requested ground loot");
     }
-    if (checkpoint_sink_ != nullptr) {
+    if (pickup_persistence_ != nullptr) {
+        const GameGroundLootPickupClaim claim{
+            .loot_id = record.loot_id,
+            .account_id = peer.identity.account_id,
+            .chunk = location->chunk,
+            .record = record,
+        };
+        if (auto result = pickup_persistence_->begin_pickup(claim); !result) {
+            auto error = result.error();
+            error.with_context("GameServerGroundLootService::pickup_ground_loot(begin journal)");
+            return error;
+        }
+    } else if (checkpoint_sink_ != nullptr) {
         if (auto result = checkpoint_sink_->mark_player_state_dirty(peer); !result) {
             return result.error();
         }
     }
     if (auto result = player_state_->apply_inventory_transaction(peer, transaction); !result) {
+        if (pickup_persistence_ != nullptr) {
+            if (auto abandoned = pickup_persistence_->abandon_pickup(record.loot_id); !abandoned) {
+                SNT_LOG_WARN("Ground loot pickup %llu could not clear its unused journal claim: %s",
+                             static_cast<unsigned long long>(record.loot_id),
+                             abandoned.error().format().c_str());
+            }
+        }
         auto error = result.error();
         error.with_context("GameServerGroundLootService::pickup_ground_loot(add inventory)");
         return error;
     }
+    bool player_claim_checkpointed = false;
+    if (pickup_persistence_ != nullptr) {
+        auto checkpointed = pickup_persistence_->checkpoint_player_claim(peer, record.loot_id);
+        if (!checkpointed) {
+            // The prepared journal remains authoritative if this write was
+            // ambiguous or failed. Keep the in-memory transfer singular and
+            // let restart recovery choose the durable owner from the receipt.
+            SNT_LOG_WARN("Ground loot pickup %llu could not checkpoint its player receipt: %s",
+                         static_cast<unsigned long long>(record.loot_id),
+                         checkpointed.error().format().c_str());
+        } else {
+            player_claim_checkpointed = true;
+        }
+    }
     location->sidecar->ground_loot.erase(
         location->sidecar->ground_loot.begin() + static_cast<std::ptrdiff_t>(location->record_index));
+    lifetime_last_observed_tick_.erase(record.loot_id);
+    if (pickup_persistence_ != nullptr && player_claim_checkpointed) {
+        if (auto result = pickup_persistence_->finalize_pickup(record.loot_id); !result) {
+            // Both live owners are already singular. Retaining the journal is
+            // intentional here: a controlled shutdown or restart will retry
+            // the sidecar checkpoint rather than risking a duplicate stack.
+            SNT_LOG_WARN("Ground loot pickup %llu is awaiting sidecar checkpoint: %s",
+                         static_cast<unsigned long long>(record.loot_id),
+                         result.error().format().c_str());
+        }
+    }
     if (state_sink_ != nullptr) state_sink_->on_ground_loot_state_changed(source_tick);
     SNT_LOG_INFO("Ground loot collected: player='%s' loot=%llu item='%s' amount=%lld",
                  peer.identity.account_id.c_str(),
@@ -323,6 +379,70 @@ snt::core::Expected<void> GameServerGroundLootService::pickup_ground_loot(
                  record.resource.key.id.c_str(),
                  static_cast<long long>(record.resource.amount));
     return {};
+}
+
+snt::core::Expected<size_t> GameServerGroundLootService::tick(uint64_t source_tick) {
+    if (sidecars_ == nullptr || chunks_ == nullptr) {
+        return invalid_state("Ground loot lifecycle has no authoritative world services");
+    }
+    if (config_.despawn_after_ticks == 0) return size_t{0};
+    if (has_last_lifecycle_sweep_tick_ && source_tick < last_lifecycle_sweep_tick_) {
+        return invalid_argument("Ground loot lifecycle tick regressed");
+    }
+    if (has_last_lifecycle_sweep_tick_ &&
+        source_tick - last_lifecycle_sweep_tick_ < config_.lifecycle_sweep_interval_ticks) {
+        return size_t{0};
+    }
+    last_lifecycle_sweep_tick_ = source_tick;
+    has_last_lifecycle_sweep_tick_ = true;
+
+    size_t removed = 0;
+    std::set<uint64_t> resident_loot_ids;
+    sidecars_->for_each([this, source_tick, &removed, &resident_loot_ids](
+                           const ChunkKey& chunk, GameChunkSidecar& sidecar) {
+        if (chunks_->get_chunk(chunk.dimension_id, chunk.chunk_x,
+                               chunk.chunk_y, chunk.chunk_z) == nullptr) {
+            return;
+        }
+        for (auto record = sidecar.ground_loot.begin();
+             record != sidecar.ground_loot.end();) {
+            const auto [last_observed, inserted] = lifetime_last_observed_tick_.try_emplace(
+                record->loot_id, source_tick);
+            if (!inserted) {
+                if (source_tick < last_observed->second) {
+                    // Spawn requests and fixed ticks share one source. If a
+                    // caller violates that order, rebaseline rather than
+                    // allowing unsigned subtraction to expire every record.
+                    last_observed->second = source_tick;
+                } else {
+                    record->lifetime_ticks = saturating_add(
+                        record->lifetime_ticks, source_tick - last_observed->second);
+                    last_observed->second = source_tick;
+                }
+            }
+            if (record->lifetime_ticks >= config_.despawn_after_ticks) {
+                lifetime_last_observed_tick_.erase(record->loot_id);
+                record = sidecar.ground_loot.erase(record);
+                ++removed;
+                continue;
+            }
+            resident_loot_ids.insert(record->loot_id);
+            ++record;
+        }
+    });
+    for (auto observed = lifetime_last_observed_tick_.begin();
+         observed != lifetime_last_observed_tick_.end();) {
+        if (!resident_loot_ids.contains(observed->first)) {
+            observed = lifetime_last_observed_tick_.erase(observed);
+        } else {
+            ++observed;
+        }
+    }
+    if (removed != 0) {
+        if (state_sink_ != nullptr) state_sink_->on_ground_loot_state_changed(source_tick);
+        SNT_LOG_INFO("Expired %zu terrain-resident ground loot record(s)", removed);
+    }
+    return removed;
 }
 
 size_t GameServerGroundLootService::active_loot_count() const noexcept {

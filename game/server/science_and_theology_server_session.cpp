@@ -10,6 +10,7 @@
 #include "game/server/game_server_creature_interaction.h"
 #include "game/server/game_server_creature_replication.h"
 #include "game/server/game_server_ground_loot.h"
+#include "game/server/game_server_ground_loot_persistence.h"
 #include "game/server/game_server_ground_loot_replication.h"
 #include "game/server/game_server_inventory_replication.h"
 #include "game/server/game_server_player_death.h"
@@ -24,6 +25,7 @@
 #include "game/server/server_chunk_ticket_controller.h"
 #include "game/simulation/ecosystem_system.h"
 #include "game/source_law/builtin_source_law_content.h"
+#include "game/world/save/world_persistence_lifecycle.h"
 #include "game/worldgen/world_gen_config.h"
 #include "network/lan_discovery.h"
 #include "network/replication.h"
@@ -273,6 +275,26 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
             source_law_service_.get(),
         });
     source_law_service_->set_checkpoint_sink(player_lifecycle_.get());
+    if (GameWorldPersistenceLifecycle* const world_persistence =
+            simulation_session_.world_persistence_lifecycle();
+        world_persistence != nullptr) {
+        auto pickup_persistence = replication::GameServerGroundLootPickupPersistence::create(
+            player_lifecycle_->universe_save_dir(), *player_lifecycle_, *world_persistence,
+            world.chunks(), simulation_session_.world_sidecars(), simulation_session_.content());
+        if (!pickup_persistence) {
+            auto error = pickup_persistence.error();
+            error.with_context(
+                "ScienceAndTheologyServerSession::create_world(ground loot pickup persistence)");
+            return error;
+        }
+        if (auto result = (*pickup_persistence)->recover(); !result) {
+            auto error = result.error();
+            error.with_context(
+                "ScienceAndTheologyServerSession::create_world(recover ground loot pickups)");
+            return error;
+        }
+        ground_loot_pickup_persistence_ = std::move(*pickup_persistence);
+    }
     auto inventory_replication = replication::GameServerInventoryReplication::create(
         *player_state_, player_lifecycle_.get());
     if (!inventory_replication) {
@@ -445,7 +467,13 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::create_world(
     player_interactions_ = std::move(*player_interactions);
     auto ground_loot = replication::GameServerGroundLootService::create(
         *player_state_, world.chunks(), simulation_session_.world_sidecars(),
-        simulation_session_.content(), player_lifecycle_.get(), ground_loot_replication_.get());
+        simulation_session_.content(), player_lifecycle_.get(), ground_loot_replication_.get(),
+        {
+            .despawn_after_ticks = config_.persistence.ground_loot_despawn_after_ticks,
+            .lifecycle_sweep_interval_ticks =
+                config_.persistence.ground_loot_lifecycle_sweep_interval_ticks,
+        },
+        ground_loot_pickup_persistence_.get());
     if (!ground_loot) {
         auto error = ground_loot.error();
         error.with_context("ScienceAndTheologyServerSession::create_world(ground loot service)");
@@ -588,6 +616,13 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::fixed_tick(
             return error;
         }
     }
+    if (ground_loot_service_) {
+        if (auto result = ground_loot_service_->tick(context.tick_index()); !result) {
+            auto error = result.error();
+            error.with_context("ScienceAndTheologyServerSession::fixed_tick(ground loot lifecycle)");
+            return error;
+        }
+    }
     if (player_movement_) {
         if (auto result = player_movement_->tick({
                 .tick_index = context.tick_index(),
@@ -646,6 +681,18 @@ snt::core::Expected<void> ScienceAndTheologyServerSession::after_fixed_tick(
 void ScienceAndTheologyServerSession::shutdown() noexcept {
     lan_discovery_responder_.reset();
     chunk_ticket_controller_.reset();
+    if (player_lifecycle_) {
+        if (auto result = player_lifecycle_->flush_all(); !result) {
+            SNT_LOG_ERROR("Ground loot shutdown player checkpoint failed: %s",
+                          result.error().format().c_str());
+        }
+    }
+    if (ground_loot_pickup_persistence_) {
+        if (auto result = ground_loot_pickup_persistence_->recover(); !result) {
+            SNT_LOG_ERROR("Ground loot shutdown recovery failed: %s",
+                          result.error().format().c_str());
+        }
+    }
     if (player_lifecycle_) player_lifecycle_->shutdown();
     if (replication_service_) replication_service_->shutdown();
     replication_service_.reset();
@@ -654,6 +701,7 @@ void ScienceAndTheologyServerSession::shutdown() noexcept {
     command_sink_.reset();
     creature_interactions_.reset();
     ground_loot_service_.reset();
+    ground_loot_pickup_persistence_.reset();
     simulation_session_.set_ecosystem_interest_provider(nullptr);
     ecosystem_interest_provider_.reset();
     simulation_session_.set_tree_growth_mutation_sink(nullptr);

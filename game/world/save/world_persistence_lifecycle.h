@@ -64,6 +64,15 @@ public:
         const snt::voxel::ChunkKey& chunk_key,
         const GameChunkSidecar& sidecar) const;
 
+    // Commits one current chunk image and then the universe header. This is
+    // the narrow synchronous checkpoint used by a cross-file gameplay
+    // transaction whose recovery journal may not be discarded until the
+    // sidecar mutation is independently durable.
+    [[nodiscard]] snt::core::Expected<void> checkpoint_chunk(
+        const snt::voxel::ChunkRegistry& chunks,
+        const GameChunkSidecarRegistry& sidecars,
+        const snt::voxel::ChunkKey& chunk_key) const;
+
     // Writes the current dimension first, then commits the universe header.
     // Callers keep this out of fixed ticks and surface any returned error at a
     // lifecycle boundary rather than replacing a corrupt world with a new one.

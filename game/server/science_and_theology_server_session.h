@@ -36,6 +36,7 @@ class GameServerCreatureInteractionService;
 class GameServerCreaturePresentationReplication;
 class GameServerGroundLootReplication;
 class GameServerGroundLootService;
+class GameServerGroundLootPickupPersistence;
 class GameServerPlayerBedService;
 class GameServerPlayerDeathService;
 class GameServerPlayerGraveStore;
@@ -96,6 +97,8 @@ private:
     std::unique_ptr<replication::GameServerCreatureInteractionService>
         creature_interactions_;
     std::unique_ptr<replication::GameServerGroundLootService> ground_loot_service_;
+    std::unique_ptr<replication::GameServerGroundLootPickupPersistence>
+        ground_loot_pickup_persistence_;
     std::unique_ptr<replication::GameServerQuestEventService> quest_events_;
     std::unique_ptr<replication::GameServerQuestBookReplication> quest_book_replication_;
     std::unique_ptr<replication::GameServerInventoryReplication> inventory_replication_;

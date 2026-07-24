@@ -202,6 +202,35 @@ snt::core::Expected<void> GameWorldPersistenceLifecycle::save_chunk_sidecar(
     return {};
 }
 
+snt::core::Expected<void> GameWorldPersistenceLifecycle::checkpoint_chunk(
+    const snt::voxel::ChunkRegistry& chunks, const GameChunkSidecarRegistry& sidecars,
+    const snt::voxel::ChunkKey& chunk_key) const {
+    if (auto result = validate_descriptor(); !result) return result.error();
+    if (chunk_key.dimension_id != descriptor_.dimension_id) {
+        return invalid_argument("Chunk checkpoint dimension does not match this persistence lifecycle");
+    }
+
+    if (chunks.has_chunk(chunk_key.dimension_id, chunk_key.chunk_x,
+                         chunk_key.chunk_y, chunk_key.chunk_z)) {
+        if (auto result = save_loaded_chunk(chunks, sidecars, chunk_key); !result) {
+            return result.error();
+        }
+    } else {
+        const GameChunkSidecar* const sidecar = sidecars.get(chunk_key);
+        if (sidecar == nullptr) {
+            return invalid_state("Chunk checkpoint has no terrain or sidecar state");
+        }
+        if (auto result = save_chunk_sidecar(chunk_key, *sidecar); !result) {
+            return result.error();
+        }
+    }
+    if (!GameSaveManager::write_universe_header(
+            descriptor_.universe_save_dir, descriptor_.seed, descriptor_.universe_mode)) {
+        return file_error("Game world universe header write failed after chunk checkpoint");
+    }
+    return {};
+}
+
 snt::core::Expected<void> GameWorldPersistenceLifecycle::save(
     const snt::voxel::ChunkRegistry& chunks, const GameChunkSidecarRegistry& sidecars) const {
     if (auto result = validate_descriptor(); !result) return result.error();

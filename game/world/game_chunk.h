@@ -374,7 +374,14 @@ struct GameGroundLootRecord {
     float position_x = 0.0f;
     float position_y = 0.0f;
     float position_z = 0.0f;
+    // The source event tick is retained for replication/debugging. It is not
+    // a durable lifetime clock because a new server process starts a fresh
+    // deterministic tick sequence.
     uint64_t spawned_tick = 0;
+    // Expiry advances only while the owning terrain is resident. Persisting
+    // this accumulated age makes TTL behavior deterministic across world
+    // saves and server restarts without consulting wall-clock time.
+    uint64_t lifetime_ticks = 0;
 };
 
 inline constexpr uint32_t kMaxGameGroundLootRecordsPerChunk = 4096;

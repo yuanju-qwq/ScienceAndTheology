@@ -51,6 +51,10 @@ struct GamePersistenceConfig {
     // Dedicated-server player-progress autosave cadence. Zero leaves only the
     // explicit disconnect and controlled-shutdown persistence boundaries.
     uint64_t player_progress_autosave_interval_ticks = 1200;
+    // Zero leaves ground loot permanent. A positive value is evaluated from
+    // each durable record's spawned_tick by the dedicated-server lifecycle.
+    uint64_t ground_loot_despawn_after_ticks = 0;
+    uint64_t ground_loot_lifecycle_sweep_interval_ticks = 20;
 };
 
 // Dedicated-server transport settings are data-only so the shared simulation

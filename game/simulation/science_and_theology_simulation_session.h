@@ -211,6 +211,15 @@ public:
     // past this session's shutdown.
     GameChunkSidecarRegistry& world_sidecars() noexcept { return chunk_sidecars_; }
     const GameChunkSidecarRegistry& world_sidecars() const noexcept { return chunk_sidecars_; }
+    // Server-only durability coordinators may request a narrowly scoped
+    // checkpoint through this game-owned lifecycle. It remains null whenever
+    // world persistence is disabled.
+    [[nodiscard]] GameWorldPersistenceLifecycle* world_persistence_lifecycle() noexcept {
+        return world_persistence_.get();
+    }
+    [[nodiscard]] const GameWorldPersistenceLifecycle* world_persistence_lifecycle() const noexcept {
+        return world_persistence_.get();
+    }
     // Active controller executors are a separate block-owner subsystem. Server
     // interaction and replication composition may use this narrow accessor;
     // they never receive a machine ECS component or mutable sidecar container.

@@ -183,6 +183,10 @@ void from_json(const json& object, GamePersistenceConfig& value) {
     read_optional(object, "universe_mode", value.universe_mode);
     read_optional(object, "player_progress_autosave_interval_ticks",
                   value.player_progress_autosave_interval_ticks);
+    read_optional(object, "ground_loot_despawn_after_ticks",
+                  value.ground_loot_despawn_after_ticks);
+    read_optional(object, "ground_loot_lifecycle_sweep_interval_ticks",
+                  value.ground_loot_lifecycle_sweep_interval_ticks);
 }
 
 void from_json(const json& object, GameClientNetworkConfig& value) {

@@ -6,12 +6,15 @@
 #include "game/player/player_identity.h"
 #include "game/server/game_server_creature_interaction.h"
 #include "game/server/game_server_ground_loot.h"
+#include "game/server/game_server_ground_loot_persistence.h"
 #include "game/server/game_server_ground_loot_replication.h"
 #include "game/server/game_server_player_lifecycle.h"
 #include "game/server/game_server_player_state.h"
 #include "game/simulation/ecosystem_system.h"
 #include "game/simulation/wild_creature_system.h"
 #include "game/world/save/chunk_serializer.h"
+#include "game/world/save/player_state_persistence.h"
+#include "game/world/save/world_persistence_lifecycle.h"
 
 #include "ecs/world.h"
 #include "voxel/data/chunk_registry.h"
@@ -20,8 +23,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <span>
@@ -43,9 +48,14 @@ using snt::game::GameClientGroundLootRaycast;
 using snt::game::GameEcosystemSystem;
 using snt::game::GameEcosystemWildProxyRebalanceRequest;
 using snt::game::GameGroundLootRecord;
+using snt::game::GameGroundLootPickupClaim;
 using snt::game::GameItemDefinition;
+using snt::game::GameSavePlayerStatePersistence;
 using snt::game::GameWildCreatureConfig;
 using snt::game::GameWildCreatureSystem;
+using snt::game::GameWorldPersistenceDescriptor;
+using snt::game::GameWorldPersistenceLifecycle;
+using snt::game::QuestRegistry;
 using snt::game::ResourceContentStack;
 using snt::game::WorldGenConfigSnapshot;
 using snt::game::builtin_creature_species;
@@ -69,7 +79,9 @@ using snt::game::replication::GameServerCreatureInteractionConfig;
 using snt::game::replication::GameServerCreatureInteractionService;
 using snt::game::replication::GameServerGroundLootReplication;
 using snt::game::replication::GameServerGroundLootReplicationConfig;
+using snt::game::replication::GameServerGroundLootPickupPersistence;
 using snt::game::replication::GameServerGroundLootService;
+using snt::game::replication::GameServerPlayerLifecycle;
 using snt::game::replication::GameServerPlayerState;
 using snt::game::replication::IGameServerGroundLootStateSink;
 using snt::game::replication::IGameServerPlayerStateCheckpointSink;
@@ -94,6 +106,14 @@ GameAuthenticatedPeer make_peer(snt::network::PeerId peer_id, std::string name) 
         .peer = peer_id,
         .identity = identity ? std::move(*identity) : snt::game::PlayerIdentity{},
     };
+}
+
+std::filesystem::path make_ground_loot_save_dir() {
+    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto directory = std::filesystem::temp_directory_path() /
+                           ("snt_ground_loot_" + std::to_string(nonce));
+    std::filesystem::create_directories(directory);
+    return directory;
 }
 
 void add_loaded_chunk(snt::voxel::ChunkRegistry& chunks, const ChunkKey& key,
@@ -160,6 +180,17 @@ GameReplicationBudget replication_budget() {
     };
 }
 
+void expect_same_ground_loot_record(const GameGroundLootRecord& actual,
+                                    const GameGroundLootRecord& expected) {
+    EXPECT_EQ(actual.loot_id, expected.loot_id);
+    EXPECT_EQ(actual.resource, expected.resource);
+    EXPECT_FLOAT_EQ(actual.position_x, expected.position_x);
+    EXPECT_FLOAT_EQ(actual.position_y, expected.position_y);
+    EXPECT_FLOAT_EQ(actual.position_z, expected.position_z);
+    EXPECT_EQ(actual.spawned_tick, expected.spawned_tick);
+    EXPECT_EQ(actual.lifetime_ticks, expected.lifetime_ticks);
+}
+
 struct CheckpointSink final : IGameServerPlayerStateCheckpointSink {
     int marks = 0;
 
@@ -201,6 +232,7 @@ TEST(GameGroundLootPersistenceTest, RoundTripsDurableRecordsAndRejectsInvalidRec
         .position_y = 1.25f,
         .position_z = -2.0f,
         .spawned_tick = 99,
+        .lifetime_ticks = 37,
     }};
 
     const snt::game::GameChunkSerializer serializer;
@@ -219,6 +251,7 @@ TEST(GameGroundLootPersistenceTest, RoundTripsDurableRecordsAndRejectsInvalidRec
     EXPECT_FLOAT_EQ(restored_record.position_y, original_record.position_y);
     EXPECT_FLOAT_EQ(restored_record.position_z, original_record.position_z);
     EXPECT_EQ(restored_record.spawned_tick, original_record.spawned_tick);
+    EXPECT_EQ(restored_record.lifetime_ticks, original_record.lifetime_ticks);
 
     GameChunk duplicate = chunk;
     duplicate.next_ground_loot_serial = 18;
@@ -489,6 +522,338 @@ TEST(GameGroundLootServiceTest, LeavesLootWhenTheInventoryCannotAcceptIt) {
     EXPECT_FALSE((*service)->pickup_ground_loot(peer, {.loot_id = spawned->front()}, 4));
     EXPECT_EQ((*service)->active_loot_count(), 1u);
     EXPECT_EQ(checkpoint.marks, 0);
+    (*players)->shutdown();
+}
+
+TEST(GameGroundLootPickupPersistenceTest,
+     RecoversDurablePlayerReceiptWithoutDuplicatingTheWorldRecord) {
+    const std::filesystem::path save_dir = make_ground_loot_save_dir();
+    const ChunkKey chunk{"overworld", 0, 0, 0};
+    const GameGroundLootRecord record{
+        .loot_id = 1,
+        .resource = ResourceContentStack::item("iron", 2),
+        .position_x = 2.0f,
+        .position_y = 1.0f,
+        .position_z = 2.0f,
+        .spawned_tick = 40,
+        .lifetime_ticks = 9,
+    };
+    const GameWorldPersistenceDescriptor descriptor{
+        .universe_save_dir = save_dir.string(),
+        .dimension_id = "overworld",
+        .seed = 901,
+        .universe_mode = "test",
+    };
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_item("iron")));
+    const GameAuthenticatedPeer peer = make_peer(704, "Durable Pickup Player");
+    const snt::network::ReplicationTickContext authentication_context{
+        .tick_index = 40,
+        .delta_seconds = 0.05f,
+    };
+
+    // Simulate a crash after the player file is durable but before the world
+    // sidecar removal has been checkpointed. The source sidecar deliberately
+    // remains unchanged in its region file here.
+    {
+        GameWorldPersistenceLifecycle persistence(descriptor);
+        snt::voxel::ChunkRegistry chunks;
+        add_loaded_chunk(chunks, chunk);
+        GameChunkSidecarRegistry sidecars;
+        GameChunkSidecar sidecar;
+        sidecar.next_ground_loot_serial = 2;
+        sidecar.ground_loot.push_back(record);
+        sidecars.set(chunk, std::move(sidecar));
+        ASSERT_TRUE(persistence.save(chunks, sidecars));
+
+        QuestRegistry quests(content);
+        snt::ecs::World world;
+        auto players = GameServerPlayerState::create(
+            world,
+            {
+                .resource_runtime_index = content.resource_runtime_index(),
+                .spawn = {.dimension_id = "overworld", .position = {.x = 2, .y = 1, .z = 2}},
+                .inventory_slots = 1,
+                .inventory_max_stack_size = 64,
+            });
+        ASSERT_TRUE(players) << players.error().format();
+        GameServerPlayerLifecycle lifecycle(quests, *(*players), save_dir.string());
+        ASSERT_TRUE(lifecycle.on_peer_authenticated(peer, authentication_context));
+        auto transfer = GameServerGroundLootPickupPersistence::create(
+            save_dir.string(), lifecycle, persistence, chunks, sidecars, content);
+        ASSERT_TRUE(transfer) << transfer.error().format();
+        auto empty_recovery = (*transfer)->recover();
+        ASSERT_TRUE(empty_recovery) << empty_recovery.error().format();
+
+        const GameGroundLootPickupClaim claim{
+            .loot_id = record.loot_id,
+            .account_id = peer.identity.account_id,
+            .chunk = chunk,
+            .record = record,
+        };
+        ASSERT_TRUE((*transfer)->begin_pickup(claim));
+        ASSERT_TRUE((*players)->apply_inventory_transaction(
+            peer, {.additions = {snt::game::GamePlayerItemStack::item("iron", 2)}}));
+        ASSERT_TRUE((*transfer)->checkpoint_player_claim(peer, record.loot_id));
+        EXPECT_EQ((*transfer)->pending_claim_count(), 1u);
+        (*players)->shutdown();
+    }
+
+    {
+        GameWorldPersistenceLifecycle persistence(descriptor);
+        snt::voxel::ChunkRegistry chunks;
+        GameChunkSidecarRegistry sidecars;
+        auto loaded = persistence.load_existing(sidecars);
+        ASSERT_TRUE(loaded) << loaded.error().format();
+        ASSERT_TRUE(*loaded);
+        const GameChunkSidecar* before_recovery = sidecars.get(chunk);
+        ASSERT_NE(before_recovery, nullptr);
+        ASSERT_EQ(before_recovery->ground_loot.size(), 1u);
+
+        QuestRegistry quests(content);
+        snt::ecs::World world;
+        auto players = GameServerPlayerState::create(
+            world, {.resource_runtime_index = content.resource_runtime_index()});
+        ASSERT_TRUE(players) << players.error().format();
+        GameServerPlayerLifecycle lifecycle(quests, *(*players), save_dir.string());
+        auto recovery = GameServerGroundLootPickupPersistence::create(
+            save_dir.string(), lifecycle, persistence, chunks, sidecars, content);
+        ASSERT_TRUE(recovery) << recovery.error().format();
+        auto resolved = (*recovery)->recover();
+        ASSERT_TRUE(resolved) << resolved.error().format();
+        EXPECT_EQ((*recovery)->pending_claim_count(), 0u);
+        const GameChunkSidecar* recovered_sidecar = sidecars.get(chunk);
+        ASSERT_NE(recovered_sidecar, nullptr);
+        EXPECT_TRUE(recovered_sidecar->ground_loot.empty());
+
+        GameSavePlayerStatePersistence player_files(save_dir.string());
+        auto persisted_player = player_files.load_player_state(peer.identity.account_id);
+        ASSERT_TRUE(persisted_player) << persisted_player.error().format();
+        ASSERT_TRUE(persisted_player->has_value());
+        ASSERT_EQ((**persisted_player).inventory.slots.size(), 1u);
+        EXPECT_EQ((**persisted_player).inventory.slots.front().resource, record.resource);
+
+        GameWorldPersistenceLifecycle verifier(descriptor);
+        GameChunkSidecarRegistry persisted_sidecars;
+        auto verified = verifier.load_existing(persisted_sidecars);
+        ASSERT_TRUE(verified) << verified.error().format();
+        ASSERT_TRUE(*verified);
+        const GameChunkSidecar* persisted_sidecar = persisted_sidecars.get(chunk);
+        ASSERT_NE(persisted_sidecar, nullptr);
+        EXPECT_TRUE(persisted_sidecar->ground_loot.empty());
+        (*players)->shutdown();
+    }
+
+    std::error_code error;
+    std::filesystem::remove_all(save_dir, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameGroundLootPickupPersistenceTest, RestoresWorldRecordWhenNoPlayerReceiptWasDurable) {
+    const std::filesystem::path save_dir = make_ground_loot_save_dir();
+    const ChunkKey chunk{"overworld", 0, 0, 0};
+    const GameGroundLootRecord record{
+        .loot_id = 1,
+        .resource = ResourceContentStack::item("iron", 1),
+        .position_x = 3.0f,
+        .position_y = 1.0f,
+        .position_z = 3.0f,
+        .spawned_tick = 50,
+        .lifetime_ticks = 6,
+    };
+    const GameWorldPersistenceDescriptor descriptor{
+        .universe_save_dir = save_dir.string(),
+        .dimension_id = "overworld",
+        .seed = 902,
+        .universe_mode = "test",
+    };
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_item("iron")));
+    const GameAuthenticatedPeer peer = make_peer(705, "Rollback Pickup Player");
+
+    // The journal is durable, but the process ends before the player snapshot
+    // can carry its receipt. Even if an unrelated chunk checkpoint persisted
+    // the in-memory removal, recovery must restore the original world owner.
+    {
+        GameWorldPersistenceLifecycle persistence(descriptor);
+        snt::voxel::ChunkRegistry chunks;
+        add_loaded_chunk(chunks, chunk);
+        GameChunkSidecarRegistry sidecars;
+        GameChunkSidecar sidecar;
+        sidecar.next_ground_loot_serial = 2;
+        sidecar.ground_loot.push_back(record);
+        sidecars.set(chunk, std::move(sidecar));
+        ASSERT_TRUE(persistence.save(chunks, sidecars));
+
+        QuestRegistry quests(content);
+        snt::ecs::World world;
+        auto players = GameServerPlayerState::create(
+            world, {.resource_runtime_index = content.resource_runtime_index()});
+        ASSERT_TRUE(players) << players.error().format();
+        GameServerPlayerLifecycle lifecycle(quests, *(*players), save_dir.string());
+        auto transfer = GameServerGroundLootPickupPersistence::create(
+            save_dir.string(), lifecycle, persistence, chunks, sidecars, content);
+        ASSERT_TRUE(transfer) << transfer.error().format();
+        auto empty_recovery = (*transfer)->recover();
+        ASSERT_TRUE(empty_recovery) << empty_recovery.error().format();
+        ASSERT_TRUE((*transfer)->begin_pickup({
+            .loot_id = record.loot_id,
+            .account_id = peer.identity.account_id,
+            .chunk = chunk,
+            .record = record,
+        }));
+        GameChunkSidecar* removed_sidecar = sidecars.get(chunk);
+        ASSERT_NE(removed_sidecar, nullptr);
+        removed_sidecar->ground_loot.clear();
+        ASSERT_TRUE(persistence.checkpoint_chunk(chunks, sidecars, chunk));
+        EXPECT_EQ((*transfer)->pending_claim_count(), 1u);
+        (*players)->shutdown();
+    }
+
+    {
+        GameWorldPersistenceLifecycle persistence(descriptor);
+        snt::voxel::ChunkRegistry chunks;
+        GameChunkSidecarRegistry sidecars;
+        auto loaded = persistence.load_existing(sidecars);
+        ASSERT_TRUE(loaded) << loaded.error().format();
+        ASSERT_TRUE(*loaded);
+        QuestRegistry quests(content);
+        snt::ecs::World world;
+        auto players = GameServerPlayerState::create(
+            world, {.resource_runtime_index = content.resource_runtime_index()});
+        ASSERT_TRUE(players) << players.error().format();
+        GameServerPlayerLifecycle lifecycle(quests, *(*players), save_dir.string());
+        auto recovery = GameServerGroundLootPickupPersistence::create(
+            save_dir.string(), lifecycle, persistence, chunks, sidecars, content);
+        ASSERT_TRUE(recovery) << recovery.error().format();
+        auto resolved = (*recovery)->recover();
+        ASSERT_TRUE(resolved) << resolved.error().format();
+        EXPECT_EQ((*recovery)->pending_claim_count(), 0u);
+        const GameChunkSidecar* restored_sidecar = sidecars.get(chunk);
+        ASSERT_NE(restored_sidecar, nullptr);
+        ASSERT_EQ(restored_sidecar->ground_loot.size(), 1u);
+        expect_same_ground_loot_record(restored_sidecar->ground_loot.front(), record);
+
+        GameWorldPersistenceLifecycle verifier(descriptor);
+        GameChunkSidecarRegistry persisted_sidecars;
+        auto verified = verifier.load_existing(persisted_sidecars);
+        ASSERT_TRUE(verified) << verified.error().format();
+        ASSERT_TRUE(*verified);
+        const GameChunkSidecar* persisted_sidecar = persisted_sidecars.get(chunk);
+        ASSERT_NE(persisted_sidecar, nullptr);
+        ASSERT_EQ(persisted_sidecar->ground_loot.size(), 1u);
+        expect_same_ground_loot_record(persisted_sidecar->ground_loot.front(), record);
+        (*players)->shutdown();
+    }
+
+    std::error_code error;
+    std::filesystem::remove_all(save_dir, error);
+    EXPECT_FALSE(error) << error.message();
+}
+
+TEST(GameGroundLootLifecycleTest, PreservesAccumulatedLifetimeAcrossServerRestart) {
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_item("iron")));
+    snt::ecs::World world;
+    auto players = GameServerPlayerState::create(
+        world, {.resource_runtime_index = content.resource_runtime_index()});
+    ASSERT_TRUE(players) << players.error().format();
+    snt::voxel::ChunkRegistry chunks;
+    const ChunkKey chunk{"overworld", 0, 0, 0};
+    add_loaded_chunk(chunks, chunk);
+    GameChunkSidecarRegistry sidecars;
+    const GameGroundLootSpawnRequest request{
+        .chunk = chunk,
+        .resource = ResourceContentStack::item("iron", 1),
+        .position_x = 2.0f,
+        .position_y = 1.0f,
+        .position_z = 2.0f,
+        .spawned_tick = 100,
+    };
+    const snt::game::replication::GameServerGroundLootConfig config{
+        .despawn_after_ticks = 10,
+        .lifecycle_sweep_interval_ticks = 5,
+    };
+
+    {
+        auto service = GameServerGroundLootService::create(
+            *(*players), chunks, sidecars, content, nullptr, nullptr, config);
+        ASSERT_TRUE(service) << service.error().format();
+        auto spawned = (*service)->spawn_ground_loot(
+            std::span<const GameGroundLootSpawnRequest>(&request, 1));
+        ASSERT_TRUE(spawned) << spawned.error().format();
+        ASSERT_TRUE((*service)->tick(100));
+        auto elapsed = (*service)->tick(105);
+        ASSERT_TRUE(elapsed) << elapsed.error().format();
+        EXPECT_EQ(*elapsed, 0u);
+        const GameChunkSidecar* sidecar = sidecars.get(chunk);
+        ASSERT_NE(sidecar, nullptr);
+        ASSERT_EQ(sidecar->ground_loot.size(), 1u);
+        EXPECT_EQ(sidecar->ground_loot.front().lifetime_ticks, 5u);
+    }
+
+    // A new server starts its source ticks at one. The persisted age survives,
+    // while the new service baselines elapsed time instead of comparing it to
+    // the previous process's spawned_tick.
+    auto restarted = GameServerGroundLootService::create(
+        *(*players), chunks, sidecars, content, nullptr, nullptr, config);
+    ASSERT_TRUE(restarted) << restarted.error().format();
+    ASSERT_TRUE((*restarted)->tick(1));
+    const GameChunkSidecar* resumed_sidecar = sidecars.get(chunk);
+    ASSERT_NE(resumed_sidecar, nullptr);
+    ASSERT_EQ(resumed_sidecar->ground_loot.size(), 1u);
+    EXPECT_EQ(resumed_sidecar->ground_loot.front().lifetime_ticks, 5u);
+    auto expired = (*restarted)->tick(6);
+    ASSERT_TRUE(expired) << expired.error().format();
+    EXPECT_EQ(*expired, 1u);
+    EXPECT_EQ((*restarted)->active_loot_count(), 0u);
+    (*players)->shutdown();
+}
+
+TEST(GameGroundLootLifecycleTest, PausesLifetimeWhileOwningTerrainIsUnloaded) {
+    GameContentRegistry content;
+    ASSERT_TRUE(content.register_builtin_item(make_item("iron")));
+    snt::ecs::World world;
+    auto players = GameServerPlayerState::create(
+        world, {.resource_runtime_index = content.resource_runtime_index()});
+    ASSERT_TRUE(players) << players.error().format();
+    snt::voxel::ChunkRegistry chunks;
+    const ChunkKey chunk{"overworld", 0, 0, 0};
+    add_loaded_chunk(chunks, chunk);
+    GameChunkSidecarRegistry sidecars;
+    auto service = GameServerGroundLootService::create(
+        *(*players), chunks, sidecars, content, nullptr, nullptr,
+        {.despawn_after_ticks = 10, .lifecycle_sweep_interval_ticks = 1});
+    ASSERT_TRUE(service) << service.error().format();
+    const GameGroundLootSpawnRequest request{
+        .chunk = chunk,
+        .resource = ResourceContentStack::item("iron", 1),
+        .position_x = 2.0f,
+        .position_y = 1.0f,
+        .position_z = 2.0f,
+        .spawned_tick = 0,
+    };
+    ASSERT_TRUE((*service)->spawn_ground_loot(
+        std::span<const GameGroundLootSpawnRequest>(&request, 1)));
+    ASSERT_TRUE((*service)->tick(0));
+    ASSERT_TRUE((*service)->tick(5));
+    const GameChunkSidecar* sidecar = sidecars.get(chunk);
+    ASSERT_NE(sidecar, nullptr);
+    ASSERT_EQ(sidecar->ground_loot.size(), 1u);
+    EXPECT_EQ(sidecar->ground_loot.front().lifetime_ticks, 5u);
+
+    chunks.remove_chunk(chunk.dimension_id, chunk.chunk_x, chunk.chunk_y, chunk.chunk_z);
+    ASSERT_TRUE((*service)->tick(10));
+    add_loaded_chunk(chunks, chunk);
+    ASSERT_TRUE((*service)->tick(11));
+    ASSERT_TRUE((*service)->tick(15));
+    sidecar = sidecars.get(chunk);
+    ASSERT_NE(sidecar, nullptr);
+    ASSERT_EQ(sidecar->ground_loot.size(), 1u);
+    EXPECT_EQ(sidecar->ground_loot.front().lifetime_ticks, 9u);
+    auto expired = (*service)->tick(16);
+    ASSERT_TRUE(expired) << expired.error().format();
+    EXPECT_EQ(*expired, 1u);
     (*players)->shutdown();
 }
 

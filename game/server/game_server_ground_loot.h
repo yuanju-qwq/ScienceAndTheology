@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -29,6 +30,7 @@ namespace snt::game::replication {
 
 class GameServerPlayerState;
 class IGameServerPlayerStateCheckpointSink;
+class GameServerGroundLootPickupPersistence;
 
 struct GameGroundLootSpawnRequest {
     ChunkKey chunk;
@@ -71,6 +73,13 @@ public:
 
 struct GameServerGroundLootConfig {
     uint32_t max_loot_per_chunk = kMaxGameGroundLootRecordsPerChunk;
+    // Zero preserves a permanent world drop. A positive value expires a
+    // record once its persisted terrain-resident age reaches this tick count.
+    uint64_t despawn_after_ticks = 0;
+    // Bounds scans over the durable sidecar index. Expiration is evaluated
+    // only for terrain-resident records, so unloaded chunks remain cheap and
+    // do not consume lifetime until materialized again.
+    uint64_t lifecycle_sweep_interval_ticks = 20;
 };
 
 class GameServerGroundLootService final
@@ -82,7 +91,8 @@ public:
            GameChunkSidecarRegistry& sidecars, const GameContentRegistry& content,
            IGameServerPlayerStateCheckpointSink* checkpoint_sink = nullptr,
            IGameServerGroundLootStateSink* state_sink = nullptr,
-           GameServerGroundLootConfig config = {});
+           GameServerGroundLootConfig config = {},
+           GameServerGroundLootPickupPersistence* pickup_persistence = nullptr);
 
     GameServerGroundLootService(const GameServerGroundLootService&) = delete;
     GameServerGroundLootService& operator=(const GameServerGroundLootService&) = delete;
@@ -94,6 +104,9 @@ public:
     [[nodiscard]] snt::core::Expected<void> pickup_ground_loot(
         const GameAuthenticatedPeer& peer, const GameGroundLootPickupCommand& command,
         uint64_t source_tick) override;
+    // Advances server-owned expiry for terrain-resident records. The caller
+    // supplies the same authoritative tick used for commands and replication.
+    [[nodiscard]] snt::core::Expected<size_t> tick(uint64_t source_tick);
 
     [[nodiscard]] size_t active_loot_count() const noexcept;
     [[nodiscard]] uint64_t next_ground_loot_serial() const noexcept {
@@ -114,6 +127,7 @@ private:
                                 IGameServerPlayerStateCheckpointSink* checkpoint_sink,
                                 IGameServerGroundLootStateSink* state_sink,
                                 GameServerGroundLootConfig config,
+                                GameServerGroundLootPickupPersistence* pickup_persistence,
                                 uint64_t next_ground_loot_serial) noexcept;
 
     [[nodiscard]] static snt::core::Expected<uint64_t> initial_ground_loot_serial(
@@ -130,8 +144,15 @@ private:
     const GameContentRegistry* content_ = nullptr;
     IGameServerPlayerStateCheckpointSink* checkpoint_sink_ = nullptr;
     IGameServerGroundLootStateSink* state_sink_ = nullptr;
+    GameServerGroundLootPickupPersistence* pickup_persistence_ = nullptr;
     GameServerGroundLootConfig config_;
     uint64_t next_ground_loot_serial_ = 1;
+    uint64_t last_lifecycle_sweep_tick_ = 0;
+    bool has_last_lifecycle_sweep_tick_ = false;
+    // This session-local baseline turns the process tick stream into deltas
+    // added to each record's durable lifetime_ticks. Unknown records are
+    // intentionally baselined at first observation after a restart.
+    std::map<uint64_t, uint64_t> lifetime_last_observed_tick_;
 };
 
 }  // namespace snt::game::replication

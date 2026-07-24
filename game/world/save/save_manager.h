@@ -120,7 +120,7 @@ public:
     // Current per-player authoritative state format. Position, fixed-slot
     // inventory, equipment, bed respawn point, and opaque organ state are
     // universe-level values, never region payloads or client UI state.
-    static constexpr uint8_t kPlayerStateVersion = 2;
+    static constexpr uint8_t kPlayerStateVersion = 3;
 
     // --- Per-dimension save / load ---
 

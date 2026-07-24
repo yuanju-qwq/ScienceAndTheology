@@ -72,6 +72,7 @@ target_link_libraries(snt_game_worldgen PUBLIC
 )
 
 add_library(snt_game_world_save STATIC
+    world/save/ground_loot_pickup_journal.cpp
     world/save/chunk_serializer.cpp
     world/save/player_state_persistence.cpp
     world/save/quest_progress_persistence.cpp
@@ -311,6 +312,7 @@ add_executable(snt_game_server
     server/game_server_creature_interaction.cpp
     server/game_server_creature_replication.cpp
     server/game_server_ground_loot.cpp
+    server/game_server_ground_loot_persistence.cpp
     server/game_server_ground_loot_replication.cpp
     server/game_server_inventory_replication.cpp
     server/game_server_player_death.cpp
@@ -542,6 +544,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         server/game_server_creature_interaction.cpp
         server/game_server_creature_replication.cpp
         server/game_server_ground_loot.cpp
+        server/game_server_ground_loot_persistence.cpp
         server/game_server_ground_loot_replication.cpp
         server/game_server_inventory_replication.cpp
         server/game_server_player_death.cpp

@@ -49,6 +49,7 @@ snt::game::GamePlayerPersistentState make_player_state() {
         .schema_version = 1,
         .payload = {std::byte{0x10}, std::byte{0x20}, std::byte{0x30}},
     };
+    state.ground_loot_claim_receipts = {11, 29};
     return state;
 }
 
@@ -77,6 +78,8 @@ TEST(GameSavePlayerStatePersistenceTest, RoundTripsFixedSlotsEquipmentRespawnAnd
     EXPECT_EQ((**restored).inventory, source.inventory);
     EXPECT_EQ((**restored).equipment, source.equipment);
     EXPECT_EQ((**restored).organs, source.organs);
+    EXPECT_EQ((**restored).ground_loot_claim_receipts,
+              source.ground_loot_claim_receipts);
 
     std::error_code error;
     std::filesystem::remove_all(save_dir, error);

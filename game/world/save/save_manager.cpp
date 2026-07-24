@@ -101,6 +101,7 @@ constexpr uint32_t kMaxPlayerStateInventorySlots = 256;
 constexpr int32_t kMaxPlayerStateStackSize = 65536;
 constexpr size_t kMaxPlayerStateOrganSchemaIdBytes = 128;
 constexpr size_t kMaxPlayerStateOrganPayloadBytes = 64u * 1024u;
+constexpr uint32_t kMaxPlayerStateGroundLootClaimReceipts = 1024;
 
 snt::core::Error persistence_error(snt::core::ErrorCode code, std::string message) {
     return {code, std::move(message)};
@@ -403,6 +404,17 @@ snt::core::Expected<void> validate_player_state_value(const GamePlayerPersistent
         return persistence_error(snt::core::ErrorCode::kInvalidArgument,
                                  "Player state organ payload exceeds persistence limits");
     }
+    if (state.ground_loot_claim_receipts.size() > kMaxPlayerStateGroundLootClaimReceipts) {
+        return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                 "Player state contains too many ground loot claim receipts");
+    }
+    std::set<uint64_t> unique_claims;
+    for (const uint64_t claim_id : state.ground_loot_claim_receipts) {
+        if (claim_id == 0 || !unique_claims.insert(claim_id).second) {
+            return persistence_error(snt::core::ErrorCode::kInvalidArgument,
+                                     "Player state contains an invalid ground loot claim receipt");
+        }
+    }
     return {};
 }
 
@@ -494,6 +506,12 @@ bool write_player_state_value(std::ofstream& file, const GamePlayerPersistentSta
         file.write(reinterpret_cast<const char*>(state.organs.payload.data()),
                    static_cast<std::streamsize>(organ_payload_size));
     }
+    const uint32_t claim_receipt_count =
+        static_cast<uint32_t>(state.ground_loot_claim_receipts.size());
+    if (!file.good() || !write_value(file, claim_receipt_count)) return false;
+    for (const uint64_t claim_id : state.ground_loot_claim_receipts) {
+        if (!write_value(file, claim_id)) return false;
+    }
     return file.good();
 }
 
@@ -542,6 +560,19 @@ bool read_player_state_value(std::ifstream& file, GamePlayerPersistentState& sta
         file.read(reinterpret_cast<char*>(restored.organs.payload.data()),
                   static_cast<std::streamsize>(organ_payload_size));
         if (!file.good()) return false;
+    }
+    uint32_t claim_receipt_count = 0;
+    if (!read_value(file, claim_receipt_count) ||
+        claim_receipt_count > kMaxPlayerStateGroundLootClaimReceipts) {
+        return false;
+    }
+    restored.ground_loot_claim_receipts.resize(claim_receipt_count);
+    std::set<uint64_t> unique_claims;
+    for (uint64_t& claim_id : restored.ground_loot_claim_receipts) {
+        if (!read_value(file, claim_id) || claim_id == 0 ||
+            !unique_claims.insert(claim_id).second) {
+            return false;
+        }
     }
     state = std::move(restored);
     return true;
