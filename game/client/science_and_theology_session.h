@@ -50,6 +50,7 @@ class GameCreaturePresentationWorld;
 class GameGroundLootPresentationWorld;
 class GameClientPlayerPrediction;
 class GameRemotePlayerInterpolator;
+class GameRemotePlayerPresentationWorld;
 class IGameEcosystemInterestProvider;
 
 class ScienceAndTheologyClientSession final : public snt::engine::IClientSession,
@@ -128,6 +129,7 @@ private:
     void sample_network_movement_input(snt::engine::ClientFrameContext& context);
     [[nodiscard]] snt::core::Expected<void> apply_authoritative_local_player();
     void apply_predicted_local_player_presentation();
+    void update_remote_player_avatar_presentation();
     void draw_crosshair(snt::engine::ClientUiContext& context) const;
 
     GameSessionConfig config_;
@@ -150,6 +152,7 @@ private:
     std::unique_ptr<replication::GameRemotePlayerWorld> remote_player_world_;
     std::unique_ptr<GameClientPlayerPrediction> local_player_prediction_;
     std::unique_ptr<GameRemotePlayerInterpolator> remote_player_interpolator_;
+    std::unique_ptr<GameRemotePlayerPresentationWorld> remote_player_presentation_world_;
     std::unique_ptr<replication::GameClientInventoryState> remote_inventory_state_;
     std::unique_ptr<replication::GameClientQuestBookState> quest_book_state_;
     std::unique_ptr<QuestBookViewModel> quest_book_ui_;
@@ -165,6 +168,7 @@ private:
     // or invalidate a typed reliable command sequence.
     uint64_t next_outbound_sequence_ = 1;
     uint64_t next_movement_sequence_ = 1;
+    uint64_t client_presentation_tick_ = 0;
     snt::engine::SimulationServices* services_ = nullptr;
     snt::ui::UiLayerStack* ui_layers_ = nullptr;
     size_t expected_ui_screen_count_ = 0;

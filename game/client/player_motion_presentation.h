@@ -110,9 +110,9 @@ struct GameRemotePlayerInterpolationConfig {
     uint64_t interpolation_delay_ticks = 2;
 };
 
-// The future avatar renderer consumes this cache instead of doing transport
-// timing itself. Keeping it value-only makes interpolation testable before a
-// remote avatar mesh/entity is introduced.
+// The native remote-avatar adapter consumes this cache instead of doing
+// transport timing itself. Keeping it value-only leaves interpolation testable
+// independently from renderer entities and future rigged-avatar work.
 class GameRemotePlayerInterpolator final {
 public:
     explicit GameRemotePlayerInterpolator(GameRemotePlayerInterpolationConfig config = {});

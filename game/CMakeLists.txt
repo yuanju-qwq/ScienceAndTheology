@@ -293,6 +293,7 @@ add_executable(snt_game_client
     client/gameplay_ui.cpp
     client/lan_server_browser.cpp
     client/player_motion_presentation.cpp
+    client/remote_player_presentation_world.cpp
     client/quest_book_ui.cpp
     client/science_and_theology_session.cpp
 )
@@ -556,6 +557,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         client/gameplay_ui.cpp
         client/lan_server_browser.cpp
         client/player_motion_presentation.cpp
+        client/remote_player_presentation_world.cpp
         client/quest_book_ui.cpp
         server/game_server_ae_network_replication.cpp
         server/game_server_automation_controller_replication.cpp
@@ -604,6 +606,7 @@ if(SNT_BUILD_TESTS AND TARGET GTest::gtest)
         tests/test_game_components.cpp
         tests/test_player_identity.cpp
         tests/test_player_motion_prediction.cpp
+        tests/test_remote_player_presentation_world.cpp
         tests/test_player_state_persistence.cpp
         tests/test_player_replication.cpp
         tests/test_game_server_player_death.cpp
@@ -695,6 +698,9 @@ function(snt_assemble_game_content target)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/assets/loot
             $<TARGET_FILE_DIR:${target}>/game/assets/loot
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets/players
+            $<TARGET_FILE_DIR:${target}>/game/assets/players
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/../resource/terrain
             $<TARGET_FILE_DIR:${target}>/game/assets/terrain

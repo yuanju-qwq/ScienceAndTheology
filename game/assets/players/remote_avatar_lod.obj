@@ -1,0 +1,12 @@
+# Render-only silhouette for distant remote players. Centered at feet.
+o remote_avatar_lod
+v -0.28 0.00 -0.28
+v 0.28 0.00 -0.28
+v 0.28 0.00 0.28
+v -0.28 0.00 0.28
+v 0.00 1.84 0.00
+f 1 2 5
+f 2 3 5
+f 3 4 5
+f 4 1 5
+f 1 4 3 2

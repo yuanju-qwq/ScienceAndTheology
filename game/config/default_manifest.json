@@ -4,6 +4,8 @@
     { "id": "creature.herbivore.full", "path": "assets/creatures/herbivore_full.obj" },
     { "id": "creature.herbivore.lod", "path": "assets/creatures/herbivore_lod.obj" },
     { "id": "creature.predator.full", "path": "assets/creatures/predator_full.obj" },
-    { "id": "creature.predator.lod", "path": "assets/creatures/predator_lod.obj" }
+    { "id": "creature.predator.lod", "path": "assets/creatures/predator_lod.obj" },
+    { "id": "player.remote_avatar.full", "path": "assets/players/remote_avatar_full.obj" },
+    { "id": "player.remote_avatar.lod", "path": "assets/players/remote_avatar_lod.obj" }
   ]
 }

@@ -7,6 +7,7 @@
 #include "game/client/day_night_lighting.h"
 #include "game/client/ground_loot_presentation_world.h"
 #include "game/client/player_motion_presentation.h"
+#include "game/client/remote_player_presentation_world.h"
 #include "assets/asset_manager.h"
 #include "core/error.h"
 #include "core/events.h"
@@ -843,6 +844,7 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
     if (remote_player_world_) remote_player_world_->clear();
     if (local_player_prediction_) local_player_prediction_->clear();
     if (remote_player_interpolator_) remote_player_interpolator_->clear();
+    if (remote_player_presentation_world_) remote_player_presentation_world_->clear();
     if (remote_inventory_state_) {
         remote_inventory_state_->clear();
         if (gameplay_ui_) gameplay_ui_->clear_inventory_authority();
@@ -852,6 +854,7 @@ void ScienceAndTheologyClientSession::clear_remote_replication_state() {
     block_interaction_submission_error_reported_ = false;
     network_crafting_unavailable_reported_ = false;
     next_movement_sequence_ = 1;
+    client_presentation_tick_ = 0;
 }
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::apply_remote_inventory_to_ui(
@@ -1060,6 +1063,16 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         }
         ground_loot_presentation_world_ = std::make_unique<GameGroundLootPresentationWorld>(
             world, std::move(*ground_loot_visuals));
+        auto remote_player_visual = make_default_remote_player_presentation_visual(
+            world_session.assets());
+        if (!remote_player_visual) {
+            auto error = remote_player_visual.error();
+            error.with_context(
+                "ScienceAndTheologyClientSession::create_client_world(remote player avatar visual)");
+            return error;
+        }
+        remote_player_presentation_world_ = std::make_unique<GameRemotePlayerPresentationWorld>(
+            world, std::move(*remote_player_visual));
         remote_chunk_world_ = std::make_unique<replication::GameClientRemoteChunkWorld>(
             world_session.chunks());
         remote_machine_world_ = std::make_unique<replication::GameRemoteMachineWorld>();
@@ -1072,6 +1085,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
         if (replication_session_) {
             SNT_LOG_INFO("Client movement uses server-authoritative input and position updates");
             SNT_LOG_INFO("Client terrain and machine presentation await authoritative replication");
+            SNT_LOG_INFO("Remote player avatars consume interpolated network presentation values");
         } else {
             SNT_LOG_INFO("Client presentation is waiting for a LAN server selection");
         }
@@ -1224,6 +1238,7 @@ snt::core::Expected<void> ScienceAndTheologyClientSession::create_client_world(
 
 snt::core::Expected<void> ScienceAndTheologyClientSession::fixed_tick(
     snt::engine::FixedTickContext& context) {
+    client_presentation_tick_ = context.tick_index();
     if (lan_server_browser_) {
         lan_server_browser_->fixed_tick(context.tick_index());
         process_lan_join_request();
@@ -1579,6 +1594,7 @@ void ScienceAndTheologyClientSession::frame(snt::engine::ClientFrameContext& con
         local_player_prediction_->advance_presentation(context.delta_seconds());
         apply_predicted_local_player_presentation();
     }
+    update_remote_player_avatar_presentation();
     if (gameplay_ui_ && local_inventory_authority_) {
         for (InventorySlotTransferConfirmation confirmation :
              local_inventory_authority_->drain_slot_transfer_confirmations()) {
@@ -1629,6 +1645,8 @@ void ScienceAndTheologyClientSession::shutdown() noexcept {
     creature_presentation_world_.reset();
     if (ground_loot_presentation_world_) ground_loot_presentation_world_->clear();
     ground_loot_presentation_world_.reset();
+    if (remote_player_presentation_world_) remote_player_presentation_world_->clear();
+    remote_player_presentation_world_.reset();
     presentation_world_ = nullptr;
     presentation_chunks_ = nullptr;
     clear_remote_replication_state();
@@ -2145,6 +2163,17 @@ void ScienceAndTheologyClientSession::apply_predicted_local_player_presentation(
     }
     apply_network_player_presentation(
         presentation_world_->registry().get<snt::render::Transform>(camera_entity), *presentation);
+}
+
+void ScienceAndTheologyClientSession::update_remote_player_avatar_presentation() {
+    if (!remote_player_presentation_world_ || !remote_player_world_ ||
+        !remote_player_interpolator_) {
+        return;
+    }
+    const std::vector<replication::GameRemotePlayerState> players =
+        remote_player_world_->remote_players();
+    remote_player_presentation_world_->reconcile(
+        players, *remote_player_interpolator_, client_presentation_tick_);
 }
 
 void ScienceAndTheologyClientSession::set_quest_book_visible(bool visible) {
