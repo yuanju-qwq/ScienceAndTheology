@@ -181,7 +181,9 @@ void GameCreaturePresentationWorld::upsert(
     transform.position[0] = creature.position_x;
     transform.position[1] = creature.position_y;
     transform.position[2] = creature.position_z;
-    const float scale = resolved_scale(visual->model_scale);
+    constexpr float kBabyModelScale = 0.55f;
+    const float scale = resolved_scale(visual->model_scale) *
+        (creature.age_stage == CreatureAgeStage::BABY ? kBabyModelScale : 1.0f);
     transform.scale[0] = scale;
     transform.scale[1] = scale;
     transform.scale[2] = scale;
@@ -191,6 +193,7 @@ void GameCreaturePresentationWorld::upsert(
     GameCreaturePresentationComponent metadata{
         .creature_id = creature.entity_id,
         .species_id = creature.species_id,
+        .age_stage = creature.age_stage,
         .is_interactive = creature.is_interactive,
         .is_captive = creature.is_captive,
         .is_tamed = creature.is_tamed,

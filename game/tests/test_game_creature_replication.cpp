@@ -13,6 +13,7 @@
 namespace {
 
 using snt::game::CreatureRole;
+using snt::game::CreatureAgeStage;
 using snt::game::GameCreaturePresentationEvent;
 using snt::game::GameCreaturePresentationEventKind;
 using snt::game::GameCreaturePresentationState;
@@ -67,6 +68,7 @@ TEST(GameCreaturePresentationReplicationTest, RoundTripsCompleteOrderedSnapshot)
     captive.is_interactive = false;
     captive.is_captive = true;
     captive.is_tamed = true;
+    captive.age_stage = CreatureAgeStage::BABY;
     const GameCreaturePresentationSnapshot original{
         .source_tick = 48,
         .creatures = {make_creature(9, -1), captive},
@@ -82,6 +84,7 @@ TEST(GameCreaturePresentationReplicationTest, RoundTripsCompleteOrderedSnapshot)
     EXPECT_EQ(decoded->creatures[1].entity_id, 17u);
     EXPECT_TRUE(decoded->creatures[1].is_captive);
     EXPECT_TRUE(decoded->creatures[1].is_tamed);
+    EXPECT_EQ(decoded->creatures[1].age_stage, CreatureAgeStage::BABY);
 
     auto malformed = original;
     malformed.creatures[1].is_interactive = true;
@@ -169,6 +172,38 @@ TEST(GameCreaturePresentationReplicationTest, ServerSourceFiltersCompleteSetByCr
     ASSERT_TRUE(decoded) << decoded.error().format();
     EXPECT_TRUE(decoded->creatures.empty());
     EXPECT_EQ(decoded->source_tick, 21u);
+}
+
+TEST(GameCreaturePresentationReplicationTest, UpsertsLifecycleStateUpdates) {
+    auto source = GameServerCreaturePresentationReplication::create();
+    ASSERT_TRUE(source) << source.error().format();
+    GameCreaturePresentationState captive = make_creature(31, 0);
+    captive.is_interactive = false;
+    captive.is_captive = true;
+    captive.is_tamed = true;
+    (*source)->on_creature_presentation_event({
+        .kind = GameCreaturePresentationEventKind::kSpawned,
+        .source_tick = 1,
+        .creature = captive,
+    });
+    captive.position_x = 7.5f;
+    captive.age_stage = CreatureAgeStage::BABY;
+    (*source)->on_creature_presentation_event({
+        .kind = GameCreaturePresentationEventKind::kUpdated,
+        .source_tick = 2,
+        .creature = captive,
+    });
+
+    auto values = (*source)->collect_values(
+        {}, {.creature_chunks = {captive.chunk}}, creature_budget(), {.tick_index = 2},
+        GameReplicationValueCollectionPhase::kDelta);
+    ASSERT_TRUE(values) << values.error().format();
+    ASSERT_EQ(values->size(), 1u);
+    auto decoded = decode_game_creature_presentation_snapshot(values->front().payload);
+    ASSERT_TRUE(decoded) << decoded.error().format();
+    ASSERT_EQ(decoded->creatures.size(), 1u);
+    EXPECT_FLOAT_EQ(decoded->creatures.front().position_x, 7.5f);
+    EXPECT_EQ(decoded->creatures.front().age_stage, CreatureAgeStage::BABY);
 }
 
 TEST(GameCreaturePresentationReplicationTest, UsesDedicatedCreatureAoiInsteadOfTerrainAoi) {

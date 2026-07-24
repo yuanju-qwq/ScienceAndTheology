@@ -80,10 +80,16 @@ struct RecordingMutationSink final : snt::game::IGameEcosystemMutationSink {
 
 struct RecordingWildProxySink final : snt::game::IGameEcosystemWildProxySink {
     std::vector<snt::game::GameEcosystemWildProxyRebalanceRequest> requests;
+    std::vector<snt::game::GameEcosystemWildTickRequest> tick_requests;
 
     void request_wild_proxy_rebalance(
         const snt::game::GameEcosystemWildProxyRebalanceRequest& request) override {
         requests.push_back(request);
+    }
+
+    void tick_interactive_wild_creatures(
+        const snt::game::GameEcosystemWildTickRequest& request) override {
+        tick_requests.push_back(request);
     }
 };
 
@@ -357,6 +363,8 @@ TEST(GameEcosystemSystemTest, LimitsWildProxiesToInteractionCircleAndDespawnsWhe
 
     EXPECT_EQ(ecosystem.population_cell_count(), 2u);
     ASSERT_EQ(wild_proxies.requests.size(), 1u);
+    ASSERT_EQ(wild_proxies.tick_requests.size(), 1u);
+    EXPECT_TRUE(same_chunk(wild_proxies.tick_requests.front().chunk, center));
     EXPECT_TRUE(same_chunk(wild_proxies.requests.front().chunk, center));
     EXPECT_FALSE(wild_proxies.requests.front().proxies.empty());
 

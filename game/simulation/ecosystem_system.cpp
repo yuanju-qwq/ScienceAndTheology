@@ -276,6 +276,12 @@ void GameEcosystemSystem::tick(uint64_t current_tick, Season current_season) {
                 wild_proxy_sink_->request_wild_proxy_rebalance(
                     make_wild_proxy_rebalance_request(chunk, current_tick, cell));
             }
+            if (wild_proxy_sink_ != nullptr) {
+                wild_proxy_sink_->tick_interactive_wild_creatures({
+                    .chunk = chunk,
+                    .source_tick = current_tick,
+                });
+            }
         }
         if (activity == ChunkActivity::kVisual || activity == ChunkActivity::kInteractive) {
             current_far_visual_chunks.insert(chunk);
@@ -286,7 +292,6 @@ void GameEcosystemSystem::tick(uint64_t current_tick, Season current_season) {
             captive_lifecycle_sink_->tick_captive_creatures({
                 .chunk = chunk,
                 .source_tick = current_tick,
-                .creatures = sidecar->captive_creatures,
             });
         }
     }

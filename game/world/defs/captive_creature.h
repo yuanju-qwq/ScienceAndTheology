@@ -26,7 +26,7 @@ namespace snt::game {
 //      tame_progress = 0, is_tamed = false, age_stage = ADULT.
 //      At this point the creature is "detached" from the wild
 //      population — it no longer participates in wild dynamics.
-//   3. Each tick, tame_progress accumulates. When it reaches 1.0,
+//   3. Each successful feed advances tame_progress. When it reaches 1.0,
 //      is_tamed becomes true (taming complete). Only tamed adults can breed.
 //   4. Feeding a tamed adult triggers breeding if a partner
 //      (another tamed adult of the same species, not on cooldown)

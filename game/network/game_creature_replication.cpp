@@ -93,6 +93,15 @@ void append_float(std::vector<std::byte>& bytes, float value) {
     return false;
 }
 
+[[nodiscard]] bool valid_age_stage(CreatureAgeStage age_stage) noexcept {
+    switch (age_stage) {
+        case CreatureAgeStage::BABY:
+        case CreatureAgeStage::ADULT:
+            return true;
+    }
+    return false;
+}
+
 [[nodiscard]] snt::core::Expected<void> append_dimension_id(
     std::vector<std::byte>& bytes, std::string_view dimension_id) {
     if (dimension_id.empty() || dimension_id.size() > kMaxGameDimensionIdBytes ||
@@ -134,7 +143,8 @@ void append_float(std::vector<std::byte>& bytes, float value) {
     if (creature.entity_id == 0 || creature.chunk.dimension_id.empty() ||
         creature.chunk.dimension_id.size() > kMaxGameDimensionIdBytes ||
         has_embedded_nul(creature.chunk.dimension_id) || creature.species_id == 0 ||
-        !valid_role(creature.role) || !std::isfinite(creature.position_x) ||
+        !valid_role(creature.role) || !valid_age_stage(creature.age_stage) ||
+        !std::isfinite(creature.position_x) ||
         !std::isfinite(creature.position_y) || !std::isfinite(creature.position_z) ||
         !std::isfinite(creature.health) || creature.health < 0.0f ||
         (creature.is_interactive && creature.is_captive) ||
@@ -204,6 +214,7 @@ snt::core::Expected<std::vector<std::byte>> encode_game_creature_presentation_sn
         append_i32(payload, creature.chunk.chunk_z);
         append_u16(payload, creature.species_id);
         payload.push_back(static_cast<std::byte>(creature.role));
+        payload.push_back(static_cast<std::byte>(creature.age_stage));
         append_float(payload, creature.position_x);
         append_float(payload, creature.position_y);
         append_float(payload, creature.position_z);
@@ -242,7 +253,7 @@ decode_game_creature_presentation_snapshot(std::span<const std::byte> payload) {
     }
     snapshot.creatures.reserve(creature_count);
     constexpr size_t kStateBodyBytes = sizeof(uint64_t) + sizeof(int32_t) * 3 +
-        sizeof(uint16_t) + sizeof(uint8_t) + sizeof(float) * 4 + sizeof(uint8_t);
+        sizeof(uint16_t) + sizeof(uint8_t) * 2 + sizeof(float) * 4 + sizeof(uint8_t);
     for (size_t index = 0; index < creature_count; ++index) {
         if (payload.size() - offset < sizeof(uint64_t)) {
             return protocol_error("Creature presentation state id is truncated");
@@ -265,6 +276,8 @@ decode_game_creature_presentation_snapshot(std::span<const std::byte> payload) {
         creature.species_id = read_u16(payload, offset);
         offset += sizeof(uint16_t);
         creature.role = static_cast<CreatureRole>(std::to_integer<uint8_t>(payload[offset++]));
+        creature.age_stage = static_cast<CreatureAgeStage>(
+            std::to_integer<uint8_t>(payload[offset++]));
         creature.position_x = read_float(payload, offset);
         offset += sizeof(float);
         creature.position_y = read_float(payload, offset);

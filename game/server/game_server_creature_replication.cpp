@@ -56,10 +56,14 @@ void GameServerCreaturePresentationReplication::on_creature_presentation_event(
             creatures_.erase(event.creature.entity_id);
             return;
         case GameCreaturePresentationEventKind::kSpawned:
+        case GameCreaturePresentationEventKind::kUpdated:
         case GameCreaturePresentationEventKind::kDamaged:
         case GameCreaturePresentationEventKind::kCaptured:
         case GameCreaturePresentationEventKind::kTamingProgressed:
         case GameCreaturePresentationEventKind::kTamed:
+        case GameCreaturePresentationEventKind::kBreedingStarted:
+        case GameCreaturePresentationEventKind::kBorn:
+        case GameCreaturePresentationEventKind::kMatured:
             creatures_.insert_or_assign(event.creature.entity_id, event.creature);
             return;
     }

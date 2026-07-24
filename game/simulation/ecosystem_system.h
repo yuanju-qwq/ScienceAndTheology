@@ -207,11 +207,23 @@ struct GameEcosystemWildProxyRebalanceRequest {
     std::vector<GameEcosystemWildProxyPlan> proxies;
 };
 
+// Sent only for chunks inside the interactive ecology circle. The aggregate
+// ecosystem remains the wild population authority; the sink may advance its
+// temporary representatives without persisting individual wild state.
+struct GameEcosystemWildTickRequest {
+    ChunkKey chunk;
+    uint64_t source_tick = 0;
+};
+
 class IGameEcosystemWildProxySink {
 public:
     virtual ~IGameEcosystemWildProxySink() = default;
     virtual void request_wild_proxy_rebalance(
         const GameEcosystemWildProxyRebalanceRequest& request) = 0;
+    virtual void tick_interactive_wild_creatures(
+        const GameEcosystemWildTickRequest& request) {
+        static_cast<void>(request);
+    }
 };
 
 // Render-only representatives use the same deterministic plan and stable id
@@ -233,7 +245,6 @@ public:
 struct GameEcosystemCaptiveTickRequest {
     ChunkKey chunk;
     uint64_t source_tick = 0;
-    std::vector<CaptiveCreature> creatures;
 };
 
 class IGameEcosystemCaptiveLifecycleSink {

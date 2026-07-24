@@ -63,16 +63,43 @@ struct GameWildCreatureAttackResult {
 struct GameCaptiveCreatureFeedResult {
     bool fed = false;
     bool became_tamed = false;
+    bool breeding_started = false;
     uint64_t captive_entity_id = 0;
+    uint64_t partner_entity_id = 0;
     uint16_t species_id = 0;
     float tame_progress = 0.0f;
+    uint64_t gestation_end_tick = 0;
     ChunkKey chunk;
 };
 
+// Current-format captive husbandry tuning. All durations use authoritative
+// simulation ticks; neither wall-clock time nor client-side timers decide a
+// birth, maturity transition, or movement target.
 struct GameWildCreatureConfig {
     uint32_t max_captive_creatures_per_chunk = 64;
     uint64_t killed_proxy_suppression_ticks = 120;
     uint64_t captured_proxy_suppression_ticks = 300;
+    // Temporary wild representatives exist only inside the interactive
+    // ecology circle. Their behavior is deterministic and is discarded when
+    // that circle unloads, unlike durable captive creature state below.
+    uint64_t wild_wander_interval_ticks = 60;
+    uint32_t wild_wander_target_attempts = 16;
+    float wild_fallback_move_speed = 0.06f;
+    float wild_fallback_flee_detection_radius = 8.0f;
+    uint64_t wild_presentation_interval_ticks = 5;
+    // Zero disables autonomous wandering. A nonzero interval schedules a
+    // deterministic target search inside the verified pen bounds.
+    uint64_t captive_wander_interval_ticks = 80;
+    uint32_t captive_wander_target_attempts = 16;
+    // Used only when a content species does not define a positive move speed.
+    float captive_fallback_move_speed = 0.06f;
+    uint64_t captive_growth_ticks = 24000;
+    uint64_t captive_gestation_ticks = 2400;
+    uint64_t captive_breed_cooldown_ticks = 12000;
+    // Zero publishes every authoritative movement update. A positive cadence
+    // limits presentation traffic while authoritative state still advances
+    // every ecosystem tick.
+    uint64_t captive_presentation_interval_ticks = 5;
 };
 
 class GameWildCreatureSystem final : public IGameEcosystemWildProxySink,
@@ -94,6 +121,8 @@ public:
 
     void request_wild_proxy_rebalance(
         const GameEcosystemWildProxyRebalanceRequest& request) override;
+    void tick_interactive_wild_creatures(
+        const GameEcosystemWildTickRequest& request) override;
     void request_far_visual_rebalance(
         const GameEcosystemFarVisualRebalanceRequest& request) override;
     void tick_captive_creatures(const GameEcosystemCaptiveTickRequest& request) override;
@@ -123,15 +152,50 @@ private:
     struct WildCreature {
         GameCreaturePresentationState state;
         uint64_t spawn_tick = 0;
+        float wander_target_x = 0.0f;
+        float wander_target_y = 0.0f;
+        float wander_target_z = 0.0f;
+        uint64_t next_wander_tick = 0;
     };
 
     [[nodiscard]] GameCreaturePresentationState make_wild_state(
         const GameEcosystemWildProxyRebalanceRequest& request,
         const GameEcosystemWildProxyPlan& plan, bool is_interactive) const;
+    // The snapshot contains only interactive representatives from the same
+    // chunk at the start of the ecosystem tick. It keeps reciprocal flee and
+    // pursuit decisions deterministic regardless of map iteration order.
+    [[nodiscard]] bool advance_wild_creature(
+        WildCreature& creature,
+        const std::vector<GameCreaturePresentationState>& nearby_creatures,
+        uint64_t source_tick) const;
+    [[nodiscard]] bool choose_wild_wander_target(WildCreature& creature,
+                                                  uint64_t source_tick) const;
+    [[nodiscard]] bool move_wild_toward(WildCreature& creature,
+                                        float target_x, float target_y,
+                                        float target_z) const;
+    [[nodiscard]] bool is_wild_cell_walkable(const ChunkKey& chunk,
+                                              int32_t block_x, int32_t block_y,
+                                              int32_t block_z) const;
+    [[nodiscard]] bool should_emit_wild_update(uint64_t source_tick) const noexcept;
     [[nodiscard]] std::array<float, 3> choose_spawn_position(
         const ChunkKey& chunk, uint64_t stable_id) const;
     [[nodiscard]] static uint64_t stable_captive_runtime_id(
         const ChunkKey& chunk, uint16_t species_id, size_t slot) noexcept;
+    [[nodiscard]] bool advance_captive_wander(const ChunkKey& chunk,
+                                              CaptiveCreature& captive,
+                                              uint64_t source_tick) const;
+    [[nodiscard]] bool choose_captive_wander_target(const ChunkKey& chunk,
+                                                     CaptiveCreature& captive,
+                                                     uint64_t source_tick) const;
+    [[nodiscard]] bool is_captive_cell_walkable(const ChunkKey& chunk,
+                                                 int32_t block_x, int32_t block_y,
+                                                 int32_t block_z) const;
+    [[nodiscard]] static bool same_pen(const CaptiveCreature& left,
+                                       const CaptiveCreature& right) noexcept;
+    [[nodiscard]] static bool has_valid_pen_bounds(const CaptiveCreature& creature) noexcept;
+    [[nodiscard]] static bool is_breedable(const CaptiveCreature& creature,
+                                           int64_t current_tick) noexcept;
+    [[nodiscard]] bool should_emit_captive_update(uint64_t source_tick) const noexcept;
     [[nodiscard]] static bool is_inside_pen(const GameCreaturePresentationState& creature,
                                             const GameCreaturePenBounds& bounds) noexcept;
     [[nodiscard]] GameCreaturePresentationState make_captive_state(

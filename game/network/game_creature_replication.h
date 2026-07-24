@@ -20,7 +20,7 @@
 
 namespace snt::game::replication {
 
-inline constexpr uint8_t kGameCreaturePresentationReplicationVersion = 1;
+inline constexpr uint8_t kGameCreaturePresentationReplicationVersion = 2;
 inline constexpr size_t kMaxGameCreaturePresentationStates = 4096;
 
 // Each payload is a complete current set for one observer. The outer

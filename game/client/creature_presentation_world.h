@@ -35,6 +35,7 @@ namespace snt::game {
 struct GameCreaturePresentationComponent {
     uint64_t creature_id = 0;
     uint16_t species_id = 0;
+    CreatureAgeStage age_stage = CreatureAgeStage::ADULT;
     bool is_interactive = false;
     bool is_captive = false;
     bool is_tamed = false;

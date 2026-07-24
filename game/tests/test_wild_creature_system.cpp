@@ -74,6 +74,29 @@ snt::game::GameEcosystemWildProxyRebalanceRequest make_request(
     };
 }
 
+snt::game::CaptiveCreature make_tamed_captive(float x, float z) {
+    return {
+        .species_id = 1,
+        .role = snt::game::CreatureRole::HERBIVORE,
+        .age_stage = snt::game::CreatureAgeStage::ADULT,
+        .pos_x = x,
+        .pos_y = 1.0f,
+        .pos_z = z,
+        .wander_target_x = x,
+        .wander_target_y = 1.0f,
+        .wander_target_z = z,
+        .bounds_min_x = 0,
+        .bounds_min_y = 1,
+        .bounds_min_z = 0,
+        .bounds_max_x = 1,
+        .bounds_max_y = 1,
+        .bounds_max_z = 1,
+        .health = 1.0f,
+        .tame_progress = 1.0f,
+        .is_tamed = true,
+    };
+}
+
 }  // namespace
 
 TEST(GameWildCreatureSystemTest, ReconcilesStableProxiesAndRecordsHuntOnKill) {
@@ -188,4 +211,239 @@ TEST(GameWildCreatureSystemTest, CapturesWildCreatureAndCompletesTamingThroughFe
     ASSERT_TRUE(second_feed) << second_feed.error().format();
     EXPECT_TRUE(second_feed->became_tamed);
     EXPECT_TRUE(sidecar->captive_creatures.front().is_tamed);
+}
+
+TEST(GameWildCreatureSystemTest, AdvancesCaptiveBreedingBirthAndGrowthLifecycle) {
+    const auto worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    const snt::voxel::ChunkKey chunk{"overworld", 0, 0, 0};
+    add_active_chunk(chunks, chunk, worldgen.roles.dirt);
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen);
+    snt::game::GameWildCreatureConfig config;
+    config.captive_wander_interval_ticks = 0;
+    config.captive_gestation_ticks = 2;
+    config.captive_growth_ticks = 3;
+    config.captive_breed_cooldown_ticks = 20;
+    config.captive_presentation_interval_ticks = 1;
+    snt::game::GameWildCreatureSystem wildlife(
+        ecosystem, chunks, sidecars, snt::game::builtin_creature_species(), config);
+    RecordingPresentationSink presentation;
+    wildlife.set_presentation_sink(&presentation);
+
+    sidecars.set(chunk, {});
+    auto* sidecar = sidecars.get(chunk);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->has_captive_creatures = true;
+    sidecar->captive_creatures = {
+        make_tamed_captive(0.5f, 0.5f),
+        make_tamed_captive(1.5f, 1.5f),
+    };
+
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 1});
+    ASSERT_EQ(sidecar->captive_creatures.size(), 2u);
+    const uint64_t mother_id = sidecar->captive_creatures[0].runtime_id;
+    ASSERT_NE(mother_id, 0u);
+    const auto breeding = wildlife.feed_captive_creature(mother_id, 0.1f, 2);
+    ASSERT_TRUE(breeding) << breeding.error().format();
+    EXPECT_TRUE(breeding->fed);
+    EXPECT_TRUE(breeding->breeding_started);
+    EXPECT_NE(breeding->partner_entity_id, 0u);
+    EXPECT_EQ(breeding->gestation_end_tick, 4u);
+    EXPECT_TRUE(sidecar->captive_creatures[0].is_pregnant);
+
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 3});
+    EXPECT_EQ(sidecar->captive_creatures.size(), 2u);
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 4});
+    ASSERT_EQ(sidecar->captive_creatures.size(), 3u);
+    const auto& baby = sidecar->captive_creatures.back();
+    EXPECT_EQ(baby.age_stage, snt::game::CreatureAgeStage::BABY);
+    EXPECT_TRUE(baby.is_tamed);
+    EXPECT_EQ(baby.grow_up_tick, 7);
+    const auto baby_state = wildlife.find_captive_creature(baby.runtime_id);
+    ASSERT_TRUE(baby_state.has_value());
+    EXPECT_EQ(baby_state->age_stage, snt::game::CreatureAgeStage::BABY);
+
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 7});
+    EXPECT_EQ(sidecar->captive_creatures.back().age_stage,
+              snt::game::CreatureAgeStage::ADULT);
+    const auto matured_state = wildlife.find_captive_creature(baby.runtime_id);
+    ASSERT_TRUE(matured_state.has_value());
+    EXPECT_EQ(matured_state->age_stage, snt::game::CreatureAgeStage::ADULT);
+
+    bool saw_breeding = false;
+    bool saw_birth = false;
+    bool saw_maturity = false;
+    for (const auto& event : presentation.events) {
+        saw_breeding = saw_breeding || event.kind ==
+            snt::game::GameCreaturePresentationEventKind::kBreedingStarted;
+        saw_birth = saw_birth || event.kind ==
+            snt::game::GameCreaturePresentationEventKind::kBorn;
+        saw_maturity = saw_maturity || event.kind ==
+            snt::game::GameCreaturePresentationEventKind::kMatured;
+    }
+    EXPECT_TRUE(saw_breeding);
+    EXPECT_TRUE(saw_birth);
+    EXPECT_TRUE(saw_maturity);
+}
+
+TEST(GameWildCreatureSystemTest, KeepsCaptiveWanderingInsideWalkablePenCells) {
+    const auto worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    const snt::voxel::ChunkKey chunk{"overworld", 0, 0, 0};
+    add_active_chunk(chunks, chunk, worldgen.roles.dirt);
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen);
+    snt::game::GameWildCreatureConfig config;
+    config.captive_wander_interval_ticks = 1;
+    config.captive_wander_target_attempts = 16;
+    config.captive_presentation_interval_ticks = 1;
+    snt::game::GameWildCreatureSystem wildlife(
+        ecosystem, chunks, sidecars, snt::game::builtin_creature_species(), config);
+    RecordingPresentationSink presentation;
+    wildlife.set_presentation_sink(&presentation);
+
+    sidecars.set(chunk, {});
+    auto* sidecar = sidecars.get(chunk);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->has_captive_creatures = true;
+    sidecar->captive_creatures = {make_tamed_captive(0.5f, 0.5f)};
+
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 1});
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 2});
+    const auto& captive = sidecar->captive_creatures.front();
+    EXPECT_GE(captive.pos_x, 0.0f);
+    EXPECT_LT(captive.pos_x, 2.0f);
+    EXPECT_GE(captive.pos_z, 0.0f);
+    EXPECT_LT(captive.pos_z, 2.0f);
+    EXPECT_GE(captive.wander_target_x, 0.0f);
+    EXPECT_LT(captive.wander_target_x, 2.0f);
+    EXPECT_GE(captive.wander_target_z, 0.0f);
+    EXPECT_LT(captive.wander_target_z, 2.0f);
+
+    bool saw_update = false;
+    for (const auto& event : presentation.events) {
+        saw_update = saw_update || event.kind ==
+            snt::game::GameCreaturePresentationEventKind::kUpdated;
+    }
+    EXPECT_TRUE(saw_update);
+}
+
+TEST(GameWildCreatureSystemTest, ReservesBirthCapacityBeforeStartingBreeding) {
+    const auto worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    const snt::voxel::ChunkKey chunk{"overworld", 0, 0, 0};
+    add_active_chunk(chunks, chunk, worldgen.roles.dirt);
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen);
+    snt::game::GameWildCreatureConfig config;
+    config.max_captive_creatures_per_chunk = 2;
+    config.captive_wander_interval_ticks = 0;
+    snt::game::GameWildCreatureSystem wildlife(
+        ecosystem, chunks, sidecars, snt::game::builtin_creature_species(), config);
+
+    sidecars.set(chunk, {});
+    auto* sidecar = sidecars.get(chunk);
+    ASSERT_NE(sidecar, nullptr);
+    sidecar->has_captive_creatures = true;
+    sidecar->captive_creatures = {
+        make_tamed_captive(0.5f, 0.5f),
+        make_tamed_captive(1.5f, 1.5f),
+    };
+    wildlife.tick_captive_creatures({.chunk = chunk, .source_tick = 1});
+
+    const auto breeding = wildlife.feed_captive_creature(
+        sidecar->captive_creatures.front().runtime_id, 0.1f, 2);
+    ASSERT_TRUE(breeding) << breeding.error().format();
+    EXPECT_TRUE(breeding->fed);
+    EXPECT_FALSE(breeding->breeding_started);
+    EXPECT_FALSE(sidecar->captive_creatures.front().is_pregnant);
+}
+
+TEST(GameWildCreatureSystemTest, MovesInteractivePredatorsTowardNearbyHerbivores) {
+    const auto worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    const snt::voxel::ChunkKey chunk{"overworld", 0, 0, 0};
+    add_active_chunk(chunks, chunk, worldgen.roles.dirt);
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen);
+    snt::game::GameWildCreatureConfig config;
+    config.wild_wander_interval_ticks = 0;
+    config.wild_presentation_interval_ticks = 1;
+    snt::game::GameWildCreatureSystem wildlife(
+        ecosystem, chunks, sidecars, snt::game::builtin_creature_species(), config);
+    RecordingPresentationSink presentation;
+    wildlife.set_presentation_sink(&presentation);
+
+    wildlife.request_wild_proxy_rebalance({
+        .chunk = chunk,
+        .source_tick = 1,
+        .proxies = {{
+            {.stable_id = 1, .species_id = 1,
+             .role = snt::game::CreatureRole::HERBIVORE, .slot = 0},
+            {.stable_id = 2, .species_id = 129,
+             .role = snt::game::CreatureRole::PREDATOR, .slot = 0},
+        }},
+    });
+    const auto herbivore_before = wildlife.find_wild_creature(1);
+    ASSERT_TRUE(herbivore_before.has_value());
+    const auto predator_before = wildlife.find_wild_creature(2);
+    ASSERT_TRUE(predator_before.has_value());
+    ASSERT_LT(predator_before->position_x, herbivore_before->position_x);
+
+    const float separation_before = herbivore_before->position_x -
+        predator_before->position_x;
+
+    wildlife.tick_interactive_wild_creatures({.chunk = chunk, .source_tick = 2});
+    const auto herbivore_after = wildlife.find_wild_creature(1);
+    ASSERT_TRUE(herbivore_after.has_value());
+    const auto predator_after = wildlife.find_wild_creature(2);
+    ASSERT_TRUE(predator_after.has_value());
+    EXPECT_GT(herbivore_after->position_x, herbivore_before->position_x);
+    EXPECT_GT(predator_after->position_x, predator_before->position_x);
+    EXPECT_LT(herbivore_after->position_x - predator_after->position_x,
+              separation_before);
+
+    bool saw_update = false;
+    for (const auto& event : presentation.events) {
+        saw_update = saw_update || event.kind ==
+            snt::game::GameCreaturePresentationEventKind::kUpdated;
+    }
+    EXPECT_TRUE(saw_update);
+}
+
+TEST(GameWildCreatureSystemTest, DoesNotAdvanceFarVisualWildCreatures) {
+    const auto worldgen = make_worldgen_config();
+    snt::voxel::ChunkRegistry chunks;
+    const snt::voxel::ChunkKey chunk{"overworld", 0, 0, 0};
+    add_active_chunk(chunks, chunk, worldgen.roles.dirt);
+    snt::game::GameChunkSidecarRegistry sidecars;
+    snt::game::GameEcosystemSystem ecosystem(chunks, sidecars, worldgen);
+    snt::game::GameWildCreatureConfig config;
+    config.wild_wander_interval_ticks = 0;
+    config.wild_presentation_interval_ticks = 1;
+    snt::game::GameWildCreatureSystem wildlife(
+        ecosystem, chunks, sidecars, snt::game::builtin_creature_species(), config);
+    RecordingPresentationSink presentation;
+    wildlife.set_presentation_sink(&presentation);
+
+    wildlife.request_far_visual_rebalance({
+        .chunk = chunk,
+        .source_tick = 1,
+        .proxies = {{
+            {.stable_id = 1, .species_id = 1,
+             .role = snt::game::CreatureRole::HERBIVORE, .slot = 0},
+            {.stable_id = 2, .species_id = 129,
+             .role = snt::game::CreatureRole::PREDATOR, .slot = 0},
+        }},
+    });
+    ASSERT_EQ(wildlife.wild_creature_count(), 0u);
+    ASSERT_EQ(wildlife.far_visual_creature_count(), 2u);
+    presentation.events.clear();
+
+    wildlife.tick_interactive_wild_creatures({.chunk = chunk, .source_tick = 2});
+
+    EXPECT_EQ(wildlife.wild_creature_count(), 0u);
+    EXPECT_EQ(wildlife.far_visual_creature_count(), 2u);
+    EXPECT_TRUE(presentation.events.empty());
 }

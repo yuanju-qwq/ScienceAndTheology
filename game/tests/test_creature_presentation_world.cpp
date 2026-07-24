@@ -66,18 +66,21 @@ TEST(GameCreaturePresentationWorldTest, UpsertsAndDespawnsOnlyOwnedEcsEntities) 
     creature.is_captive = true;
     creature.is_tamed = true;
     creature.position_x = 9.0f;
+    creature.age_stage = snt::game::CreatureAgeStage::BABY;
     presentation.on_creature_presentation_event({
-        .kind = snt::game::GameCreaturePresentationEventKind::kCaptured,
+        .kind = snt::game::GameCreaturePresentationEventKind::kBorn,
         .source_tick = 2,
         .creature = creature,
     });
     ASSERT_EQ(presentation.entity_for(41), entity);
     EXPECT_FLOAT_EQ(world.registry().get<snt::render::Transform>(*entity).position[0], 9.0f);
+    EXPECT_FLOAT_EQ(world.registry().get<snt::render::Transform>(*entity).scale[0], 0.6875f);
     const auto& metadata =
         world.registry().get<snt::game::GameCreaturePresentationComponent>(*entity);
     EXPECT_TRUE(metadata.is_interactive);
     EXPECT_TRUE(metadata.is_captive);
     EXPECT_TRUE(metadata.is_tamed);
+    EXPECT_EQ(metadata.age_stage, snt::game::CreatureAgeStage::BABY);
 
     presentation.on_creature_presentation_event({
         .kind = snt::game::GameCreaturePresentationEventKind::kDespawned,

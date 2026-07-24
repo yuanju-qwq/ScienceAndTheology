@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "game/world/defs/creature_species.h"
+#include "game/world/defs/captive_creature.h"
 #include "game/world/voxel_primitives.h"
 
 #include <cstdint>
@@ -18,6 +18,7 @@ struct GameCreaturePresentationState {
     ChunkKey chunk;
     uint16_t species_id = 0;
     CreatureRole role = CreatureRole::HERBIVORE;
+    CreatureAgeStage age_stage = CreatureAgeStage::ADULT;
     float position_x = 0.0f;
     float position_y = 0.0f;
     float position_z = 0.0f;
@@ -31,12 +32,18 @@ struct GameCreaturePresentationState {
 
 enum class GameCreaturePresentationEventKind : uint8_t {
     kSpawned,
+    // A durable or transient representative changed without changing its
+    // ownership. Replication treats this as an ordinary state upsert.
+    kUpdated,
     kDespawned,
     kDamaged,
     kKilled,
     kCaptured,
     kTamingProgressed,
     kTamed,
+    kBreedingStarted,
+    kBorn,
+    kMatured,
 };
 
 struct GameCreaturePresentationEvent {
